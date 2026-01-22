@@ -7,15 +7,12 @@ class OllamaClient:
         self.default_model = default_model
         self.timeout_sec = timeout_sec
 
-    def chat_completion(self, model: str, system_prompt: str, user_prompt: str, temperature: float, max_tokens: int) -> str:
+    def chat_completion(self, model: str, messages, temperature: float, max_tokens: int, response_format=None) -> str:
         url = f"{self.base_url}/api/chat"
         payload = {
             "model": model,
             "stream": False,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": messages,
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,

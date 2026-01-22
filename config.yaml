@@ -3,73 +3,112 @@
   base_url: "http://localhost:11434"
   default_model: "gemma3:1b"
   timeout_sec: 60
+  retries: 1
+  retry_backoff_sec: 0.5
 
 app:
   auto_paste_default: false
   add_result_header: false
+  system_prompt: "You are a helpful assistant."
+  temperature: 0.3
+  max_tokens: 800
+  safety:
+    mode: "block"  # block | mask | off
+    patterns:
+      - "\\bpassword\\b"
+      - "\\bsecret\\b"
+      - "\\btoken\\b"
+      - "AKIA[0-9A-Z]{16}"
+  image:
+    mode: "ocr"  # ocr only in MVP
 
 actions:
   - id: "zh_translate"
     name: "翻譯成中文"
+    description: "翻譯成繁體中文"
+    group: "翻譯"
     hotkey: "alt+shift+1"
     model: "gemma3:1b"
     temperature: 0.2
     max_tokens: 800
-    auto_paste: false
+    input_type: "text"
+    output:
+      auto_paste: false
     prompt: |
       你是專業翻譯。請把使用者輸入翻譯成「繁體中文」，保持語氣自然、簡潔。
       只輸出翻譯結果，不要解釋。
+      {{input}}
 
   - id: "en_natural"
     name: "翻譯成英文（自然口語）"
+    description: "自然口語英文"
+    group: "翻譯"
     hotkey: "alt+shift+2"
     temperature: 0.3
     max_tokens: 800
+    input_type: "text"
     prompt: |
       Rewrite the text in natural, friendly spoken English.
       Keep meaning, make it concise and smooth.
       Output only the rewritten text.
+      {{input}}
 
   - id: "coherent_cohesive"
     name: "改成更 coherent & cohesive"
+    description: "讓文字更連貫"
+    group: "改寫"
     hotkey: "alt+shift+3"
     temperature: 0.4
     max_tokens: 900
+    input_type: "text"
     prompt: |
       你是寫作教練。請把文字改得更「coherent & cohesive」：
       - 保留原意
       - 讓段落連貫、邏輯更順
       - 句子不要太長
       只輸出修改後版本。
+      {{input}}
 
   - id: "summary_points"
     name: "總結重點（適合會議/筆記）"
+    description: "重點清單 + 下一步"
+    group: "摘要"
     hotkey: "alt+shift+4"
     temperature: 0.2
     max_tokens: 700
+    input_type: "text"
     prompt: |
       請把內容整理成重點清單（bullet points）。
       需要包含：
       - 重點摘要（3~7點）
       - 可執行的下一步（如果有）
       用繁體中文輸出。
+      {{input}}
 
   - id: "short_keep_meaning"
     name: "縮短但保留核心意思"
+    description: "縮短 40%~60%"
+    group: "改寫"
     hotkey: "alt+shift+5"
     temperature: 0.3
     max_tokens: 500
+    input_type: "text"
     prompt: |
       請把文字縮短 40%~60%，保留核心意思與語氣。
       適合 Slack / Teams / Email 精簡版。
       只輸出精簡後內容。
+      {{input}}
 
   - id: "spoken_version"
     name: "改成口語可說出口版本"
+    description: "口語化"
+    group: "改寫"
     hotkey: "alt+shift+6"
     temperature: 0.5
     max_tokens: 800
+    input_type: "text"
     prompt: |
       Please rewrite the text into a version I can speak out loud naturally.
       Keep it simple, conversational, and clear.
       Output only the final spoken version.
+      {{input}}
