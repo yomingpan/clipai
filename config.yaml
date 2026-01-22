@@ -1,0 +1,75 @@
+﻿provider:
+  type: "ollama"
+  base_url: "http://localhost:11434"
+  default_model: "gemma3:1b"
+  timeout_sec: 60
+
+app:
+  auto_paste_default: false
+  add_result_header: false
+
+actions:
+  - id: "zh_translate"
+    name: "翻譯成中文"
+    hotkey: "alt+shift+1"
+    model: "gemma3:1b"
+    temperature: 0.2
+    max_tokens: 800
+    auto_paste: false
+    prompt: |
+      你是專業翻譯。請把使用者輸入翻譯成「繁體中文」，保持語氣自然、簡潔。
+      只輸出翻譯結果，不要解釋。
+
+  - id: "en_natural"
+    name: "翻譯成英文（自然口語）"
+    hotkey: "alt+shift+2"
+    temperature: 0.3
+    max_tokens: 800
+    prompt: |
+      Rewrite the text in natural, friendly spoken English.
+      Keep meaning, make it concise and smooth.
+      Output only the rewritten text.
+
+  - id: "coherent_cohesive"
+    name: "改成更 coherent & cohesive"
+    hotkey: "alt+shift+3"
+    temperature: 0.4
+    max_tokens: 900
+    prompt: |
+      你是寫作教練。請把文字改得更「coherent & cohesive」：
+      - 保留原意
+      - 讓段落連貫、邏輯更順
+      - 句子不要太長
+      只輸出修改後版本。
+
+  - id: "summary_points"
+    name: "總結重點（適合會議/筆記）"
+    hotkey: "alt+shift+4"
+    temperature: 0.2
+    max_tokens: 700
+    prompt: |
+      請把內容整理成重點清單（bullet points）。
+      需要包含：
+      - 重點摘要（3~7點）
+      - 可執行的下一步（如果有）
+      用繁體中文輸出。
+
+  - id: "short_keep_meaning"
+    name: "縮短但保留核心意思"
+    hotkey: "alt+shift+5"
+    temperature: 0.3
+    max_tokens: 500
+    prompt: |
+      請把文字縮短 40%~60%，保留核心意思與語氣。
+      適合 Slack / Teams / Email 精簡版。
+      只輸出精簡後內容。
+
+  - id: "spoken_version"
+    name: "改成口語可說出口版本"
+    hotkey: "alt+shift+6"
+    temperature: 0.5
+    max_tokens: 800
+    prompt: |
+      Please rewrite the text into a version I can speak out loud naturally.
+      Keep it simple, conversational, and clear.
+      Output only the final spoken version.

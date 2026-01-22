@@ -1,0 +1,5 @@
+﻿pyyaml
+requests
+pyperclip
+keyboard
+python-dotenv
