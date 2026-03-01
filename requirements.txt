@@ -1,0 +1,17 @@
+PyYAML
+requests
+pyperclip
+pyinput
+python-dotenv
+plyer
+pystray
+Pillow
+edge-tts
+pygame-ce
+langdetect
+certifi
+aiohttp
+python-certifi-win32
+Markdown
+customtkinter
+pytest
