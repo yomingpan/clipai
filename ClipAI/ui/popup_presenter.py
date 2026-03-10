@@ -10,6 +10,7 @@ import customtkinter as ctk
 from clipai.clipboard import write_clipboard_text
 from clipai.services.archive_service import ArchiveService
 from clipai.ui.result_popup.popup_session import PopupSession
+from clipai.ui.tooltip import attach_tooltip
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -146,14 +147,14 @@ class PopupPresenter:
         action_bar = ctk.CTkFrame(header_frame, fg_color="transparent")
         action_bar.pack(side="right")
 
-        def _icon_button(label: str, command, accent: bool = False):
+        def _icon_button(icon: str, tooltip: str, command, accent: bool = False):
             button = ctk.CTkButton(
                 action_bar,
-                text=label,
-                width=30,
+                text=icon,
+                width=32,
                 height=28,
                 corner_radius=8,
-                font=("Consolas", 11, "bold"),
+                font=("Segoe UI Symbol", 12, "bold"),
                 fg_color=(BRAND_COLOR if accent else "transparent"),
                 hover_color=("#2B6E9E" if accent else ("#E8EEF5", "#232A35")),
                 border_width=(0 if accent else 1),
@@ -162,12 +163,32 @@ class PopupPresenter:
                 command=command,
             )
             button.pack(side="left", padx=(6, 0))
+            attach_tooltip(button, tooltip)
             return button
 
-        _icon_button("S", lambda: None)
-        _icon_button("C", lambda: self._copy_from_widget(text_widget, session))
-        _icon_button("A", lambda: self._archive_service.append_session(session))
-        _icon_button("D", lambda: None, accent=True)
+        _icon_button("◉", "播放聲音", lambda: None)
+        _icon_button("⎘", "複製", lambda: self._copy_from_widget(text_widget, session))
+        _icon_button("◎", "Archive", lambda: self._archive_service.append_session(session))
+        _icon_button("✦", "Deep Think", lambda: None, accent=True)
+
+        follow_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        follow_frame.pack(fill="x", padx=14, pady=(0, 8))
+
+        ctk.CTkEntry(
+            follow_frame,
+            placeholder_text=f"Follow-up ({session.round_count}/{session.max_rounds})",
+            font=("Microsoft JhengHei", 10),
+            height=30,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        follow_hint = ctk.CTkLabel(
+            follow_frame,
+            text=f"{session.round_count}/{session.max_rounds}",
+            font=("Microsoft JhengHei", 10),
+            text_color=("gray45", "gray60"),
+        )
+        follow_hint.pack(side="right")
+        self._follow_hint_label = follow_hint
 
         text_container = ctk.CTkFrame(
             main_frame,
@@ -193,25 +214,6 @@ class PopupPresenter:
         text_widget.pack(fill="both", expand=True, padx=2, pady=2)
         self._text_widget = text_widget
         self._render_session_text(text_widget, session)
-
-        follow_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        follow_frame.pack(fill="x", padx=14, pady=(0, 8))
-
-        ctk.CTkEntry(
-            follow_frame,
-            placeholder_text=f"Follow-up ({session.round_count}/{session.max_rounds})",
-            font=("Microsoft JhengHei", 10),
-            height=30,
-        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
-
-        follow_hint = ctk.CTkLabel(
-            follow_frame,
-            text=f"{session.round_count}/{session.max_rounds}",
-            font=("Microsoft JhengHei", 10),
-            text_color=("gray45", "gray60"),
-        )
-        follow_hint.pack(side="right")
-        self._follow_hint_label = follow_hint
 
         input_frame = ctk.CTkFrame(
             main_frame,
@@ -331,7 +333,12 @@ class PopupPresenter:
 
         self._apply_status_color(color)
         if duration_ms > 0:
-            self._active_window.after(duration_ms, lambda: self._active_window and self._active_window.winfo_exists() and self._apply_status_color(BRAND_COLOR))
+            self._active_window.after(
+                duration_ms,
+                lambda: self._active_window
+                and self._active_window.winfo_exists()
+                and self._apply_status_color(BRAND_COLOR),
+            )
 
     def _apply_status_color(self, color: str) -> None:
         if self._main_frame is not None:
