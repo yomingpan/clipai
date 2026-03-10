@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from ClipAI.core.constants import EVENT_ACTION_COMPLETE, EVENT_ACTION_START, EVENT_PIPELINE_UPDATE
-from ClipAI.core.event_bus import EventBus
-from ClipAI.ui.result_popup.conversation_state import ConversationState
-from ClipAI.ui.result_popup.pipeline_integration import PipelineIntegration
+from clipai.core.constants import EVENT_ACTION_COMPLETE, EVENT_ACTION_START, EVENT_PIPELINE_UPDATE
+from clipai.core.event_bus import EventBus
+from clipai.ui.result_popup.conversation_state import ConversationState
+from clipai.ui.result_popup.pipeline_integration import PipelineIntegration
 
 
 class _Popup:

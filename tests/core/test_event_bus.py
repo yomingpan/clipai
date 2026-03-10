@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.event_bus import EventBus
+from clipai.core.event_bus import EventBus
 
 
 def test_subscribe_publish_unsubscribe() -> None:

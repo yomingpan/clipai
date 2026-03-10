@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ClipAI.core.llm_provider import LLMAuthError, LLMRateLimitError, LLMResponseError, map_http_error
+from clipai.core.llm_provider import LLMAuthError, LLMRateLimitError, LLMResponseError, map_http_error
 
 
 def test_map_http_error_auth() -> None:

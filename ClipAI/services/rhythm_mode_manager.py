@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ClipAI.core.constants import EVENT_RHYTHM_MODE_CHANGE
-from ClipAI.core.event_bus import EventBus
+from clipai.core.constants import EVENT_RHYTHM_MODE_CHANGE
+from clipai.core.event_bus import EventBus
 
 
 class RhythmModeManager:

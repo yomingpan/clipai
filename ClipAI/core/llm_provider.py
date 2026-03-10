@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Generator, Iterable
 
-from ClipAI.core.cancellation import CancellationToken
+from clipai.core.cancellation import CancellationToken
 
 
 class LLMError(Exception):

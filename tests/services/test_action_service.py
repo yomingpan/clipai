@@ -4,12 +4,12 @@ from dataclasses import dataclass
 
 import pytest
 
-from ClipAI.core.cancellation import CancellationController
-from ClipAI.core.constants import EVENT_ACTION_COMPLETE, EVENT_ACTION_ERROR, EVENT_ACTION_START, EVENT_PIPELINE_UPDATE
-from ClipAI.core.event_bus import EventBus
-from ClipAI.core.llm_provider import ProviderChunk
-from ClipAI.services.action_service import ActionService
-from ClipAI.services.resolve_config import ResolvedActionConfig
+from clipai.core.cancellation import CancellationController
+from clipai.core.constants import EVENT_ACTION_COMPLETE, EVENT_ACTION_ERROR, EVENT_ACTION_START, EVENT_PIPELINE_UPDATE
+from clipai.core.event_bus import EventBus
+from clipai.core.llm_provider import ProviderChunk
+from clipai.services.action_service import ActionService
+from clipai.services.resolve_config import ResolvedActionConfig
 
 
 class _ProviderOK:

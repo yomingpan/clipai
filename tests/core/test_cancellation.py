@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ClipAI.core.cancellation import CancellationController, LLMCancelledError
+from clipai.core.cancellation import CancellationController, LLMCancelledError
 
 
 def test_cancellation_token_and_controller() -> None:

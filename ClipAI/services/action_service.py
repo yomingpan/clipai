@@ -4,15 +4,15 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from ClipAI.core.constants import (
+from clipai.core.constants import (
     EVENT_ACTION_COMPLETE,
     EVENT_ACTION_ERROR,
     EVENT_ACTION_START,
     EVENT_PIPELINE_UPDATE,
 )
-from ClipAI.core.event_bus import EventBus
-from ClipAI.core.llm_provider import LLMError
-from ClipAI.services.resolve_config import ResolvedActionConfig
+from clipai.core.event_bus import EventBus
+from clipai.core.llm_provider import LLMError
+from clipai.services.resolve_config import ResolvedActionConfig
 
 
 @dataclass(frozen=True)

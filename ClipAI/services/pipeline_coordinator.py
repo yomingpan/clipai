@@ -3,9 +3,9 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from ClipAI.core.cancellation import CancellationController
-from ClipAI.core.constants import EVENT_PIPELINE_UPDATE
-from ClipAI.core.event_bus import EventBus
+from clipai.core.cancellation import CancellationController
+from clipai.core.constants import EVENT_PIPELINE_UPDATE
+from clipai.core.event_bus import EventBus
 
 
 @dataclass(frozen=True)

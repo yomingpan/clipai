@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ClipAI.core.event_bus import EventBus
-from ClipAI.services.pipeline_coordinator import PipelineCoordinator
+from clipai.core.event_bus import EventBus
+from clipai.services.pipeline_coordinator import PipelineCoordinator
 
 
 def test_pipeline_coordinator_cancels_previous_session() -> None:

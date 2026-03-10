@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Generator, Iterable
 
-from ClipAI.core.cancellation import CancellationToken
-from ClipAI.core.llm_provider import LLMProvider, ProviderChunk, ProviderResult
+from clipai.core.cancellation import CancellationToken
+from clipai.core.llm_provider import LLMProvider, ProviderChunk, ProviderResult
 
 
 class OpenAICompactProvider(LLMProvider):

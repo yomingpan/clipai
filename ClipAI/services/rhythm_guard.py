@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ClipAI.core.constants import EVENT_RHYTHM_REMINDER, EVENT_RHYTHM_UPDATE
-from ClipAI.core.event_bus import EventBus
+from clipai.core.constants import EVENT_RHYTHM_REMINDER, EVENT_RHYTHM_UPDATE
+from clipai.core.event_bus import EventBus
 
 
 class RhythmGuard:

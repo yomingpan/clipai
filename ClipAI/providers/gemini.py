@@ -7,8 +7,8 @@ from typing import Any, Generator, Iterable
 
 import aiohttp
 
-from ClipAI.core.cancellation import CancellationToken
-from ClipAI.core.llm_provider import (
+from clipai.core.cancellation import CancellationToken
+from clipai.core.llm_provider import (
     LLMCancelledError,
     LLMConnectionError,
     LLMProvider,

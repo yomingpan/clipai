@@ -5,8 +5,8 @@ import threading
 import time
 from typing import Callable
 
-from ClipAI.core.constants import EVENT_TTS_STATE
-from ClipAI.core.event_bus import EventBus
+from clipai.core.constants import EVENT_TTS_STATE
+from clipai.core.event_bus import EventBus
 
 
 class TTSService:

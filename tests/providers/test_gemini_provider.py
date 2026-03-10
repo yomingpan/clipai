@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from ClipAI.core.llm_provider import LLMResponseError
-from ClipAI.providers.gemini import GeminiProvider
+from clipai.core.llm_provider import LLMResponseError
+from clipai.providers.gemini import GeminiProvider
 
 
 def test_gemini_requires_api_key() -> None:

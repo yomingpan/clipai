@@ -5,8 +5,8 @@ from typing import Any, Generator, Iterable
 
 import requests
 
-from ClipAI.core.cancellation import CancellationToken
-from ClipAI.core.llm_provider import (
+from clipai.core.cancellation import CancellationToken
+from clipai.core.llm_provider import (
     LLMCancelledError,
     LLMConnectionError,
     LLMProvider,
@@ -17,9 +17,9 @@ from ClipAI.core.llm_provider import (
 )
 
 
-class OlamaProvider(LLMProvider):
+class OllamaProvider(LLMProvider):
     def __init__(self, config: dict[str, Any]) -> None:
-        self._base_url = config.get("olama_base_url", "http://localhost:11434")
+        self._base_url = config.get("ollama_base_url") or config.get("olama_base_url") or "http://localhost:11434"
 
     def chat_completion(
         self,
@@ -71,7 +71,7 @@ class OlamaProvider(LLMProvider):
         except requests.exceptions.ConnectionError as exc:
             raise LLMConnectionError(str(exc)) from exc
         except json.JSONDecodeError as exc:
-            raise LLMResponseError(f"invalid Olama JSON: {exc}") from exc
+            raise LLMResponseError(f"invalid Ollama JSON: {exc}") from exc
 
         return ProviderResult(content="".join(full_text), usage=None)
 
@@ -83,3 +83,7 @@ class OlamaProvider(LLMProvider):
             return float(value)
         except ValueError:
             return None
+
+
+# Backward-compatible alias for older imports while the repo is being renamed.
+OlamaProvider = OllamaProvider

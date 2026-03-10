@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 
-from ClipAI.core.cancellation import CancellationController
-from ClipAI.core.llm_provider import LLMCancelledError, LLMConnectionError
-from ClipAI.providers.olama import OlamaProvider
+from clipai.core.cancellation import CancellationController
+from clipai.core.llm_provider import LLMCancelledError, LLMConnectionError
+from clipai.providers.olama import OllamaProvider
 
 
 class _FakeResponse:
@@ -33,7 +33,7 @@ class _FakeResponse:
 
 
 def test_olama_non_stream_generator(monkeypatch) -> None:
-    provider = OlamaProvider({"olama_base_url": "http://localhost:11434"})
+    provider = OllamaProvider({"ollama_base_url": "http://localhost:11434"})
 
     def fake_post(*args, **kwargs):
         del args, kwargs
@@ -54,7 +54,7 @@ def test_olama_non_stream_generator(monkeypatch) -> None:
 
 
 def test_olama_cancellation(monkeypatch) -> None:
-    provider = OlamaProvider({})
+    provider = OllamaProvider({})
     line = json.dumps({"message": {"content": "abc"}})
 
     def fake_post(*args, **kwargs):
@@ -78,7 +78,7 @@ def test_olama_cancellation(monkeypatch) -> None:
 
 
 def test_olama_connection_error(monkeypatch) -> None:
-    provider = OlamaProvider({})
+    provider = OllamaProvider({})
 
     class _E(Exception):
         pass

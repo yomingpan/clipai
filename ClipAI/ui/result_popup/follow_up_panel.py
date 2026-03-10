@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from ClipAI.core.constants import EVENT_FOLLOW_UP_REQUEST
+from clipai.core.constants import EVENT_FOLLOW_UP_REQUEST
 
 
 class FollowUpPanel:

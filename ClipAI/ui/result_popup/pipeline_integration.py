@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.constants import (
+from clipai.core.constants import (
     EVENT_ACTION_COMPLETE,
     EVENT_ACTION_ERROR,
     EVENT_ACTION_START,
@@ -10,8 +10,8 @@ from ClipAI.core.constants import (
     EVENT_RHYTHM_UPDATE,
     EVENT_TTS_STATE,
 )
-from ClipAI.ui.result_popup.conversation_state import ConversationState
-from ClipAI.ui.result_popup.stream_managers import StreamManager
+from clipai.ui.result_popup.conversation_state import ConversationState
+from clipai.ui.result_popup.stream_managers import StreamManager
 
 
 class PipelineIntegration:

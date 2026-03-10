@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from ClipAI.core.event_bus import EventBus
+from clipai.core.event_bus import EventBus
 
 
 class DialogLifecycle:

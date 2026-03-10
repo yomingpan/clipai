@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.event_bus import EventBus
+from clipai.core.event_bus import EventBus
 
 
 class EventLogger:
