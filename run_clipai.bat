@@ -1,36 +1,70 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 
-set "ROOT=%~dp0"
-cd /d "%ROOT%"
+echo [clipai] Checking environment...
 
-set "VENV_DIR=%ROOT%.venv"
-set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
-set "VENV_PIP=%VENV_DIR%\Scripts\pip.exe"
+:: Support multiple common venv directory names
+set "VENV_DIRS=.venv venv"
+set "PYTHON_EXE="
 
-where python >nul 2>nul
-if errorlevel 1 (
-  echo [ERROR] Python is not installed or not in PATH.
-  echo Please install Python 3.11+ first: https://www.python.org/downloads/
-  exit /b 1
+for %%d in (%VENV_DIRS%) do (
+  if exist "%%d\Scripts\python.exe" (
+    set "PYTHON_EXE=%%d\Scripts\python.exe"
+    goto :found
+  )
 )
 
-if not exist "%VENV_PY%" (
-  echo [INFO] Creating virtual environment in .venv ...
-  python -m venv "%VENV_DIR%"
-  if errorlevel 1 (
-    echo [ERROR] Failed to create virtual environment.
+:not_found
+echo [clipai] Virtual environment not found.
+set /p choice="Would you like to create a virtual environment and install dependencies? (y/n): "
+
+if /i "%choice%"=="y" (
+  echo [clipai] Creating virtual environment in .venv...
+  python -m venv .venv
+  if !errorlevel! neq 0 (
+    echo [error] Failed to create virtual environment. Make sure Python is installed.
+    pause
     exit /b 1
   )
 
-  echo [INFO] Installing dependencies ...
-  "%VENV_PY%" -m pip install --upgrade pip
-  if exist "%ROOT%requirements.txt" (
-    "%VENV_PIP%" install -r "%ROOT%requirements.txt"
+  set "PYTHON_EXE=.venv\Scripts\python.exe"
+
+  echo [clipai] Installing requirements...
+  "!PYTHON_EXE!" -m pip install --upgrade pip
+  if !errorlevel! neq 0 (
+    echo [error] Failed to upgrade pip.
+    pause
+    exit /b 1
   )
-  "%VENV_PIP%" install pytest mypy
+
+  if exist "requirements.txt" (
+    "!PYTHON_EXE!" -m pip install -r requirements.txt
+    if !errorlevel! neq 0 (
+      echo [error] Failed to install dependencies from requirements.txt
+      pause
+      exit /b 1
+    )
+  ) else (
+    echo [warning] requirements.txt not found. Skipping dependency install.
+  )
+
+) else (
+  echo [clipai] Please create a virtual environment manually or use system Python.
+  set /p use_system="Try using system python? (y/n): "
+  if /i "!use_system!"=="y" (
+    set "PYTHON_EXE=python"
+    goto :found
+  )
+  pause
+  exit /b 1
 )
 
-echo [INFO] Starting ClipAI ...
-"%VENV_PY%" "%ROOT%main.py" %*
-exit /b %errorlevel%
+:found
+echo [clipai] Starting ClipAI...
+"%PYTHON_EXE%" main.py
+if %errorlevel% neq 0 (
+  echo [clipai] Application exited with error code %errorlevel%.
+  pause
+)
+
+endlocal

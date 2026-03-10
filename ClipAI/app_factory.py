@@ -1,80 +1,100 @@
-from __future__ import annotations
+"""Application factory for assembling ClipAI services."""
+from typing import Dict, Any, Optional
 
-from ClipAI.actions import load_actions
-from ClipAI.app_controller import AppController
-from ClipAI.clipboard import read_image_base64, read_text, write_text
-from ClipAI.core.event_bus import EventBus
-from ClipAI.providers.factory import build_provider
-from ClipAI.services.action_service import ActionService
-from ClipAI.services.input_receiver import InputReceiver
-from ClipAI.services.output_router import OutputRouter
-from ClipAI.services.pipeline_coordinator import PipelineCoordinator
-from ClipAI.services.rhythm_guard import RhythmGuard
-from ClipAI.services.rhythm_mode_manager import RhythmModeManager
-from ClipAI.services.rhythm_tracker import RhythmTracker
-from ClipAI.services.tts_service import TTSService
-from ClipAI.ui.dialog_lifecycle import DialogLifecycle
-from ClipAI.ui.result_popup.conversation_state import ConversationState
-from ClipAI.ui.result_popup.pipeline_integration import PipelineIntegration
-from ClipAI.ui.result_popup.popup import ResultPopup
+from clipai.actions import load_actions, build_action_map
+from clipai.core.event_bus import get_event_bus
+from clipai.providers.factory import create_provider
+from clipai.tray import markdown_enabled
+from clipai.tts import TTSEngine
+from clipai.services.action_service import ActionService
+from clipai.services.action_handlers import create_default_registry
+from clipai.services.event_logger import EventLogger
+from clipai.services.input_resolver import InputResolver
+from clipai.services.output_router import OutputRouter
+from clipai.services.rhythm_guard import RhythmGuard
+from clipai.services.rhythm_mode_manager import RhythmModeManager
+from clipai.services.rhythm_tracker import RhythmTracker
+from clipai.services.rhythm_reporter import RhythmReporter
+from clipai.services.tts_service import TTSService
+from clipai.app_controller import AppController
 
 
-def build_app(config: dict):
-    event_bus = EventBus()
-    provider = build_provider(config)
+class AppFactory:
+    """Builds the entire ClipAI service graph from configuration."""
 
-    input_receiver = InputReceiver(read_text, read_image_base64)
-    output_router = OutputRouter(
-        show_popup=lambda text: None,
-        copy_clipboard=write_text,
-        auto_paste=lambda text: None,
-        notify=lambda text: None,
-    )
-    pipeline = PipelineCoordinator(event_bus)
-    rhythm_mode_manager = RhythmModeManager(event_bus)
-    rhythm_tracker = RhythmTracker(event_bus)
-    rhythm_guard = RhythmGuard(event_bus)
-    tts_service = TTSService(event_bus, speak_fn=lambda text: None)
-    action_service = ActionService(event_bus, provider)
-    controller = AppController(
-        action_service=action_service,
-        input_receiver=input_receiver,
-        output_router=output_router,
-        pipeline_coordinator=pipeline,
-        rhythm_mode_manager=rhythm_mode_manager,
-        actions_registry=load_actions(),
-    )
+    @staticmethod
+    def create(cfg: Dict[str, Any]) -> Dict[str, Any]:
+        """Build the entire service graph from config.
 
-    event_bus.subscribe(
-        "follow_up_request",
-        lambda payload: controller.follow_up(payload.get("text", ""), payload.get("action_id", "")),
-    )
+        Returns a dict containing core objects needed by main:
+        provider, tts_engine, tts_service, action_map, actions_list, controller,
+        rhythm_mode_manager, and event_logger.
+        """
+        provider_cfg = cfg.get("provider", {})
+        app_cfg = cfg.get("app", {})
+        tts_cfg = cfg.get("tts", {})
+        rhythm_cfg = app_cfg.get("rhythm", {})
 
-    ui_bundle: dict = {"dialog_lifecycle": None, "popup": None, "pipeline_integration": None}
-    if config.get("enable_ui", False):
-        lifecycle = DialogLifecycle(event_bus)
-        root = lifecycle.create_root()
-        popup = ResultPopup(root)
-        state = ConversationState()
-        integration = PipelineIntegration(event_bus, popup, state)
-        integration.start()
-        ui_bundle = {
-            "dialog_lifecycle": lifecycle,
-            "popup": popup,
-            "pipeline_integration": integration,
+        provider = create_provider(provider_cfg)
+
+        tts_engine = None
+        if tts_cfg.get("enabled", False):
+            tts_engine = TTSEngine(
+                voice=tts_cfg.get("voice", "zh-TW-HsiaoChenNeural"),
+                rate=tts_cfg.get("rate", "+0%"),
+                volume=tts_cfg.get("volume", "+0%"),
+                proxy=tts_cfg.get("proxy")
+            )
+
+        tts_service = TTSService(engine=tts_engine)
+
+        actions_list = load_actions("config/config.yaml")
+        action_map = build_action_map(actions_list)
+
+        bus = get_event_bus()
+        rhythm_mode_manager = RhythmModeManager(event_bus=bus, config=rhythm_cfg)
+
+        action_service = ActionService(
+            provider=provider,
+            app_cfg=app_cfg,
+            provider_cfg=provider_cfg,
+            rhythm_mode_manager=rhythm_mode_manager,
+        )
+        input_resolver = InputResolver(app_cfg=app_cfg)
+        output_router = OutputRouter(app_cfg=app_cfg, markdown_enabled=markdown_enabled)
+
+        event_logger = EventLogger()
+        rhythm_tracker = RhythmTracker(config=rhythm_cfg)
+        rhythm_guard = RhythmGuard(tracker=rhythm_tracker, config=rhythm_cfg,
+                                   rhythm_mode_manager=rhythm_mode_manager)
+        rhythm_reporter = RhythmReporter(rhythm_mode_manager=rhythm_mode_manager)
+
+        controller = AppController(
+            app_cfg=app_cfg,
+            action_map=action_map,
+            action_service=action_service,
+            input_resolver=input_resolver,
+            output_router=output_router,
+            tts_service=tts_service,
+            rhythm_guard=rhythm_guard,
+            rhythm_mode_manager=rhythm_mode_manager,
+            rhythm_cfg=rhythm_cfg,
+            action_handler_registry=create_default_registry(),
+        )
+
+        return {
+            "provider": provider,
+            "tts_engine": tts_engine,
+            "tts_service": tts_service,
+            "actions_list": actions_list,
+            "action_map": action_map,
+            "controller": controller,
+            "rhythm_mode_manager": rhythm_mode_manager,
+            "event_logger": event_logger,
+            "rhythm_tracker": rhythm_tracker,
+            "rhythm_guard": rhythm_guard,
+            "rhythm_reporter": rhythm_reporter,
         }
 
-    return {
-        "event_bus": event_bus,
-        "provider": provider,
-        "input_receiver": input_receiver,
-        "output_router": output_router,
-        "pipeline": pipeline,
-        "rhythm_mode_manager": rhythm_mode_manager,
-        "rhythm_tracker": rhythm_tracker,
-        "rhythm_guard": rhythm_guard,
-        "tts_service": tts_service,
-        "action_service": action_service,
-        "controller": controller,
-        **ui_bundle,
-    }
+
+

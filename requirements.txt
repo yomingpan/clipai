@@ -1,7 +1,7 @@
-PyYAML
+pyyaml
 requests
 pyperclip
-pyinput
+pynput
 python-dotenv
 plyer
 pystray
@@ -12,6 +12,6 @@ langdetect
 certifi
 aiohttp
 python-certifi-win32
-Markdown
+markdown
 customtkinter
 pytest
