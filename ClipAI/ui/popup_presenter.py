@@ -21,14 +21,16 @@ ERROR_COLOR = "#D64545"
 
 
 class PopupPresenter:
-    def __init__(self) -> None:
+    def __init__(self, on_follow_up: Callable[[PopupSession, str], None] | None = None) -> None:
         self._archive_service = ArchiveService()
+        self._on_follow_up = on_follow_up
         self._jobs: queue.Queue[Callable[[], None]] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._root: ctk.CTk | None = None
         self._active_window = None
         self._active_session: PopupSession | None = None
         self._text_widget = None
+        self._follow_entry = None
         self._input_label = None
         self._follow_hint_label = None
         self._main_frame = None
@@ -54,6 +56,14 @@ class PopupPresenter:
     def flash_status(self, session_id: str, status: str) -> None:
         self._ensure_ui_thread()
         self._jobs.put(lambda: self._flash_status_on_ui(session_id, status))
+
+    def refresh_session(self, session_id: str) -> None:
+        self._ensure_ui_thread()
+        self._jobs.put(lambda: self._refresh_session_on_ui(session_id))
+
+    def set_follow_up_enabled(self, session_id: str, enabled: bool) -> None:
+        self._ensure_ui_thread()
+        self._jobs.put(lambda: self._set_follow_up_enabled_on_ui(session_id, enabled))
 
     def _ensure_ui_thread(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -95,6 +105,7 @@ class PopupPresenter:
             self._active_window = None
             self._active_session = None
             self._text_widget = None
+            self._follow_entry = None
             self._input_label = None
             self._follow_hint_label = None
             self._main_frame = None
@@ -174,12 +185,14 @@ class PopupPresenter:
         follow_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         follow_frame.pack(fill="x", padx=14, pady=(0, 8))
 
-        ctk.CTkEntry(
+        follow_entry = ctk.CTkEntry(
             follow_frame,
             placeholder_text=f"Follow-up ({session.round_count}/{session.max_rounds})",
             font=("Microsoft JhengHei", 10),
             height=30,
-        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        )
+        follow_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self._follow_entry = follow_entry
 
         follow_hint = ctk.CTkLabel(
             follow_frame,
@@ -189,6 +202,7 @@ class PopupPresenter:
         )
         follow_hint.pack(side="right")
         self._follow_hint_label = follow_hint
+        self._sync_follow_up_controls(session)
 
         text_container = ctk.CTkFrame(
             main_frame,
@@ -242,6 +256,25 @@ class PopupPresenter:
         input_value.pack(fill="x", padx=10, pady=(0, 8))
         self._input_label = input_value
 
+        def _submit_follow_up(event=None) -> str | None:
+            del event
+            if self._active_session is None or self._active_session.session_id != session.session_id:
+                return "break"
+            if self._on_follow_up is None:
+                return "break"
+            prompt_text = follow_entry.get().strip()
+            if not prompt_text:
+                return "break"
+            if not session.can_continue():
+                self._sync_follow_up_controls(session)
+                return "break"
+            follow_entry.delete(0, "end")
+            self._set_follow_up_enabled_on_ui(session.session_id, False)
+            self._on_follow_up(session, prompt_text)
+            return "break"
+
+        follow_entry.bind("<Return>", _submit_follow_up)
+
         def _close(event=None) -> None:
             del event
             try:
@@ -252,6 +285,7 @@ class PopupPresenter:
                     self._active_window = None
                     self._active_session = None
                     self._text_widget = None
+                    self._follow_entry = None
                     self._input_label = None
                     self._follow_hint_label = None
                     self._main_frame = None
@@ -299,6 +333,21 @@ class PopupPresenter:
         if self._input_label is not None:
             self._input_label.configure(text=original_input)
 
+    def _refresh_session_on_ui(self, session_id: str) -> None:
+        if self._active_session is None or self._active_session.session_id != session_id:
+            return
+        if self._text_widget is not None:
+            self._render_session_text(self._text_widget, self._active_session)
+        self._sync_follow_up_controls(self._active_session)
+
+    def _set_follow_up_enabled_on_ui(self, session_id: str, enabled: bool) -> None:
+        if self._active_session is None or self._active_session.session_id != session_id:
+            return
+        if self._follow_entry is None:
+            return
+        state = "normal" if enabled and self._active_session.can_continue() else "disabled"
+        self._follow_entry.configure(state=state)
+
     def _append_chunk_on_ui(self, session_id: str, chunk: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
             return
@@ -314,6 +363,7 @@ class PopupPresenter:
         self._active_session.latest_result = content
         if self._text_widget is not None:
             self._render_session_text(self._text_widget, self._active_session)
+        self._sync_follow_up_controls(self._active_session)
 
     def _flash_status_on_ui(self, session_id: str, status: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
@@ -346,6 +396,21 @@ class PopupPresenter:
         if self._title_label is not None:
             self._title_label.configure(text_color=color)
 
+    def _sync_follow_up_controls(self, session: PopupSession) -> None:
+        if self._follow_hint_label is not None:
+            self._follow_hint_label.configure(text=f"{session.round_count}/{session.max_rounds}")
+        if self._follow_entry is not None:
+            if session.can_continue():
+                self._follow_entry.configure(
+                    state="normal",
+                    placeholder_text=f"Follow-up ({session.round_count}/{session.max_rounds})",
+                )
+            else:
+                self._follow_entry.configure(
+                    state="disabled",
+                    placeholder_text="Popup follow-up limit reached",
+                )
+
     @staticmethod
     def _render_session_text(text_widget: tk.Text, session: PopupSession) -> None:
         text_widget.config(state="normal")
@@ -356,6 +421,8 @@ class PopupPresenter:
         if session.rounds:
             for item in session.rounds:
                 text_widget.insert("end", f"\n\n--- round {item.round_index} ---\n", ("history",))
+                label = "Deep Think" if item.kind == "deep_think" else "Follow-up"
+                text_widget.insert("end", f"{label}: {item.prompt_text.strip()}\n", ("history",))
                 text_widget.insert("end", item.result_text.strip(), ("history",))
         text_widget.config(state="disabled")
 

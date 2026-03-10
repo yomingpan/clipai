@@ -26,7 +26,8 @@ class DesktopRuntime:
         self._run_state = {"running": False}
         self._listener = None
         self._tray: TrayIcon | None = None
-        self._popup_presenter = PopupPresenter()
+        self._popup_presenter = PopupPresenter(on_follow_up=self._submit_follow_up)
+        self._popup_sessions: dict[str, PopupSession] = {}
 
     def start(self) -> None:
         self._run_state["running"] = True
@@ -94,6 +95,7 @@ class DesktopRuntime:
                         original_input="Connecting...",
                         latest_result="Connecting...",
                     )
+                    self._popup_sessions[popup_session.session_id] = popup_session
                     self._popup_presenter.show_session(popup_session)
                     callbacks = RunCallbacks(
                         on_input_resolved=lambda resolved: self._popup_presenter.update_input(
@@ -126,6 +128,7 @@ class DesktopRuntime:
                     popup_session.action_name = outcome.action_name
                     popup_session.original_input = outcome.input_resolution.text
                     popup_session.latest_result = outcome.result.content
+                    self._popup_presenter.refresh_session(popup_session.session_id)
                     self._popup_presenter.flash_status(popup_session.session_id, "success")
 
                 self._bus.emit(Events.UI_STATUS, status="success")
@@ -151,3 +154,76 @@ class DesktopRuntime:
                 self._bus.emit(Events.UI_STATUS, status="error")
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _submit_follow_up(self, session: PopupSession, prompt_text: str) -> None:
+        threading.Thread(
+            target=self._run_follow_up,
+            args=(session, prompt_text),
+            daemon=True,
+        ).start()
+
+    def _run_follow_up(self, session: PopupSession, prompt_text: str) -> None:
+        action_def = self._bundle.action_map.get(session.action_id)
+        if not action_def:
+            notify("ClipAI", f"Unknown action id: {session.action_id}")
+            return
+
+        model = str(action_def.get("model") or self._bundle.provider_cfg.get("default_model") or "")
+        try:
+            session.start_round(kind="follow_up", prompt_text=prompt_text, model=model or "default")
+            self._popup_presenter.refresh_session(session.session_id)
+            callbacks = RunCallbacks(
+                on_chunk=lambda chunk: self._popup_presenter.append_chunk(session.session_id, chunk),
+                on_complete=lambda result: self._popup_presenter.finalize_result(session.session_id, result.content),
+            )
+            outcome = self._runner.run(
+                RunRequest(
+                    action_id=session.action_id,
+                    explicit_text=prompt_text,
+                    explicit_messages=self._build_follow_up_messages(session, action_def, prompt_text),
+                ),
+                build_runtime_context(
+                    mode="desktop_hotkey",
+                    apply_output=False,
+                    use_selection=False,
+                    stream_enabled=bool(action_def.get("stream", True)),
+                    stream_to_stdout=False,
+                ),
+                callbacks=callbacks,
+            )
+            session.latest_result = outcome.result.content
+            self._popup_presenter.refresh_session(session.session_id)
+            self._popup_presenter.flash_status(session.session_id, "success")
+        except ValueError as exc:
+            self._popup_presenter.finalize_result(session.session_id, str(exc))
+            self._popup_presenter.flash_status(session.session_id, "error")
+        except Exception as exc:
+            logger.exception("[clipai] Follow-up failed: %s", exc)
+            self._popup_presenter.finalize_result(session.session_id, f"Follow-up failed: {exc}")
+            self._popup_presenter.flash_status(session.session_id, "error")
+        finally:
+            self._popup_presenter.set_follow_up_enabled(session.session_id, True)
+
+    def _build_follow_up_messages(
+        self,
+        session: PopupSession,
+        action_def: dict[str, object],
+        prompt_text: str,
+    ) -> list[dict[str, str]]:
+        global_prompt = str(self._bundle.app_cfg.get("system_prompt", "")).strip()
+        action_prompt = str(action_def.get("system_prompt", "")).strip()
+        system_parts = [part for part in (global_prompt, action_prompt) if part]
+        system_parts.append(
+            "You are continuing an existing ClipAI popup session. "
+            "Use the provided context, answer the user's follow-up directly, and do not lose the original meaning."
+        )
+        return [
+            {"role": "system", "content": "\n\n".join(system_parts)},
+            {
+                "role": "user",
+                "content": (
+                    f"{session.as_context_text()}\n\n"
+                    f"[User Follow-up]\n{prompt_text}"
+                ),
+            },
+        ]

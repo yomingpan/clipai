@@ -38,7 +38,7 @@ class PopupSession:
     def can_continue(self) -> bool:
         return self.round_count < self.max_rounds
 
-    def push_result(self, *, kind: RoundKind, prompt_text: str, new_result: str, model: str) -> None:
+    def start_round(self, *, kind: RoundKind, prompt_text: str, model: str, placeholder: str = "Connecting...") -> None:
         if not self.can_continue():
             raise ValueError("Popup follow-up limit reached.")
         self.rounds.append(
@@ -50,8 +50,13 @@ class PopupSession:
                 model=model,
             )
         )
-        self.latest_result = new_result
+        self.latest_result = placeholder
         self.round_count += 1
+        self.updated_at = _utc_now_iso()
+
+    def push_result(self, *, kind: RoundKind, prompt_text: str, new_result: str, model: str) -> None:
+        self.start_round(kind=kind, prompt_text=prompt_text, model=model, placeholder=new_result)
+        self.latest_result = new_result
         self.updated_at = _utc_now_iso()
 
     def as_context_text(self) -> str:
@@ -69,6 +74,7 @@ class PopupSession:
         for item in self.rounds:
             parts.append(
                 f"--- round {item.round_index} ---\n"
+                f"{item.kind}: {item.prompt_text}\n"
                 f"{item.result_text}"
             )
         return "\n\n".join(parts)

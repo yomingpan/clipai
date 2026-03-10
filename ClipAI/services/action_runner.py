@@ -19,6 +19,7 @@ from clipai.services.runtime_context import RuntimeContext
 class RunRequest:
     action_id: str
     explicit_text: str | None = None
+    explicit_messages: list[dict[str, str]] | None = None
     model_override: str | None = None
     base_url_override: str | None = None
 
@@ -82,12 +83,19 @@ class ActionRunner:
                 lambda payload: print(payload.get("content", ""), end="", flush=True),
             )
 
-        input_mode = str(action_def.get("input_mode") or "selection_or_clipboard")
-        resolved_input = input_resolver.resolve_text(request.explicit_text, input_mode=input_mode)
-        if resolved_input.error:
-            raise ValueError(resolved_input.error)
-        if callbacks and callbacks.on_input_resolved is not None:
-            callbacks.on_input_resolved(resolved_input)
+        if request.explicit_messages is not None:
+            resolved_input = InputResolution(text=request.explicit_text or "", source="explicit")
+            messages = request.explicit_messages
+            if callbacks and callbacks.on_input_resolved is not None:
+                callbacks.on_input_resolved(resolved_input)
+        else:
+            input_mode = str(action_def.get("input_mode") or "selection_or_clipboard")
+            resolved_input = input_resolver.resolve_text(request.explicit_text, input_mode=input_mode)
+            if resolved_input.error:
+                raise ValueError(resolved_input.error)
+            if callbacks and callbacks.on_input_resolved is not None:
+                callbacks.on_input_resolved(resolved_input)
+            messages = self._build_messages(action_def, resolved_input.text)
 
         runtime_flags = {
             "provider": provider_cfg.get("provider", "ollama"),
@@ -98,7 +106,7 @@ class ActionRunner:
         config = resolve_action_config(action_def, mode=runtime.mode, runtime_flags=runtime_flags)
         result = action_service.run_action(
             config,
-            self._build_messages(action_def, resolved_input.text),
+            messages,
             rhythm_params=None,
             cancellation_token=cancellation.token,
             source_meta=None,
