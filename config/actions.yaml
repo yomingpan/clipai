@@ -4,6 +4,8 @@ actions:
     hotkey: alt+shift+1
     model: gemma3:1b
     stream: true
+    input_mode: selection_or_clipboard
+    output_mode: paste
     temperature: 0.1
     system_prompt: >
       你是專業翻譯助理。請忠實翻譯輸入內容為繁體中文，不要補充額外說明，
@@ -18,6 +20,8 @@ actions:
     hotkey: alt+shift+2
     model: gemma3:1b
     stream: true
+    input_mode: selection_or_clipboard
+    output_mode: paste
     temperature: 0.1
     system_prompt: >
       你是專業翻譯助理。請忠實翻譯輸入內容為自然、流暢的英文，
@@ -32,6 +36,8 @@ actions:
     hotkey: alt+shift+3
     model: gemma3:1b
     stream: true
+    input_mode: selection_or_clipboard
+    output_mode: paste
     temperature: 0.2
     system_prompt: >
       你是文字重組助理。請把鬆散、破碎或不完整的輸入重組成清楚完整的句子。
@@ -46,6 +52,8 @@ actions:
     hotkey: alt+shift+4
     model: gemma3:1b
     stream: true
+    input_mode: selection_or_clipboard
+    output_mode: paste
     temperature: 0.2
     system_prompt: >
       你是精簡助理。請在保留原文約 80% 核心意思的前提下，將文字縮短。
@@ -60,6 +68,8 @@ actions:
     hotkey: alt+shift+5
     model: gemma3:1b
     stream: true
+    input_mode: selection_or_clipboard
+    output_mode: popup
     temperature: 0.2
     system_prompt: >
       你是摘要助理。請將輸入整理為清楚的大綱，列出重點，並提出可執行的下一步。

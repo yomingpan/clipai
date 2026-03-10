@@ -14,6 +14,8 @@ from clipai.core.constants import EVENT_PIPELINE_UPDATE
 from clipai.core.event_bus import EventBus
 from clipai.providers.factory import build_provider
 from clipai.services.action_service import ActionService
+from clipai.services.input_resolver import InputResolver
+from clipai.services.output_applier import OutputApplier, OutputModeError
 from clipai.services.resolve_config import resolve_action_config
 
 
@@ -25,16 +27,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=None, help="Override model name.")
     parser.add_argument("--base-url", default=None, help="Override Ollama base URL.")
     parser.add_argument("--list-actions", action="store_true", help="List available actions and exit.")
+    parser.add_argument("--apply-output", action="store_true", help="Apply the action output mode instead of only printing.")
+    parser.add_argument("--use-selection", action="store_true", help="Try to capture highlighted text via Ctrl+C before falling back to clipboard.")
     parser.add_argument("--no-stream", action="store_true", help="Disable streaming output.")
     return parser.parse_args()
 
 
-def _read_prompt(args: argparse.Namespace) -> str:
+def _read_explicit_prompt(args: argparse.Namespace) -> str:
     if args.prompt:
         return " ".join(args.prompt).strip()
     if not sys.stdin.isatty():
         return sys.stdin.read().strip()
-    return input("Prompt: ").strip()
+    return ""
 
 
 def _compose_system_prompt(app_cfg: dict, action_def: dict) -> str:
@@ -83,17 +87,16 @@ def main() -> int:
         print(f"Unknown action: {action_id}", file=sys.stderr)
         return 1
 
-    prompt = _read_prompt(args)
-    if not prompt:
-        print("Prompt is empty.", file=sys.stderr)
-        return 1
-
     bus = EventBus()
     provider = build_provider(provider_cfg)
     service = ActionService(bus, provider)
     ctrl = CancellationController()
+    input_resolver = InputResolver(enable_selection_capture=args.use_selection)
+    output_applier = OutputApplier()
+    output_mode = str(action_def.get("output_mode") or "stdout")
+    should_stream_to_stdout = (not args.apply_output) or output_mode == "stdout"
 
-    if not args.no_stream:
+    if not args.no_stream and should_stream_to_stdout:
         bus.subscribe(EVENT_PIPELINE_UPDATE, lambda payload: print(payload.get("content", ""), end="", flush=True))
 
     runtime_flags = {
@@ -107,7 +110,13 @@ def main() -> int:
         mode="headless",
         runtime_flags=runtime_flags,
     )
-    messages = _build_messages(app_cfg, action_def, prompt)
+    input_mode = str(action_def.get("input_mode") or "selection_or_clipboard")
+    resolved_input = input_resolver.resolve_text(_read_explicit_prompt(args), input_mode=input_mode)
+    if resolved_input.error:
+        print(resolved_input.error, file=sys.stderr)
+        return 1
+
+    messages = _build_messages(app_cfg, action_def, resolved_input.text)
 
     result = service.run_action(
         config,
@@ -117,7 +126,15 @@ def main() -> int:
         source_meta=None,
     )
 
-    if args.no_stream:
+    if args.apply_output:
+        if not args.no_stream:
+            print()
+        try:
+            output_applier.apply(result.content, output_mode)
+        except OutputModeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    elif args.no_stream:
         print(result.content)
     else:
         print()
