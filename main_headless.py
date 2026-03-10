@@ -8,15 +8,10 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from clipai.actions import build_action_map, load_actions, load_config
-from clipai.core.cancellation import CancellationController
-from clipai.core.constants import EVENT_PIPELINE_UPDATE
-from clipai.core.event_bus import EventBus
-from clipai.providers.factory import build_provider
-from clipai.services.action_service import ActionService
-from clipai.services.input_resolver import InputResolver
-from clipai.services.output_applier import OutputApplier, OutputModeError
-from clipai.services.resolve_config import resolve_action_config
+from clipai.services.action_registry import load_app_config
+from clipai.services.action_runner import ActionRunner, RunRequest
+from clipai.services.output_applier import OutputModeError
+from clipai.services.runtime_context import build_runtime_context
 
 
 def _parse_args() -> argparse.Namespace:
@@ -41,101 +36,75 @@ def _read_explicit_prompt(args: argparse.Namespace) -> str:
     return ""
 
 
-def _compose_system_prompt(app_cfg: dict, action_def: dict) -> str:
-    global_prompt = str(app_cfg.get("system_prompt", "")).strip()
-    action_prompt = str(action_def.get("system_prompt", "")).strip()
-    parts = [part for part in (global_prompt, action_prompt) if part]
-    return "\n\n".join(parts)
-
-
-def _build_messages(app_cfg: dict, action_def: dict, user_input: str) -> list[dict[str, str]]:
-    system_prompt = _compose_system_prompt(app_cfg, action_def)
-    prompt_template = str(action_def.get("prompt") or action_def.get("template") or "{input}")
-    rendered = prompt_template.replace("{input}", user_input)
-
-    messages: list[dict[str, str]] = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": rendered})
-    return messages
-
-
 def main() -> int:
     args = _parse_args()
-    cfg = load_config(args.config)
-    actions = load_actions(args.config)
-    action_map = build_action_map(actions)
+    bundle = load_app_config(args.config)
 
     if args.list_actions:
-        for action in actions:
+        for action in bundle.actions:
             action_id = action.get("id", "")
             name = action.get("name", "")
             hotkey = action.get("hotkey", "")
             print(f"{action_id}\t{name}\t{hotkey}")
         return 0
 
-    app_cfg = cfg.get("app", {}) or {}
-    provider_cfg = dict(cfg.get("provider", {}) or {})
-
-    if args.base_url:
-        provider_cfg["ollama_base_url"] = args.base_url
-
-    default_action_id = str(app_cfg.get("default_action") or "translate_zh_tw")
+    default_action_id = str(bundle.app_cfg.get("default_action") or "translate_zh_tw")
     action_id = args.action or default_action_id
-    action_def = action_map.get(action_id)
+    action_def = bundle.action_map.get(action_id)
     if not action_def:
         print(f"Unknown action: {action_id}", file=sys.stderr)
         return 1
 
-    bus = EventBus()
-    provider = build_provider(provider_cfg)
-    service = ActionService(bus, provider)
-    ctrl = CancellationController()
-    input_resolver = InputResolver(enable_selection_capture=args.use_selection)
-    output_applier = OutputApplier()
     output_mode = str(action_def.get("output_mode") or "stdout")
     should_stream_to_stdout = (not args.apply_output) or output_mode == "stdout"
-
-    if not args.no_stream and should_stream_to_stdout:
-        bus.subscribe(EVENT_PIPELINE_UPDATE, lambda payload: print(payload.get("content", ""), end="", flush=True))
-
-    runtime_flags = {
-        "provider": provider_cfg.get("provider", "ollama"),
-        "model": args.model or provider_cfg.get("default_model"),
-        "stream": not args.no_stream,
-        "temperature": action_def.get("temperature", app_cfg.get("temperature", 0.2)),
-    }
-    config = resolve_action_config(
-        action_def,
-        mode="headless",
-        runtime_flags=runtime_flags,
-    )
-    input_mode = str(action_def.get("input_mode") or "selection_or_clipboard")
-    resolved_input = input_resolver.resolve_text(_read_explicit_prompt(args), input_mode=input_mode)
-    if resolved_input.error:
-        print(resolved_input.error, file=sys.stderr)
-        return 1
-
-    messages = _build_messages(app_cfg, action_def, resolved_input.text)
-
-    result = service.run_action(
-        config,
-        messages,
-        rhythm_params=None,
-        cancellation_token=ctrl.token,
-        source_meta=None,
+    runner = ActionRunner(bundle)
+    runtime = build_runtime_context(
+        mode="headless_cli",
+        apply_output=args.apply_output,
+        use_selection=args.use_selection,
+        stream_enabled=not args.no_stream,
+        stream_to_stdout=(not args.no_stream and should_stream_to_stdout),
     )
 
     if args.apply_output:
-        if not args.no_stream:
-            print()
         try:
-            output_applier.apply(result.content, output_mode)
+            outcome = runner.run(
+                RunRequest(
+                    action_id=action_id,
+                    explicit_text=_read_explicit_prompt(args),
+                    model_override=args.model,
+                    base_url_override=args.base_url,
+                ),
+                runtime,
+            )
         except OutputModeError as exc:
             print(str(exc), file=sys.stderr)
             return 1
-    elif args.no_stream:
-        print(result.content)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        if not args.no_stream:
+            print()
+        return 0
+
+    try:
+        outcome = runner.run(
+            RunRequest(
+                action_id=action_id,
+                explicit_text=_read_explicit_prompt(args),
+                model_override=args.model,
+                base_url_override=args.base_url,
+            ),
+            runtime,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if args.no_stream:
+        print(outcome.result.content)
+    elif not runtime.stream_to_stdout:
+        print(outcome.result.content)
     else:
         print()
     return 0

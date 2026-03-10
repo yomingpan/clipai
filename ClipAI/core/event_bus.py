@@ -7,6 +7,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from clipai.core import constants
+
 Subscriber = Callable[[dict[str, Any]], None]
 UIDispatcher = Callable[[Callable[[], None]], None]
 
@@ -55,6 +57,9 @@ class EventBus:
             else:
                 sub.callback(payload)
 
+    def emit(self, event_name: str, /, **payload: Any) -> None:
+        self.publish(event_name, payload)
+
     @contextlib.contextmanager
     def scope_subscribe(self, event_name: str, callback: Subscriber, *, on_ui_thread: bool = False):
         sid = self.subscribe(event_name, callback, on_ui_thread=on_ui_thread)
@@ -62,3 +67,36 @@ class EventBus:
             yield sid
         finally:
             self.unsubscribe(sid)
+
+    @contextlib.contextmanager
+    def scoped_subscription(self, event_name: str, callback: Subscriber, *, on_ui_thread: bool = False):
+        with self.scope_subscribe(event_name, callback, on_ui_thread=on_ui_thread) as sid:
+            yield sid
+
+
+_default_bus: EventBus | None = None
+_default_bus_lock = threading.Lock()
+
+
+def get_event_bus() -> EventBus:
+    global _default_bus
+    with _default_bus_lock:
+        if _default_bus is None:
+            _default_bus = EventBus()
+        return _default_bus
+
+
+class Events:
+    ACTION_START = constants.EVENT_ACTION_START
+    ACTION_COMPLETE = constants.EVENT_ACTION_COMPLETE
+    STREAM_COMPLETE = constants.EVENT_ACTION_COMPLETE
+    ACTION_ERROR = constants.EVENT_ACTION_ERROR
+    PIPELINE_UPDATE = constants.EVENT_PIPELINE_UPDATE
+    UI_STATUS = constants.EVENT_UI_STATUS
+    TTS_STATE = constants.EVENT_TTS_STATE
+    RHYTHM_UPDATE = constants.EVENT_RHYTHM_UPDATE
+    RHYTHM_MODE_CHANGE = constants.EVENT_RHYTHM_MODE_CHANGE
+    RHYTHM_REMINDER = constants.EVENT_RHYTHM_REMINDER
+    MEMORY_CHANGED = constants.EVENT_MEMORY_CHANGE
+    FOLLOW_UP_REQUEST = constants.EVENT_FOLLOW_UP_REQUEST
+    RHYTHM_ACKNOWLEDGED = "rhythm_acknowledged"
