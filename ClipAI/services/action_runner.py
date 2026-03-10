@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from clipai.core.cancellation import CancellationController
 from clipai.core.constants import EVENT_PIPELINE_UPDATE
@@ -32,6 +32,13 @@ class RunOutcome:
     result: ActionRunResult
 
 
+@dataclass(frozen=True)
+class RunCallbacks:
+    on_input_resolved: Callable[[InputResolution], None] | None = None
+    on_chunk: Callable[[str], None] | None = None
+    on_complete: Callable[[ActionRunResult], None] | None = None
+
+
 class ActionRunner:
     def __init__(self, bundle: AppConfigBundle, event_bus: EventBus | None = None) -> None:
         self._bundle = bundle
@@ -53,7 +60,7 @@ class ActionRunner:
     def provider_config(self) -> dict[str, Any]:
         return dict(self._bundle.provider_cfg)
 
-    def run(self, request: RunRequest, runtime: RuntimeContext) -> RunOutcome:
+    def run(self, request: RunRequest, runtime: RuntimeContext, callbacks: RunCallbacks | None = None) -> RunOutcome:
         action_def = self._bundle.action_map.get(request.action_id)
         if not action_def:
             raise KeyError(f"Unknown action: {request.action_id}")
@@ -79,6 +86,8 @@ class ActionRunner:
         resolved_input = input_resolver.resolve_text(request.explicit_text, input_mode=input_mode)
         if resolved_input.error:
             raise ValueError(resolved_input.error)
+        if callbacks and callbacks.on_input_resolved is not None:
+            callbacks.on_input_resolved(resolved_input)
 
         runtime_flags = {
             "provider": provider_cfg.get("provider", "ollama"),
@@ -93,7 +102,10 @@ class ActionRunner:
             rhythm_params=None,
             cancellation_token=cancellation.token,
             source_meta=None,
+            on_chunk=callbacks.on_chunk if callbacks else None,
         )
+        if callbacks and callbacks.on_complete is not None:
+            callbacks.on_complete(result)
 
         if runtime.apply_output and not (runtime.mode == "desktop_hotkey" and output_mode == "popup"):
             output_applier.apply(result.content, output_mode)

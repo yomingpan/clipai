@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from clipai.core.constants import (
     EVENT_ACTION_COMPLETE,
@@ -33,6 +33,7 @@ class ActionService:
         rhythm_params: dict[str, Any] | None,
         cancellation_token,
         source_meta: dict[str, Any] | None = None,
+        on_chunk: Callable[[str], None] | None = None,
     ) -> ActionRunResult:
         del rhythm_params
         source_meta = source_meta or {}
@@ -71,6 +72,8 @@ class ActionService:
                         "ts": int(time.time() * 1000),
                     },
                 )
+                if on_chunk is not None:
+                    on_chunk(chunk.content)
         except Exception as exc:
             error_type = exc.__class__.__name__
             if isinstance(exc, LLMError):
