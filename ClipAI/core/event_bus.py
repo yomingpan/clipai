@@ -31,6 +31,9 @@ class EventBus:
         with self._lock:
             self._ui_dispatcher = dispatch_fn
 
+    def set_tk_root(self, root) -> None:
+        self.bind_ui_dispatcher(lambda cb: root.after(0, cb))
+
     def subscribe(self, event_name: str, callback: Subscriber, *, on_ui_thread: bool = False) -> str:
         sub = _Subscription(id=str(uuid.uuid4()), event_name=event_name, callback=callback, on_ui_thread=on_ui_thread)
         with self._lock:
