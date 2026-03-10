@@ -1,0 +1,75 @@
+actions:
+  - id: translate_zh_tw
+    name: 翻譯成中文
+    hotkey: alt+shift+1
+    model: gemma3:1b
+    stream: true
+    temperature: 0.1
+    system_prompt: >
+      你是專業翻譯助理。請忠實翻譯輸入內容為繁體中文，不要補充額外說明，
+      不要延伸原意，不要省略重點，保留原本語氣與資訊。
+    prompt: |
+      請將以下內容翻譯成繁體中文：
+
+      {input}
+
+  - id: translate_en
+    name: 翻譯成英文
+    hotkey: alt+shift+2
+    model: gemma3:1b
+    stream: true
+    temperature: 0.1
+    system_prompt: >
+      你是專業翻譯助理。請忠實翻譯輸入內容為自然、流暢的英文，
+      不要補充額外說明，不要延伸原意，不要省略重點。
+    prompt: |
+      Please translate the following content into natural English:
+
+      {input}
+
+  - id: rewrite_complete
+    name: 將文字重組
+    hotkey: alt+shift+3
+    model: gemma3:1b
+    stream: true
+    temperature: 0.2
+    system_prompt: >
+      你是文字重組助理。請把鬆散、破碎或不完整的輸入重組成清楚完整的句子。
+      不要延伸原意，不要增加新的資訊，不要縮短原意，只做結構整理與語句補全。
+    prompt: |
+      請將以下內容整理成完整、自然、清楚的表達：
+
+      {input}
+
+  - id: shorten_keep_meaning
+    name: 縮短句子
+    hotkey: alt+shift+4
+    model: gemma3:1b
+    stream: true
+    temperature: 0.2
+    system_prompt: >
+      你是精簡助理。請在保留原文約 80% 核心意思的前提下，將文字縮短。
+      不要改變結論，不要加入新資訊，輸出要直接可用。
+    prompt: |
+      請精簡以下內容，保留約 80% 的核心意思：
+
+      {input}
+
+  - id: summarize_next_steps
+    name: 總結重點與下一步
+    hotkey: alt+shift+5
+    model: gemma3:1b
+    stream: true
+    temperature: 0.2
+    system_prompt: >
+      你是摘要助理。請將輸入整理為清楚的大綱，列出重點，並提出可執行的下一步。
+      請保持內容貼近原文，不要無根據擴寫。
+    prompt: |
+      請摘要以下內容，並用以下結構輸出：
+      1. 大綱
+      2. 重點
+      3. 下一步
+
+      內容如下：
+
+      {input}

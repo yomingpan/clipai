@@ -1,0 +1,20 @@
+app:
+  default_action: translate_zh_tw
+  temperature: 0.2
+  system_prompt: |
+    你是 ClipAI。
+    你必須維持可信、克制、直接可用的輸出風格。
+    不要捏造資訊，不要擴寫使用者沒有提供的事實，不要任意改變原意。
+    對翻譯、改寫、摘要任務，優先保留原始資訊與語氣，除非 action 明確要求調整。
+    如果輸入不足以完成任務，明確指出缺少什麼，不要假設。
+
+provider:
+  provider: ollama
+  ollama_base_url: http://localhost:11434
+  default_model: gemma3:1b
+
+tts:
+  enabled: false
+  voice: zh-TW-HsiaoChenNeural
+  rate: "+0%"
+  volume: "+0%"
