@@ -303,7 +303,9 @@ class TrayIcon:
 
         return pystray.Menu(*menu_items)
 
-    def _on_rhythm_data_refresh(self, **kwargs):
+    def _on_rhythm_data_refresh(self, payload=None, **kwargs):
+        if isinstance(payload, dict):
+            kwargs = {**payload, **kwargs}
         """Refresh tray menu when rhythm data changes (action start or stream complete)."""
         if self.icon:
             try:
@@ -311,7 +313,11 @@ class TrayIcon:
             except Exception as e:
                 print(f"[clipai] Tray menu refresh failed: {e}")
 
-    def _on_rhythm_mode_change(self, mode=None, previous=None, **kwargs):
+    def _on_rhythm_mode_change(self, payload=None, mode=None, previous=None, **kwargs):
+        if isinstance(payload, dict):
+            mode = payload.get("mode", mode)
+            previous = payload.get("previous", previous)
+            kwargs = {**payload, **kwargs}
         """Refresh the tray menu when rhythm mode changes."""
         if self.icon:
             try:
@@ -350,7 +356,9 @@ class TrayIcon:
             except Exception as e:
                 print(f"[clipai] Tray icon update failed: {e}")
 
-    def _on_memory_changed(self, **kwargs):
+    def _on_memory_changed(self, payload=None, **kwargs):
+        if isinstance(payload, dict):
+            kwargs = {**payload, **kwargs}
         """Refresh the tray icon when memory state changes.
         
         Runs in a background thread to avoid blocking the event emitter
@@ -358,7 +366,13 @@ class TrayIcon:
         """
         threading.Thread(target=self._safe_update_icon, daemon=True).start()
 
-    def _on_ui_status(self, status, reset_after=None, **kwargs):
+    def _on_ui_status(self, payload=None, status=None, reset_after=None, **kwargs):
+        if isinstance(payload, dict):
+            status = payload.get("status", status)
+            reset_after = payload.get("reset_after", reset_after)
+            kwargs = {**payload, **kwargs}
+        if status is None:
+            status = "idle"
         """Update tray icon based on UI status events and handle auto-reset."""
         self.update_status(status)
 
@@ -426,6 +440,5 @@ class TrayIcon:
         self._running = False
         if self.icon:
             self.icon.stop()
-
 
 

@@ -1,8 +1,24 @@
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass
 from typing import Callable
+
+logger = logging.getLogger("clipai.hotkey")
+
+_SHIFTED_DIGIT_MAP = {
+    "!": "1",
+    "@": "2",
+    "#": "3",
+    "$": "4",
+    "%": "5",
+    "^": "6",
+    "&": "7",
+    "*": "8",
+    "(": "9",
+    ")": "0",
+}
 
 
 def _normalize_key(key) -> str | None:
@@ -18,7 +34,8 @@ def _normalize_key(key) -> str | None:
 
     char = getattr(key, "char", None)
     if char:
-        return str(char).lower()
+        normalized = str(char).lower()
+        return _SHIFTED_DIGIT_MAP.get(normalized, normalized)
     return None
 
 
@@ -60,12 +77,14 @@ def register_hotkeys_with_long_press(
         hotkey = str(action.get("hotkey") or "").strip()
         if hotkey:
             hotkeys.append((action_id, _parse_hotkey(hotkey)))
+            logger.info("[clipai] Registered hotkey %s -> %s", hotkey, action_id)
 
     pressed: set[str] = set()
     active: dict[str, _HotkeyState] = {}
     lock = threading.RLock()
 
     def _fire_normal(action_id: str) -> None:
+        logger.info("[clipai] Hotkey triggered: %s", action_id)
         if tts_check_fn and tts_check_fn():
             on_press_action(action_id, tts_output=True)  # type: ignore[misc]
         else:
@@ -79,6 +98,7 @@ def register_hotkeys_with_long_press(
             if state is None:
                 return
             state.long_fired = True
+        logger.info("[clipai] Hotkey long-press triggered: %s", action_id)
         on_long_press_action(action_id)
 
     def _on_press(key) -> None:
