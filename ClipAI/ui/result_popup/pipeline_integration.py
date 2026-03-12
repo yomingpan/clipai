@@ -5,9 +5,6 @@ from clipai.core.constants import (
     EVENT_ACTION_ERROR,
     EVENT_ACTION_START,
     EVENT_PIPELINE_UPDATE,
-    EVENT_RHYTHM_MODE_CHANGE,
-    EVENT_RHYTHM_REMINDER,
-    EVENT_RHYTHM_UPDATE,
     EVENT_TTS_STATE,
 )
 from clipai.ui.result_popup.conversation_state import ConversationState
@@ -28,9 +25,6 @@ class PipelineIntegration:
             self._event_bus.subscribe(EVENT_ACTION_COMPLETE, self._on_action_complete, on_ui_thread=True),
             self._event_bus.subscribe(EVENT_ACTION_ERROR, self._on_action_error, on_ui_thread=True),
             self._event_bus.subscribe(EVENT_TTS_STATE, self._on_tts_state, on_ui_thread=True),
-            self._event_bus.subscribe(EVENT_RHYTHM_UPDATE, self._on_rhythm_update, on_ui_thread=True),
-            self._event_bus.subscribe(EVENT_RHYTHM_MODE_CHANGE, self._on_rhythm_mode_change, on_ui_thread=True),
-            self._event_bus.subscribe(EVENT_RHYTHM_REMINDER, self._on_rhythm_reminder, on_ui_thread=True),
         ]
 
     def _on_action_start(self, payload: dict) -> None:
@@ -54,13 +48,4 @@ class PipelineIntegration:
         self._popup.set_content(self._state.content + "\n\n[ERROR] " + msg)
 
     def _on_tts_state(self, payload: dict) -> None:
-        del payload
-
-    def _on_rhythm_update(self, payload: dict) -> None:
-        del payload
-
-    def _on_rhythm_mode_change(self, payload: dict) -> None:
-        del payload
-
-    def _on_rhythm_reminder(self, payload: dict) -> None:
         del payload

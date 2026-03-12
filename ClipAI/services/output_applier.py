@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from clipai.clipboard import write_clipboard_text
+from clipai.platform.clipboard import write_clipboard_text
 from clipai.output import maybe_auto_paste
 from clipai.services.clipboard_session import ClipboardSession
 

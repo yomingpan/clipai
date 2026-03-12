@@ -4,7 +4,7 @@ import logging
 import multiprocessing
 
 from clipai.services.action_registry import load_app_config
-from clipai.ui.desktop_runtime import DesktopRuntime
+from clipai.app.runtime import DesktopRuntime
 
 try:
     from dotenv import load_dotenv

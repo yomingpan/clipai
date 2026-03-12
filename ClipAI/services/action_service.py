@@ -30,12 +30,10 @@ class ActionService:
         self,
         config: ResolvedActionConfig,
         messages: list[dict[str, Any]],
-        rhythm_params: dict[str, Any] | None,
         cancellation_token,
         source_meta: dict[str, Any] | None = None,
         on_chunk: Callable[[str], None] | None = None,
     ) -> ActionRunResult:
-        del rhythm_params
         source_meta = source_meta or {}
         started = time.time()
         now_ms = int(started * 1000)

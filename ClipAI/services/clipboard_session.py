@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 
-from clipai.clipboard import capture_clipboard_snapshot, restore_clipboard_snapshot
+from clipai.platform.clipboard import capture_clipboard_snapshot, restore_clipboard_snapshot
 
 
 class ClipboardSession(AbstractContextManager["ClipboardSession"]):

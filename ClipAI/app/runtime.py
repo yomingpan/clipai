@@ -5,15 +5,15 @@ import threading
 import time
 
 from clipai.core.event_bus import Events, get_event_bus
-from clipai.hotkey import register_hotkeys_with_long_press
-from clipai.notification import notify
+from clipai.platform.hotkey import register_hotkeys_with_long_press
+from clipai.platform.notification import notify
 from clipai.services.action_registry import AppConfigBundle
 from clipai.services.action_runner import ActionRunner, RunCallbacks, RunRequest
 from clipai.services.output_applier import OutputModeError
 from clipai.services.runtime_context import build_runtime_context
 from clipai.ui.popup_presenter import PopupPresenter
 from clipai.ui.result_popup.popup_session import PopupSession
-from clipai.tray import TrayIcon
+from clipai.platform.tray import TrayIcon
 
 logger = logging.getLogger("clipai")
 
@@ -72,8 +72,6 @@ class DesktopRuntime:
             tts_engine=None,
             app_cfg=self._bundle.app_cfg,
             actions_list=self._bundle.actions,
-            rhythm_mode_manager=None,
-            rhythm_reporter=None,
         )
         self._tray.run()
 

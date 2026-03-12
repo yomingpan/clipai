@@ -7,7 +7,7 @@ from typing import Callable
 
 import customtkinter as ctk
 
-from clipai.clipboard import write_clipboard_text
+from clipai.platform.clipboard import write_clipboard_text
 from clipai.services.archive_service import ArchiveService
 from clipai.ui.result_popup.popup_session import PopupSession
 from clipai.ui.tooltip import attach_tooltip

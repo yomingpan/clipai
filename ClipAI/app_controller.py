@@ -5,14 +5,14 @@ from typing import Dict, List, Optional
 import pynput
 from clipai.diag_timing import diag
 
-from clipai.clipboard import read_clipboard_text, write_clipboard_text
-from clipai.safety import apply_safety
-from clipai.logging_utils import log_event, logger
-from clipai.notification import notify
-from clipai.tray import markdown_enabled
+from clipai.platform.clipboard import read_clipboard_text, write_clipboard_text
+from clipai.shared.safety import apply_safety
+from clipai.shared.logging_utils import log_event, logger
+from clipai.platform.notification import notify
+from clipai.platform.tray import markdown_enabled
 from clipai.dialog import (
     get_user_input, show_result_popup, get_rewrite_options,
-    show_memory_confirmation, show_memory_viewer, show_rhythm_check
+    show_memory_confirmation, show_memory_viewer
 )
 from clipai import memory_manager
 from clipai.core.cancellation import get_cancellation_controller
@@ -33,8 +33,7 @@ class AppController:
     """
     
     def __init__(self, app_cfg, action_map, action_service, input_resolver,
-                 output_router, tts_service, tray=None, rhythm_guard=None,
-                 rhythm_mode_manager=None, rhythm_cfg=None,
+                 output_router, tts_service, tray=None,
                  action_handler_registry: Optional[ActionHandlerRegistry] = None):
         self._app_cfg = app_cfg
         self._action_map = action_map
@@ -43,9 +42,6 @@ class AppController:
         self._output_router = output_router
         self._tts_service = tts_service
         self._tray = tray
-        self._rhythm_guard = rhythm_guard
-        self._rhythm_mode_manager = rhythm_mode_manager
-        self._rhythm_cfg = rhythm_cfg or {}
         self._bus = get_event_bus()
         self._cancel = get_cancellation_controller()
         self._pipeline = get_pipeline_coordinator()
@@ -139,19 +135,6 @@ class AppController:
             try:
                 action = self._action_map[action_id]
                 handler_fn(action, is_pipeline)
-
-                # Rhythm Intelligence: check if reminder needed after action
-                rhythm_guard = self._rhythm_guard
-                if rhythm_guard and self._rhythm_cfg.get("enabled", True):
-                    reminder_reason = rhythm_guard.should_remind()
-                    if reminder_reason and not self._pipeline.is_dialog_active():
-                        # Show reminder on a new thread (needs its own Tkinter mainloop)
-                        def _show_rhythm_reminder(reason=reminder_reason, rg=rhythm_guard):
-                            choice = show_rhythm_check(reason=reason)
-                            if choice:
-                                self._bus.emit(Events.RHYTHM_ACKNOWLEDGED, choice=choice, reason=reason)
-                            rg.trigger_reminder(reason)
-                        threading.Thread(target=_show_rhythm_reminder, daemon=True).start()
             finally:
                 if not is_pipeline:
                     self._semaphore.release()
@@ -451,10 +434,6 @@ class AppController:
                 action_id=action.get("id", "")
             )
 
-        _rhythm_mode = "steer"
-        if self._rhythm_mode_manager:
-            _rhythm_mode = self._rhythm_mode_manager.current_mode
-
         diag.mark("show_result_popup_call")
         with self._bus.scoped_subscription(Events.FOLLOW_UP_REQUEST, _on_follow_up_request):
             popup_result = show_result_popup(
@@ -465,7 +444,6 @@ class AppController:
                 on_think_deep_click=on_think_deep_callback,
                 tts_service=self._tts_service,
                 action_id=action.get("id", ""),
-                rhythm_mode=_rhythm_mode,
                 follow_up_placeholder=action.get("follow_up_placeholder"),
             )
         full_text = popup_result.get("text", "")
@@ -535,6 +513,5 @@ class AppController:
             return
         notify("🔊 TTS 模式", "提醒：TTS 模式會將 AI 結果唸出來。請注意周圍環境。")
         self._app_cfg["_tts_modifier_prompted"] = True
-
 
 

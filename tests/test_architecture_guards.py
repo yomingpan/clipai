@@ -24,7 +24,7 @@ def test_services_do_not_import_ui() -> None:
 
 
 def test_providers_do_not_import_ui_or_event_bus_or_clipboard_or_tray() -> None:
-    forbidden = ("clipai.ui", "clipai.core.event_bus", "clipai.clipboard", "clipai.tray")
+    forbidden = ("clipai.ui", "clipai.core.event_bus", "clipai.platform.clipboard", "clipai.platform.tray")
     base = Path("clipai/providers")
     for path in base.glob("*.py"):
         imports = _imports_for(path)

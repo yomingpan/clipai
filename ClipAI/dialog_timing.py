@@ -23,7 +23,7 @@ import os
 import threading
 from time import perf_counter
 
-from clipai.logging_utils import perf_logger
+from clipai.shared.logging_utils import perf_logger
 
 _PREFIX = "[⏱ diag]"
 
@@ -139,6 +139,5 @@ class _DiagTiming:
 
 # Module-level singleton
 diag = _DiagTiming()
-
 
 

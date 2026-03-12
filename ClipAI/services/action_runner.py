@@ -107,7 +107,6 @@ class ActionRunner:
         result = action_service.run_action(
             config,
             messages,
-            rhythm_params=None,
             cancellation_token=cancellation.token,
             source_meta=None,
             on_chunk=callbacks.on_chunk if callbacks else None,

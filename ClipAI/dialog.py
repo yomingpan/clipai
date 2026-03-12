@@ -1,4 +1,4 @@
-
+﻿
 import customtkinter as ctk
 import tkinter as tk
 import ctypes
@@ -92,7 +92,7 @@ def get_user_input(title="ClipAI Input", prompt_text="Enter additional context (
     )
     submit_btn.pack(side="right")
 
-    # Pack text container after buttons — it expands into remaining space
+    # Pack text container after buttons ??it expands into remaining space
     text_container = ctk.CTkFrame(base.main_frame, corner_radius=8, border_width=1)
     text_container.pack(fill="both", expand=True, padx=12, pady=5)
 
@@ -144,13 +144,13 @@ def get_user_input(title="ClipAI Input", prompt_text="Enter additional context (
 
 def get_rewrite_options(title="ClipAI - Rewrite Options") -> Optional[str]:
     """
-    Small, low-distraction picker near the mouse: 專業/口語/精煉/長一點.
+    Small, low-distraction picker near the mouse: 撠平/???/蝎曄?/?瑚?暺?
     """
     base = BaseDialog(title=title, width=240, height=140, position="cursor")
     if not base.is_valid():
         return None
 
-    result = {"tone": "專業", "length": "短一點", "confirmed": False}
+    result = {"tone": "撠平", "length": "?凋?暺?, "confirmed": False}
 
     tone_frame = ctk.CTkFrame(base.main_frame, fg_color="transparent")
     tone_frame.pack(fill="x", padx=12, pady=(8, 4))
@@ -167,10 +167,10 @@ def get_rewrite_options(title="ClipAI - Rewrite Options") -> Optional[str]:
         base.lifecycle.close()
 
     def toggle_length():
-        result["length"] = "長一點" if result["length"] == "短一點" else "短一點"
-        length_btn.configure(text=f"長一點{' ✓' if result['length'] == '長一點' else ''}")
+        result["length"] = "?瑚?暺? if result["length"] == "?凋?暺? else "?凋?暺?
+        length_btn.configure(text=f"?瑚?暺' ?? if result['length'] == '?瑚?暺? else ''}")
 
-    for tone in ["專業", "口語", "精煉"]:
+    for tone in ["撠平", "???", "蝎曄?"]:
         btn = ctk.CTkButton(
             tone_frame,
             text=tone,
@@ -182,7 +182,7 @@ def get_rewrite_options(title="ClipAI - Rewrite Options") -> Optional[str]:
 
     length_btn = ctk.CTkButton(
         length_frame,
-        text="長一點",
+        text="?瑚?暺?,
         width=80,
         height=28,
         fg_color="transparent",
@@ -193,7 +193,7 @@ def get_rewrite_options(title="ClipAI - Rewrite Options") -> Optional[str]:
 
     hint = ctk.CTkLabel(
         length_frame,
-        text="按 Esc 取消",
+        text="??Esc ??",
         font=("Microsoft JhengHei", 10),
         text_color=("gray30", "#A0A0A0")
     )
@@ -205,7 +205,7 @@ def get_rewrite_options(title="ClipAI - Rewrite Options") -> Optional[str]:
 
     if not result["confirmed"]:
         return None
-    return f"語氣: {result['tone']}\n長度: {result['length']}"
+    return f"隤除: {result['tone']}\n?瑕漲: {result['length']}"
 
 def show_rescue_center(title="ClipAI Rescue Center") -> Optional[str]:
     """Small rescue menu near cursor with three choices: brain, time, speak."""
@@ -225,7 +225,7 @@ def show_rescue_center(title="ClipAI Rescue Center") -> Optional[str]:
     def on_cancel(event=None):
         base.lifecycle.close()
 
-    buttons = [("🧠", "brain"), ("⏰", "time"), ("🗣️", "speak")]
+    buttons = [("??", "brain"), ("??, "time"), ("?儭?, "speak")]
     for label, value in buttons:
         btn = ctk.CTkButton(
             btn_frame,
@@ -241,12 +241,12 @@ def show_rescue_center(title="ClipAI Rescue Center") -> Optional[str]:
     base.lifecycle.run_dialog()
     return result["choice"]
 
-def show_result_popup(text_or_gen, title="ClipAI Result", original_input="", tray=None, on_think_deep_click=None, tts_service=None, action_id="", rhythm_mode="steer", follow_up_placeholder=None):
+def show_result_popup(text_or_gen, title="ClipAI Result", original_input="", tray=None, on_think_deep_click=None, tts_service=None, action_id="", follow_up_placeholder=None):
     """
     Displays a non-blocking, borderless popup window near the mouse cursor.
     Supports both static text and a generator for streaming.
 
-    Thin wrapper around ResultPopup — see clipai/ui/result_popup/popup.py for implementation.
+    Thin wrapper around ResultPopup ??see clipai/ui/result_popup/popup.py for implementation.
     """
     from clipai.ui.result_popup.popup import ResultPopup
 
@@ -258,7 +258,6 @@ def show_result_popup(text_or_gen, title="ClipAI Result", original_input="", tra
         on_think_deep_click=on_think_deep_click,
         tts_service=tts_service,
         action_id=action_id,
-        rhythm_mode=rhythm_mode,
         follow_up_placeholder=follow_up_placeholder,
     )
     return popup.run()
@@ -295,7 +294,7 @@ def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
 
     title_label = ctk.CTkLabel(
         header_frame,
-        text="⌨️  " + title,
+        text="?剁?  " + title,
         font=("Microsoft JhengHei", 12, "bold"),
         text_color="#3B8ED0",
         anchor="w"
@@ -308,7 +307,7 @@ def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
 
     legend = ctk.CTkLabel(
         footer_frame,
-        text="📋 Paste   🪟 Popup   🗣️ Speak   🧠 Memory",
+        text="?? Paste   ?? Popup   ?儭?Speak   ?? Memory",
         font=("Microsoft JhengHei", 10),
         text_color=("gray40", "gray55"),
         anchor="w",
@@ -352,13 +351,13 @@ def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
             output_cfg = act.get("output", {})
             action_id = act.get("id", "")
             if action_id == "tts_speak":
-                behavior_icon = "🗣️"
+                behavior_icon = "?儭?
             elif action_id in ("memorize", "reset_memory"):
-                behavior_icon = "🧠"
+                behavior_icon = "??"
             elif output_cfg.get("show_popup", False):
-                behavior_icon = "🪟"
+                behavior_icon = "??"
             else:
-                behavior_icon = "📋"
+                behavior_icon = "??"
 
             display_name = f"{behavior_icon}  {act.get('name', act.get('id', '?'))}"
             name_label = ctk.CTkLabel(
@@ -406,11 +405,11 @@ def show_memory_confirmation(content_preview: str, memory_count: int, max_count:
     top_frame.pack(fill="x", padx=12, pady=(8, 2))
 
     if len(content_preview) > 40:
-        content_preview = content_preview[:40] + "…"
+        content_preview = content_preview[:40] + "??
 
     info_label = ctk.CTkLabel(
         top_frame,
-        text=f"🧠 已記住 ({memory_count}/{max_count}): {content_preview}",
+        text=f"?? 撌脰?雿?({memory_count}/{max_count}): {content_preview}",
         font=("Microsoft JhengHei", 11),
         anchor="w",
     )
@@ -423,8 +422,8 @@ def show_memory_confirmation(content_preview: str, memory_count: int, max_count:
         result["undone"] = True
         if on_undo:
             on_undo()
-        info_label.configure(text="↩️ 已撤回")
-        undo_btn.configure(state="disabled", text="✓ Undone")
+        info_label.configure(text="?抬? 撌脫??)
+        undo_btn.configure(state="disabled", text="??Undone")
         base.lifecycle.schedule(800, base.lifecycle.close)
 
     def close_toast(event=None):
@@ -432,7 +431,7 @@ def show_memory_confirmation(content_preview: str, memory_count: int, max_count:
 
     undo_btn = ctk.CTkButton(
         bottom_frame,
-        text="↩️ Undo",
+        text="?抬? Undo",
         width=70,
         height=24,
         font=("Microsoft JhengHei", 10),
@@ -445,7 +444,7 @@ def show_memory_confirmation(content_preview: str, memory_count: int, max_count:
 
     hint_label = ctk.CTkLabel(
         bottom_frame,
-        text="3s 後自動關閉",
+        text="3s 敺????,
         font=("Microsoft JhengHei", 9),
         text_color=("gray50", "gray60"),
         anchor="e",
@@ -488,7 +487,7 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
 
     title_label = ctk.CTkLabel(
         header_frame,
-        text=f"🧠  {title}",
+        text=f"??  {title}",
         font=("Microsoft JhengHei", 12, "bold"),
         text_color="#3B8ED0",
         anchor="w",
@@ -497,7 +496,7 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
 
     count_label = ctk.CTkLabel(
         header_frame,
-        text=f"📌 {len(manual_items)}  🕒 {len(auto_items)}",
+        text=f"?? {len(manual_items)}  ?? {len(auto_items)}",
         font=("Microsoft JhengHei", 11),
         text_color=("gray40", "gray55"),
         anchor="e",
@@ -510,11 +509,11 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
 
         clip_preview = clipboard_preview.replace("\n", " ").strip()
         if len(clip_preview) > 50:
-            clip_preview = clip_preview[:50] + "…"
+            clip_preview = clip_preview[:50] + "??
 
         clip_label = ctk.CTkLabel(
             pin_frame,
-            text=f"📋 剪貼簿: {clip_preview}",
+            text=f"?? ?芾票蝪? {clip_preview}",
             font=("Microsoft JhengHei", 10),
             text_color=("gray30", "gray70"),
             anchor="w",
@@ -526,7 +525,7 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
 
         comment_entry = ctk.CTkEntry(
             input_row,
-            placeholder_text="加上註解 (可選)…",
+            placeholder_text="??閮餉圾 (?舫)??,
             font=("Microsoft JhengHei", 10),
             height=28,
         )
@@ -535,14 +534,14 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
         def do_pin():
             comment_text = comment_entry.get().strip() or None
             on_memorize(comment_text)
-            pin_btn.configure(text="✅ 已釘選", state="disabled", fg_color="#2e7d32")
+            pin_btn.configure(text="??撌脤???, state="disabled", fg_color="#2e7d32")
             comment_entry.configure(state="disabled")
             new_count = len(manual_items) + 1
-            count_label.configure(text=f"📌 {new_count}  🕒 {len(auto_items)}")
+            count_label.configure(text=f"?? {new_count}  ?? {len(auto_items)}")
 
         pin_btn = ctk.CTkButton(
             input_row,
-            text="📌 Pin",
+            text="?? Pin",
             width=70,
             height=28,
             font=("Microsoft JhengHei", 10, "bold"),
@@ -594,13 +593,13 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
     def _truncate(text, max_len=60):
         text = text.replace("\n", " ").strip()
         if len(text) > max_len:
-            return text[:max_len] + "…"
+            return text[:max_len] + "??
         return text
 
     if total == 0:
         empty_label = ctk.CTkLabel(
             scroll_frame,
-            text="目前沒有記憶內容。\n使用上方 📌 Pin 按鈕釘選剪貼簿內容，\n或短按 Alt+Shift+M 快速記住。",
+            text="?桀?瘝?閮?批捆?n雿輻銝 ?? Pin ????芾票蝪踹摰對?\n???Alt+Shift+M 敹恍?雿?,
             font=("Microsoft JhengHei", 12),
             text_color=("gray50", "gray60"),
             justify="center",
@@ -610,7 +609,7 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
     if manual_items:
         pinned_header = ctk.CTkLabel(
             scroll_frame,
-            text="📌 Pinned (Locked Memory)",
+            text="?? Pinned (Locked Memory)",
             font=("Microsoft JhengHei", 12, "bold"),
             text_color=("#B8860B", "#FFD700"),
             anchor="w",
@@ -641,10 +640,10 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
 
             meta_parts = []
             if comment:
-                meta_parts.append(f"💬 {comment}")
+                meta_parts.append(f"? {comment}")
             if time_ago:
                 meta_parts.append(time_ago)
-            meta_text = "  ·  ".join(meta_parts)
+            meta_text = "  繚  ".join(meta_parts)
 
             if meta_text:
                 meta_label = ctk.CTkLabel(
@@ -662,12 +661,12 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
                         on_unpin(i)
                         r.pack_forget()
                         remaining = len(manual_items) - 1
-                        count_label.configure(text=f"📌 {remaining}  🕒 {len(auto_items)}")
+                        count_label.configure(text=f"?? {remaining}  ?? {len(auto_items)}")
                     return do_unpin
 
                 unpin_btn = ctk.CTkButton(
                     row,
-                    text="✕",
+                    text="??,
                     width=28,
                     height=28,
                     font=("Consolas", 12),
@@ -681,7 +680,7 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
     if auto_items:
         recent_header = ctk.CTkLabel(
             scroll_frame,
-            text="🕒 Recent (Auto Memory)",
+            text="?? Recent (Auto Memory)",
             font=("Microsoft JhengHei", 12, "bold"),
             text_color=("#444444", "#BBBBBB"),
             anchor="w",
@@ -716,12 +715,12 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
 
             meta_parts = []
             if action_id:
-                meta_parts.append(f"🔧 {action_id}")
+                meta_parts.append(f"? {action_id}")
             if time_ago:
                 meta_parts.append(time_ago)
             if ttl_min > 0:
-                meta_parts.append(f"⏳ TTL {ttl_min}m")
-            meta_text = "  ·  ".join(meta_parts)
+                meta_parts.append(f"??TTL {ttl_min}m")
+            meta_text = "  繚  ".join(meta_parts)
 
             if meta_text:
                 meta_label = ctk.CTkLabel(
@@ -740,7 +739,7 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
 
         clear_btn = ctk.CTkButton(
             footer_frame,
-            text="🗑️ Clear All",
+            text="??儭?Clear All",
             width=90,
             height=28,
             font=("Microsoft JhengHei", 10),
@@ -757,90 +756,9 @@ def show_memory_viewer(memory_data, on_unpin=None, on_clear_all=None, on_memoriz
     base.lifecycle.setup_force_focus(delay_ms=100)
     base.lifecycle.run_dialog(track_dialog_state=False)
 
-def show_rhythm_check(reason: str = "general") -> Optional[str]:
-    """
-    Show a Goal Alignment Check dialog.
-    """
-    messages = {
-        "high_tempo": "互動頻率較高。\n是否確認目前方向？",
-        "topic_drift": "主題似乎有所轉移。\n是否確認目前目標？",
-        "long_session": "探索已持續一段時間。\n是否確認目前目標？",
-        "general": "是否確認目前目標？",
-    }
-
-    message = messages.get(reason, messages["general"])
-    
-    base = BaseDialog(
-        title="ClipAI - Goal Check",
-        width=380, height=140,
-        position="center",
-        border_color="#3B8ED0",
-        track_dialog_state=False
-    )
-    if not base.is_valid():
-        return None
-    
-    result = {"choice": None}
-
-    header_frame = ctk.CTkFrame(base.main_frame, fg_color="transparent", height=36)
-    header_frame.pack(fill="x", padx=12, pady=(8, 0))
-    header_frame.pack_propagate(False)
-
-    title_label = ctk.CTkLabel(
-        header_frame,
-        text="🎯  ClipAI - Goal Check",
-        font=("Microsoft JhengHei", 12, "bold"),
-        text_color="#3B8ED0",
-        anchor="w",
-    )
-    title_label.pack(side="left", fill="y")
-
-    msg_label = ctk.CTkLabel(
-        base.main_frame,
-        text=message,
-        font=("Microsoft JhengHei", 11),
-        justify="center",
-    )
-    msg_label.pack(pady=(8, 10))
-
-    btn_frame = ctk.CTkFrame(base.main_frame, fg_color="transparent")
-    btn_frame.pack(fill="x", padx=12, pady=(0, 10))
-
-    def make_choice(choice):
-        result["choice"] = choice
-        base.lifecycle.close()
-
-    def on_cancel(event=None):
-        base.lifecycle.close()
-
-    buttons_cfg = [
-        ("繼續探索", "continue_current", "transparent", 1),
-        ("回到原始目標", "return_to_goal", "#2e86c1", 0),
-        ("重新定義目標", "redefine_goal", "transparent", 1),
-    ]
-
-    for text, choice_val, fg, border in buttons_cfg:
-        btn = ctk.CTkButton(
-            btn_frame,
-            text=text,
-            width=100,
-            height=28,
-            font=("Microsoft JhengHei", 10),
-            fg_color=fg,
-            border_width=border,
-            text_color=("gray10", "#DCE4EE"),
-            command=lambda c=choice_val: make_choice(c),
-        )
-        btn.pack(side="left", padx=4, expand=True)
-
-    base.lifecycle.setup_close_on_escape(on_cancel)
-    base.lifecycle.schedule(30000, on_cancel)
-    base.lifecycle.setup_force_focus(delay_ms=100)
-    base.lifecycle.run_dialog(track_dialog_state=False)
-    return result["choice"]
-
 if __name__ == "__main__":
     print(f"User entered: {get_user_input()}")
+
 
 
 

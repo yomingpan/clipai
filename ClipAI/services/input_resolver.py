@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from clipai.clipboard import read_clipboard_text
+from clipai.platform.clipboard import read_clipboard_text
 from clipai.services.clipboard_session import ClipboardSession
 
 
