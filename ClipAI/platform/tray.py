@@ -257,7 +257,7 @@ class TrayIcon:
             notification.notify("ClipAI", f"Model switched to: {model_id}")
 
     def _show_hotkey_guide(self, icon, item):
-        from clipai.dialog import show_hotkey_guide
+        from clipai.ui.dialogs.hotkey_guide_dialog import show_hotkey_guide
 
         threading.Thread(target=show_hotkey_guide, args=(self.actions_list,), daemon=True).start()
 
