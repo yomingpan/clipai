@@ -14,7 +14,7 @@ provider:
   default_model: gemma3:1b
 
 tts:
-  enabled: false
+  enabled: true
   voice: zh-TW-HsiaoChenNeural
   rate: "+0%"
   volume: "+0%"

@@ -12,6 +12,7 @@ from clipai.platform.tts_service import TTSService
 from clipai.capabilities.actions.action_registry import AppConfigBundle
 from clipai.capabilities.actions.action_runner import ActionRunner, RunCallbacks, RunRequest
 from clipai.capabilities.actions.output_applier import OutputModeError
+from clipai.capabilities.context.input_resolver import InputResolver
 from clipai.capabilities.context.runtime_context import build_runtime_context
 from clipai.ui.popup_presenter import PopupPresenter
 from clipai.ui.result_popup.popup_session import PopupSession
@@ -101,6 +102,10 @@ class DesktopRuntime:
             logger.error("[clipai] Unknown action id: %s", action_id)
             return
 
+        if action_id == "tts_read_selection":
+            threading.Thread(target=self._read_selection_aloud, daemon=True).start()
+            return
+
         def _worker() -> None:
             try:
                 self._bus.emit(Events.UI_STATUS, status="processing")
@@ -172,6 +177,20 @@ class DesktopRuntime:
                 self._bus.emit(Events.UI_STATUS, status="error")
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _read_selection_aloud(self) -> None:
+        if self._tts_service is None:
+            notify("ClipAI", "TTS is not enabled.")
+            return
+
+        resolver = InputResolver(enable_selection_capture=True)
+        resolved = resolver.resolve_text(None, input_mode="selection_or_clipboard")
+        if resolved.error or not resolved.text.strip():
+            notify("ClipAI", resolved.error or "No text selected.")
+            return
+
+        notify("ClipAI", "Reading selected text...")
+        self._tts_service.speak_async(resolved.text)
 
     def _submit_follow_up(self, session: PopupSession, prompt_text: str) -> None:
         threading.Thread(

@@ -83,3 +83,10 @@ actions:
       內容如下：
 
       {input}
+
+  - id: tts_read_selection
+    name: Read Selection
+    hotkey: alt+shift+q
+    input_mode: selection_or_clipboard
+    output_mode: none
+
