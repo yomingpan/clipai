@@ -12,7 +12,7 @@ from clipai.core.constants import (
 )
 from clipai.core.event_bus import EventBus
 from clipai.core.llm_provider import LLMError
-from clipai.services.resolve_config import ResolvedActionConfig
+from clipai.capabilities.actions.resolve_config import ResolvedActionConfig
 
 
 @dataclass(frozen=True)

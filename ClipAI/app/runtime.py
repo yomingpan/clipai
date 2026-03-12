@@ -7,9 +7,9 @@ import time
 from clipai.core.event_bus import Events, get_event_bus
 from clipai.platform.hotkey import register_hotkeys_with_long_press
 from clipai.platform.notification import notify
-from clipai.services.action_registry import AppConfigBundle
-from clipai.services.action_runner import ActionRunner, RunCallbacks, RunRequest
-from clipai.services.output_applier import OutputModeError
+from clipai.capabilities.actions.action_registry import AppConfigBundle
+from clipai.capabilities.actions.action_runner import ActionRunner, RunCallbacks, RunRequest
+from clipai.capabilities.actions.output_applier import OutputModeError
 from clipai.services.runtime_context import build_runtime_context
 from clipai.ui.popup_presenter import PopupPresenter
 from clipai.ui.result_popup.popup_session import PopupSession

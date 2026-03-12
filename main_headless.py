@@ -8,9 +8,9 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from clipai.services.action_registry import load_app_config
-from clipai.services.action_runner import ActionRunner, RunRequest
-from clipai.services.output_applier import OutputModeError
+from clipai.capabilities.actions.action_registry import load_app_config
+from clipai.capabilities.actions.action_runner import ActionRunner, RunRequest
+from clipai.capabilities.actions.output_applier import OutputModeError
 from clipai.services.runtime_context import build_runtime_context
 
 

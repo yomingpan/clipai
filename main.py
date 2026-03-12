@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import multiprocessing
 
-from clipai.services.action_registry import load_app_config
+from clipai.capabilities.actions.action_registry import load_app_config
 from clipai.app.runtime import DesktopRuntime
 
 try:

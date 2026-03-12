@@ -7,11 +7,11 @@ from clipai.core.cancellation import CancellationController
 from clipai.core.constants import EVENT_PIPELINE_UPDATE
 from clipai.core.event_bus import EventBus
 from clipai.providers.factory import build_provider
-from clipai.services.action_registry import AppConfigBundle
-from clipai.services.action_service import ActionService, ActionRunResult
+from clipai.capabilities.actions.action_registry import AppConfigBundle
+from clipai.capabilities.actions.action_service import ActionService, ActionRunResult
 from clipai.services.input_resolver import InputResolver, InputResolution
-from clipai.services.output_applier import OutputApplier, OutputModeError
-from clipai.services.resolve_config import resolve_action_config
+from clipai.capabilities.actions.output_applier import OutputApplier, OutputModeError
+from clipai.capabilities.actions.resolve_config import resolve_action_config
 from clipai.services.runtime_context import RuntimeContext
 
 
