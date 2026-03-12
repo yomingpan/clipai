@@ -21,6 +21,8 @@ class TTSService:
 
     def speak(self, text: str, cancellation_token=None) -> None:
         cleaned = self._clean_markdown(text)
+        if not cleaned:
+            return
         self._event_bus.publish(EVENT_TTS_STATE, {"is_speaking": True, "phase": "start"})
         try:
             for _ in range(2):
@@ -35,6 +37,6 @@ class TTSService:
             raise
 
     def speak_async(self, text: str, cancellation_token=None) -> threading.Thread:
-        t = threading.Thread(target=self.speak, args=(text, cancellation_token), daemon=True)
-        t.start()
-        return t
+        thread = threading.Thread(target=self.speak, args=(text, cancellation_token), daemon=True)
+        thread.start()
+        return thread

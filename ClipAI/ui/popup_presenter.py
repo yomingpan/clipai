@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import queue
 import threading
@@ -8,7 +8,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from clipai.platform.clipboard import write_clipboard_text
-from clipai.services.archive_service import ArchiveService
+from clipai.capabilities.popup.archive_service import ArchiveService
 from clipai.ui.result_popup.popup_session import PopupSession
 from clipai.ui.tooltip import attach_tooltip
 
@@ -21,9 +21,10 @@ ERROR_COLOR = "#D64545"
 
 
 class PopupPresenter:
-    def __init__(self, on_follow_up: Callable[[PopupSession, str], None] | None = None) -> None:
+    def __init__(self, on_follow_up: Callable[[PopupSession, str], None] | None = None, tts_service=None) -> None:
         self._archive_service = ArchiveService()
         self._on_follow_up = on_follow_up
+        self._tts_service = tts_service
         self._jobs: queue.Queue[Callable[[], None]] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._root: ctk.CTk | None = None
@@ -177,10 +178,10 @@ class PopupPresenter:
             attach_tooltip(button, tooltip)
             return button
 
-        _icon_button("◉", "播放聲音", lambda: None)
-        _icon_button("⎘", "複製", lambda: self._copy_from_widget(text_widget, session))
-        _icon_button("◎", "Archive", lambda: self._archive_service.append_session(session))
-        _icon_button("✦", "Deep Think", lambda: None, accent=True)
+        _icon_button("TTS", "Speak", lambda: self._speak_session(session))
+        _icon_button("Copy", "Copy", lambda: self._copy_from_widget(text_widget, session))
+        _icon_button("Save", "Archive", lambda: self._archive_service.append_session(session))
+        _icon_button("Deep", "Deep Think", lambda: None, accent=True)
 
         follow_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         follow_frame.pack(fill="x", padx=14, pady=(0, 8))
@@ -433,3 +434,9 @@ class PopupPresenter:
         except tk.TclError:
             selection = ""
         write_clipboard_text(selection or session.render_full_text())
+
+    def _speak_session(self, session: PopupSession) -> None:
+        if self._tts_service is None:
+            return
+        self._tts_service.speak_async(session.latest_result or session.render_full_text())
+

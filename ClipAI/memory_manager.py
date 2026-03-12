@@ -156,8 +156,6 @@ class MemoryManager:
         from clipai.core.event_bus import get_event_bus, Events
         get_event_bus().emit(Events.MEMORY_CHANGED)
         
-        # Also reset pipeline state in coordinator
-        _get_coordinator().reset()
         print(f"[clipai] All context cleared: {count} entries removed.")
         return count
 
@@ -333,78 +331,6 @@ def interrupt_active_action():
         DeprecationWarning, stacklevel=2,
     )
     get_cancellation_controller().interrupt_active_action()
-
-
-# --- Pipeline/Dialog/Popup State (Delegated to PipelineCoordinator) ---
-# DEPRECATED: Import directly from clipai.services.pipeline_coordinator instead.
-
-def _get_coordinator():
-    """Lazy import to avoid circular dependencies."""
-    from clipai.services.pipeline_coordinator import get_pipeline_coordinator
-    return get_pipeline_coordinator()
-
-def set_popup_content(content: str, original_input: str = "", action_id: str = ""):
-    """Deprecated: Use ``get_pipeline_coordinator().set_popup_content()`` directly."""
-    warnings.warn(
-        "memory_manager.set_popup_content() is deprecated. "
-        "Use clipai.services.pipeline_coordinator.get_pipeline_coordinator().set_popup_content() instead.",
-        DeprecationWarning, stacklevel=2,
-    )
-    _get_coordinator().set_popup_content(content, original_input, action_id)
-
-def get_popup_content() -> tuple:
-    """Deprecated: Use ``get_pipeline_coordinator().get_popup_content()`` directly."""
-    warnings.warn(
-        "memory_manager.get_popup_content() is deprecated. "
-        "Use clipai.services.pipeline_coordinator.get_pipeline_coordinator().get_popup_content() instead.",
-        DeprecationWarning, stacklevel=2,
-    )
-    return _get_coordinator().get_popup_content()
-
-def clear_popup_content():
-    """Deprecated: Use ``get_pipeline_coordinator().clear_popup_content()`` directly."""
-    warnings.warn(
-        "memory_manager.clear_popup_content() is deprecated. "
-        "Use clipai.services.pipeline_coordinator.get_pipeline_coordinator().clear_popup_content() instead.",
-        DeprecationWarning, stacklevel=2,
-    )
-    _get_coordinator().clear_popup_content()
-
-def set_pipeline_root(content: str):
-    """Deprecated: Use ``get_pipeline_coordinator().set_pipeline_root()`` directly."""
-    warnings.warn(
-        "memory_manager.set_pipeline_root() is deprecated. "
-        "Use clipai.services.pipeline_coordinator.get_pipeline_coordinator().set_pipeline_root() instead.",
-        DeprecationWarning, stacklevel=2,
-    )
-    _get_coordinator().set_pipeline_root(content)
-
-def get_pipeline_root() -> Optional[str]:
-    """Deprecated: Use ``get_pipeline_coordinator().get_pipeline_root()`` directly."""
-    warnings.warn(
-        "memory_manager.get_pipeline_root() is deprecated. "
-        "Use clipai.services.pipeline_coordinator.get_pipeline_coordinator().get_pipeline_root() instead.",
-        DeprecationWarning, stacklevel=2,
-    )
-    return _get_coordinator().get_pipeline_root()
-
-def set_dialog_active(active: bool):
-    """Deprecated: Use ``get_pipeline_coordinator().set_dialog_active()`` directly."""
-    warnings.warn(
-        "memory_manager.set_dialog_active() is deprecated. "
-        "Use clipai.services.pipeline_coordinator.get_pipeline_coordinator().set_dialog_active() instead.",
-        DeprecationWarning, stacklevel=2,
-    )
-    _get_coordinator().set_dialog_active(active)
-
-def is_dialog_active() -> bool:
-    """Deprecated: Use ``get_pipeline_coordinator().is_dialog_active()`` directly."""
-    warnings.warn(
-        "memory_manager.is_dialog_active() is deprecated. "
-        "Use clipai.services.pipeline_coordinator.get_pipeline_coordinator().is_dialog_active() instead.",
-        DeprecationWarning, stacklevel=2,
-    )
-    return _get_coordinator().is_dialog_active()
 
 
 

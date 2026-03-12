@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 
 from clipai.platform.clipboard import read_clipboard_text
-from clipai.services.clipboard_session import ClipboardSession
+from clipai.capabilities.context.clipboard_session import ClipboardSession
 
 
 @dataclass(frozen=True)

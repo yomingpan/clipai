@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
 from clipai.capabilities.actions.action_registry import load_app_config
 from clipai.capabilities.actions.action_runner import ActionRunner, RunRequest
 from clipai.capabilities.actions.output_applier import OutputModeError
-from clipai.services.runtime_context import build_runtime_context
+from clipai.capabilities.context.runtime_context import build_runtime_context
 
 
 def _parse_args() -> argparse.Namespace:

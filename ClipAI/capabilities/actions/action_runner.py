@@ -9,10 +9,10 @@ from clipai.core.event_bus import EventBus
 from clipai.providers.factory import build_provider
 from clipai.capabilities.actions.action_registry import AppConfigBundle
 from clipai.capabilities.actions.action_service import ActionService, ActionRunResult
-from clipai.services.input_resolver import InputResolver, InputResolution
+from clipai.capabilities.context.input_resolver import InputResolver, InputResolution
 from clipai.capabilities.actions.output_applier import OutputApplier, OutputModeError
 from clipai.capabilities.actions.resolve_config import resolve_action_config
-from clipai.services.runtime_context import RuntimeContext
+from clipai.capabilities.context.runtime_context import RuntimeContext
 
 
 @dataclass(frozen=True)

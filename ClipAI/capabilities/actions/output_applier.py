@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from clipai.platform.clipboard import write_clipboard_text
 from clipai.output import maybe_auto_paste
-from clipai.services.clipboard_session import ClipboardSession
+from clipai.capabilities.context.clipboard_session import ClipboardSession
 
 
 class OutputModeError(RuntimeError):

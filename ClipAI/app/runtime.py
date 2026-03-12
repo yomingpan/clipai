@@ -7,10 +7,12 @@ import time
 from clipai.core.event_bus import Events, get_event_bus
 from clipai.platform.hotkey import register_hotkeys_with_long_press
 from clipai.platform.notification import notify
+from clipai.platform.tts import TTSEngine
+from clipai.platform.tts_service import TTSService
 from clipai.capabilities.actions.action_registry import AppConfigBundle
 from clipai.capabilities.actions.action_runner import ActionRunner, RunCallbacks, RunRequest
 from clipai.capabilities.actions.output_applier import OutputModeError
-from clipai.services.runtime_context import build_runtime_context
+from clipai.capabilities.context.runtime_context import build_runtime_context
 from clipai.ui.popup_presenter import PopupPresenter
 from clipai.ui.result_popup.popup_session import PopupSession
 from clipai.platform.tray import TrayIcon
@@ -26,10 +28,14 @@ class DesktopRuntime:
         self._run_state = {"running": False}
         self._listener = None
         self._tray: TrayIcon | None = None
+        self._tts_engine: TTSEngine | None = None
+        self._tts_service: TTSService | None = None
         self._popup_presenter = PopupPresenter(on_follow_up=self._submit_follow_up)
         self._popup_sessions: dict[str, PopupSession] = {}
 
     def start(self) -> None:
+        self._init_tts()
+        self._popup_presenter = PopupPresenter(on_follow_up=self._submit_follow_up, tts_service=self._tts_service)
         self._run_state["running"] = True
         self._register_hotkeys()
         self._start_tray()
@@ -69,11 +75,25 @@ class DesktopRuntime:
         self._tray = TrayIcon(
             on_quit_callback=self.stop,
             client=None,
-            tts_engine=None,
+            tts_engine=self._tts_engine,
             app_cfg=self._bundle.app_cfg,
             actions_list=self._bundle.actions,
         )
         self._tray.run()
+
+    def _init_tts(self) -> None:
+        tts_cfg = self._bundle.tts_cfg
+        if not tts_cfg.get("enabled", False):
+            self._tts_engine = None
+            self._tts_service = None
+            return
+        self._tts_engine = TTSEngine(
+            voice=tts_cfg.get("voice", "zh-TW-HsiaoChenNeural"),
+            rate=tts_cfg.get("rate", "+0%"),
+            volume=tts_cfg.get("volume", "+0%"),
+            proxy=tts_cfg.get("proxy"),
+        )
+        self._tts_service = TTSService(self._bus, self._tts_engine.speak)
 
     def _execute_action(self, action_id: str) -> None:
         action_def = self._bundle.action_map.get(action_id)
