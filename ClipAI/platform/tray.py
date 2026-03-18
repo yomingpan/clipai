@@ -12,21 +12,18 @@ markdown_enabled = True
 
 
 def create_image(status="idle", size=64):
-    """Create a status-aware chip icon for ClipAI."""
+    """Create a status-aware icon for ClipAI."""
     render_scale = 4
     width = height = size * render_scale
     has_manual = memory_manager.get_manual_count() > 0
     scale_factor = (size / 64.0) * render_scale
 
-    image = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+    image = Image.new("RGBA", (width, height), (255, 255, 255, 255))
     dc = ImageDraw.Draw(image)
+    thickness = int(14 * scale_factor)
+    gap = int(10 * scale_factor)
+    offset = int(16 * scale_factor)
     cx, cy = width // 2, height // 2
-    chip_w = int(30 * scale_factor)
-    chip_h = int(30 * scale_factor)
-    chip_radius = int(8 * scale_factor)
-    pin_len = int(8 * scale_factor)
-    pin_gap = int(8 * scale_factor)
-    pin_width = max(2, int(3 * scale_factor))
 
     if has_manual:
         dot_radius = int(7 * scale_factor)
@@ -54,57 +51,13 @@ def create_image(status="idle", size=64):
     }
     color = colors.get(status, colors["idle"])
 
-    chip_box = [
-        cx - chip_w,
-        cy - chip_h,
-        cx + chip_w,
-        cy + chip_h,
-    ]
-    dc.rounded_rectangle(
-        chip_box,
-        radius=chip_radius,
-        fill=(255, 255, 255, 245),
-        outline=color,
-        width=max(3, int(4 * scale_factor)),
-    )
+    s1_start = (cx - offset // 2 - gap, cy + int(20 * scale_factor))
+    s1_end = (cx - offset // 2 + gap, cy - int(20 * scale_factor))
+    s2_start = (cx + offset // 2 - gap, cy + int(15 * scale_factor))
+    s2_end = (cx + offset // 2 + gap, cy - int(15 * scale_factor))
 
-    for index in (-1, 0, 1):
-        y = cy + index * pin_gap
-        dc.line([(chip_box[0] - pin_len, y), (chip_box[0], y)], fill=color, width=pin_width)
-        dc.line([(chip_box[2], y), (chip_box[2] + pin_len, y)], fill=color, width=pin_width)
-
-    for index in (-1, 0, 1):
-        x = cx + index * pin_gap
-        dc.line([(x, chip_box[1] - pin_len), (x, chip_box[1])], fill=color, width=pin_width)
-        dc.line([(x, chip_box[3]), (x, chip_box[3] + pin_len)], fill=color, width=pin_width)
-
-    orbit_width = max(3, int(4 * scale_factor))
-    dc.arc(
-        [
-            cx - int(18 * scale_factor),
-            cy - int(10 * scale_factor),
-            cx + int(18 * scale_factor),
-            cy + int(10 * scale_factor),
-        ],
-        start=25,
-        end=155,
-        fill=color,
-        width=orbit_width,
-    )
-    dc.arc(
-        [
-            cx - int(18 * scale_factor),
-            cy - int(10 * scale_factor),
-            cx + int(18 * scale_factor),
-            cy + int(10 * scale_factor),
-        ],
-        start=205,
-        end=335,
-        fill=color,
-        width=orbit_width,
-    )
-    node_radius = max(2, int(4 * scale_factor))
-    dc.ellipse([cx - node_radius, cy - node_radius, cx + node_radius, cy + node_radius], fill=color)
+    dc.line([s1_start, s1_end], fill=color, width=thickness)
+    dc.line([s2_start, s2_end], fill=color, width=thickness)
     return image.resize((size, size), Image.Resampling.LANCZOS)
 
 
