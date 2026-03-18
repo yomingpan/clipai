@@ -7,17 +7,43 @@ import customtkinter as ctk
 from clipai.ui.base_dialog import BaseDialog
 
 
+BEHAVIOR_LABELS = {
+    "paste": "[Paste]",
+    "popup": "[Popup]",
+    "speak": "[Speak]",
+    "memory": "[Memory]",
+}
+
+
+def _behavior_label(action: dict) -> str:
+    output_cfg = action.get("output", {})
+    action_id = str(action.get("id", ""))
+    if action_id == "tts_read_selection":
+        return BEHAVIOR_LABELS["speak"]
+    if action_id in ("memorize", "reset_memory"):
+        return BEHAVIOR_LABELS["memory"]
+    if output_cfg.get("show_popup", False) or action.get("output_mode") == "popup":
+        return BEHAVIOR_LABELS["popup"]
+    return BEHAVIOR_LABELS["paste"]
+
+
+def _display_name(action: dict) -> str:
+    raw_name = str(action.get("name") or "").strip()
+    if raw_name and "?" not in raw_name:
+        return raw_name
+    action_id = str(action.get("id") or "Unnamed Action")
+    return action_id.replace("_", " ").title()
+
+
 def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
-    """
-    Displays a clean, grouped hotkey reference panel.
-    """
+    """Display a grouped hotkey reference panel."""
     groups: OrderedDict = OrderedDict()
-    for act in actions_list:
-        hotkey = act.get("hotkey")
+    for action in actions_list:
+        hotkey = action.get("hotkey")
         if not hotkey:
             continue
-        group_name = act.get("group", "Other")
-        groups.setdefault(group_name, []).append(act)
+        group_name = action.get("group", "Other")
+        groups.setdefault(group_name, []).append(action)
 
     row_height = 28
     group_header_height = 32
@@ -37,7 +63,7 @@ def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
 
     title_label = ctk.CTkLabel(
         header_frame,
-        text="?剁?  " + title,
+        text="[AI]  " + title,
         font=("Microsoft JhengHei", 12, "bold"),
         text_color="#3B8ED0",
         anchor="w",
@@ -49,7 +75,7 @@ def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
 
     legend = ctk.CTkLabel(
         footer_frame,
-        text="?? Paste   ?? Popup   ?儭?Speak   ?? Memory",
+        text="  ".join(BEHAVIOR_LABELS.values()),
         font=("Microsoft JhengHei", 10),
         text_color=("gray40", "gray55"),
         anchor="w",
@@ -86,22 +112,11 @@ def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
         sep = ctk.CTkFrame(scroll_frame, height=1, fg_color=("#DDDDDD", "#444444"))
         sep.pack(fill="x", padx=8, pady=(0, 4))
 
-        for act in items:
+        for action in items:
             row = ctk.CTkFrame(scroll_frame, fg_color="transparent")
             row.pack(fill="x", padx=8, pady=1)
 
-            output_cfg = act.get("output", {})
-            action_id = act.get("id", "")
-            if action_id == "tts_speak":
-                behavior_icon = "?儭?"
-            elif action_id in ("memorize", "reset_memory"):
-                behavior_icon = "??"
-            elif output_cfg.get("show_popup", False):
-                behavior_icon = "??"
-            else:
-                behavior_icon = "??"
-
-            display_name = f"{behavior_icon}  {act.get('name', act.get('id', '?'))}"
+            display_name = f"{_behavior_label(action)}  {_display_name(action)}"
             name_label = ctk.CTkLabel(
                 row,
                 text=display_name,
@@ -110,7 +125,10 @@ def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
             )
             name_label.pack(side="left", fill="x", expand=True)
 
-            hk_text = act["hotkey"].replace("alt+shift+", "Alt+Shift+").replace("alt+", "Alt+").replace("shift+", "Shift+")
+            hk_text = str(action["hotkey"]).replace("alt+shift+", "Alt+Shift+").replace("alt+", "Alt+").replace(
+                "shift+",
+                "Shift+",
+            )
             badge_frame = ctk.CTkFrame(
                 row,
                 fg_color=("#E8E8E8", "#3A3A3A"),
