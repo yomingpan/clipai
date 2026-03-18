@@ -36,9 +36,10 @@ class PopupPresenter:
         self._follow_entry = None
         self._input_label = None
         self._follow_hint_label = None
-        self._shell_frame = None
+        self._pin_button = None
         self._main_frame = None
         self._title_label = None
+        self._is_pinned = False
         self._ready = threading.Event()
 
     @staticmethod
@@ -121,9 +122,10 @@ class PopupPresenter:
             self._follow_entry = None
             self._input_label = None
             self._follow_hint_label = None
-            self._shell_frame = None
+            self._pin_button = None
             self._main_frame = None
             self._title_label = None
+            self._is_pinned = False
 
         root = self._root
         window = ctk.CTkToplevel(root)
@@ -149,22 +151,15 @@ class PopupPresenter:
         y = max(16, y)
         window.geometry(f"{width}x{height}+{x}+{y}")
 
-        shell_frame = ctk.CTkFrame(
-            window,
-            fg_color=BRAND_COLOR,
-            corner_radius=18,
-            border_width=0,
-        )
-        shell_frame.pack(fill="both", expand=True)
-        self._shell_frame = shell_frame
-
         main_frame = ctk.CTkFrame(
-            shell_frame,
+            window,
             fg_color=("white", "#181B22"),
-            corner_radius=15,
-            border_width=0,
+            corner_radius=18,
+            border_width=3,
+            border_color=BRAND_COLOR,
+            bg_color="transparent",
         )
-        main_frame.pack(fill="both", expand=True, padx=3, pady=3)
+        main_frame.pack(fill="both", expand=True, padx=1, pady=1)
         self._main_frame = main_frame
 
         header_frame = ctk.CTkFrame(main_frame, fg_color="transparent", height=36)
@@ -203,6 +198,30 @@ class PopupPresenter:
             attach_tooltip(button, tooltip)
             return button
 
+        def _toggle_pin() -> None:
+            self._is_pinned = not self._is_pinned
+            if self._pin_button is not None:
+                self._pin_button.configure(
+                    fg_color=(BRAND_COLOR if self._is_pinned else "transparent"),
+                    text_color=("white" if self._is_pinned else ("gray10", "#DCE4EE")),
+                )
+
+        drag_state = {"x": 0, "y": 0}
+
+        def _start_drag(event) -> None:
+            drag_state["x"] = event.x_root - window.winfo_x()
+            drag_state["y"] = event.y_root - window.winfo_y()
+
+        def _drag_window(event) -> None:
+            x = max(0, event.x_root - drag_state["x"])
+            y = max(0, event.y_root - drag_state["y"])
+            window.geometry(f"+{x}+{y}")
+
+        for widget in (header_frame, title_label):
+            widget.bind("<ButtonPress-1>", _start_drag, add="+")
+            widget.bind("<B1-Motion>", _drag_window, add="+")
+
+        self._pin_button = _icon_button("📌", "Pin", _toggle_pin)
         _icon_button("TTS", "Speak", lambda: self._speak_session(session))
         _icon_button("Copy", "Copy", lambda: self._copy_from_widget(text_widget, session))
         _icon_button("Save", "Archive", lambda: self._archive_service.append_session(session))
@@ -298,12 +317,15 @@ class PopupPresenter:
                     self._follow_entry = None
                     self._input_label = None
                     self._follow_hint_label = None
-                    self._shell_frame = None
+                    self._pin_button = None
                     self._main_frame = None
                     self._title_label = None
+                    self._is_pinned = False
 
         def _close_if_focus_left() -> None:
             if not window.winfo_exists():
+                return
+            if self._is_pinned:
                 return
             try:
                 focused = window.focus_get()
@@ -335,7 +357,6 @@ class PopupPresenter:
         window.after(100, lambda: text_widget.focus_set())
         window.lift()
         window.attributes("-topmost", True)
-        window.after(300, lambda: window.winfo_exists() and window.attributes("-topmost", False))
 
     def _update_input_on_ui(self, session_id: str, original_input: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
@@ -402,8 +423,8 @@ class PopupPresenter:
             )
 
     def _apply_status_color(self, color: str) -> None:
-        if self._shell_frame is not None:
-            self._shell_frame.configure(fg_color=color)
+        if self._main_frame is not None:
+            self._main_frame.configure(border_color=color)
 
     def _sync_follow_up_controls(self, session: PopupSession) -> None:
         if self._follow_hint_label is not None:
