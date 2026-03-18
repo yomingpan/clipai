@@ -447,9 +447,9 @@ class PopupPresenter:
         text_widget.delete("1.0", "end")
         text_widget.tag_configure("body", spacing1=2, spacing3=3)
         text_widget.tag_configure("history", foreground="#7A7F87")
-        text_widget.tag_configure("md_h1", font=("Microsoft JhengHei", 14, "bold"), spacing1=6, spacing3=4)
-        text_widget.tag_configure("md_h2", font=("Microsoft JhengHei", 13, "bold"), spacing1=5, spacing3=3)
-        text_widget.tag_configure("md_bold", font=("Microsoft JhengHei", 12, "bold"))
+        text_widget.tag_configure("md_h1", font=("Microsoft JhengHei", 16, "bold"), spacing1=6, spacing3=4)
+        text_widget.tag_configure("md_h2", font=("Microsoft JhengHei", 16, "bold"), spacing1=5, spacing3=3)
+        text_widget.tag_configure("md_bold", font=("Microsoft JhengHei", 16, "bold"))
         text_widget.tag_configure("md_code", font=("Consolas", 11), background="#EEF3F8")
         PopupPresenter._insert_markdown(text_widget, session.latest_result.strip() or " ", base_tag="body")
         if session.rounds:
