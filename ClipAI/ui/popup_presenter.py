@@ -410,8 +410,6 @@ class PopupPresenter:
     def _apply_status_color(self, color: str) -> None:
         if self._shell_frame is not None:
             self._shell_frame.configure(fg_color=color)
-        if self._title_label is not None:
-            self._title_label.configure(text_color=color)
 
     def _sync_follow_up_controls(self, session: PopupSession) -> None:
         if self._follow_hint_label is not None:
