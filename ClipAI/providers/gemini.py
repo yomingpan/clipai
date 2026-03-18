@@ -81,7 +81,10 @@ class GeminiProvider(LLMProvider):
         cancellation_token: CancellationToken | None,
     ) -> None:
         endpoint = "streamGenerateContent" if stream else "generateContent"
-        url = f"{self._base_url}/v1beta/models/{model}:{endpoint}?key={self._api_key}"
+        if stream:
+            url = f"{self._base_url}/v1beta/models/{model}:{endpoint}?alt=sse&key={self._api_key}"
+        else:
+            url = f"{self._base_url}/v1beta/models/{model}:{endpoint}?key={self._api_key}"
         payload = {
             "contents": [self._to_content_parts(messages, image_base64)],
             "generationConfig": {"temperature": temperature},
@@ -98,25 +101,21 @@ class GeminiProvider(LLMProvider):
                         return
 
                     if stream:
-                        async for raw_line in resp.content:
+                        buffer = ""
+                        async for raw_chunk in resp.content.iter_any():
                             if cancellation_token and cancellation_token.is_cancelled():
                                 q.put(("error", LLMCancelledError("gemini request cancelled")))
                                 return
-                            line = raw_line.decode("utf-8", errors="ignore").strip()
-                            if not line:
-                                continue
-                            if line.startswith("data:"):
-                                line = line[5:].strip()
-                            if line == "[DONE]":
-                                break
-                            try:
-                                obj = json.loads(line)
-                            except json.JSONDecodeError as exc:
-                                q.put(("error", LLMResponseError(f"invalid Gemini stream JSON: {exc}")))
+                            buffer += raw_chunk.decode("utf-8", errors="ignore")
+                            while "\n\n" in buffer:
+                                raw_event, buffer = buffer.split("\n\n", 1)
+                                if self._handle_stream_event(raw_event, q):
+                                    q.put(("done", None))
+                                    return
+                        if buffer.strip():
+                            if self._handle_stream_event(buffer, q):
+                                q.put(("done", None))
                                 return
-                            text = self._extract_text(obj)
-                            if text:
-                                q.put(("chunk", text))
                     else:
                         if cancellation_token and cancellation_token.is_cancelled():
                             q.put(("error", LLMCancelledError("gemini request cancelled")))
@@ -147,9 +146,37 @@ class GeminiProvider(LLMProvider):
         except ValueError:
             return None
 
+    @classmethod
+    def _handle_stream_event(cls, raw_event: str, q: queue.Queue[tuple[str, Any]]) -> bool:
+        lines = [line.strip() for line in raw_event.splitlines() if line.strip()]
+        if not lines:
+            return False
+
+        data_lines = [line[5:].strip() for line in lines if line.startswith("data:")]
+        payloads = data_lines if data_lines else [raw_event.strip()]
+
+        for payload in payloads:
+            if not payload:
+                continue
+            if payload == "[DONE]":
+                return True
+
+            try:
+                obj = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                q.put(("error", LLMResponseError(f"invalid Gemini stream JSON: {exc}")))
+                return True
+
+            text = cls._extract_text(obj)
+            if text:
+                q.put(("chunk", text))
+        return False
+
     @staticmethod
-    def _extract_text(obj: dict[str, Any]) -> str:
+    def _extract_text(obj: Any) -> str:
         try:
+            if isinstance(obj, list):
+                return "".join(GeminiProvider._extract_text(item) for item in obj)
             candidates = obj.get("candidates") or []
             parts = candidates[0]["content"]["parts"]
             return "".join(str(p.get("text", "")) for p in parts)

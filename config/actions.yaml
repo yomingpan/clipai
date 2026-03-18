@@ -2,7 +2,6 @@ actions:
   - id: translate_zh_tw
     name: 翻譯成中文
     hotkey: alt+shift+1
-    model: gemma3:1b
     stream: true
     input_mode: selection_or_clipboard
     output_mode: paste
@@ -18,7 +17,6 @@ actions:
   - id: translate_en
     name: 翻譯成英文
     hotkey: alt+shift+2
-    model: gemma3:1b
     stream: true
     input_mode: selection_or_clipboard
     output_mode: paste
@@ -50,7 +48,6 @@ actions:
   - id: shorten_keep_meaning
     name: 縮短句子
     hotkey: alt+shift+4
-    model: gemma3:1b
     stream: true
     input_mode: selection_or_clipboard
     output_mode: paste
@@ -66,7 +63,6 @@ actions:
   - id: summarize_next_steps
     name: 總結重點與下一步
     hotkey: alt+shift+5
-    model: gemma3:1b
     stream: true
     input_mode: selection_or_clipboard
     output_mode: popup

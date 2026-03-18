@@ -8,10 +8,18 @@ app:
     對翻譯、改寫、摘要任務，優先保留原始資訊與語氣，除非 action 明確要求調整。
     如果輸入不足以完成任務，明確指出缺少什麼，不要假設。
 
+#provider:
+#  provider: ollama
+#  ollama_base_url: http://localhost:11434
+#  default_model: gemma3:1b
+
+
 provider:
-  provider: ollama
-  ollama_base_url: http://localhost:11434
-  default_model: gemma3:1b
+  provider: gemini
+  gemini_api_key: "AIzaSyBMEboKPyh791eyS1Dmpblt_HFvkK8-8c4"
+  gemini_base_url: https://generativelanguage.googleapis.com
+  default_model: gemma-3-27b-it
+
 
 tts:
   enabled: true
