@@ -141,8 +141,8 @@ class PopupPresenter:
 
         screen_w = window.winfo_screenwidth()
         screen_h = window.winfo_screenheight()
-        width = max(500, min(760, int(screen_w * 0.32)))
-        height = max(380, min(620, int(screen_h * 0.42)))
+        width = max(500, min(300, int(screen_w * 0.32)))
+        height = max(380, min(150, int(screen_h * 0.42)))
         pointer_x = window.winfo_pointerx()
         pointer_y = window.winfo_pointery()
         x = min(pointer_x + 18, screen_w - width - 16)
