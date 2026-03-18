@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import queue
+import re
 import threading
 import tkinter as tk
 from typing import Callable
@@ -39,6 +40,15 @@ class PopupPresenter:
         self._main_frame = None
         self._title_label = None
         self._ready = threading.Event()
+
+    @staticmethod
+    def _format_input_preview(text: str, max_chars: int = 88) -> str:
+        compact = " ".join((text or "").split())
+        if not compact:
+            return "◉ Analysis: (empty input)"
+        if len(compact) > max_chars:
+            compact = compact[: max_chars - 3].rstrip() + "..."
+        return f"◉ Analysis: {compact}"
 
     def show_session(self, session: PopupSession) -> None:
         self._ensure_ui_thread()
@@ -158,7 +168,7 @@ class PopupPresenter:
         self._main_frame = main_frame
 
         header_frame = ctk.CTkFrame(main_frame, fg_color="transparent", height=36)
-        header_frame.pack(fill="x", padx=14, pady=(14, 6))
+        header_frame.pack(fill="x", padx=14, pady=(10, 4))
         header_frame.pack_propagate(False)
 
         title_label = ctk.CTkLabel(
@@ -199,7 +209,7 @@ class PopupPresenter:
         _icon_button("Deep", "Deep Think", lambda: None, accent=True)
 
         follow_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        follow_frame.pack(fill="x", padx=14, pady=(0, 8))
+        follow_frame.pack(fill="x", padx=14, pady=(0, 4))
 
         follow_entry = ctk.CTkEntry(
             follow_frame,
@@ -220,6 +230,17 @@ class PopupPresenter:
         self._follow_hint_label = follow_hint
         self._sync_follow_up_controls(session)
 
+        input_value = ctk.CTkLabel(
+            main_frame,
+            text=self._format_input_preview(session.original_input),
+            font=("Microsoft JhengHei", 9),
+            text_color=("gray52", "gray58"),
+            justify="left",
+            anchor="w",
+        )
+        input_value.pack(fill="x", padx=14, pady=(0, 6))
+        self._input_label = input_value
+
         text_container = ctk.CTkFrame(
             main_frame,
             corner_radius=10,
@@ -227,14 +248,14 @@ class PopupPresenter:
             border_color=("#D8DEE8", "#2B3240"),
             fg_color=("#FCFCFD", "#141922"),
         )
-        text_container.pack(fill="both", expand=True, padx=14, pady=(0, 10))
+        text_container.pack(fill="both", expand=True, padx=14, pady=(0, 8))
 
         text_widget = tk.Text(
             text_container,
-            font=("Microsoft JhengHei", 11),
+            font=("Microsoft JhengHei", 12),
             wrap="word",
             padx=14,
-            pady=14,
+            pady=12,
             borderwidth=0,
             highlightthickness=0,
             bg=window._apply_appearance_mode(ctk.ThemeManager.theme["CTkTextbox"]["fg_color"]),
@@ -244,33 +265,6 @@ class PopupPresenter:
         text_widget.pack(fill="both", expand=True, padx=2, pady=2)
         self._text_widget = text_widget
         self._render_session_text(text_widget, session)
-
-        input_frame = ctk.CTkFrame(
-            main_frame,
-            corner_radius=8,
-            fg_color=("#F2F5F9", "#141922"),
-        )
-        input_frame.pack(fill="x", padx=14, pady=(0, 14))
-
-        ctk.CTkLabel(
-            input_frame,
-            text="Input",
-            font=("Microsoft JhengHei", 10, "bold"),
-            text_color=("gray35", "gray65"),
-            anchor="w",
-        ).pack(fill="x", padx=10, pady=(8, 2))
-
-        input_value = ctk.CTkLabel(
-            input_frame,
-            text=session.original_input,
-            font=("Microsoft JhengHei", 10),
-            text_color=("gray45", "gray60"),
-            justify="left",
-            anchor="w",
-            wraplength=width - 60,
-        )
-        input_value.pack(fill="x", padx=10, pady=(0, 8))
-        self._input_label = input_value
 
         def _submit_follow_up(event=None) -> str | None:
             del event
@@ -348,7 +342,7 @@ class PopupPresenter:
             return
         self._active_session.original_input = original_input
         if self._input_label is not None:
-            self._input_label.configure(text=original_input)
+            self._input_label.configure(text=self._format_input_preview(original_input))
 
     def _refresh_session_on_ui(self, session_id: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
@@ -430,16 +424,61 @@ class PopupPresenter:
     def _render_session_text(text_widget: tk.Text, session: PopupSession) -> None:
         text_widget.config(state="normal")
         text_widget.delete("1.0", "end")
-        text_widget.tag_configure("latest")
+        text_widget.tag_configure("body", spacing1=2, spacing3=3)
         text_widget.tag_configure("history", foreground="#7A7F87")
-        text_widget.insert("end", session.latest_result.strip(), ("latest",))
+        text_widget.tag_configure("md_h1", font=("Microsoft JhengHei", 14, "bold"), spacing1=6, spacing3=4)
+        text_widget.tag_configure("md_h2", font=("Microsoft JhengHei", 13, "bold"), spacing1=5, spacing3=3)
+        text_widget.tag_configure("md_bold", font=("Microsoft JhengHei", 12, "bold"))
+        text_widget.tag_configure("md_code", font=("Consolas", 11), background="#EEF3F8")
+        PopupPresenter._insert_markdown(text_widget, session.latest_result.strip() or " ", base_tag="body")
         if session.rounds:
             for item in session.rounds:
                 text_widget.insert("end", f"\n\n--- round {item.round_index} ---\n", ("history",))
                 label = "Deep Think" if item.kind == "deep_think" else "Follow-up"
                 text_widget.insert("end", f"{label}: {item.prompt_text.strip()}\n", ("history",))
-                text_widget.insert("end", item.result_text.strip(), ("history",))
+                PopupPresenter._insert_markdown(text_widget, item.result_text.strip(), base_tag="history")
         text_widget.config(state="disabled")
+
+    @staticmethod
+    def _insert_markdown(text_widget: tk.Text, content: str, base_tag: str = "body") -> None:
+        for raw_line in content.splitlines():
+            line = raw_line.rstrip()
+            if not line:
+                text_widget.insert("end", "\n", (base_tag,))
+                continue
+
+            if line.startswith("# "):
+                PopupPresenter._insert_inline_markdown(text_widget, line[2:], ("md_h1",))
+                text_widget.insert("end", "\n")
+                continue
+            if line.startswith("## "):
+                PopupPresenter._insert_inline_markdown(text_widget, line[3:], ("md_h2",))
+                text_widget.insert("end", "\n")
+                continue
+            if re.match(r"^(\-|\*|\d+\.)\s+", line):
+                normalized = re.sub(r"^(\-|\*|\d+\.)\s+", "• ", line, count=1)
+                PopupPresenter._insert_inline_markdown(text_widget, normalized, (base_tag,))
+                text_widget.insert("end", "\n")
+                continue
+
+            PopupPresenter._insert_inline_markdown(text_widget, line, (base_tag,))
+            text_widget.insert("end", "\n")
+
+    @staticmethod
+    def _insert_inline_markdown(text_widget: tk.Text, line: str, base_tags: tuple[str, ...]) -> None:
+        pattern = re.compile(r"(\*\*[^*]+\*\*|`[^`]+`)")
+        cursor = 0
+        for match in pattern.finditer(line):
+            if match.start() > cursor:
+                text_widget.insert("end", line[cursor:match.start()], base_tags)
+            token = match.group(0)
+            if token.startswith("**") and token.endswith("**"):
+                text_widget.insert("end", token[2:-2], base_tags + ("md_bold",))
+            elif token.startswith("`") and token.endswith("`"):
+                text_widget.insert("end", token[1:-1], base_tags + ("md_code",))
+            cursor = match.end()
+        if cursor < len(line):
+            text_widget.insert("end", line[cursor:], base_tags)
 
     @staticmethod
     def _copy_from_widget(text_widget: tk.Text, session: PopupSession) -> None:
