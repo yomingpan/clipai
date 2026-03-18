@@ -18,6 +18,7 @@ ctk.set_default_color_theme("blue")
 BRAND_COLOR = "#3B8ED0"
 SUCCESS_COLOR = "#2E9E5B"
 ERROR_COLOR = "#D64545"
+POPUP_MASK_COLOR = "#010203"
 
 
 class PopupPresenter:
@@ -34,6 +35,7 @@ class PopupPresenter:
         self._follow_entry = None
         self._input_label = None
         self._follow_hint_label = None
+        self._shell_frame = None
         self._main_frame = None
         self._title_label = None
         self._ready = threading.Event()
@@ -109,6 +111,7 @@ class PopupPresenter:
             self._follow_entry = None
             self._input_label = None
             self._follow_hint_label = None
+            self._shell_frame = None
             self._main_frame = None
             self._title_label = None
 
@@ -117,8 +120,12 @@ class PopupPresenter:
         self._active_window = window
         self._active_session = session
         window.title(f"ClipAI - {session.action_name}")
-        window.configure(fg_color=("#F7F8FA", "#111318"))
+        window.configure(fg_color=POPUP_MASK_COLOR)
         window.overrideredirect(True)
+        try:
+            window.wm_attributes("-transparentcolor", POPUP_MASK_COLOR)
+        except tk.TclError:
+            pass
 
         screen_w = window.winfo_screenwidth()
         screen_h = window.winfo_screenheight()
@@ -132,14 +139,22 @@ class PopupPresenter:
         y = max(16, y)
         window.geometry(f"{width}x{height}+{x}+{y}")
 
-        main_frame = ctk.CTkFrame(
+        shell_frame = ctk.CTkFrame(
             window,
-            fg_color=("white", "#181B22"),
-            corner_radius=14,
-            border_width=1,
-            border_color=BRAND_COLOR,
+            fg_color=BRAND_COLOR,
+            corner_radius=18,
+            border_width=0,
         )
-        main_frame.pack(fill="both", expand=True)
+        shell_frame.pack(fill="both", expand=True)
+        self._shell_frame = shell_frame
+
+        main_frame = ctk.CTkFrame(
+            shell_frame,
+            fg_color=("white", "#181B22"),
+            corner_radius=15,
+            border_width=0,
+        )
+        main_frame.pack(fill="both", expand=True, padx=3, pady=3)
         self._main_frame = main_frame
 
         header_frame = ctk.CTkFrame(main_frame, fg_color="transparent", height=36)
@@ -289,6 +304,7 @@ class PopupPresenter:
                     self._follow_entry = None
                     self._input_label = None
                     self._follow_hint_label = None
+                    self._shell_frame = None
                     self._main_frame = None
                     self._title_label = None
 
@@ -392,8 +408,8 @@ class PopupPresenter:
             )
 
     def _apply_status_color(self, color: str) -> None:
-        if self._main_frame is not None:
-            self._main_frame.configure(border_color=color)
+        if self._shell_frame is not None:
+            self._shell_frame.configure(fg_color=color)
         if self._title_label is not None:
             self._title_label.configure(text_color=color)
 
