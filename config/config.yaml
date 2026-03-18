@@ -1,5 +1,6 @@
 app:
   default_action: translate_zh_tw
+  stream: true
   temperature: 0.2
   system_prompt: |
     你是 ClipAI。
@@ -16,7 +17,6 @@ app:
 
 provider:
   provider: gemini
-  gemini_api_key: "AIzaSyBMEboKPyh791eyS1Dmpblt_HFvkK8-8c4"
   gemini_base_url: https://generativelanguage.googleapis.com
   default_model: gemma-3-27b-it
 

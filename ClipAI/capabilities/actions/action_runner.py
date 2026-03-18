@@ -61,6 +61,9 @@ class ActionRunner:
     def provider_config(self) -> dict[str, Any]:
         return dict(self._bundle.provider_cfg)
 
+    def _default_stream_enabled(self, action_def: dict[str, Any]) -> bool:
+        return bool(action_def.get("stream", self._bundle.app_cfg.get("stream", True)))
+
     def run(self, request: RunRequest, runtime: RuntimeContext, callbacks: RunCallbacks | None = None) -> RunOutcome:
         action_def = self._bundle.action_map.get(request.action_id)
         if not action_def:
@@ -100,7 +103,7 @@ class ActionRunner:
         runtime_flags = {
             "provider": provider_cfg.get("provider", "ollama"),
             "model": request.model_override or action_def.get("model") or provider_cfg.get("default_model"),
-            "stream": runtime.stream_enabled and bool(action_def.get("stream", True)),
+            "stream": runtime.stream_enabled and self._default_stream_enabled(action_def),
             "temperature": action_def.get("temperature", self._bundle.app_cfg.get("temperature", 0.2)),
         }
         config = resolve_action_config(action_def, mode=runtime.mode, runtime_flags=runtime_flags)

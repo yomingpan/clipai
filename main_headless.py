@@ -13,6 +13,11 @@ from clipai.capabilities.actions.action_runner import ActionRunner, RunRequest
 from clipai.capabilities.actions.output_applier import OutputModeError
 from clipai.capabilities.context.runtime_context import build_runtime_context
 
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the minimal headless Ollama flow.")
@@ -37,6 +42,9 @@ def _read_explicit_prompt(args: argparse.Namespace) -> str:
 
 
 def main() -> int:
+    if load_dotenv:
+        load_dotenv()
+
     args = _parse_args()
     bundle = load_app_config(args.config)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
 from typing import Any, Generator, Iterable
@@ -21,8 +22,17 @@ from clipai.core.llm_provider import (
 
 class GeminiProvider(LLMProvider):
     def __init__(self, config: dict[str, Any]) -> None:
-        self._api_key = config.get("gemini_api_key") or config.get("api_key")
-        self._base_url = config.get("gemini_base_url", "https://generativelanguage.googleapis.com")
+        self._api_key = (
+            config.get("gemini_api_key")
+            or config.get("api_key")
+            or os.getenv("GEMINI_API_KEY")
+            or os.getenv("LLM_API_KEY")
+        )
+        self._base_url = (
+            config.get("gemini_base_url")
+            or os.getenv("GEMINI_BASE_URL")
+            or "https://generativelanguage.googleapis.com"
+        )
 
     def chat_completion(
         self,
