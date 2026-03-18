@@ -46,10 +46,10 @@ class PopupPresenter:
     def _format_input_preview(text: str, max_chars: int = 88) -> str:
         compact = " ".join((text or "").split())
         if not compact:
-            return "◉ Analysis: (empty input)"
+            return "Analysis: (empty input)"
         if len(compact) > max_chars:
             compact = compact[: max_chars - 3].rstrip() + "..."
-        return f"◉ Analysis: {compact}"
+        return f"Analysis: {compact}"
 
     def show_session(self, session: PopupSession) -> None:
         self._ensure_ui_thread()
