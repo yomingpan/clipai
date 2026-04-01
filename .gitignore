@@ -1,2 +1,6 @@
 __pycache__
 .env
+*.pyc
+logs/
+temp_audio/
+.pytest_cache/
