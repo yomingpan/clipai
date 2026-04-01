@@ -8,8 +8,8 @@ from clipai.core.cancellation import CancellationController
 from clipai.core.constants import EVENT_ACTION_COMPLETE, EVENT_ACTION_ERROR, EVENT_ACTION_START, EVENT_PIPELINE_UPDATE
 from clipai.core.event_bus import EventBus
 from clipai.core.llm_provider import ProviderChunk
-from clipai.capabilities.actions.action_service import ActionService
-from clipai.capabilities.actions.resolve_config import ResolvedActionConfig
+from clipai.services.action_config import ResolvedActionConfig
+from clipai.services.action_service import ActionService
 
 
 class _ProviderOK:

@@ -16,16 +16,35 @@ def _imports_for(path: Path) -> list[str]:
     return names
 
 
+def _python_files(base: Path):
+    return (path for path in base.rglob("*.py") if path.is_file())
+
+
 def test_services_do_not_import_ui() -> None:
     base = Path("clipai/services")
-    for path in base.glob("*.py"):
+    for path in _python_files(base):
         imports = _imports_for(path)
         assert all(not name.startswith("clipai.ui") for name in imports), f"forbidden import in {path}"
+
+
+def test_context_does_not_import_ui_or_providers() -> None:
+    forbidden = ("clipai.ui", "clipai.providers")
+    base = Path("clipai/context")
+    for path in _python_files(base):
+        imports = _imports_for(path)
+        assert all(not name.startswith(forbidden) for name in imports), f"forbidden import in {path}"
 
 
 def test_providers_do_not_import_ui_or_event_bus_or_clipboard_or_tray() -> None:
     forbidden = ("clipai.ui", "clipai.core.event_bus", "clipai.platform.clipboard", "clipai.platform.tray")
     base = Path("clipai/providers")
-    for path in base.glob("*.py"):
+    for path in _python_files(base):
         imports = _imports_for(path)
         assert all(not name.startswith(forbidden) for name in imports), f"forbidden import in {path}"
+
+
+def test_ui_does_not_import_providers_directly() -> None:
+    base = Path("clipai/ui")
+    for path in _python_files(base):
+        imports = _imports_for(path)
+        assert all(not name.startswith("clipai.providers") for name in imports), f"forbidden import in {path}"

@@ -4,18 +4,18 @@ import logging
 import threading
 import time
 
+from clipai.app.config import AppConfigBundle
+from clipai.context.input_resolver import InputResolver
+from clipai.context.runtime_context import build_runtime_context
 from clipai.core.event_bus import Events, get_event_bus
 from clipai.platform.hotkey import register_hotkeys_with_long_press
 from clipai.platform.notification import notify
 from clipai.platform.tts import TTSEngine
 from clipai.platform.tts_service import TTSService
-from clipai.capabilities.actions.action_registry import AppConfigBundle
-from clipai.capabilities.actions.action_runner import ActionRunner, RunCallbacks, RunRequest
-from clipai.capabilities.actions.output_applier import OutputModeError
-from clipai.capabilities.context.input_resolver import InputResolver
-from clipai.capabilities.context.runtime_context import build_runtime_context
+from clipai.services.action_runner import ActionRunner, RunCallbacks, RunRequest
+from clipai.services.output_applier import OutputModeError
+from clipai.services.popup_session import PopupSession
 from clipai.ui.popup_presenter import PopupPresenter
-from clipai.ui.result_popup.popup_session import PopupSession
 from clipai.platform.tray import TrayIcon
 
 logger = logging.getLogger("clipai")

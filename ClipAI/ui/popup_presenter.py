@@ -9,8 +9,8 @@ from typing import Callable
 import customtkinter as ctk
 
 from clipai.platform.clipboard import write_clipboard_text
-from clipai.capabilities.popup.archive_service import ArchiveService
-from clipai.ui.result_popup.popup_session import PopupSession
+from clipai.services.archive_service import ArchiveService
+from clipai.services.popup_session import PopupSession
 from clipai.ui.tooltip import attach_tooltip
 
 ctk.set_appearance_mode("System")
