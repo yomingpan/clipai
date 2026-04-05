@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from clipai.context.clipboard_session import ClipboardSession
 from clipai.logging_setup import diagnostics_enabled
-from clipai.platform.clipboard import read_clipboard_text, write_clipboard_text
+from clipai.platform.clipboard import image_to_base64, read_clipboard_image, read_clipboard_text, write_clipboard_text
 
 logger = logging.getLogger("clipai.input")
 
@@ -16,6 +16,7 @@ logger = logging.getLogger("clipai.input")
 class InputResolution:
     text: str
     source: str
+    image_base64: str | None = None
     error: str | None = None
 
 
@@ -39,21 +40,39 @@ class InputResolver:
             return InputResolution(text=text, source="explicit")
 
         normalized_mode = (input_mode or "selection_or_clipboard").lower()
-        if self._enable_selection_capture and normalized_mode in {"selection_or_clipboard", "selection"}:
+        selection_modes = {"selection_or_clipboard", "selection_or_clipboard_image", "selection"}
+        clipboard_text_modes = {"selection_or_clipboard", "selection_or_clipboard_image", "clipboard", "clipboard_or_image"}
+        clipboard_image_modes = {"selection_or_clipboard", "selection_or_clipboard_image", "clipboard_image", "clipboard_or_image"}
+
+        if self._enable_selection_capture and normalized_mode in selection_modes:
             selected = self._read_selected_text()
             if selected:
                 return InputResolution(text=selected, source="selection")
             if normalized_mode == "selection":
                 return InputResolution(text="", source="empty", error="No highlighted text was found.")
 
-        clipboard_text = (read_clipboard_text() or "").strip()
-        if clipboard_text:
-            return InputResolution(text=clipboard_text, source="clipboard")
+        if normalized_mode in clipboard_text_modes:
+            clipboard_text = (read_clipboard_text() or "").strip()
+            if clipboard_text:
+                return InputResolution(text=clipboard_text, source="clipboard")
+
+        if normalized_mode in clipboard_image_modes:
+            image_base64 = self._read_clipboard_image_base64()
+            if image_base64:
+                return InputResolution(
+                    text="[Clipboard image attached]",
+                    source="clipboard_image",
+                    image_base64=image_base64,
+                )
 
         manual = self._prompt_for_text()
         if manual:
             return InputResolution(text=manual, source="manual")
-        return InputResolution(text="", source="empty", error="No highlighted text or clipboard content was found.")
+        return InputResolution(
+            text="",
+            source="empty",
+            error="No highlighted text, clipboard text, or clipboard image was found.",
+        )
 
     def _read_selected_text(self) -> str:
         try:
@@ -91,6 +110,17 @@ class InputResolver:
                     return current.strip()
             logger.warning("[clipai] Selection capture failed: clipboard stayed at sentinel")
             return ""
+
+    @staticmethod
+    def _read_clipboard_image_base64() -> str | None:
+        image = read_clipboard_image(retries=1, delay=0)
+        if image is None or not hasattr(image, "mode"):
+            return None
+        try:
+            return image_to_base64(image)
+        except Exception:
+            logger.exception("[clipai] Clipboard image conversion failed.")
+            return None
 
     @staticmethod
     def _selection_sentinel() -> str:

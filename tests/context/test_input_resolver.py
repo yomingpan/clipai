@@ -69,3 +69,31 @@ def test_read_selected_text_returns_empty_when_clipboard_never_changes(monkeypat
     selected = resolver._read_selected_text()
 
     assert selected == ""
+
+
+def test_resolve_text_uses_clipboard_image_when_text_missing(monkeypatch) -> None:
+    resolver = InputResolver(enable_selection_capture=False)
+
+    monkeypatch.setattr(input_resolver_module, "read_clipboard_text", lambda: "")
+    monkeypatch.setattr(input_resolver_module, "read_clipboard_image", lambda retries=1, delay=0: SimpleNamespace(mode="RGB"))
+    monkeypatch.setattr(input_resolver_module, "image_to_base64", lambda image: "img64")
+
+    resolved = resolver.resolve_text(None, input_mode="selection_or_clipboard")
+
+    assert resolved.source == "clipboard_image"
+    assert resolved.text == "[Clipboard image attached]"
+    assert resolved.image_base64 == "img64"
+    assert resolved.error is None
+
+
+def test_resolve_text_does_not_use_clipboard_image_for_selection_mode(monkeypatch) -> None:
+    resolver = InputResolver(enable_selection_capture=False)
+
+    monkeypatch.setattr(input_resolver_module, "read_clipboard_image", lambda retries=1, delay=0: SimpleNamespace(mode="RGB"))
+    monkeypatch.setattr(input_resolver_module, "read_clipboard_text", lambda: "")
+    monkeypatch.setattr(InputResolver, "_prompt_for_text", staticmethod(lambda: ""))
+
+    resolved = resolver.resolve_text(None, input_mode="selection")
+
+    assert resolved.source == "empty"
+    assert resolved.image_base64 is None
