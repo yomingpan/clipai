@@ -359,7 +359,11 @@ class PopupPresenter:
                 self._sync_follow_up_controls(session)
                 return "break"
             follow_entry.delete(0, "end")
+            self._follow_visible = False
+            self._follow_frame.pack_forget()
             self._set_follow_up_enabled_on_ui(session.session_id, False)
+            if self._text_widget is not None:
+                self._text_widget.focus_set()
             self._on_follow_up(session, prompt_text)
             return "break"
 
@@ -533,6 +537,8 @@ class PopupPresenter:
         self._follow_entry.configure(state=state)
         if enabled:
             self._clear_follow_up_entry_on_ui()
+            if self._text_widget is not None:
+                self._text_widget.focus_set()
 
     def _append_chunk_on_ui(self, session_id: str, chunk: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:

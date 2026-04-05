@@ -31,3 +31,9 @@ def test_popup_presenter_clears_follow_up_entry_on_reuse() -> None:
     content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
     assert "_clear_follow_up_entry_on_ui" in content
     assert "self._clear_follow_up_entry_on_ui()" in content
+
+
+def test_popup_presenter_hides_follow_up_after_submit() -> None:
+    content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
+    assert 'self._follow_frame.pack_forget()' in content
+    assert 'self._follow_visible = False' in content
