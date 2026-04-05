@@ -85,6 +85,16 @@ actions:
       - 不要輸出其他額外標題或說明。
 
       {input}
+    press_variants:
+      long:
+        name: 解釋內容
+        system_prompt: >
+          你是一位內容解釋助手。請先用簡單直白的方式說明原文在講什麼、核心意思是什麼、
+          為什麼重要，必要時補充背景與關鍵概念。不要使用麥肯錫金字塔式摘要，也不要把回答壓縮成待辦清單。
+        prompt: |
+          請解釋以下內容，幫助我快速理解它的意思、脈絡與重點：
+
+          {input}
 
   - id: tts_read_selection
     name: Read Selection

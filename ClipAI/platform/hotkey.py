@@ -5,9 +5,12 @@ import threading
 from dataclasses import dataclass
 from typing import Callable
 
+from clipai.actions import PressType
 from clipai.logging_setup import diagnostics_enabled
 
 logger = logging.getLogger("clipai.hotkey")
+
+LONG_PRESS_SEC = 0.5
 
 _SHIFTED_DIGIT_MAP = {
     "!": "1",
@@ -105,14 +108,106 @@ class HotkeyListener:
         self._listener.stop()
 
 
+class _HotkeyDispatcher:
+    def __init__(
+        self,
+        hotkeys: list[tuple[str, set[str]]],
+        on_trigger: Callable[[str, PressType], None],
+        *,
+        long_press_sec: float = LONG_PRESS_SEC,
+        timer_factory: Callable[..., threading.Timer] = threading.Timer,
+    ) -> None:
+        self._hotkeys = hotkeys
+        self._on_trigger = on_trigger
+        self._long_press_sec = long_press_sec
+        self._timer_factory = timer_factory
+        self._pressed: set[str] = set()
+        self._active: dict[str, _HotkeyState] = {}
+        self._lock = threading.RLock()
+
+    def _fire(self, action_id: str, press_type: PressType) -> None:
+        logger.info("[clipai] Hotkey triggered: action_id=%s press_type=%s", action_id, press_type)
+        self._on_trigger(action_id, press_type)
+
+    def _fire_long(self, action_id: str) -> None:
+        with self._lock:
+            state = self._active.get(action_id)
+            if state is None:
+                return
+            state.long_fired = True
+        self._fire(action_id, "long")
+
+    def on_press(self, key) -> None:
+        token = _normalize_key(key)
+        if not token:
+            if diagnostics_enabled("hotkey_raw_events"):
+                logger.debug("[clipai] Ignored key press: %s", _describe_key(key))
+            return
+
+        with self._lock:
+            self._pressed.add(token)
+            if diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
+                logger.debug("[clipai] Key press token=%s raw=(%s) pressed=%s", token, _describe_key(key), sorted(self._pressed))
+            for action_id, tokens in self._hotkeys:
+                if action_id in self._active:
+                    continue
+                if tokens.issubset(self._pressed):
+                    logger.debug(
+                        "[clipai] Hotkey matched on press: action=%s tokens=%s pressed=%s",
+                        action_id,
+                        sorted(tokens),
+                        sorted(self._pressed),
+                    )
+                    state = _HotkeyState()
+                    state.timer = self._timer_factory(self._long_press_sec, lambda aid=action_id: self._fire_long(aid))
+                    state.timer.daemon = True
+                    state.timer.start()
+                    self._active[action_id] = state
+
+    def on_release(self, key) -> None:
+        token = _normalize_key(key)
+        if not token:
+            if diagnostics_enabled("hotkey_raw_events"):
+                logger.debug("[clipai] Ignored key release: %s", _describe_key(key))
+            return
+
+        callbacks: list[Callable[[], None]] = []
+        with self._lock:
+            if diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
+                logger.debug(
+                    "[clipai] Key release token=%s raw=(%s) pressed_before=%s",
+                    token,
+                    _describe_key(key),
+                    sorted(self._pressed),
+                )
+            self._pressed.discard(token)
+            for action_id, tokens in self._hotkeys:
+                if action_id not in self._active:
+                    continue
+                if tokens.issubset(self._pressed):
+                    continue
+                state = self._active.pop(action_id)
+                if state.timer:
+                    state.timer.cancel()
+                if not state.long_fired:
+                    logger.debug(
+                        "[clipai] Hotkey matched on release: action=%s released=%s remaining_pressed=%s",
+                        action_id,
+                        token,
+                        sorted(self._pressed),
+                    )
+                    callbacks.append(lambda aid=action_id: self._fire(aid, "short"))
+
+        for callback in callbacks:
+            callback()
+
+
 def register_hotkeys_with_long_press(
     action_map: dict[str, dict],
-    on_press_action: Callable[[str], None],
-    on_long_press_action: Callable[[str], None] | None = None,
+    on_trigger: Callable[[str, PressType], None],
     *,
     modifier_mode: str = "alt_shift",
-    tts_check_fn: Callable[[], bool] | None = None,
-    long_press_sec: float = 0.6,
+    long_press_sec: float = LONG_PRESS_SEC,
 ):
     try:
         from pynput import keyboard
@@ -126,88 +221,9 @@ def register_hotkeys_with_long_press(
             hotkeys.append((action_id, _parse_hotkey(variant)))
             logger.info("[clipai] Registered hotkey %s -> %s", variant, action_id)
 
-    logger.info("[clipai] Hotkey listener modifier_mode=%s", modifier_mode)
+    logger.info("[clipai] Hotkey listener modifier_mode=%s long_press_sec=%s", modifier_mode, long_press_sec)
 
-    pressed: set[str] = set()
-    active: dict[str, _HotkeyState] = {}
-    lock = threading.RLock()
-
-    def _fire_normal(action_id: str) -> None:
-        logger.info("[clipai] Hotkey triggered: %s", action_id)
-        if tts_check_fn and tts_check_fn():
-            on_press_action(action_id, tts_output=True)  # type: ignore[misc]
-        else:
-            on_press_action(action_id)
-
-    def _fire_long(action_id: str) -> None:
-        if on_long_press_action is None:
-            return
-        with lock:
-            state = active.get(action_id)
-            if state is None:
-                return
-            state.long_fired = True
-        logger.info("[clipai] Hotkey long-press triggered: %s", action_id)
-        on_long_press_action(action_id)
-
-    def _on_press(key) -> None:
-        token = _normalize_key(key)
-        if not token:
-            if diagnostics_enabled("hotkey_raw_events"):
-                logger.debug("[clipai] Ignored key press: %s", _describe_key(key))
-            return
-        with lock:
-            pressed.add(token)
-            if diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt"} or {"ctrl", "alt"}.issubset(pressed)):
-                logger.debug("[clipai] Key press token=%s raw=(%s) pressed=%s", token, _describe_key(key), sorted(pressed))
-            for action_id, tokens in hotkeys:
-                if action_id in active:
-                    continue
-                if tokens.issubset(pressed):
-                    logger.debug(
-                        "[clipai] Hotkey matched on press: action=%s tokens=%s pressed=%s",
-                        action_id,
-                        sorted(tokens),
-                        sorted(pressed),
-                    )
-                    state = _HotkeyState()
-                    state.timer = threading.Timer(long_press_sec, lambda aid=action_id: _fire_long(aid))
-                    state.timer.daemon = True
-                    state.timer.start()
-                    active[action_id] = state
-
-    def _on_release(key) -> None:
-        token = _normalize_key(key)
-        if not token:
-            if diagnostics_enabled("hotkey_raw_events"):
-                logger.debug("[clipai] Ignored key release: %s", _describe_key(key))
-            return
-
-        callbacks: list[Callable[[], None]] = []
-        with lock:
-            if diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt"} or {"ctrl", "alt"}.issubset(pressed)):
-                logger.debug("[clipai] Key release token=%s raw=(%s) pressed_before=%s", token, _describe_key(key), sorted(pressed))
-            pressed.discard(token)
-            for action_id, tokens in hotkeys:
-                if action_id not in active:
-                    continue
-                if tokens.issubset(pressed):
-                    continue
-                state = active.pop(action_id)
-                if state.timer:
-                    state.timer.cancel()
-                if not state.long_fired:
-                    logger.debug(
-                        "[clipai] Hotkey matched on release: action=%s released=%s remaining_pressed=%s",
-                        action_id,
-                        token,
-                        sorted(pressed),
-                    )
-                    callbacks.append(lambda aid=action_id: _fire_normal(aid))
-
-        for callback in callbacks:
-            callback()
-
-    listener = keyboard.Listener(on_press=_on_press, on_release=_on_release)
+    dispatcher = _HotkeyDispatcher(hotkeys, on_trigger, long_press_sec=long_press_sec)
+    listener = keyboard.Listener(on_press=dispatcher.on_press, on_release=dispatcher.on_release)
     listener.start()
     return HotkeyListener(listener)

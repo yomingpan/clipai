@@ -28,6 +28,9 @@ class PopupSession:
     action_name: str
     original_input: str
     latest_result: str
+    action_press_type: str = "short"
+    variant_applied: bool = False
+    resolved_action_def: dict[str, object] = field(default_factory=dict)
     input_loading: bool = False
     result_loading: bool = False
     session_id: str = field(default_factory=lambda: str(uuid4()))

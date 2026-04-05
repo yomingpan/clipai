@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from clipai.app.config import AppConfigBundle
+from clipai.actions import ResolvedAction, resolve_action_variant
 from clipai.context.input_resolver import InputResolution, InputResolver
 from clipai.context.runtime_context import RuntimeContext
 from clipai.core.cancellation import CancellationController
@@ -22,6 +23,7 @@ logger = logging.getLogger("clipai.action_runner")
 @dataclass(frozen=True)
 class RunRequest:
     action_id: str
+    press_type: str = "short"
     explicit_text: str | None = None
     explicit_messages: list[dict[str, str]] | None = None
     model_override: str | None = None
@@ -32,6 +34,7 @@ class RunRequest:
 class RunOutcome:
     action_id: str
     action_name: str
+    press_type: str
     input_resolution: InputResolution
     output_mode: str
     result: ActionRunResult
@@ -72,10 +75,35 @@ class ActionRunner:
         action_def = self._bundle.action_map.get(request.action_id)
         if not action_def:
             raise KeyError(f"Unknown action: {request.action_id}")
+        resolved_action = resolve_action_variant(action_def, request.press_type)
+        return self.run_resolved_action(
+            resolved_action,
+            runtime,
+            callbacks=callbacks,
+            explicit_text=request.explicit_text,
+            explicit_messages=request.explicit_messages,
+            model_override=request.model_override,
+            base_url_override=request.base_url_override,
+        )
+
+    def run_resolved_action(
+        self,
+        resolved_action: ResolvedAction,
+        runtime: RuntimeContext,
+        callbacks: RunCallbacks | None = None,
+        *,
+        explicit_text: str | None = None,
+        explicit_messages: list[dict[str, str]] | None = None,
+        model_override: str | None = None,
+        base_url_override: str | None = None,
+    ) -> RunOutcome:
+        action_def = dict(resolved_action.action_def)
 
         provider_cfg = dict(self._bundle.provider_cfg)
-        if request.base_url_override:
-            provider_cfg["ollama_base_url"] = request.base_url_override
+        if action_def.get("provider"):
+            provider_cfg["provider"] = action_def["provider"]
+        if base_url_override:
+            provider_cfg["ollama_base_url"] = base_url_override
 
         provider = build_provider(provider_cfg)
         action_service = ActionService(self._bus, provider)
@@ -85,12 +113,15 @@ class ActionRunner:
 
         output_mode = str(action_def.get("output_mode") or "stdout")
         logger.info(
-            "[clipai] Run start: action_id=%s output_mode=%s mode=%s use_selection=%s apply_output=%s",
-            request.action_id,
+            "[clipai] Run start: action_id=%s press_type=%s action_name=%s output_mode=%s mode=%s use_selection=%s apply_output=%s variant_applied=%s",
+            resolved_action.action_id,
+            resolved_action.press_type,
+            resolved_action.action_name,
             output_mode,
             runtime.mode,
             runtime.use_selection,
             runtime.apply_output,
+            resolved_action.variant_applied,
         )
         if runtime.stream_to_stdout:
             self._bus.subscribe(
@@ -98,18 +129,18 @@ class ActionRunner:
                 lambda payload: print(payload.get("content", ""), end="", flush=True),
             )
 
-        if request.explicit_messages is not None:
-            resolved_input = InputResolution(text=request.explicit_text or "", source="explicit")
-            messages = request.explicit_messages
+        if explicit_messages is not None:
+            resolved_input = InputResolution(text=explicit_text or "", source="explicit")
+            messages = explicit_messages
             if callbacks and callbacks.on_input_resolved is not None:
                 callbacks.on_input_resolved(resolved_input)
         else:
             input_mode = str(action_def.get("input_mode") or "selection_or_clipboard")
-            resolved_input = input_resolver.resolve_text(request.explicit_text, input_mode=input_mode)
+            resolved_input = input_resolver.resolve_text(explicit_text, input_mode=input_mode)
             if resolved_input.error:
                 logger.error(
                     "[clipai] Input resolution failed: action_id=%s input_mode=%s source=%s error=%s",
-                    request.action_id,
+                    resolved_action.action_id,
                     input_mode,
                     resolved_input.source,
                     resolved_input.error,
@@ -117,7 +148,7 @@ class ActionRunner:
                 raise ValueError(resolved_input.error)
             logger.info(
                 "[clipai] Input resolved: action_id=%s input_mode=%s source=%s chars=%s",
-                request.action_id,
+                resolved_action.action_id,
                 input_mode,
                 resolved_input.source,
                 len(resolved_input.text or ""),
@@ -128,7 +159,7 @@ class ActionRunner:
 
         runtime_flags = {
             "provider": provider_cfg.get("provider", "ollama"),
-            "model": request.model_override or action_def.get("model") or provider_cfg.get("default_model"),
+            "model": model_override or action_def.get("model") or provider_cfg.get("default_model"),
             "stream": runtime.stream_enabled and self._default_stream_enabled(action_def),
             "temperature": action_def.get("temperature", self._bundle.app_cfg.get("temperature", 0.2)),
         }
@@ -145,8 +176,9 @@ class ActionRunner:
             on_chunk=callbacks.on_chunk if callbacks else None,
         )
         logger.info(
-            "[clipai] Run complete: action_id=%s model=%s chars=%s",
+            "[clipai] Run complete: action_id=%s press_type=%s model=%s chars=%s",
             config.action_id,
+            resolved_action.press_type,
             config.model,
             len(result.content or ""),
         )
@@ -160,6 +192,7 @@ class ActionRunner:
         return RunOutcome(
             action_id=config.action_id,
             action_name=config.action_name,
+            press_type=resolved_action.press_type,
             input_resolution=resolved_input,
             output_mode=output_mode,
             result=result,

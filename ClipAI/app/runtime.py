@@ -5,6 +5,7 @@ import threading
 import time
 
 from clipai.app.config import AppConfigBundle
+from clipai.actions import ResolvedAction, resolve_action_variant
 from clipai.context.input_resolver import InputResolver
 from clipai.context.runtime_context import build_runtime_context
 from clipai.core.event_bus import Events, get_event_bus
@@ -13,7 +14,7 @@ from clipai.platform.notification import notify
 from clipai.platform.tts import TTSEngine
 from clipai.platform.tts_service import TTSService
 from clipai.logging_setup import logging_context, new_correlation_id
-from clipai.services.action_runner import ActionRunner, RunCallbacks, RunRequest
+from clipai.services.action_runner import ActionRunner, RunCallbacks
 from clipai.services.output_applier import OutputModeError
 from clipai.services.popup_session import PopupSession
 from clipai.ui.popup_presenter import PopupPresenter
@@ -71,7 +72,6 @@ class DesktopRuntime:
             self._listener = register_hotkeys_with_long_press(
                 self._bundle.action_map,
                 self._execute_action,
-                None,
                 modifier_mode=str(self._bundle.app_cfg.get("hotkey_modifier_mode") or "ctrl_alt"),
             )
         except Exception as exc:
@@ -107,18 +107,23 @@ class DesktopRuntime:
             is_speaking_fn=self._tts_engine.is_speaking,
         )
 
-    def _execute_action(self, action_id: str) -> None:
-        action_def = self._bundle.action_map.get(action_id)
-        if not action_def:
+    def _execute_action(self, action_id: str, press_type: str = "short") -> None:
+        base_action_def = self._bundle.action_map.get(action_id)
+        if not base_action_def:
             logger.error("[clipai] Unknown action id: %s", action_id)
             return
+        resolved_action = resolve_action_variant(base_action_def, press_type)
+        action_def = resolved_action.action_def
         correlation_id = new_correlation_id()
         with logging_context(action_id=action_id, correlation_id=correlation_id):
             logger.info(
-                "[clipai] Execute action requested: action_id=%s output_mode=%s stream=%s",
+                "[clipai] Execute action requested: action_id=%s press_type=%s resolved_action_name=%s output_mode=%s stream=%s variant_applied=%s",
                 action_id,
+                resolved_action.press_type,
+                resolved_action.action_name,
                 action_def.get("output_mode"),
                 action_def.get("stream"),
+                resolved_action.variant_applied,
             )
 
         if action_id == "tts_read_selection":
@@ -138,9 +143,12 @@ class DesktopRuntime:
                     if str(action_def.get("output_mode") or "stdout") == "popup":
                         popup_session = PopupSession(
                             action_id=action_id,
-                            action_name=str(action_def.get("name") or action_id),
+                            action_name=resolved_action.action_name,
                             original_input="",
                             latest_result="",
+                            action_press_type=resolved_action.press_type,
+                            variant_applied=resolved_action.variant_applied,
+                            resolved_action_def=dict(action_def),
                             input_loading=True,
                             result_loading=True,
                         )
@@ -161,8 +169,8 @@ class DesktopRuntime:
                                 result.content,
                             ),
                         )
-                    outcome = self._runner.run(
-                        RunRequest(action_id=action_id),
+                    outcome = self._runner.run_resolved_action(
+                        resolved_action,
                         build_runtime_context(
                             mode="desktop_hotkey",
                             apply_output=True,
@@ -182,6 +190,7 @@ class DesktopRuntime:
                     if popup_session is not None:
                         popup_session.action_id = outcome.action_id
                         popup_session.action_name = outcome.action_name
+                        popup_session.action_press_type = outcome.press_type
                         popup_session.mark_input_ready(outcome.input_resolution.text)
                         popup_session.mark_result_ready(outcome.result.content)
                         self._popup_presenter.refresh_session(popup_session.session_id)
@@ -235,7 +244,21 @@ class DesktopRuntime:
         ).start()
 
     def _run_follow_up(self, session: PopupSession, prompt_text: str, correlation_id: str) -> None:
-        action_def = self._bundle.action_map.get(session.action_id)
+        action_def = dict(session.resolved_action_def)
+        if not action_def:
+            base_action_def = self._bundle.action_map.get(session.action_id)
+            if base_action_def is None:
+                notify("ClipAI", f"Unknown action id: {session.action_id}")
+                return
+            resolved_action = resolve_action_variant(base_action_def, session.action_press_type)
+            action_def = dict(resolved_action.action_def)
+        else:
+            resolved_action = ResolvedAction(
+                action_id=session.action_id,
+                press_type=session.action_press_type,
+                action_def=action_def,
+                variant_applied=session.variant_applied,
+            )
         if not action_def:
             notify("ClipAI", f"Unknown action id: {session.action_id}")
             return
@@ -249,12 +272,8 @@ class DesktopRuntime:
                     on_chunk=lambda chunk: self._popup_presenter.append_chunk(session.session_id, chunk),
                     on_complete=lambda result: self._popup_presenter.finalize_result(session.session_id, result.content),
                 )
-                outcome = self._runner.run(
-                    RunRequest(
-                        action_id=session.action_id,
-                        explicit_text=prompt_text,
-                        explicit_messages=self._build_follow_up_messages(session, action_def, prompt_text),
-                    ),
+                outcome = self._runner.run_resolved_action(
+                    resolved_action,
                     build_runtime_context(
                         mode="desktop_hotkey",
                         apply_output=False,
@@ -263,6 +282,8 @@ class DesktopRuntime:
                         stream_to_stdout=False,
                     ),
                     callbacks=callbacks,
+                    explicit_text=prompt_text,
+                    explicit_messages=self._build_follow_up_messages(session, action_def, prompt_text),
                 )
                 session.latest_result = outcome.result.content
                 self._popup_presenter.refresh_session(session.session_id)
