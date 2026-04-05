@@ -122,30 +122,21 @@ actions:
       Output in this exact structure:
 
       ## Summary
-      - 用中文寫 2-4 句，快速說明主要內容與重點。
+      - 用一句中文，快速說明主要內容與重點。
 
       ## Context
-      - 用中文說明可能的使用情境、語氣、背景，必要時說明你是根據可見內容推測。
+      - 用中文說想介紹的words/phrase, 使用情境、背景、語氣。
 
       ## Words & Phrases
-      - 挑 3-8 個最值得學的單字或片語。
-      - 每項包含：
-        - Word/Phrase
-        - 中文解釋
-        - 在這段內容裡的意思
-        - 補充語感或使用提醒
+      - 挑 1 個最值得學的單字或片語 & 中文解釋
 
       ## Natural Examples
       - 針對上面重點單字或片語，提供母語者平常比較會說的口語例句。
       - 每句要短、自然、容易聯想到情境，適合拿去做 Anki 複習。
       - 每句例句下方補一行簡短中文提示，幫助記憶情境。
 
-      ## More Natural Alternatives
-      - 如果原內容有偏書面、直譯、或平常口語比較少這樣說的字詞，列出更常見的說法。
-      - 每項包含：
-        - Original
-        - More natural alternative
-        - 中文簡短差異說明
+      ## 同意詞
+      - 如果原內容有偏書面、直譯、或平常口語比較少這樣說的字詞，列出更常見的words/phrases作為同意詞。
 
       Here is the content:
       {input}
