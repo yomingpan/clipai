@@ -19,7 +19,8 @@ from clipai.ui.tooltip import attach_tooltip
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
-BRAND_COLOR = "#3B8ED0"
+POPUP_BORDER_COLOR = "#0F3D78"
+POPUP_TITLE_COLOR = "#4F89D9"
 SUCCESS_COLOR = "#2E9E5B"
 ERROR_COLOR = "#D64545"
 STOP_COLOR = "#C84C4C"
@@ -197,7 +198,7 @@ class PopupPresenter:
             fg_color=("white", "#181B22"),
             corner_radius=18,
             border_width=3,
-            border_color=BRAND_COLOR,
+            border_color=POPUP_BORDER_COLOR,
             bg_color="transparent",
         )
         main_frame.pack(fill="both", expand=True, padx=1, pady=1)
@@ -211,7 +212,7 @@ class PopupPresenter:
             header_frame,
             text=f"ClipAI - {session.action_name}",
             font=("Microsoft JhengHei", 11, "bold"),
-            text_color=BRAND_COLOR,
+            text_color=POPUP_TITLE_COLOR,
             anchor="w",
         )
         title_label.pack(side="left", fill="y")
@@ -244,7 +245,7 @@ class PopupPresenter:
             self._is_pinned = not self._is_pinned
             if self._pin_button is not None:
                 self._pin_button.configure(
-                    fg_color=(BRAND_COLOR if self._is_pinned else "transparent"),
+                    fg_color=(POPUP_TITLE_COLOR if self._is_pinned else "transparent"),
                     text_color=("white" if self._is_pinned else ("gray10", "#DCE4EE")),
                 )
 
@@ -598,6 +599,7 @@ class PopupPresenter:
             duration_ms = 3000
         else:
             color = BRAND_COLOR
+            color = POPUP_BORDER_COLOR
             duration_ms = 0
 
         self._apply_status_color(color)
@@ -606,7 +608,7 @@ class PopupPresenter:
                 duration_ms,
                 lambda: self._active_window
                 and self._active_window.winfo_exists()
-                and self._apply_status_color(BRAND_COLOR),
+                and self._apply_status_color(POPUP_BORDER_COLOR),
             )
 
     def _apply_status_color(self, color: str) -> None:
