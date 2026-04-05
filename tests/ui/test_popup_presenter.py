@@ -144,3 +144,20 @@ def test_popup_presenter_refresh_session_repaints_input_preview_from_session_sta
     presenter._active_session = second
     presenter._refresh_session_on_ui(second.session_id)
     assert presenter._input_label.text == "Analysis: second input"
+
+
+def test_popup_presenter_supports_common_markdown_headings_and_blockquotes() -> None:
+    content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
+    assert 'text_widget.tag_configure("md_h3"' in content
+    assert 'text_widget.tag_configure("md_h4"' in content
+    assert 'text_widget.tag_configure("md_quote"' in content
+    assert 're.match(r"^(#{1,4})\\s+(.*)$", line)' in content
+    assert 'if line.startswith("> "):' in content
+
+
+def test_popup_presenter_markdown_fixture_covers_common_llm_output_patterns() -> None:
+    fixture = "### 1. 大綱\n- 條列\n> 引述\n`code`"
+    assert "### 1. 大綱" in fixture
+    assert "- 條列" in fixture
+    assert "> 引述" in fixture
+    assert "`code`" in fixture

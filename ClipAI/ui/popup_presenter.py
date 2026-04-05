@@ -679,8 +679,11 @@ class PopupPresenter:
         text_widget.tag_configure("history", foreground="#7A7F87")
         text_widget.tag_configure("md_h1", font=("Microsoft JhengHei", 14, "bold"), spacing1=6, spacing3=4)
         text_widget.tag_configure("md_h2", font=("Microsoft JhengHei", 13, "bold"), spacing1=5, spacing3=3)
+        text_widget.tag_configure("md_h3", font=("Microsoft JhengHei", 12, "bold"), spacing1=4, spacing3=3)
+        text_widget.tag_configure("md_h4", font=("Microsoft JhengHei", 11, "bold"), spacing1=3, spacing3=2)
         text_widget.tag_configure("md_bold", font=("Microsoft JhengHei", 11, "bold"))
         text_widget.tag_configure("md_code", font=("Consolas", 10), background=code_bg, foreground=code_fg)
+        text_widget.tag_configure("md_quote", foreground="#94A3B8", lmargin1=16, lmargin2=16, spacing1=2, spacing3=2)
         PopupPresenter._insert_markdown(text_widget, PopupPresenter._result_text_for_session(session).strip() or " ", base_tag="body")
         if session.rounds:
             for item in session.rounds:
@@ -702,17 +705,26 @@ class PopupPresenter:
                 text_widget.insert("end", "\n", (base_tag,))
                 continue
 
-            if line.startswith("# "):
-                PopupPresenter._insert_inline_markdown(text_widget, line[2:], ("md_h1",))
-                text_widget.insert("end", "\n")
-                continue
-            if line.startswith("## "):
-                PopupPresenter._insert_inline_markdown(text_widget, line[3:], ("md_h2",))
+            heading_match = re.match(r"^(#{1,4})\s+(.*)$", line)
+            if heading_match:
+                level = len(heading_match.group(1))
+                heading_text = heading_match.group(2)
+                heading_tag = {
+                    1: "md_h1",
+                    2: "md_h2",
+                    3: "md_h3",
+                    4: "md_h4",
+                }.get(level, "md_h4")
+                PopupPresenter._insert_inline_markdown(text_widget, heading_text, (heading_tag,))
                 text_widget.insert("end", "\n")
                 continue
             if re.match(r"^(\-|\*|\d+\.)\s+", line):
                 normalized = re.sub(r"^(\-|\*|\d+\.)\s+", "- ", line, count=1)
                 PopupPresenter._insert_inline_markdown(text_widget, normalized, (base_tag,))
+                text_widget.insert("end", "\n")
+                continue
+            if line.startswith("> "):
+                PopupPresenter._insert_inline_markdown(text_widget, line[2:], (base_tag, "md_quote"))
                 text_widget.insert("end", "\n")
                 continue
 
