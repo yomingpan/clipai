@@ -71,7 +71,7 @@ class DesktopRuntime:
                 self._bundle.action_map,
                 self._execute_action,
                 None,
-                modifier_mode=str(self._bundle.app_cfg.get("hotkey_modifier_mode") or "alt_shift"),
+                modifier_mode=str(self._bundle.app_cfg.get("hotkey_modifier_mode") or "ctrl_alt"),
             )
         except Exception as exc:
             logger.error("[clipai] Hotkey registration unavailable: %s", exc)
@@ -111,6 +111,12 @@ class DesktopRuntime:
         if not action_def:
             logger.error("[clipai] Unknown action id: %s", action_id)
             return
+        logger.info(
+            "[clipai] Execute action requested: action_id=%s output_mode=%s stream=%s",
+            action_id,
+            action_def.get("output_mode"),
+            action_def.get("stream"),
+        )
 
         if action_id == "tts_read_selection":
             threading.Thread(target=self._read_selection_aloud, daemon=True).start()
@@ -129,6 +135,7 @@ class DesktopRuntime:
                         latest_result="Connecting...",
                     )
                     self._popup_sessions[popup_session.session_id] = popup_session
+                    logger.info("[clipai] Popup session created: action_id=%s session_id=%s", action_id, popup_session.session_id)
                     self._popup_presenter.show_session(popup_session)
                     callbacks = RunCallbacks(
                         on_input_resolved=lambda resolved: self._popup_presenter.update_input(
@@ -155,6 +162,12 @@ class DesktopRuntime:
                     ),
                     callbacks=callbacks,
                 )
+                logger.info(
+                    "[clipai] Execute action completed: action_id=%s output_mode=%s result_chars=%s",
+                    action_id,
+                    outcome.output_mode,
+                    len(outcome.result.content or ""),
+                )
 
                 if popup_session is not None:
                     popup_session.action_id = outcome.action_id
@@ -166,6 +179,7 @@ class DesktopRuntime:
 
                 self._bus.emit(Events.UI_STATUS, status="success")
             except ValueError as exc:
+                logger.error("[clipai] Execute action validation failed: action_id=%s error=%s", action_id, exc)
                 notify("ClipAI", str(exc))
                 if popup_session is not None:
                     self._popup_presenter.finalize_result(popup_session.session_id, str(exc))

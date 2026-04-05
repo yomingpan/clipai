@@ -44,7 +44,7 @@ def _format_hotkeys(hotkey: str, modifier_mode: str) -> str:
     return " / ".join(dict.fromkeys(variants))
 
 
-def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide", modifier_mode: str = "alt_shift"):
+def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide", modifier_mode: str = "ctrl_alt"):
     """Display a grouped hotkey reference panel."""
     groups: OrderedDict = OrderedDict()
     for action in actions_list:

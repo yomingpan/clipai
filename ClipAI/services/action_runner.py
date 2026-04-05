@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -14,6 +15,8 @@ from clipai.services.action_config import resolve_action_config
 from clipai.services.hedged_action_service import HedgeRoute, HedgedActionService
 from clipai.services.action_service import ActionRunResult, ActionService
 from clipai.services.output_applier import OutputApplier
+
+logger = logging.getLogger("clipai.action_runner")
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,14 @@ class ActionRunner:
         cancellation = CancellationController()
 
         output_mode = str(action_def.get("output_mode") or "stdout")
+        logger.info(
+            "[clipai] Run start: action_id=%s output_mode=%s mode=%s use_selection=%s apply_output=%s",
+            request.action_id,
+            output_mode,
+            runtime.mode,
+            runtime.use_selection,
+            runtime.apply_output,
+        )
         if runtime.stream_to_stdout:
             self._bus.subscribe(
                 EVENT_PIPELINE_UPDATE,
@@ -96,7 +107,21 @@ class ActionRunner:
             input_mode = str(action_def.get("input_mode") or "selection_or_clipboard")
             resolved_input = input_resolver.resolve_text(request.explicit_text, input_mode=input_mode)
             if resolved_input.error:
+                logger.error(
+                    "[clipai] Input resolution failed: action_id=%s input_mode=%s source=%s error=%s",
+                    request.action_id,
+                    input_mode,
+                    resolved_input.source,
+                    resolved_input.error,
+                )
                 raise ValueError(resolved_input.error)
+            logger.info(
+                "[clipai] Input resolved: action_id=%s input_mode=%s source=%s chars=%s",
+                request.action_id,
+                input_mode,
+                resolved_input.source,
+                len(resolved_input.text or ""),
+            )
             if callbacks and callbacks.on_input_resolved is not None:
                 callbacks.on_input_resolved(resolved_input)
             messages = self._build_messages(action_def, resolved_input.text)
@@ -119,10 +144,17 @@ class ActionRunner:
             runtime=runtime,
             on_chunk=callbacks.on_chunk if callbacks else None,
         )
+        logger.info(
+            "[clipai] Run complete: action_id=%s model=%s chars=%s",
+            config.action_id,
+            config.model,
+            len(result.content or ""),
+        )
         if callbacks and callbacks.on_complete is not None:
             callbacks.on_complete(result)
 
         if runtime.apply_output and not (runtime.mode == "desktop_hotkey" and output_mode == "popup"):
+            logger.info("[clipai] Applying output: action_id=%s output_mode=%s", config.action_id, output_mode)
             output_applier.apply(result.content, output_mode)
 
         return RunOutcome(

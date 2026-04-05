@@ -448,8 +448,8 @@ class PopupPresenter:
         window.bind("<Control-s>", lambda event: self._archive_shortcut(event, session))
         window.bind("<Control-slash>", self._toggle_follow_up_shortcut)
         window.bind("<Control-question>", self._toggle_follow_up_shortcut)
-        window.bind("<Alt-Shift-Q>", lambda event: self._speak_shortcut(event, session))
-        window.bind("<Alt-Shift-q>", lambda event: self._speak_shortcut(event, session))
+        window.bind("<Control-Alt-Q>", lambda event: self._speak_shortcut(event, session))
+        window.bind("<Control-Alt-q>", lambda event: self._speak_shortcut(event, session))
 
     def _copy_shortcut(self, event, session: PopupSession) -> str:
         del event

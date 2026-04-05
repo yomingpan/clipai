@@ -39,9 +39,6 @@ class InputResolver:
             if selected:
                 return InputResolution(text=selected, source="selection")
             if normalized_mode == "selection":
-                manual = self._prompt_for_text()
-                if manual:
-                    return InputResolution(text=manual, source="manual")
                 return InputResolution(text="", source="empty", error="No highlighted text was found.")
 
         clipboard_text = (read_clipboard_text() or "").strip()

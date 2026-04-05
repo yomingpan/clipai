@@ -1,9 +1,9 @@
 actions:
   - id: translate_zh_tw
     name: 翻譯成中文
-    hotkey: alt+shift+1
+    hotkey: ctrl+alt+1
     stream: true
-    input_mode: selection_or_clipboard
+    input_mode: selection
     output_mode: paste
     temperature: 0.1
     system_prompt: >
@@ -16,9 +16,9 @@ actions:
 
   - id: translate_en
     name: 翻譯成英文
-    hotkey: alt+shift+2
+    hotkey: ctrl+alt+2
     stream: true
-    input_mode: selection_or_clipboard
+    input_mode: selection
     output_mode: paste
     temperature: 0.1
     system_prompt: >
@@ -31,10 +31,9 @@ actions:
 
   - id: rewrite_complete
     name: 將文字重組
-    hotkey: alt+shift+3
-    model: gemma3:1b
+    hotkey: ctrl+alt+3
     stream: true
-    input_mode: selection_or_clipboard
+    input_mode: selection
     output_mode: paste
     temperature: 0.2
     system_prompt: >
@@ -47,9 +46,9 @@ actions:
 
   - id: shorten_keep_meaning
     name: 縮短句子
-    hotkey: alt+shift+4
+    hotkey: ctrl+alt+4
     stream: true
-    input_mode: selection_or_clipboard
+    input_mode: selection
     output_mode: paste
     temperature: 0.2
     system_prompt: >
@@ -62,9 +61,9 @@ actions:
 
   - id: summarize_next_steps
     name: 總結重點與下一步
-    hotkey: alt+shift+5
+    hotkey: ctrl+alt+5
     stream: true
-    input_mode: selection_or_clipboard
+    input_mode: selection
     output_mode: popup
     temperature: 0.2
     system_prompt: >
@@ -82,7 +81,6 @@ actions:
 
   - id: tts_read_selection
     name: Read Selection
-    hotkey: alt+shift+q
-    input_mode: selection_or_clipboard
+    hotkey: ctrl+alt+q
+    input_mode: selection
     output_mode: none
-

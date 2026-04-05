@@ -20,6 +20,17 @@ _SHIFTED_DIGIT_MAP = {
     ")": "0",
 }
 
+_VK_DIGIT_MAP = {code: str(code - 48) for code in range(48, 58)}
+_VK_NUMPAD_MAP = {code: str(code - 96) for code in range(96, 106)}
+_VK_ALPHA_MAP = {code: chr(code).lower() for code in range(65, 91)}
+
+
+def _describe_key(key) -> str:
+    name = getattr(key, "name", None)
+    char = getattr(key, "char", None)
+    vk = getattr(key, "vk", None)
+    return f"name={name!r} char={char!r} vk={vk!r} type={type(key).__name__}"
+
 
 def _normalize_key(key) -> str | None:
     name = getattr(key, "name", None)
@@ -36,6 +47,15 @@ def _normalize_key(key) -> str | None:
     if char:
         normalized = str(char).lower()
         return _SHIFTED_DIGIT_MAP.get(normalized, normalized)
+
+    vk = getattr(key, "vk", None)
+    if isinstance(vk, int):
+        if vk in _VK_DIGIT_MAP:
+            return _VK_DIGIT_MAP[vk]
+        if vk in _VK_NUMPAD_MAP:
+            return _VK_NUMPAD_MAP[vk]
+        if vk in _VK_ALPHA_MAP:
+            return _VK_ALPHA_MAP[vk]
     return None
 
 
@@ -43,31 +63,28 @@ def _parse_hotkey(hotkey: str) -> set[str]:
     return {part.strip().lower() for part in hotkey.split("+") if part.strip()}
 
 
-def _swap_modifier_prefix(hotkey: str, modifier_mode: str) -> str | None:
+def _canonicalize_modifier_prefix(hotkey: str, modifier_mode: str) -> str:
     normalized = hotkey.strip().lower()
-    if not normalized.startswith("alt+shift+"):
-        return None
-    suffix = normalized[len("alt+shift+") :]
     prefix_map = {
-        "alt_shift": "alt+shift+",
-        "ctrl_shift": "ctrl+shift+",
-        "ctrl_alt": "ctrl+alt+",
+        "alt_shift": ("alt+shift+", "alt+shift+"),
+        "ctrl_shift": ("ctrl+shift+", "ctrl+shift+"),
+        "ctrl_alt": ("ctrl+alt+", "ctrl+alt+"),
     }
-    prefix = prefix_map.get((modifier_mode or "alt_shift").lower())
-    if not prefix or prefix == "alt+shift+":
-        return None
-    return f"{prefix}{suffix}"
+    default_prefix, canonical_prefix = prefix_map.get((modifier_mode or "ctrl_alt").lower(), ("ctrl+alt+", "ctrl+alt+"))
+    for prefix in ("alt+shift+", "ctrl+shift+", "ctrl+alt+"):
+        if normalized.startswith(prefix):
+            suffix = normalized[len(prefix) :]
+            return f"{canonical_prefix}{suffix}"
+    if "+" not in normalized:
+        return f"{default_prefix}{normalized}"
+    return normalized
 
 
-def expand_hotkeys(hotkey: str, modifier_mode: str = "alt_shift") -> list[str]:
+def expand_hotkeys(hotkey: str, modifier_mode: str = "ctrl_alt") -> list[str]:
     normalized = hotkey.strip().lower()
     if not normalized:
         return []
-    variants = [normalized]
-    swapped = _swap_modifier_prefix(normalized, modifier_mode)
-    if swapped and swapped not in variants:
-        variants.append(swapped)
-    return variants
+    return [_canonicalize_modifier_prefix(normalized, modifier_mode)]
 
 
 @dataclass
@@ -107,6 +124,8 @@ def register_hotkeys_with_long_press(
             hotkeys.append((action_id, _parse_hotkey(variant)))
             logger.info("[clipai] Registered hotkey %s -> %s", variant, action_id)
 
+    logger.info("[clipai] Hotkey listener modifier_mode=%s", modifier_mode)
+
     pressed: set[str] = set()
     active: dict[str, _HotkeyState] = {}
     lock = threading.RLock()
@@ -132,13 +151,22 @@ def register_hotkeys_with_long_press(
     def _on_press(key) -> None:
         token = _normalize_key(key)
         if not token:
+            logger.info("[clipai] Ignored key press: %s", _describe_key(key))
             return
         with lock:
             pressed.add(token)
+            if token in {"ctrl", "alt"} or {"ctrl", "alt"}.issubset(pressed):
+                logger.info("[clipai] Key press token=%s raw=(%s) pressed=%s", token, _describe_key(key), sorted(pressed))
             for action_id, tokens in hotkeys:
                 if action_id in active:
                     continue
                 if tokens.issubset(pressed):
+                    logger.info(
+                        "[clipai] Hotkey matched on press: action=%s tokens=%s pressed=%s",
+                        action_id,
+                        sorted(tokens),
+                        sorted(pressed),
+                    )
                     state = _HotkeyState()
                     state.timer = threading.Timer(long_press_sec, lambda aid=action_id: _fire_long(aid))
                     state.timer.daemon = True
@@ -148,10 +176,13 @@ def register_hotkeys_with_long_press(
     def _on_release(key) -> None:
         token = _normalize_key(key)
         if not token:
+            logger.info("[clipai] Ignored key release: %s", _describe_key(key))
             return
 
         callbacks: list[Callable[[], None]] = []
         with lock:
+            if token in {"ctrl", "alt"} or {"ctrl", "alt"}.issubset(pressed):
+                logger.info("[clipai] Key release token=%s raw=(%s) pressed_before=%s", token, _describe_key(key), sorted(pressed))
             pressed.discard(token)
             for action_id, tokens in hotkeys:
                 if action_id not in active:
@@ -162,6 +193,12 @@ def register_hotkeys_with_long_press(
                 if state.timer:
                     state.timer.cancel()
                 if not state.long_fired:
+                    logger.info(
+                        "[clipai] Hotkey matched on release: action=%s released=%s remaining_pressed=%s",
+                        action_id,
+                        token,
+                        sorted(pressed),
+                    )
                     callbacks.append(lambda aid=action_id: _fire_normal(aid))
 
         for callback in callbacks:

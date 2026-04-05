@@ -260,7 +260,7 @@ class TrayIcon:
         threading.Thread(
             target=show_hotkey_guide,
             args=(self.actions_list,),
-            kwargs={"modifier_mode": str(self.app_cfg.get("hotkey_modifier_mode") or "alt_shift")},
+            kwargs={"modifier_mode": str(self.app_cfg.get("hotkey_modifier_mode") or "ctrl_alt")},
             daemon=True,
         ).start()
 

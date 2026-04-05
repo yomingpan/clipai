@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from clipai.context.clipboard_session import ClipboardSession
 from clipai.output import maybe_auto_paste
 from clipai.platform.clipboard import write_clipboard_text
+
+logger = logging.getLogger("clipai.output")
 
 
 class OutputModeError(RuntimeError):
@@ -12,6 +16,7 @@ class OutputModeError(RuntimeError):
 class OutputApplier:
     def apply(self, content: str, output_mode: str) -> None:
         normalized_mode = (output_mode or "stdout").lower()
+        logger.info("[clipai] Output apply start: mode=%s chars=%s", normalized_mode, len(content or ""))
         if normalized_mode == "paste":
             self._paste_without_mutating_clipboard(content)
             return
@@ -26,9 +31,11 @@ class OutputApplier:
     @staticmethod
     def _paste_without_mutating_clipboard(content: str) -> None:
         with ClipboardSession():
+            logger.info("[clipai] Output paste: writing clipboard chars=%s", len(content or ""))
             write_clipboard_text(content)
             try:
                 maybe_auto_paste()
+                logger.info("[clipai] Output paste: auto paste invoked successfully")
             except RuntimeError as exc:
                 raise OutputModeError(
                     "paste output mode requires 'pynput'. Install it in the active environment "

@@ -19,6 +19,8 @@ def test_popup_presenter_uses_ctrl_slash_not_ctrl_m() -> None:
     assert "<Control-slash>" in content
     assert "<Control-question>" in content
     assert "<Control-m>" not in content
+    assert "<Control-Alt-Q>" in content
+    assert "<Alt-Shift-Q>" not in content
 
 
 def test_popup_presenter_has_auto_close_grace_period() -> None:
