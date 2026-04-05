@@ -26,3 +26,19 @@ tts:
   voice: zh-TW-HsiaoChenNeural
   rate: "+0%"
   volume: "+0%"
+
+logging:
+  enabled: true
+  level: INFO
+  console: true
+  file_enabled: true
+  file_path: logs/clipai.log
+  module_levels:
+    clipai.hotkey: INFO
+    clipai.input: INFO
+    clipai.output: INFO
+    clipai.action_runner: INFO
+  diagnostics:
+    hotkey_raw_events: false
+    selection_capture_polls: false
+    paste_timing: false

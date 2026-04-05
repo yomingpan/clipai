@@ -4,6 +4,7 @@ import logging
 import time
 
 from clipai.context.clipboard_session import ClipboardSession
+from clipai.logging_setup import diagnostics_enabled
 from clipai.output import maybe_auto_paste
 from clipai.platform.clipboard import write_clipboard_text
 
@@ -39,12 +40,18 @@ class OutputApplier:
             write_clipboard_text(content)
             try:
                 maybe_auto_paste()
-                logger.info("[clipai] Output paste: auto paste invoked successfully at=%s", time.monotonic())
+                if diagnostics_enabled("paste_timing"):
+                    logger.debug("[clipai] Output paste: auto paste invoked successfully at=%s", time.monotonic())
+                else:
+                    logger.info("[clipai] Output paste: auto paste invoked successfully")
                 session.restore_later(PASTE_RESTORE_DELAY_SEC)
-                logger.info(
-                    "[clipai] Output paste: deferred clipboard restore scheduled delay_sec=%s",
-                    PASTE_RESTORE_DELAY_SEC,
-                )
+                if diagnostics_enabled("paste_timing"):
+                    logger.debug(
+                        "[clipai] Output paste: deferred clipboard restore scheduled delay_sec=%s",
+                        PASTE_RESTORE_DELAY_SEC,
+                    )
+                else:
+                    logger.info("[clipai] Output paste: deferred clipboard restore scheduled")
             except RuntimeError as exc:
                 session.restore()
                 raise OutputModeError(

@@ -5,6 +5,7 @@ import multiprocessing
 
 from clipai.app.config import load_app_config
 from clipai.app.runtime import DesktopRuntime
+from clipai.logging_setup import setup_logging
 
 try:
     from dotenv import load_dotenv
@@ -12,16 +13,15 @@ except Exception:
     load_dotenv = None
 
 logger = logging.getLogger("clipai")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 def main() -> None:
-    logger.info("[clipai] Starting desktop runtime...")
-
     if load_dotenv:
         load_dotenv()
 
     bundle = load_app_config("config/config.yaml")
+    setup_logging(bundle.cfg)
+    logger.info("[clipai] Starting desktop runtime...")
     runtime = DesktopRuntime(bundle)
     runtime.start()
     runtime.run_forever()

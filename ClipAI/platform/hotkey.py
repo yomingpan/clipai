@@ -5,6 +5,8 @@ import threading
 from dataclasses import dataclass
 from typing import Callable
 
+from clipai.logging_setup import diagnostics_enabled
+
 logger = logging.getLogger("clipai.hotkey")
 
 _SHIFTED_DIGIT_MAP = {
@@ -151,12 +153,13 @@ def register_hotkeys_with_long_press(
     def _on_press(key) -> None:
         token = _normalize_key(key)
         if not token:
-            logger.info("[clipai] Ignored key press: %s", _describe_key(key))
+            if diagnostics_enabled("hotkey_raw_events"):
+                logger.debug("[clipai] Ignored key press: %s", _describe_key(key))
             return
         with lock:
             pressed.add(token)
-            if token in {"ctrl", "alt"} or {"ctrl", "alt"}.issubset(pressed):
-                logger.info("[clipai] Key press token=%s raw=(%s) pressed=%s", token, _describe_key(key), sorted(pressed))
+            if diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt"} or {"ctrl", "alt"}.issubset(pressed)):
+                logger.debug("[clipai] Key press token=%s raw=(%s) pressed=%s", token, _describe_key(key), sorted(pressed))
             for action_id, tokens in hotkeys:
                 if action_id in active:
                     continue
@@ -176,13 +179,14 @@ def register_hotkeys_with_long_press(
     def _on_release(key) -> None:
         token = _normalize_key(key)
         if not token:
-            logger.info("[clipai] Ignored key release: %s", _describe_key(key))
+            if diagnostics_enabled("hotkey_raw_events"):
+                logger.debug("[clipai] Ignored key release: %s", _describe_key(key))
             return
 
         callbacks: list[Callable[[], None]] = []
         with lock:
-            if token in {"ctrl", "alt"} or {"ctrl", "alt"}.issubset(pressed):
-                logger.info("[clipai] Key release token=%s raw=(%s) pressed_before=%s", token, _describe_key(key), sorted(pressed))
+            if diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt"} or {"ctrl", "alt"}.issubset(pressed)):
+                logger.debug("[clipai] Key release token=%s raw=(%s) pressed_before=%s", token, _describe_key(key), sorted(pressed))
             pressed.discard(token)
             for action_id, tokens in hotkeys:
                 if action_id not in active:

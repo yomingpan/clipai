@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from clipai.context.clipboard_session import ClipboardSession
+from clipai.logging_setup import diagnostics_enabled
 from clipai.platform.clipboard import read_clipboard_text, write_clipboard_text
 
 logger = logging.getLogger("clipai.input")
@@ -75,8 +76,8 @@ class InputResolver:
             for poll_index in range(self._poll_count):
                 time.sleep(self._poll_delay_sec)
                 current = read_clipboard_text(retries=1, delay=0) or ""
-                if current == sentinel and poll_index in {0, 4, 9, self._poll_count - 1}:
-                    logger.info(
+                if diagnostics_enabled("selection_capture_polls") and current == sentinel and poll_index in {0, 4, 9, self._poll_count - 1}:
+                    logger.debug(
                         "[clipai] Selection capture poll=%s/%s clipboard still sentinel",
                         poll_index + 1,
                         self._poll_count,
