@@ -84,3 +84,24 @@ def test_logging_context_writes_correlation_id_and_action_id(tmp_path: Path) -> 
     assert "corr=corr1234" in content
     assert "action=translate_en" in content
     assert "[clipai] Run start" in content
+
+
+def test_setup_logging_with_console_disabled_skips_stream_handler(tmp_path: Path) -> None:
+    setup_logging(
+        {
+            "logging": {
+                "enabled": True,
+                "profile": "production",
+                "console": False,
+                "file_enabled": True,
+                "file_path": str(tmp_path / "clipai.log"),
+            }
+        }
+    )
+
+    root = logging.getLogger()
+    file_handlers = [handler for handler in root.handlers if isinstance(handler, logging.FileHandler)]
+    stream_handlers = [handler for handler in root.handlers if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler)]
+
+    assert file_handlers
+    assert not stream_handlers

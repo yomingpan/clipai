@@ -38,7 +38,7 @@ logging:
   enabled: true
   profile: production
   level: INFO
-  console: true
+  console: false
   console_level: INFO
   file_enabled: true
   file_path: logs/clipai.log

@@ -26,7 +26,9 @@ def test_english_companion_action_loads_with_long_press_variant() -> None:
     assert short_action.action_name == "English Companion"
     assert short_action.action_def["output_mode"] == "popup"
     assert "## Summary" in short_action.action_def["prompt"]
-    assert "## More Natural Alternatives" in short_action.action_def["prompt"]
+    assert "## Words & Phrases" in short_action.action_def["prompt"]
+    assert ("## More Natural Alternatives" in short_action.action_def["prompt"]
+            or "## 同意詞" in short_action.action_def["prompt"])
 
     assert long_action.action_name == "英文改善建議"
     assert long_action.action_def["output_mode"] == "popup"
