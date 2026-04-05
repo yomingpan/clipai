@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from clipai.services.popup_session import PopupSession
 from clipai.ui.popup_presenter import PopupPresenter
 
 
@@ -83,3 +84,63 @@ def test_popup_presenter_clears_text_selection_when_hiding_follow_up() -> None:
     assert "def _clear_text_selection_on_ui" in content
     assert 'text_widget.tag_remove("sel", "1.0", "end")' in content
     assert "self._clear_text_selection_on_ui(self._text_widget)" in content
+
+
+def test_popup_presenter_input_preview_and_result_respect_loading_flags() -> None:
+    session = PopupSession(
+        action_id="summarize_next_steps",
+        action_name="Summary",
+        original_input="",
+        latest_result="",
+        input_loading=True,
+        result_loading=True,
+    )
+
+    assert PopupPresenter._input_preview_for_session(session) == "Analysis: Connecting..."
+    assert PopupPresenter._result_text_for_session(session) == "Connecting..."
+
+    session.mark_input_ready("hello world")
+    session.mark_result_ready("final answer")
+
+    assert PopupPresenter._input_preview_for_session(session) == "Analysis: hello world"
+    assert PopupPresenter._result_text_for_session(session) == "final answer"
+
+
+def test_popup_presenter_refresh_session_repaints_input_preview_from_session_state() -> None:
+    class _FakeLabel:
+        def __init__(self) -> None:
+            self.text = None
+
+        def configure(self, **kwargs) -> None:
+            self.text = kwargs.get("text")
+
+    presenter = PopupPresenter()
+    presenter._input_label = _FakeLabel()
+    presenter._text_widget = None
+    presenter._follow_entry = None
+    presenter._follow_hint_label = None
+
+    first = PopupSession(
+        action_id="first",
+        action_name="First",
+        original_input="",
+        latest_result="",
+        input_loading=True,
+        result_loading=True,
+    )
+    first.mark_input_ready("first input")
+    presenter._active_session = first
+    presenter._refresh_session_on_ui(first.session_id)
+    assert presenter._input_label.text == "Analysis: first input"
+
+    second = PopupSession(
+        action_id="second",
+        action_name="Second",
+        original_input="second input",
+        latest_result="done",
+        input_loading=False,
+        result_loading=False,
+    )
+    presenter._active_session = second
+    presenter._refresh_session_on_ui(second.session_id)
+    assert presenter._input_label.text == "Analysis: second input"

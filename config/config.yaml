@@ -29,10 +29,13 @@ tts:
 
 logging:
   enabled: true
+  profile: production
   level: INFO
   console: true
+  console_level: INFO
   file_enabled: true
   file_path: logs/clipai.log
+  file_level: DEBUG
   module_levels:
     clipai.hotkey: INFO
     clipai.input: INFO

@@ -164,7 +164,7 @@ def register_hotkeys_with_long_press(
                 if action_id in active:
                     continue
                 if tokens.issubset(pressed):
-                    logger.info(
+                    logger.debug(
                         "[clipai] Hotkey matched on press: action=%s tokens=%s pressed=%s",
                         action_id,
                         sorted(tokens),
@@ -197,7 +197,7 @@ def register_hotkeys_with_long_press(
                 if state.timer:
                     state.timer.cancel()
                 if not state.long_fired:
-                    logger.info(
+                    logger.debug(
                         "[clipai] Hotkey matched on release: action=%s released=%s remaining_pressed=%s",
                         action_id,
                         token,

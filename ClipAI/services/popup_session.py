@@ -28,6 +28,8 @@ class PopupSession:
     action_name: str
     original_input: str
     latest_result: str
+    input_loading: bool = False
+    result_loading: bool = False
     session_id: str = field(default_factory=lambda: str(uuid4()))
     rounds: list[PopupRound] = field(default_factory=list)
     round_count: int = 0
@@ -37,6 +39,16 @@ class PopupSession:
 
     def can_continue(self) -> bool:
         return self.round_count < self.max_rounds
+
+    def mark_input_ready(self, original_input: str) -> None:
+        self.original_input = original_input
+        self.input_loading = False
+        self.updated_at = _utc_now_iso()
+
+    def mark_result_ready(self, content: str) -> None:
+        self.latest_result = content
+        self.result_loading = False
+        self.updated_at = _utc_now_iso()
 
     def start_round(self, *, kind: RoundKind, prompt_text: str, model: str, placeholder: str = "Connecting...") -> None:
         if not self.can_continue():
@@ -51,13 +63,13 @@ class PopupSession:
             )
         )
         self.latest_result = placeholder
+        self.result_loading = True
         self.round_count += 1
         self.updated_at = _utc_now_iso()
 
     def push_result(self, *, kind: RoundKind, prompt_text: str, new_result: str, model: str) -> None:
         self.start_round(kind=kind, prompt_text=prompt_text, model=model, placeholder=new_result)
-        self.latest_result = new_result
-        self.updated_at = _utc_now_iso()
+        self.mark_result_ready(new_result)
 
     def as_context_text(self) -> str:
         parts = [f"[Original Input]\n{self.original_input}", f"[Latest Result]\n{self.latest_result}"]

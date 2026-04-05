@@ -12,6 +12,7 @@ from clipai.platform.hotkey import register_hotkeys_with_long_press
 from clipai.platform.notification import notify
 from clipai.platform.tts import TTSEngine
 from clipai.platform.tts_service import TTSService
+from clipai.logging_setup import logging_context, new_correlation_id
 from clipai.services.action_runner import ActionRunner, RunCallbacks, RunRequest
 from clipai.services.output_applier import OutputModeError
 from clipai.services.popup_session import PopupSession
@@ -111,94 +112,103 @@ class DesktopRuntime:
         if not action_def:
             logger.error("[clipai] Unknown action id: %s", action_id)
             return
-        logger.info(
-            "[clipai] Execute action requested: action_id=%s output_mode=%s stream=%s",
-            action_id,
-            action_def.get("output_mode"),
-            action_def.get("stream"),
-        )
+        correlation_id = new_correlation_id()
+        with logging_context(action_id=action_id, correlation_id=correlation_id):
+            logger.info(
+                "[clipai] Execute action requested: action_id=%s output_mode=%s stream=%s",
+                action_id,
+                action_def.get("output_mode"),
+                action_def.get("stream"),
+            )
 
         if action_id == "tts_read_selection":
-            threading.Thread(target=self._read_selection_aloud, daemon=True).start()
+            def _tts_worker() -> None:
+                with logging_context(action_id=action_id, correlation_id=correlation_id):
+                    self._read_selection_aloud()
+
+            threading.Thread(target=_tts_worker, daemon=True).start()
             return
 
         def _worker() -> None:
-            try:
-                self._bus.emit(Events.UI_STATUS, status="processing")
-                popup_session = None
-                callbacks = None
-                if str(action_def.get("output_mode") or "stdout") == "popup":
-                    popup_session = PopupSession(
-                        action_id=action_id,
-                        action_name=str(action_def.get("name") or action_id),
-                        original_input="Connecting...",
-                        latest_result="Connecting...",
+            with logging_context(action_id=action_id, correlation_id=correlation_id):
+                try:
+                    self._bus.emit(Events.UI_STATUS, status="processing")
+                    popup_session = None
+                    callbacks = None
+                    if str(action_def.get("output_mode") or "stdout") == "popup":
+                        popup_session = PopupSession(
+                            action_id=action_id,
+                            action_name=str(action_def.get("name") or action_id),
+                            original_input="",
+                            latest_result="",
+                            input_loading=True,
+                            result_loading=True,
+                        )
+                        self._popup_sessions[popup_session.session_id] = popup_session
+                        logger.debug("[clipai] Popup session created: action_id=%s session_id=%s", action_id, popup_session.session_id)
+                        self._popup_presenter.show_session(popup_session)
+                        callbacks = RunCallbacks(
+                            on_input_resolved=lambda resolved: self._popup_presenter.update_input(
+                                popup_session.session_id,
+                                resolved.text,
+                            ),
+                            on_chunk=lambda chunk: self._popup_presenter.append_chunk(
+                                popup_session.session_id,
+                                chunk,
+                            ),
+                            on_complete=lambda result: self._popup_presenter.finalize_result(
+                                popup_session.session_id,
+                                result.content,
+                            ),
+                        )
+                    outcome = self._runner.run(
+                        RunRequest(action_id=action_id),
+                        build_runtime_context(
+                            mode="desktop_hotkey",
+                            apply_output=True,
+                            use_selection=True,
+                            stream_enabled=self._runner._default_stream_enabled(action_def),
+                            stream_to_stdout=False,
+                        ),
+                        callbacks=callbacks,
                     )
-                    self._popup_sessions[popup_session.session_id] = popup_session
-                    logger.info("[clipai] Popup session created: action_id=%s session_id=%s", action_id, popup_session.session_id)
-                    self._popup_presenter.show_session(popup_session)
-                    callbacks = RunCallbacks(
-                        on_input_resolved=lambda resolved: self._popup_presenter.update_input(
-                            popup_session.session_id,
-                            resolved.text,
-                        ),
-                        on_chunk=lambda chunk: self._popup_presenter.append_chunk(
-                            popup_session.session_id,
-                            chunk,
-                        ),
-                        on_complete=lambda result: self._popup_presenter.finalize_result(
-                            popup_session.session_id,
-                            result.content,
-                        ),
+                    logger.info(
+                        "[clipai] Execute action completed: action_id=%s output_mode=%s result_chars=%s",
+                        action_id,
+                        outcome.output_mode,
+                        len(outcome.result.content or ""),
                     )
-                outcome = self._runner.run(
-                    RunRequest(action_id=action_id),
-                    build_runtime_context(
-                        mode="desktop_hotkey",
-                        apply_output=True,
-                        use_selection=True,
-                        stream_enabled=self._runner._default_stream_enabled(action_def),
-                        stream_to_stdout=False,
-                    ),
-                    callbacks=callbacks,
-                )
-                logger.info(
-                    "[clipai] Execute action completed: action_id=%s output_mode=%s result_chars=%s",
-                    action_id,
-                    outcome.output_mode,
-                    len(outcome.result.content or ""),
-                )
 
-                if popup_session is not None:
-                    popup_session.action_id = outcome.action_id
-                    popup_session.action_name = outcome.action_name
-                    popup_session.original_input = outcome.input_resolution.text
-                    popup_session.latest_result = outcome.result.content
-                    self._popup_presenter.refresh_session(popup_session.session_id)
-                    self._popup_presenter.flash_status(popup_session.session_id, "success")
+                    if popup_session is not None:
+                        popup_session.action_id = outcome.action_id
+                        popup_session.action_name = outcome.action_name
+                        popup_session.mark_input_ready(outcome.input_resolution.text)
+                        popup_session.mark_result_ready(outcome.result.content)
+                        self._popup_presenter.refresh_session(popup_session.session_id)
+                        self._popup_presenter.flash_status(popup_session.session_id, "success")
 
-                self._bus.emit(Events.UI_STATUS, status="success")
-            except ValueError as exc:
-                logger.error("[clipai] Execute action validation failed: action_id=%s error=%s", action_id, exc)
-                notify("ClipAI", str(exc))
-                if popup_session is not None:
-                    self._popup_presenter.finalize_result(popup_session.session_id, str(exc))
-                    self._popup_presenter.flash_status(popup_session.session_id, "error")
-                self._bus.emit(Events.UI_STATUS, status="warning")
-            except OutputModeError as exc:
-                logger.error("[clipai] %s", exc)
-                notify("ClipAI", str(exc))
-                if popup_session is not None:
-                    self._popup_presenter.finalize_result(popup_session.session_id, str(exc))
-                    self._popup_presenter.flash_status(popup_session.session_id, "error")
-                self._bus.emit(Events.UI_STATUS, status="error")
-            except Exception as exc:
-                logger.exception("[clipai] Action failed: %s", exc)
-                notify("ClipAI", f"Action failed: {exc}")
-                if popup_session is not None:
-                    self._popup_presenter.finalize_result(popup_session.session_id, f"Action failed: {exc}")
-                    self._popup_presenter.flash_status(popup_session.session_id, "error")
-                self._bus.emit(Events.UI_STATUS, status="error")
+                    self._bus.emit(Events.UI_STATUS, status="success")
+                except ValueError as exc:
+                    logger.error("[clipai] Execute action validation failed: action_id=%s error=%s", action_id, exc)
+                    notify("ClipAI", str(exc))
+                    if popup_session is not None:
+                        self._popup_presenter.finalize_result(popup_session.session_id, str(exc))
+                        self._popup_presenter.flash_status(popup_session.session_id, "error")
+                    self._bus.emit(Events.UI_STATUS, status="warning")
+                except OutputModeError as exc:
+                    logger.error("[clipai] %s", exc)
+                    notify("ClipAI", str(exc))
+                    if popup_session is not None:
+                        self._popup_presenter.finalize_result(popup_session.session_id, str(exc))
+                        self._popup_presenter.flash_status(popup_session.session_id, "error")
+                    self._bus.emit(Events.UI_STATUS, status="error")
+                except Exception as exc:
+                    logger.exception("[clipai] Action failed: %s", exc)
+                    notify("ClipAI", f"Action failed: {exc}")
+                    if popup_session is not None:
+                        self._popup_presenter.finalize_result(popup_session.session_id, f"Action failed: {exc}")
+                        self._popup_presenter.flash_status(popup_session.session_id, "error")
+                    self._bus.emit(Events.UI_STATUS, status="error")
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -217,53 +227,55 @@ class DesktopRuntime:
         self._tts_service.speak_async(resolved.text)
 
     def _submit_follow_up(self, session: PopupSession, prompt_text: str) -> None:
+        correlation_id = new_correlation_id()
         threading.Thread(
             target=self._run_follow_up,
-            args=(session, prompt_text),
+            args=(session, prompt_text, correlation_id),
             daemon=True,
         ).start()
 
-    def _run_follow_up(self, session: PopupSession, prompt_text: str) -> None:
+    def _run_follow_up(self, session: PopupSession, prompt_text: str, correlation_id: str) -> None:
         action_def = self._bundle.action_map.get(session.action_id)
         if not action_def:
             notify("ClipAI", f"Unknown action id: {session.action_id}")
             return
 
         model = str(action_def.get("model") or self._bundle.provider_cfg.get("default_model") or "")
-        try:
-            session.start_round(kind="follow_up", prompt_text=prompt_text, model=model or "default")
-            self._popup_presenter.refresh_session(session.session_id)
-            callbacks = RunCallbacks(
-                on_chunk=lambda chunk: self._popup_presenter.append_chunk(session.session_id, chunk),
-                on_complete=lambda result: self._popup_presenter.finalize_result(session.session_id, result.content),
-            )
-            outcome = self._runner.run(
-                RunRequest(
-                    action_id=session.action_id,
-                    explicit_text=prompt_text,
-                    explicit_messages=self._build_follow_up_messages(session, action_def, prompt_text),
-                ),
-                build_runtime_context(
-                    mode="desktop_hotkey",
-                    apply_output=False,
-                    use_selection=False,
-                    stream_enabled=self._runner._default_stream_enabled(action_def),
-                    stream_to_stdout=False,
-                ),
-                callbacks=callbacks,
-            )
-            session.latest_result = outcome.result.content
-            self._popup_presenter.refresh_session(session.session_id)
-            self._popup_presenter.flash_status(session.session_id, "success")
-        except ValueError as exc:
-            self._popup_presenter.finalize_result(session.session_id, str(exc))
-            self._popup_presenter.flash_status(session.session_id, "error")
-        except Exception as exc:
-            logger.exception("[clipai] Follow-up failed: %s", exc)
-            self._popup_presenter.finalize_result(session.session_id, f"Follow-up failed: {exc}")
-            self._popup_presenter.flash_status(session.session_id, "error")
-        finally:
-            self._popup_presenter.set_follow_up_enabled(session.session_id, True)
+        with logging_context(action_id=session.action_id, correlation_id=correlation_id):
+            try:
+                session.start_round(kind="follow_up", prompt_text=prompt_text, model=model or "default")
+                self._popup_presenter.refresh_session(session.session_id)
+                callbacks = RunCallbacks(
+                    on_chunk=lambda chunk: self._popup_presenter.append_chunk(session.session_id, chunk),
+                    on_complete=lambda result: self._popup_presenter.finalize_result(session.session_id, result.content),
+                )
+                outcome = self._runner.run(
+                    RunRequest(
+                        action_id=session.action_id,
+                        explicit_text=prompt_text,
+                        explicit_messages=self._build_follow_up_messages(session, action_def, prompt_text),
+                    ),
+                    build_runtime_context(
+                        mode="desktop_hotkey",
+                        apply_output=False,
+                        use_selection=False,
+                        stream_enabled=self._runner._default_stream_enabled(action_def),
+                        stream_to_stdout=False,
+                    ),
+                    callbacks=callbacks,
+                )
+                session.latest_result = outcome.result.content
+                self._popup_presenter.refresh_session(session.session_id)
+                self._popup_presenter.flash_status(session.session_id, "success")
+            except ValueError as exc:
+                self._popup_presenter.finalize_result(session.session_id, str(exc))
+                self._popup_presenter.flash_status(session.session_id, "error")
+            except Exception as exc:
+                logger.exception("[clipai] Follow-up failed: %s", exc)
+                self._popup_presenter.finalize_result(session.session_id, f"Follow-up failed: {exc}")
+                self._popup_presenter.flash_status(session.session_id, "error")
+            finally:
+                self._popup_presenter.set_follow_up_enabled(session.session_id, True)
 
     def _build_follow_up_messages(
         self,

@@ -64,7 +64,7 @@ class InputResolver:
         with ClipboardSession():
             sentinel = self._selection_sentinel()
             write_clipboard_text(sentinel, retries=1, delay=0)
-            logger.info("[clipai] Selection capture start: sentinel written")
+            logger.debug("[clipai] Selection capture start: sentinel written")
             time.sleep(self._copy_delay_sec)
 
             keyboard = pynput_keyboard.Controller()

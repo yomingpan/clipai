@@ -84,6 +84,18 @@ class PopupPresenter:
         return f"Analysis: {compact}"
 
     @staticmethod
+    def _input_preview_for_session(session: PopupSession) -> str:
+        if session.input_loading:
+            return "Analysis: Connecting..."
+        return PopupPresenter._format_input_preview(session.original_input)
+
+    @staticmethod
+    def _result_text_for_session(session: PopupSession) -> str:
+        if session.result_loading and not session.latest_result.strip():
+            return "Connecting..."
+        return session.latest_result
+
+    @staticmethod
     def _speak_phase_to_ui_state(phase: str, is_speaking: bool) -> bool | None:
         normalized = (phase or "").strip().lower()
         if normalized == "start":
@@ -311,7 +323,7 @@ class PopupPresenter:
 
         input_value = ctk.CTkLabel(
             main_frame,
-            text=self._format_input_preview(session.original_input),
+            text=self._input_preview_for_session(session),
             font=("Microsoft JhengHei", 10),
             text_color=("gray52", "gray58"),
             justify="left",
@@ -505,15 +517,15 @@ class PopupPresenter:
     def _update_input_on_ui(self, session_id: str, original_input: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
             return
-        self._active_session.original_input = original_input
-        if self._input_label is not None:
-            self._input_label.configure(text=self._format_input_preview(original_input))
+        self._active_session.mark_input_ready(original_input)
+        self._render_input_preview_on_ui(self._active_session)
 
     def _refresh_session_on_ui(self, session_id: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
             return
         self._pending_chunks = []
         self._chunk_flush_scheduled = False
+        self._render_input_preview_on_ui(self._active_session)
         if self._text_widget is not None:
             self._render_session_text(self._text_widget, self._active_session)
         self._clear_follow_up_entry_on_ui()
@@ -534,7 +546,8 @@ class PopupPresenter:
     def _append_chunk_on_ui(self, session_id: str, chunk: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
             return
-        if self._active_session.latest_result.strip() == "Connecting...":
+        if self._active_session.result_loading:
+            self._active_session.result_loading = False
             self._active_session.latest_result = ""
         self._active_session.latest_result += chunk
         self._pending_chunks.append(chunk)
@@ -558,8 +571,9 @@ class PopupPresenter:
         except Exception:
             autoscroll = True
         text_widget.config(state="normal")
-        if text_widget.get("1.0", "end-1c").strip() == "Connecting...":
+        if self._active_session.result_loading or text_widget.get("1.0", "end-1c").strip() == "Connecting...":
             text_widget.delete("1.0", "end")
+        self._active_session.result_loading = False
         text_widget.insert("end", chunk, ("body",))
         if autoscroll:
             text_widget.see("end")
@@ -568,9 +582,10 @@ class PopupPresenter:
     def _finalize_result_on_ui(self, session_id: str, content: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
             return
-        self._active_session.latest_result = content
+        self._active_session.mark_result_ready(content)
         self._pending_chunks = []
         self._chunk_flush_scheduled = False
+        self._render_input_preview_on_ui(self._active_session)
         if self._text_widget is not None:
             self._render_session_text(self._text_widget, self._active_session)
         self._sync_follow_up_controls(self._active_session)
@@ -666,7 +681,7 @@ class PopupPresenter:
         text_widget.tag_configure("md_h2", font=("Microsoft JhengHei", 13, "bold"), spacing1=5, spacing3=3)
         text_widget.tag_configure("md_bold", font=("Microsoft JhengHei", 11, "bold"))
         text_widget.tag_configure("md_code", font=("Consolas", 10), background=code_bg, foreground=code_fg)
-        PopupPresenter._insert_markdown(text_widget, session.latest_result.strip() or " ", base_tag="body")
+        PopupPresenter._insert_markdown(text_widget, PopupPresenter._result_text_for_session(session).strip() or " ", base_tag="body")
         if session.rounds:
             for item in session.rounds:
                 text_widget.insert("end", f"\n\n--- round {item.round_index} ---\n", ("history",))
@@ -674,6 +689,10 @@ class PopupPresenter:
                 text_widget.insert("end", f"{label}: {item.prompt_text.strip()}\n", ("history",))
                 PopupPresenter._insert_markdown(text_widget, item.result_text.strip(), base_tag="history")
         text_widget.config(state="disabled")
+
+    def _render_input_preview_on_ui(self, session: PopupSession) -> None:
+        if self._input_label is not None:
+            self._input_label.configure(text=self._input_preview_for_session(session))
 
     @staticmethod
     def _insert_markdown(text_widget: tk.Text, content: str, base_tag: str = "body") -> None:
