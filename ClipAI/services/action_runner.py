@@ -26,6 +26,7 @@ class RunRequest:
     press_type: str = "short"
     explicit_text: str | None = None
     explicit_messages: list[dict[str, str]] | None = None
+    output_mode_override: str | None = None
     model_override: str | None = None
     base_url_override: str | None = None
 
@@ -86,6 +87,7 @@ class ActionRunner:
             callbacks=callbacks,
             explicit_text=request.explicit_text,
             explicit_messages=request.explicit_messages,
+            output_mode_override=request.output_mode_override,
             model_override=request.model_override,
             base_url_override=request.base_url_override,
         )
@@ -98,6 +100,7 @@ class ActionRunner:
         *,
         explicit_text: str | None = None,
         explicit_messages: list[dict[str, str]] | None = None,
+        output_mode_override: str | None = None,
         model_override: str | None = None,
         base_url_override: str | None = None,
     ) -> RunOutcome:
@@ -115,9 +118,9 @@ class ActionRunner:
         output_applier = OutputApplier()
         cancellation = CancellationController()
 
-        output_mode = str(action_def.get("output_mode") or "stdout")
+        output_mode = str(output_mode_override or action_def.get("output_mode") or "stdout")
         logger.info(
-            "[clipai] Run start: action_id=%s press_type=%s action_name=%s output_mode=%s mode=%s use_selection=%s apply_output=%s variant_applied=%s",
+            "[clipai] Run start: action_id=%s press_type=%s action_name=%s output_mode=%s mode=%s use_selection=%s apply_output=%s variant_applied=%s popup_chain_session_id=%s",
             resolved_action.action_id,
             resolved_action.press_type,
             resolved_action.action_name,
@@ -126,6 +129,7 @@ class ActionRunner:
             runtime.use_selection,
             runtime.apply_output,
             resolved_action.variant_applied,
+            runtime.popup_chain_session_id or "",
         )
         if runtime.stream_to_stdout:
             self._bus.subscribe(

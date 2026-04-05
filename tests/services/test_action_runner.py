@@ -272,3 +272,75 @@ def test_run_resolved_action_rejects_clipboard_image_for_unsupported_provider(mo
                 stream_to_stdout=False,
             ),
         )
+
+
+def test_run_request_output_override_uses_popup_without_applying_paste(monkeypatch) -> None:
+    bundle = _bundle(
+        [
+            {
+                "id": "translate_en",
+                "name": "Translate EN",
+                "prompt": "Translate: {input}",
+                "system_prompt": "Translate system",
+                "input_mode": "selection_or_clipboard",
+                "output_mode": "paste",
+            }
+        ]
+    )
+    runner = ActionRunner(bundle, event_bus=EventBus())
+    captured: dict[str, object] = {"applied": []}
+
+    monkeypatch.setattr("clipai.services.action_runner.build_provider", lambda cfg: {"provider": cfg["provider"]})
+
+    class _FakeActionService:
+        def __init__(self, event_bus, provider) -> None:
+            del event_bus, provider
+
+        def run_action(self, config, messages, cancellation_token, source_meta=None, on_chunk=None):
+            del cancellation_token, source_meta, on_chunk
+            captured["config"] = config
+            captured["messages"] = messages
+            return ActionRunResult(action_id=config.action_id, content="translated")
+
+    class _FakeResolver:
+        def __init__(self, enable_selection_capture: bool) -> None:
+            captured["enable_selection_capture"] = enable_selection_capture
+
+        def resolve_text(self, explicit_text, input_mode: str = "selection_or_clipboard") -> InputResolution:
+            captured["explicit_text"] = explicit_text
+            captured["input_mode"] = input_mode
+            return InputResolution(text=str(explicit_text or ""), source="explicit")
+
+    class _FakeOutputApplier:
+        def apply(self, content: str, output_mode: str) -> None:
+            cast_list = captured["applied"]
+            assert isinstance(cast_list, list)
+            cast_list.append((content, output_mode))
+
+    monkeypatch.setattr("clipai.services.action_runner.ActionService", _FakeActionService)
+    monkeypatch.setattr("clipai.services.action_runner.InputResolver", _FakeResolver)
+    monkeypatch.setattr("clipai.services.action_runner.OutputApplier", _FakeOutputApplier)
+
+    outcome = runner.run(
+        RunRequest(
+            action_id="translate_en",
+            explicit_text="popup output",
+            output_mode_override="popup",
+        ),
+        build_runtime_context(
+            mode="desktop_hotkey",
+            apply_output=True,
+            use_selection=False,
+            stream_enabled=True,
+            stream_to_stdout=False,
+            popup_chain_session_id="session-1",
+        ),
+    )
+
+    assert outcome.output_mode == "popup"
+    assert captured["enable_selection_capture"] is False
+    assert captured["messages"] == [
+        {"role": "system", "content": "Global system\n\nTranslate system"},
+        {"role": "user", "content": "Translate: popup output"},
+    ]
+    assert captured["applied"] == []

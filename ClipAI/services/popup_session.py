@@ -53,6 +53,28 @@ class PopupSession:
         self.result_loading = False
         self.updated_at = _utc_now_iso()
 
+    def begin_chained_action(
+        self,
+        *,
+        action_id: str,
+        action_name: str,
+        original_input: str,
+        action_press_type: str,
+        variant_applied: bool,
+        resolved_action_def: dict[str, object],
+        placeholder: str = "Connecting...",
+    ) -> None:
+        self.action_id = action_id
+        self.action_name = action_name
+        self.original_input = original_input
+        self.action_press_type = action_press_type
+        self.variant_applied = variant_applied
+        self.resolved_action_def = dict(resolved_action_def)
+        self.input_loading = False
+        self.latest_result = placeholder
+        self.result_loading = True
+        self.updated_at = _utc_now_iso()
+
     def start_round(self, *, kind: RoundKind, prompt_text: str, model: str, placeholder: str = "Connecting...") -> None:
         if not self.can_continue():
             raise ValueError("Popup follow-up limit reached.")

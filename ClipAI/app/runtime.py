@@ -36,6 +36,38 @@ class DesktopRuntime:
         self._popup_presenter = PopupPresenter(on_follow_up=self._submit_follow_up)
         self._popup_sessions: dict[str, PopupSession] = {}
 
+    def _active_popup_chain_session(self) -> PopupSession | None:
+        session_id = self._popup_presenter.get_active_session_id()
+        if not session_id:
+            return None
+        session = self._popup_sessions.get(session_id)
+        if session is None:
+            return None
+        if not self._popup_presenter.is_session_active(session_id):
+            return None
+        if session.input_loading or session.result_loading:
+            return None
+        if not session.latest_result.strip():
+            return None
+        return session
+
+    @staticmethod
+    def _popup_callbacks(popup_session: PopupSession, presenter: PopupPresenter) -> RunCallbacks:
+        return RunCallbacks(
+            on_input_resolved=lambda resolved: presenter.update_input(
+                popup_session.session_id,
+                resolved.text,
+            ),
+            on_chunk=lambda chunk: presenter.append_chunk(
+                popup_session.session_id,
+                chunk,
+            ),
+            on_complete=lambda result: presenter.finalize_result(
+                popup_session.session_id,
+                result.content,
+            ),
+        )
+
     def start(self) -> None:
         self._init_tts()
         self._popup_presenter = PopupPresenter(on_follow_up=self._submit_follow_up, tts_service=self._tts_service)
@@ -138,9 +170,26 @@ class DesktopRuntime:
             with logging_context(action_id=action_id, correlation_id=correlation_id):
                 try:
                     self._bus.emit(Events.UI_STATUS, status="processing")
-                    popup_session = None
+                    popup_session = self._active_popup_chain_session()
                     callbacks = None
-                    if str(action_def.get("output_mode") or "stdout") == "popup":
+                    output_mode_override = None
+                    explicit_text = None
+                    popup_chain_session_id = None
+                    if popup_session is not None:
+                        explicit_text = popup_session.latest_result
+                        output_mode_override = "popup"
+                        popup_chain_session_id = popup_session.session_id
+                        popup_session.begin_chained_action(
+                            action_id=action_id,
+                            action_name=resolved_action.action_name,
+                            original_input=explicit_text,
+                            action_press_type=resolved_action.press_type,
+                            variant_applied=resolved_action.variant_applied,
+                            resolved_action_def=action_def,
+                        )
+                        self._popup_presenter.refresh_session(popup_session.session_id)
+                        callbacks = self._popup_callbacks(popup_session, self._popup_presenter)
+                    elif str(action_def.get("output_mode") or "stdout") == "popup":
                         popup_session = PopupSession(
                             action_id=action_id,
                             action_name=resolved_action.action_name,
@@ -155,30 +204,20 @@ class DesktopRuntime:
                         self._popup_sessions[popup_session.session_id] = popup_session
                         logger.debug("[clipai] Popup session created: action_id=%s session_id=%s", action_id, popup_session.session_id)
                         self._popup_presenter.show_session(popup_session)
-                        callbacks = RunCallbacks(
-                            on_input_resolved=lambda resolved: self._popup_presenter.update_input(
-                                popup_session.session_id,
-                                resolved.text,
-                            ),
-                            on_chunk=lambda chunk: self._popup_presenter.append_chunk(
-                                popup_session.session_id,
-                                chunk,
-                            ),
-                            on_complete=lambda result: self._popup_presenter.finalize_result(
-                                popup_session.session_id,
-                                result.content,
-                            ),
-                        )
+                        callbacks = self._popup_callbacks(popup_session, self._popup_presenter)
                     outcome = self._runner.run_resolved_action(
                         resolved_action,
                         build_runtime_context(
                             mode="desktop_hotkey",
                             apply_output=True,
-                            use_selection=True,
+                            use_selection=popup_session is None,
                             stream_enabled=self._runner._default_stream_enabled(action_def),
                             stream_to_stdout=False,
+                            popup_chain_session_id=popup_chain_session_id,
                         ),
                         callbacks=callbacks,
+                        explicit_text=explicit_text,
+                        output_mode_override=output_mode_override,
                     )
                     logger.info(
                         "[clipai] Execute action completed: action_id=%s output_mode=%s result_chars=%s",
@@ -191,6 +230,8 @@ class DesktopRuntime:
                         popup_session.action_id = outcome.action_id
                         popup_session.action_name = outcome.action_name
                         popup_session.action_press_type = outcome.press_type
+                        popup_session.variant_applied = resolved_action.variant_applied
+                        popup_session.resolved_action_def = dict(action_def)
                         popup_session.mark_input_ready(outcome.input_resolution.text)
                         popup_session.mark_result_ready(outcome.result.content)
                         self._popup_presenter.refresh_session(popup_session.session_id)

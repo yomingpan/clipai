@@ -10,6 +10,7 @@ class RuntimeContext:
     use_selection: bool
     stream_enabled: bool
     stream_to_stdout: bool
+    popup_chain_session_id: str | None = None
 
 
 def build_runtime_context(
@@ -19,6 +20,7 @@ def build_runtime_context(
     use_selection: bool,
     stream_enabled: bool,
     stream_to_stdout: bool,
+    popup_chain_session_id: str | None = None,
 ) -> RuntimeContext:
     return RuntimeContext(
         mode=mode,
@@ -26,4 +28,5 @@ def build_runtime_context(
         use_selection=use_selection,
         stream_enabled=stream_enabled,
         stream_to_stdout=stream_to_stdout,
+        popup_chain_session_id=popup_chain_session_id,
     )

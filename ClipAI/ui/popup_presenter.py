@@ -110,6 +110,23 @@ class PopupPresenter:
         self._ensure_ui_thread()
         self._jobs.put(lambda: self._show_session_on_ui(session))
 
+    def get_active_session_id(self) -> str | None:
+        session = self._active_session
+        if session is None:
+            return None
+        if self._active_window is None:
+            return None
+        try:
+            if not self._active_window.winfo_exists():
+                return None
+        except tk.TclError:
+            return None
+        return session.session_id
+
+    def is_session_active(self, session_id: str) -> bool:
+        active_session_id = self.get_active_session_id()
+        return active_session_id == session_id
+
     def update_input(self, session_id: str, original_input: str) -> None:
         self._ensure_ui_thread()
         self._jobs.put(lambda: self._update_input_on_ui(session_id, original_input))
@@ -525,6 +542,7 @@ class PopupPresenter:
             return
         self._pending_chunks = []
         self._chunk_flush_scheduled = False
+        self._sync_session_header_on_ui(self._active_session)
         self._render_input_preview_on_ui(self._active_session)
         if self._text_widget is not None:
             self._render_session_text(self._text_widget, self._active_session)
@@ -696,6 +714,16 @@ class PopupPresenter:
     def _render_input_preview_on_ui(self, session: PopupSession) -> None:
         if self._input_label is not None:
             self._input_label.configure(text=self._input_preview_for_session(session))
+
+    def _sync_session_header_on_ui(self, session: PopupSession) -> None:
+        title_text = f"ClipAI - {session.action_name}"
+        if self._title_label is not None:
+            self._title_label.configure(text=title_text)
+        if self._active_window is not None:
+            try:
+                self._active_window.title(title_text)
+            except tk.TclError:
+                return
 
     @staticmethod
     def _insert_markdown(text_widget: tk.Text, content: str, base_tag: str = "body") -> None:

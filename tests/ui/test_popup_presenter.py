@@ -146,6 +146,45 @@ def test_popup_presenter_refresh_session_repaints_input_preview_from_session_sta
     assert presenter._input_label.text == "Analysis: second input"
 
 
+def test_popup_presenter_refresh_session_updates_header_title() -> None:
+    class _FakeLabel:
+        def __init__(self) -> None:
+            self.text = None
+
+        def configure(self, **kwargs) -> None:
+            self.text = kwargs.get("text")
+
+    class _FakeWindow:
+        def __init__(self) -> None:
+            self.title_text = None
+
+        def title(self, value: str) -> None:
+            self.title_text = value
+
+    presenter = PopupPresenter()
+    presenter._title_label = _FakeLabel()
+    presenter._active_window = _FakeWindow()
+    presenter._input_label = None
+    presenter._text_widget = None
+    presenter._follow_entry = None
+    presenter._follow_hint_label = None
+
+    session = PopupSession(
+        action_id="translate_en",
+        action_name="Translate EN",
+        original_input="hello",
+        latest_result="world",
+        input_loading=False,
+        result_loading=False,
+    )
+    presenter._active_session = session
+
+    presenter._refresh_session_on_ui(session.session_id)
+
+    assert presenter._title_label.text == "ClipAI - Translate EN"
+    assert presenter._active_window.title_text == "ClipAI - Translate EN"
+
+
 def test_popup_presenter_supports_common_markdown_headings_and_blockquotes() -> None:
     content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
     assert 'text_widget.tag_configure("md_h3"' in content
