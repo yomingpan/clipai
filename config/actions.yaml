@@ -1,16 +1,16 @@
 actions:
   - id: translate_zh_tw
-    name: 翻譯成中文
+    name: 翻譯成繁體中文
     hotkey: ctrl+alt+1
     stream: true
     input_mode: selection_or_clipboard
     output_mode: paste
     temperature: 0.1
     system_prompt: >
-      你是專業翻譯助理。請忠實翻譯輸入內容為繁體中文，不要補充額外說明，
-      不要延伸原意，不要省略重點，保留原本語氣與資訊。
+      你是專業翻譯助手。請將使用者提供的內容翻譯成自然、流暢、忠實原意的繁體中文。
+      保留原本的語氣、專有名詞與結構，不要額外補充。
     prompt: |
-      請將以下內容翻譯成繁體中文：
+      請將以下內容翻譯成自然的繁體中文：
 
       {input}
 
@@ -22,40 +22,40 @@ actions:
     output_mode: paste
     temperature: 0.1
     system_prompt: >
-      你是專業翻譯助理。請忠實翻譯輸入內容為自然、流暢的英文，
-      不要補充額外說明，不要延伸原意，不要省略重點。
+      You are a professional translator. Translate the user's text into natural, fluent English
+      while preserving meaning, tone, terminology, and structure. Do not add extra commentary.
     prompt: |
       Please translate the following content into natural English:
 
       {input}
 
   - id: rewrite_complete
-    name: 將文字重組
+    name: 重寫完整句子
     hotkey: ctrl+alt+3
     stream: true
     input_mode: selection_or_clipboard
     output_mode: paste
     temperature: 0.2
     system_prompt: >
-      你是文字重組助理。請把鬆散、破碎或不完整的輸入重組成清楚完整的句子。
-      不要延伸原意，不要增加新的資訊，不要縮短原意，只做結構整理與語句補全。
+      你是文字潤稿助手。請在不改變原意的前提下，將輸入內容重寫得更完整、
+      更清楚、更自然，適合直接使用。
     prompt: |
-      請將以下內容整理成完整、自然、清楚的表達：
+      請將以下內容重寫成更完整、清楚、自然的表達：
 
       {input}
 
   - id: shorten_keep_meaning
-    name: 縮短句子
+    name: 精簡但保留原意
     hotkey: ctrl+alt+4
     stream: true
     input_mode: selection_or_clipboard
     output_mode: paste
     temperature: 0.2
     system_prompt: >
-      你是精簡助理。請在保留原文約 80% 核心意思的前提下，將文字縮短。
-      不要改變結論，不要加入新資訊，輸出要直接可用。
+      你是精簡編輯助手。請在保留原意與關鍵資訊的前提下，將內容縮短到更精煉、
+      更容易閱讀的版本，不要失去重要訊息。
     prompt: |
-      請精簡以下內容，保留約 80% 的核心意思：
+      請將以下內容精簡，但保留原本的意思與關鍵資訊：
 
       {input}
 
@@ -67,15 +67,22 @@ actions:
     output_mode: popup
     temperature: 0.2
     system_prompt: >
-      你是摘要助理。請將輸入整理為清楚的大綱，列出重點，並提出可執行的下一步。
-      請保持內容貼近原文，不要無根據擴寫。
+      你是高品質的資訊整理助手。請依照麥肯錫金字塔原則整理輸入內容，
+      先給出最高層的一句話結論，再列出支撐此結論的要點，
+      最後保留能支撐判斷的關鍵原文內容。不要加入沒有根據的推論，
+      也不要輸出多餘寒暄或前言，直接給結構化結果。
     prompt: |
-      請摘要以下內容，並用以下結構輸出：
-      1. 大綱
-      2. 重點
-      3. 下一步
+      請根據以下內容，使用固定格式輸出：
 
-      內容如下：
+      一句話:
+      支撐的要點:
+      關鍵原文內容:
+
+      要求：
+      - 「一句話」只寫一行，作為最高層結論。
+      - 「支撐的要點」用條列整理 3-5 點。
+      - 「關鍵原文內容」只保留最能支持結論的原文資訊，可用條列。
+      - 不要輸出其他額外標題或說明。
 
       {input}
 
