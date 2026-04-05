@@ -257,7 +257,12 @@ class TrayIcon:
     def _show_hotkey_guide(self, icon, item):
         from clipai.ui.dialogs.hotkey_guide_dialog import show_hotkey_guide
 
-        threading.Thread(target=show_hotkey_guide, args=(self.actions_list,), daemon=True).start()
+        threading.Thread(
+            target=show_hotkey_guide,
+            args=(self.actions_list,),
+            kwargs={"modifier_mode": str(self.app_cfg.get("hotkey_modifier_mode") or "alt_shift")},
+            daemon=True,
+        ).start()
 
     def _on_quit(self, icon, item):
         icon.stop()

@@ -34,6 +34,10 @@ class ActionService:
         source_meta: dict[str, Any] | None = None,
         on_chunk: Callable[[str], None] | None = None,
     ) -> ActionRunResult:
+        if source_meta is not None and not isinstance(source_meta, dict):
+            if cancellation_token is None:
+                cancellation_token = source_meta
+            source_meta = None
         source_meta = source_meta or {}
         started = time.time()
         now_ms = int(started * 1000)

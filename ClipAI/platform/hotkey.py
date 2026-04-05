@@ -43,6 +43,33 @@ def _parse_hotkey(hotkey: str) -> set[str]:
     return {part.strip().lower() for part in hotkey.split("+") if part.strip()}
 
 
+def _swap_modifier_prefix(hotkey: str, modifier_mode: str) -> str | None:
+    normalized = hotkey.strip().lower()
+    if not normalized.startswith("alt+shift+"):
+        return None
+    suffix = normalized[len("alt+shift+") :]
+    prefix_map = {
+        "alt_shift": "alt+shift+",
+        "ctrl_shift": "ctrl+shift+",
+        "ctrl_alt": "ctrl+alt+",
+    }
+    prefix = prefix_map.get((modifier_mode or "alt_shift").lower())
+    if not prefix or prefix == "alt+shift+":
+        return None
+    return f"{prefix}{suffix}"
+
+
+def expand_hotkeys(hotkey: str, modifier_mode: str = "alt_shift") -> list[str]:
+    normalized = hotkey.strip().lower()
+    if not normalized:
+        return []
+    variants = [normalized]
+    swapped = _swap_modifier_prefix(normalized, modifier_mode)
+    if swapped and swapped not in variants:
+        variants.append(swapped)
+    return variants
+
+
 @dataclass
 class _HotkeyState:
     timer: threading.Timer | None = None
@@ -64,6 +91,7 @@ def register_hotkeys_with_long_press(
     on_press_action: Callable[[str], None],
     on_long_press_action: Callable[[str], None] | None = None,
     *,
+    modifier_mode: str = "alt_shift",
     tts_check_fn: Callable[[], bool] | None = None,
     long_press_sec: float = 0.6,
 ):
@@ -75,9 +103,9 @@ def register_hotkeys_with_long_press(
     hotkeys: list[tuple[str, set[str]]] = []
     for action_id, action in action_map.items():
         hotkey = str(action.get("hotkey") or "").strip()
-        if hotkey:
-            hotkeys.append((action_id, _parse_hotkey(hotkey)))
-            logger.info("[clipai] Registered hotkey %s -> %s", hotkey, action_id)
+        for variant in expand_hotkeys(hotkey, modifier_mode=modifier_mode):
+            hotkeys.append((action_id, _parse_hotkey(variant)))
+            logger.info("[clipai] Registered hotkey %s -> %s", variant, action_id)
 
     pressed: set[str] = set()
     active: dict[str, _HotkeyState] = {}

@@ -11,6 +11,7 @@ from clipai.core.constants import EVENT_PIPELINE_UPDATE
 from clipai.core.event_bus import EventBus
 from clipai.providers.factory import build_provider
 from clipai.services.action_config import resolve_action_config
+from clipai.services.hedged_action_service import HedgeRoute, HedgedActionService
 from clipai.services.action_service import ActionRunResult, ActionService
 from clipai.services.output_applier import OutputApplier
 
@@ -107,11 +108,15 @@ class ActionRunner:
             "temperature": action_def.get("temperature", self._bundle.app_cfg.get("temperature", 0.2)),
         }
         config = resolve_action_config(action_def, mode=runtime.mode, runtime_flags=runtime_flags)
-        result = action_service.run_action(
-            config,
-            messages,
-            cancellation_token=cancellation.token,
-            source_meta=None,
+        result = self._run_action_request(
+            action_def=action_def,
+            config=config,
+            provider_cfg=provider_cfg,
+            action_service=action_service,
+            messages=messages,
+            cancellation=cancellation,
+            output_mode=output_mode,
+            runtime=runtime,
             on_chunk=callbacks.on_chunk if callbacks else None,
         )
         if callbacks and callbacks.on_complete is not None:
@@ -144,3 +149,78 @@ class ActionRunner:
         action_prompt = str(action_def.get("system_prompt", "")).strip()
         parts = [part for part in (global_prompt, action_prompt) if part]
         return "\n\n".join(parts)
+
+    def _run_action_request(
+        self,
+        *,
+        action_def: dict[str, Any],
+        config,
+        provider_cfg: dict[str, Any],
+        action_service: ActionService,
+        messages: list[dict[str, str]],
+        cancellation: CancellationController,
+        output_mode: str,
+        runtime: RuntimeContext,
+        on_chunk: Callable[[str], None] | None,
+    ) -> ActionRunResult:
+        if not self._should_use_hedge(action_def, output_mode, runtime):
+            return action_service.run_action(
+                config,
+                messages,
+                cancellation_token=cancellation.token,
+                source_meta=None,
+                on_chunk=on_chunk,
+            )
+
+        secondary_provider_name = str(
+            action_def.get("hedge_secondary_provider")
+            or self._bundle.app_cfg.get("hedge_secondary_provider")
+            or provider_cfg.get("provider")
+            or ""
+        ).strip()
+        secondary_model = str(
+            action_def.get("hedge_secondary_model")
+            or self._bundle.app_cfg.get("hedge_secondary_model")
+            or provider_cfg.get("default_model")
+            or config.model
+        ).strip()
+        hedge_delay_ms = int(
+            action_def.get("hedge_delay_ms")
+            or self._bundle.app_cfg.get("hedge_delay_ms")
+            or 150
+        )
+        fallback_cfg = dict(provider_cfg)
+        if secondary_provider_name:
+            fallback_cfg["provider"] = secondary_provider_name
+        if secondary_model:
+            fallback_cfg["default_model"] = secondary_model
+
+        hedged_service = HedgedActionService(self._bus)
+        return hedged_service.run_action(
+            config,
+            messages,
+            HedgeRoute(
+                name="primary",
+                provider=build_provider(provider_cfg),
+                model=config.model,
+                provider_name=str(provider_cfg.get("provider", config.provider)),
+            ),
+            HedgeRoute(
+                name="fallback",
+                provider=build_provider(fallback_cfg),
+                model=secondary_model or config.model,
+                provider_name=str(fallback_cfg.get("provider", config.provider)),
+            ),
+            temperature=config.temperature,
+            stream=config.stream,
+            source_meta=None,
+            on_chunk=on_chunk,
+            hedge_delay_ms=hedge_delay_ms,
+        )
+
+    def _should_use_hedge(self, action_def: dict[str, Any], output_mode: str, runtime: RuntimeContext) -> bool:
+        if runtime.mode != "desktop_hotkey":
+            return False
+        if output_mode != "popup":
+            return False
+        return bool(action_def.get("hedge_enabled", self._bundle.app_cfg.get("hedge_enabled", False)))

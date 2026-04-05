@@ -67,7 +67,12 @@ class DesktopRuntime:
 
     def _register_hotkeys(self) -> None:
         try:
-            self._listener = register_hotkeys_with_long_press(self._bundle.action_map, self._execute_action, None)
+            self._listener = register_hotkeys_with_long_press(
+                self._bundle.action_map,
+                self._execute_action,
+                None,
+                modifier_mode=str(self._bundle.app_cfg.get("hotkey_modifier_mode") or "alt_shift"),
+            )
         except Exception as exc:
             logger.error("[clipai] Hotkey registration unavailable: %s", exc)
             notify("ClipAI", f"Hotkeys unavailable: {exc}")
@@ -94,7 +99,12 @@ class DesktopRuntime:
             volume=tts_cfg.get("volume", "+0%"),
             proxy=tts_cfg.get("proxy"),
         )
-        self._tts_service = TTSService(self._bus, self._tts_engine.speak)
+        self._tts_service = TTSService(
+            self._bus,
+            self._tts_engine.speak,
+            stop_fn=self._tts_engine.stop,
+            is_speaking_fn=self._tts_engine.is_speaking,
+        )
 
     def _execute_action(self, action_id: str) -> None:
         action_def = self._bundle.action_map.get(action_id)

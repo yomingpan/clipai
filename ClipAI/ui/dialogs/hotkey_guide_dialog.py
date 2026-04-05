@@ -4,6 +4,7 @@ from collections import OrderedDict
 
 import customtkinter as ctk
 
+from clipai.platform.hotkey import expand_hotkeys
 from clipai.ui.base_dialog import BaseDialog
 
 
@@ -35,7 +36,15 @@ def _display_name(action: dict) -> str:
     return action_id.replace("_", " ").title()
 
 
-def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
+def _format_hotkeys(hotkey: str, modifier_mode: str) -> str:
+    variants = []
+    for item in expand_hotkeys(hotkey, modifier_mode=modifier_mode):
+        text = item.replace("ctrl+", "Ctrl+").replace("alt+", "Alt+").replace("shift+", "Shift+")
+        variants.append(text)
+    return " / ".join(dict.fromkeys(variants))
+
+
+def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide", modifier_mode: str = "alt_shift"):
     """Display a grouped hotkey reference panel."""
     groups: OrderedDict = OrderedDict()
     for action in actions_list:
@@ -75,7 +84,7 @@ def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
 
     legend = ctk.CTkLabel(
         footer_frame,
-        text="  ".join(BEHAVIOR_LABELS.values()),
+        text="  ".join(BEHAVIOR_LABELS.values()) + f"    Mode: {modifier_mode}",
         font=("Microsoft JhengHei", 10),
         text_color=("gray40", "gray55"),
         anchor="w",
@@ -125,10 +134,7 @@ def show_hotkey_guide(actions_list, title="ClipAI Hotkey Guide"):
             )
             name_label.pack(side="left", fill="x", expand=True)
 
-            hk_text = str(action["hotkey"]).replace("alt+shift+", "Alt+Shift+").replace("alt+", "Alt+").replace(
-                "shift+",
-                "Shift+",
-            )
+            hk_text = _format_hotkeys(str(action["hotkey"]), modifier_mode)
             badge_frame = ctk.CTkFrame(
                 row,
                 fg_color=("#E8E8E8", "#3A3A3A"),

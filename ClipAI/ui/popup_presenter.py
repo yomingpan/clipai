@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import queue
 import re
@@ -8,6 +8,8 @@ from typing import Callable
 
 import customtkinter as ctk
 
+from clipai.core.constants import EVENT_TTS_STATE
+from clipai.core.event_bus import get_event_bus
 from clipai.platform.clipboard import write_clipboard_text
 from clipai.services.archive_service import ArchiveService
 from clipai.services.popup_session import PopupSession
@@ -19,7 +21,9 @@ ctk.set_default_color_theme("blue")
 BRAND_COLOR = "#3B8ED0"
 SUCCESS_COLOR = "#2E9E5B"
 ERROR_COLOR = "#D64545"
+STOP_COLOR = "#C84C4C"
 POPUP_MASK_COLOR = "#010203"
+CHUNK_FLUSH_MS = 40
 
 
 class PopupPresenter:
@@ -32,15 +36,23 @@ class PopupPresenter:
         self._root: ctk.CTk | None = None
         self._active_window = None
         self._active_session: PopupSession | None = None
-        self._text_widget = None
+        self._text_widget: tk.Text | None = None
         self._follow_entry = None
-        self._input_label = None
         self._follow_hint_label = None
+        self._follow_frame = None
+        self._follow_visible = False
+        self._secondary_row = None
+        self._secondary_visible = False
+        self._input_label = None
         self._pin_button = None
         self._main_frame = None
         self._title_label = None
         self._is_pinned = False
         self._ready = threading.Event()
+        self._chunk_flush_scheduled = False
+        self._pending_chunks: list[str] = []
+        self._button_refs: dict[str, ctk.CTkButton] = {}
+        get_event_bus().subscribe(EVENT_TTS_STATE, self._handle_tts_state)
 
     @staticmethod
     def _format_input_preview(text: str, max_chars: int = 88) -> str:
@@ -79,6 +91,12 @@ class PopupPresenter:
         self._ensure_ui_thread()
         self._jobs.put(lambda: self._set_follow_up_enabled_on_ui(session_id, enabled))
 
+    def _handle_tts_state(self, payload: dict) -> None:
+        self._ensure_ui_thread()
+        phase = str(payload.get("phase") or "")
+        is_speaking = bool(payload.get("is_speaking"))
+        self._jobs.put(lambda: self._set_speak_button_state_on_ui(is_speaking if phase == "start" else False))
+
     def _ensure_ui_thread(self) -> None:
         if self._thread and self._thread.is_alive():
             return
@@ -111,21 +129,7 @@ class PopupPresenter:
     def _show_session_on_ui(self, session: PopupSession) -> None:
         if self._root is None:
             return
-        if self._active_window is not None:
-            try:
-                self._active_window.destroy()
-            except Exception:
-                pass
-            self._active_window = None
-            self._active_session = None
-            self._text_widget = None
-            self._follow_entry = None
-            self._input_label = None
-            self._follow_hint_label = None
-            self._pin_button = None
-            self._main_frame = None
-            self._title_label = None
-            self._is_pinned = False
+        self._destroy_active_window()
 
         root = self._root
         window = ctk.CTkToplevel(root)
@@ -141,8 +145,8 @@ class PopupPresenter:
 
         screen_w = window.winfo_screenwidth()
         screen_h = window.winfo_screenheight()
-        width = max(500, min(300, int(screen_w * 0.32)))
-        height = max(380, min(150, int(screen_h * 0.42)))
+        width = max(500, min(680, int(screen_w * 0.36)))
+        height = max(380, min(520, int(screen_h * 0.48)))
         pointer_x = window.winfo_pointerx()
         pointer_y = window.winfo_pointery()
         x = min(pointer_x + 18, screen_w - width - 16)
@@ -179,23 +183,24 @@ class PopupPresenter:
         action_bar = ctk.CTkFrame(header_frame, fg_color="transparent")
         action_bar.pack(side="right")
 
-        def _icon_button(icon: str, tooltip: str, command, accent: bool = False):
+        def _header_button(name: str, text: str, tooltip: str, command) -> ctk.CTkButton:
             button = ctk.CTkButton(
                 action_bar,
-                text=icon,
-                width=32,
+                text=text,
+                width=68 if name != "pin" else 32,
                 height=28,
                 corner_radius=8,
-                font=("Segoe UI Symbol", 12, "bold"),
-                fg_color=(BRAND_COLOR if accent else "transparent"),
-                hover_color=("#2B6E9E" if accent else ("#E8EEF5", "#232A35")),
-                border_width=(0 if accent else 1),
+                font=("Microsoft JhengHei", 11, "bold"),
+                fg_color="transparent",
+                hover_color=("#E8EEF5", "#232A35"),
+                border_width=1,
                 border_color=("#D8DEE8", "#2B3240"),
-                text_color=("white" if accent else ("gray10", "#DCE4EE")),
+                text_color=("gray10", "#DCE4EE"),
                 command=command,
             )
             button.pack(side="left", padx=(6, 0))
             attach_tooltip(button, tooltip)
+            self._button_refs[name] = button
             return button
 
         def _toggle_pin() -> None:
@@ -221,14 +226,33 @@ class PopupPresenter:
             widget.bind("<ButtonPress-1>", _start_drag, add="+")
             widget.bind("<B1-Motion>", _drag_window, add="+")
 
-        self._pin_button = _icon_button("📌", "Pin", _toggle_pin)
-        _icon_button("TTS", "Speak", lambda: self._speak_session(session))
-        _icon_button("Copy", "Copy", lambda: self._copy_from_widget(text_widget, session))
-        _icon_button("Save", "Archive", lambda: self._archive_service.append_session(session))
-        _icon_button("Deep", "Deep Think", lambda: None, accent=True)
+        _header_button("speak", "Speak", "Speak / Stop", lambda: self._toggle_speak(session))
+        _header_button("copy", "Copy", "Copy", lambda: self._copy_current_output(session))
+        _header_button("archive", "Archive", "Archive", lambda: self._archive_current_output(session))
+        _header_button("overflow", "[...]", "More actions", self._toggle_secondary_actions_on_ui)
+        self._pin_button = _header_button("pin", "📌", "Pin", _toggle_pin)
+
+        secondary_row = ctk.CTkFrame(main_frame, fg_color="transparent")
+        self._secondary_row = secondary_row
+        for label in ("Deep", "精練"):
+            button = ctk.CTkButton(
+                secondary_row,
+                text=label,
+                width=82,
+                height=28,
+                corner_radius=8,
+                font=("Microsoft JhengHei", 11, "bold"),
+                fg_color="transparent",
+                hover_color=("#E8EEF5", "#232A35"),
+                border_width=1,
+                border_color=("#D8DEE8", "#2B3240"),
+                text_color=("gray10", "#DCE4EE"),
+                command=lambda text=label: self._flash_secondary_action(text),
+            )
+            button.pack(side="left", padx=(0, 8))
 
         follow_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        follow_frame.pack(fill="x", padx=14, pady=(0, 4))
+        self._follow_frame = follow_frame
 
         follow_entry = ctk.CTkEntry(
             follow_frame,
@@ -306,21 +330,9 @@ class PopupPresenter:
 
         def _close(event=None) -> None:
             del event
-            try:
-                if window.winfo_exists():
-                    window.destroy()
-            finally:
-                if self._active_window is window:
-                    self._active_window = None
-                    self._active_session = None
-                    self._text_widget = None
-                    self._follow_entry = None
-                    self._input_label = None
-                    self._follow_hint_label = None
-                    self._pin_button = None
-                    self._main_frame = None
-                    self._title_label = None
-                    self._is_pinned = False
+            if self._tts_service is not None and self._tts_service.is_speaking():
+                self._tts_service.stop()
+            self._destroy_active_window(window)
 
         def _close_if_focus_left() -> None:
             if not window.winfo_exists():
@@ -346,17 +358,100 @@ class PopupPresenter:
 
         def _schedule_focus_check(event=None) -> None:
             del event
-            if not window.winfo_exists():
-                return
-            window.after(120, _close_if_focus_left)
+            if window.winfo_exists():
+                window.after(120, _close_if_focus_left)
+
+        self._bind_popup_shortcuts(window, session, _close)
 
         window.protocol("WM_DELETE_WINDOW", _close)
-        window.bind("<Escape>", _close)
         window.bind("<FocusOut>", _schedule_focus_check)
         window.after(60, lambda: window.focus_force())
         window.after(100, lambda: text_widget.focus_set())
         window.lift()
         window.attributes("-topmost", True)
+        self._set_speak_button_state_on_ui(self._tts_service.is_speaking() if self._tts_service else False)
+
+    def _destroy_active_window(self, window=None) -> None:
+        target = window or self._active_window
+        if target is not None:
+            try:
+                target.destroy()
+            except Exception:
+                pass
+        self._active_window = None
+        self._active_session = None
+        self._text_widget = None
+        self._follow_entry = None
+        self._follow_hint_label = None
+        self._follow_frame = None
+        self._follow_visible = False
+        self._secondary_row = None
+        self._secondary_visible = False
+        self._input_label = None
+        self._pin_button = None
+        self._main_frame = None
+        self._title_label = None
+        self._button_refs = {}
+        self._pending_chunks = []
+        self._chunk_flush_scheduled = False
+        self._is_pinned = False
+
+    def _bind_popup_shortcuts(self, window, session: PopupSession, close_cb) -> None:
+        window.bind("<Escape>", close_cb)
+        window.bind("<Control-c>", lambda event: self._copy_shortcut(event, session))
+        window.bind("<Control-s>", lambda event: self._archive_shortcut(event, session))
+        window.bind("<Control-m>", self._toggle_follow_up_shortcut)
+        window.bind("<Alt-Shift-Q>", lambda event: self._speak_shortcut(event, session))
+        window.bind("<Alt-Shift-q>", lambda event: self._speak_shortcut(event, session))
+
+    def _copy_shortcut(self, event, session: PopupSession) -> str:
+        del event
+        self._copy_current_output(session)
+        return "break"
+
+    def _archive_shortcut(self, event, session: PopupSession) -> str:
+        del event
+        self._archive_current_output(session)
+        return "break"
+
+    def _toggle_follow_up_shortcut(self, event) -> str:
+        del event
+        self._toggle_follow_up_on_ui()
+        return "break"
+
+    def _speak_shortcut(self, event, session: PopupSession) -> str:
+        del event
+        self._toggle_speak(session)
+        return "break"
+
+    def _toggle_follow_up_on_ui(self) -> None:
+        if self._follow_frame is None or self._active_window is None or not self._active_window.winfo_exists():
+            return
+        self._follow_visible = not self._follow_visible
+        if self._follow_visible:
+            self._follow_frame.pack(fill="x", padx=14, pady=(0, 4), before=self._input_label)
+            if self._follow_entry is not None:
+                self._follow_entry.focus_set()
+        else:
+            self._follow_frame.pack_forget()
+            if self._text_widget is not None:
+                self._text_widget.focus_set()
+
+    def _toggle_secondary_actions_on_ui(self) -> None:
+        if self._secondary_row is None or self._input_label is None:
+            return
+        self._secondary_visible = not self._secondary_visible
+        if self._secondary_visible:
+            self._secondary_row.pack(fill="x", padx=14, pady=(0, 4), before=self._input_label)
+        else:
+            self._secondary_row.pack_forget()
+
+    def _flash_secondary_action(self, label: str) -> None:
+        if self._active_session is not None:
+            self._flash_status_on_ui(self._active_session.session_id, "success")
+        button = self._button_refs.get("overflow")
+        if button is not None:
+            self._pulse_button(button, label, SUCCESS_COLOR)
 
     def _update_input_on_ui(self, session_id: str, original_input: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
@@ -368,6 +463,8 @@ class PopupPresenter:
     def _refresh_session_on_ui(self, session_id: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
             return
+        self._pending_chunks = []
+        self._chunk_flush_scheduled = False
         if self._text_widget is not None:
             self._render_session_text(self._text_widget, self._active_session)
         self._sync_follow_up_controls(self._active_session)
@@ -386,13 +483,40 @@ class PopupPresenter:
         if self._active_session.latest_result.strip() == "Connecting...":
             self._active_session.latest_result = ""
         self._active_session.latest_result += chunk
-        if self._text_widget is not None:
-            self._render_session_text(self._text_widget, self._active_session)
+        self._pending_chunks.append(chunk)
+        if self._chunk_flush_scheduled or self._active_window is None:
+            return
+        self._chunk_flush_scheduled = True
+        self._active_window.after(CHUNK_FLUSH_MS, lambda sid=session_id: self._flush_pending_chunks_on_ui(sid))
+
+    def _flush_pending_chunks_on_ui(self, session_id: str) -> None:
+        self._chunk_flush_scheduled = False
+        if self._active_session is None or self._active_session.session_id != session_id:
+            self._pending_chunks = []
+            return
+        if self._text_widget is None or not self._pending_chunks:
+            return
+        chunk = "".join(self._pending_chunks)
+        self._pending_chunks = []
+        text_widget = self._text_widget
+        try:
+            autoscroll = float(text_widget.yview()[1]) >= 0.98
+        except Exception:
+            autoscroll = True
+        text_widget.config(state="normal")
+        if text_widget.get("1.0", "end-1c").strip() == "Connecting...":
+            text_widget.delete("1.0", "end")
+        text_widget.insert("end", chunk, ("body",))
+        if autoscroll:
+            text_widget.see("end")
+        text_widget.config(state="disabled")
 
     def _finalize_result_on_ui(self, session_id: str, content: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
             return
         self._active_session.latest_result = content
+        self._pending_chunks = []
+        self._chunk_flush_scheduled = False
         if self._text_widget is not None:
             self._render_session_text(self._text_widget, self._active_session)
         self._sync_follow_up_controls(self._active_session)
@@ -502,15 +626,86 @@ class PopupPresenter:
             text_widget.insert("end", line[cursor:], base_tags)
 
     @staticmethod
-    def _copy_from_widget(text_widget: tk.Text, session: PopupSession) -> None:
-        try:
-            selection = text_widget.get("sel.first", "sel.last").strip()
-        except tk.TclError:
-            selection = ""
-        write_clipboard_text(selection or session.render_full_text())
+    def _copy_selection_or_full(text_widget: tk.Text | None, session: PopupSession) -> str:
+        if text_widget is not None:
+            try:
+                selection = text_widget.get("sel.first", "sel.last").strip()
+            except tk.TclError:
+                selection = ""
+            if selection:
+                return selection
+        return session.render_full_text()
 
-    def _speak_session(self, session: PopupSession) -> None:
+    def _copy_current_output(self, session: PopupSession) -> None:
+        try:
+            payload = self._copy_selection_or_full(self._text_widget, session)
+            write_clipboard_text(payload)
+            button = self._button_refs.get("copy")
+            if button is not None:
+                self._pulse_button(button, "✓", SUCCESS_COLOR)
+        except Exception:
+            button = self._button_refs.get("copy")
+            if button is not None:
+                self._pulse_button(button, "!", ERROR_COLOR)
+
+    def _archive_current_output(self, session: PopupSession) -> None:
+        try:
+            self._archive_service.append_session(session)
+            button = self._button_refs.get("archive")
+            if button is not None:
+                self._pulse_button(button, "✓", SUCCESS_COLOR)
+        except Exception:
+            button = self._button_refs.get("archive")
+            if button is not None:
+                self._pulse_button(button, "!", ERROR_COLOR)
+
+    def _toggle_speak(self, session: PopupSession) -> None:
         if self._tts_service is None:
             return
-        self._tts_service.speak_async(session.latest_result or session.render_full_text())
+        content = session.latest_result or session.render_full_text()
+        started = self._tts_service.toggle_async(content)
+        self._set_speak_button_state_on_ui(started)
 
+    def _set_speak_button_state_on_ui(self, is_speaking: bool) -> None:
+        button = self._button_refs.get("speak")
+        if button is None:
+            return
+        if is_speaking:
+            button.configure(
+                text="Stop",
+                fg_color=STOP_COLOR,
+                hover_color="#A93B3B",
+                border_width=0,
+                text_color="white",
+            )
+            return
+        button.configure(
+            text="Speak",
+            fg_color="transparent",
+            hover_color=("#E8EEF5", "#232A35"),
+            border_width=1,
+            border_color=("#D8DEE8", "#2B3240"),
+            text_color=("gray10", "#DCE4EE"),
+        )
+
+    @staticmethod
+    def _pulse_button(button: ctk.CTkButton, text: str, color: str, duration_ms: int = 1000) -> None:
+        original = {
+            "text": button.cget("text"),
+            "fg_color": button.cget("fg_color"),
+            "hover_color": button.cget("hover_color"),
+            "border_width": button.cget("border_width"),
+            "text_color": button.cget("text_color"),
+        }
+        button.configure(text=text, fg_color=color, hover_color=color, border_width=0, text_color="white")
+        button.after(
+            duration_ms,
+            lambda: button.winfo_exists()
+            and button.configure(
+                text=original["text"],
+                fg_color=original["fg_color"],
+                hover_color=original["hover_color"],
+                border_width=original["border_width"],
+                text_color=original["text_color"],
+            ),
+        )
