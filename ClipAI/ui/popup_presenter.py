@@ -25,12 +25,12 @@ ERROR_COLOR = "#D64545"
 STOP_COLOR = "#C84C4C"
 POPUP_MASK_COLOR = "#010203"
 CHUNK_FLUSH_MS = 40
-POPUP_WIDTH_RATIO = 0.25
-POPUP_HEIGHT_RATIO = 0.34
-POPUP_MIN_WIDTH = 380
-POPUP_MAX_WIDTH = 500
-POPUP_MIN_HEIGHT = 270
-POPUP_MAX_HEIGHT = 360
+POPUP_WIDTH_RATIO = 0.22
+POPUP_HEIGHT_RATIO = 0.30
+POPUP_MIN_WIDTH = 340
+POPUP_MAX_WIDTH = 460
+POPUP_MIN_HEIGHT = 240
+POPUP_MAX_HEIGHT = 320
 ELLIPSIS = "..."
 ICON_SPEAK = "\U0001F50A"
 ICON_COPY = "\u29C9"
@@ -482,6 +482,7 @@ class PopupPresenter:
             return
         self._follow_visible = not self._follow_visible
         if self._follow_visible:
+            self._clear_follow_up_entry_on_ui()
             self._follow_frame.pack(fill="x", padx=10, pady=(0, 4), before=self._input_label)
             if self._follow_entry is not None:
                 self._follow_entry.focus_set()
@@ -520,6 +521,7 @@ class PopupPresenter:
         self._chunk_flush_scheduled = False
         if self._text_widget is not None:
             self._render_session_text(self._text_widget, self._active_session)
+        self._clear_follow_up_entry_on_ui()
         self._sync_follow_up_controls(self._active_session)
 
     def _set_follow_up_enabled_on_ui(self, session_id: str, enabled: bool) -> None:
@@ -529,6 +531,8 @@ class PopupPresenter:
             return
         state = "normal" if enabled and self._active_session.can_continue() else "disabled"
         self._follow_entry.configure(state=state)
+        if enabled:
+            self._clear_follow_up_entry_on_ui()
 
     def _append_chunk_on_ui(self, session_id: str, chunk: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
@@ -617,6 +621,20 @@ class PopupPresenter:
                     state="disabled",
                     placeholder_text="Popup follow-up limit reached",
                 )
+
+    def _clear_follow_up_entry_on_ui(self) -> None:
+        if self._follow_entry is None:
+            return
+        try:
+            current_state = str(self._follow_entry.cget("state"))
+        except Exception:
+            current_state = "normal"
+        if current_state == "disabled":
+            self._follow_entry.configure(state="normal")
+            self._follow_entry.delete(0, "end")
+            self._follow_entry.configure(state="disabled")
+            return
+        self._follow_entry.delete(0, "end")
 
     @staticmethod
     def _render_session_text(text_widget: tk.Text, session: PopupSession) -> None:

@@ -25,3 +25,9 @@ def test_popup_presenter_has_auto_close_grace_period() -> None:
     content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
     assert "CLOSE_GRACE_SEC" in content
     assert "_suppress_auto_close" in content
+
+
+def test_popup_presenter_clears_follow_up_entry_on_reuse() -> None:
+    content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
+    assert "_clear_follow_up_entry_on_ui" in content
+    assert "self._clear_follow_up_entry_on_ui()" in content
