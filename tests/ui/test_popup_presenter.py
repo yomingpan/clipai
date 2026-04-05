@@ -27,6 +27,12 @@ def test_popup_presenter_has_auto_close_grace_period() -> None:
     assert "_suppress_auto_close" in content
 
 
+def test_popup_presenter_focus_close_is_not_blocked_by_tts() -> None:
+    content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
+    assert "if self._tts_service is not None and self._tts_service.is_speaking():\n                return" not in content
+    assert "if self._tts_service is not None and self._tts_service.is_speaking():\n                self._tts_service.stop()" not in content
+
+
 def test_popup_presenter_clears_follow_up_entry_on_reuse() -> None:
     content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
     assert "_clear_follow_up_entry_on_ui" in content
@@ -37,3 +43,27 @@ def test_popup_presenter_hides_follow_up_after_submit() -> None:
     content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
     assert 'self._follow_frame.pack_forget()' in content
     assert 'self._follow_visible = False' in content
+
+
+def test_popup_presenter_sets_readability_selection_colors_and_font_sizes() -> None:
+    content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
+    assert 'SELECTION_BG_COLOR = "#2A4E7A"' in content
+    assert 'SELECTION_FG_COLOR = "#F7FAFF"' in content
+    assert 'font=("Microsoft JhengHei", 11)' in content
+    assert 'font=("Microsoft JhengHei", 10)' in content
+    assert 'font=("Consolas", 10)' in content
+    assert 'foreground=code_fg' in content
+    assert 'background=code_bg' in content
+
+
+def test_popup_presenter_uses_neutral_border_color() -> None:
+    content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
+    assert 'POPUP_BORDER_COLOR = "#6B7280"' in content
+    assert 'POPUP_TITLE_COLOR = "#4F89D9"' in content
+
+
+def test_popup_presenter_has_theme_aware_inline_code_palette() -> None:
+    content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
+    assert "def _code_tag_palette" in content
+    assert 'return "#2C3442", "#F7FAFF"' in content
+    assert 'return "#EEF3F8", "#1F2937"' in content

@@ -33,7 +33,7 @@ def _ensure_mixer_initialized():
 class TTSEngine:
     VOICE_MAP = {
         "zh-tw": "zh-TW-HsiaoChenNeural",
-        "en": "en-US-GuyNeural",
+        "en": "en-US-AndrewMultilingualNeural",
         "ja": "ja-JP-NanamiNeural",
     }
 
@@ -67,11 +67,16 @@ class TTSEngine:
 
     def _detect_voice(self, text):
         if self.current_mode != "auto" and self.current_mode in self.VOICE_MAP:
-            return self.VOICE_MAP[self.current_mode]
+            selected = self.VOICE_MAP[self.current_mode]
+            logger.info("TTS voice resolved by manual mode: mode=%s voice=%s", self.current_mode, selected)
+            return selected
         try:
             lang = detect(text)
-            return self.VOICE_MAP.get(lang, self.VOICE_MAP.get(lang.split('-')[0], self.default_voice))
-        except:
+            selected = self.VOICE_MAP.get(lang, self.VOICE_MAP.get(lang.split('-')[0], self.default_voice))
+            logger.info("TTS voice resolved by auto detect: detected_lang=%s voice=%s", lang, selected)
+            return selected
+        except Exception as exc:
+            logger.warning("TTS language detection failed, using default voice %s: %s", self.default_voice, exc)
             return self.default_voice
 
     def _play_audio_thread(self, output_path, delete_after, speak_id):
@@ -111,57 +116,10 @@ class TTSEngine:
         if self._stop_event.is_set() or speak_id != self._speak_id:
             return
 
-        selected_voice = self._detect_voice(text)
-        cache_key = f"{selected_voice}|{self.rate}|{self.volume}|{text}".encode("utf-8")
-        cache_hash = hashlib.md5(cache_key).hexdigest()
-        cached_path = os.path.abspath(os.path.join(self.cache_dir, f"{cache_hash}.mp3"))
-
-        output_path = cached_path
-        delete_after = False
-
         try:
-            if not os.path.exists(cached_path):
-                # Phase 1: Stream audio chunks instead of communicate.save()
-                timestamp = int(time.time() * 1000)
-                output_path = os.path.abspath(os.path.join(self.temp_dir, f"tts_{timestamp}.mp3"))
-                delete_after = True
-                communicate = edge_tts.Communicate(
-                    text,
-                    selected_voice,
-                    rate=self.rate,
-                    volume=self.volume,
-                    proxy=self.proxy
-                )
-
-                audio_buffer = io.BytesIO()
-                stream_cancelled = False
-
-                async for chunk in communicate.stream():
-                    if self._stop_event.is_set() or speak_id != self._speak_id:
-                        stream_cancelled = True
-                        break
-                    if chunk["type"] == "audio":
-                        data = chunk.get("data")
-                        if data:
-                            audio_buffer.write(data)
-
-                if stream_cancelled:
-                    return
-
-                # Write the streamed audio to the temp file
-                audio_data = audio_buffer.getvalue()
-                if audio_data:
-                    with open(output_path, "wb") as f:
-                        f.write(audio_data)
-
-                    # Move to cache for future use
-                    try:
-                        os.replace(output_path, cached_path)
-                        output_path = cached_path
-                        delete_after = False
-                    except Exception:
-                        # Keep using temp file if cache move fails
-                        pass
+            output_path, delete_after = await self._resolve_audio_path(text, speak_id)
+            if output_path is None:
+                return
 
             if self._stop_event.is_set() or speak_id != self._speak_id:
                 return
@@ -182,6 +140,73 @@ class TTSEngine:
                     await asyncio.sleep(0.1)
         except Exception as e:
             logger.error(f"Error in TTS: {e}")
+
+    async def _resolve_audio_path(self, text, speak_id):
+        voice = self._detect_voice(text)
+        if self._stop_event.is_set() or speak_id != self._speak_id:
+            return None, False
+
+        cache_key = f"{voice}|{self.rate}|{self.volume}|{text}".encode("utf-8")
+        cache_hash = hashlib.md5(cache_key).hexdigest()
+        cached_path = os.path.abspath(os.path.join(self.cache_dir, f"{cache_hash}.mp3"))
+        if os.path.exists(cached_path):
+            logger.info("TTS cache hit: voice=%s path=%s", voice, cached_path)
+            return cached_path, False
+
+        timestamp = int(time.time() * 1000)
+        output_path = os.path.abspath(os.path.join(self.temp_dir, f"tts_{timestamp}.mp3"))
+        try:
+            generated = await self._synthesize_voice_to_path(text, voice, output_path, speak_id)
+        except Exception:
+            self._cleanup_temp_file(output_path)
+            raise
+
+        if generated is None:
+            return None, False
+        if generated:
+            try:
+                os.replace(output_path, cached_path)
+                return cached_path, False
+            except Exception:
+                return output_path, True
+
+        self._cleanup_temp_file(output_path)
+        raise RuntimeError(f"No audio was received for voice {voice}.")
+
+    async def _synthesize_voice_to_path(self, text, voice, output_path, speak_id):
+        logger.info("TTS synthesize request: voice=%s chars=%s", voice, len(text))
+        communicate = edge_tts.Communicate(
+            text,
+            voice,
+            rate=self.rate,
+            volume=self.volume,
+            proxy=self.proxy,
+        )
+
+        audio_buffer = io.BytesIO()
+        async for chunk in communicate.stream():
+            if self._stop_event.is_set() or speak_id != self._speak_id:
+                return None
+            if chunk["type"] == "audio":
+                data = chunk.get("data")
+                if data:
+                    audio_buffer.write(data)
+
+        audio_data = audio_buffer.getvalue()
+        if not audio_data:
+            return False
+
+        with open(output_path, "wb") as f:
+            f.write(audio_data)
+        return True
+
+    @staticmethod
+    def _cleanup_temp_file(path):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
 
     def is_speaking(self):
         if self._playback_thread is not None and self._playback_thread.is_alive():
@@ -237,6 +262,3 @@ if __name__ == "__main__":
     test_text = "這是第一句話。這是第二句話！反應速度應該會變快。這是一個長句子的測試，看看流暢度如何。"
     engine.speak(test_text)
     time.sleep(10)
-
-
-

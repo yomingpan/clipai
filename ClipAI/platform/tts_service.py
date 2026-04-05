@@ -26,13 +26,83 @@ class TTSService:
     def _emit_state(self, is_speaking: bool, phase: str) -> None:
         self._event_bus.publish(EVENT_TTS_STATE, {"is_speaking": is_speaking, "phase": phase})
 
-    def _clean_markdown(self, text: str) -> str:
-        text = re.sub(r"```[\s\S]*?```", "", text)
-        text = re.sub(r"\[(.*?)\]\((.*?)\)", r"\1", text)
-        return text.strip()
+    def _normalize_for_speech(self, text: str) -> str:
+        normalized = text
+        for step in (
+            self._strip_fenced_code_blocks,
+            self._replace_markdown_links,
+            self._strip_inline_markdown,
+            self._normalize_headings_and_hashes,
+            self._normalize_bullets_and_dividers,
+            self._normalize_brackets,
+            self._normalize_spacing,
+        ):
+            normalized = step(normalized)
+        return normalized.strip()
+
+    @staticmethod
+    def _strip_fenced_code_blocks(text: str) -> str:
+        return re.sub(r"```[\s\S]*?```", " ", text)
+
+    @staticmethod
+    def _replace_markdown_links(text: str) -> str:
+        return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", text)
+
+    @staticmethod
+    def _strip_inline_markdown(text: str) -> str:
+        normalized = re.sub(r"`([^`]+)`", r"\1", text)
+        normalized = re.sub(r"(\*\*|__)(.+?)\1", r"\2", normalized)
+        normalized = re.sub(r"(~~|\*)(.+?)\1", r"\2", normalized)
+        normalized = re.sub(r"(^|\s)[*_~]+(?=\s|$)", " ", normalized)
+        return normalized
+
+    @staticmethod
+    def _normalize_headings_and_hashes(text: str) -> str:
+        lines: list[str] = []
+        for raw_line in text.splitlines():
+            line = raw_line.rstrip()
+            stripped = line.lstrip()
+            if re.match(r"^#{1,6}\s+", stripped):
+                lines.append(re.sub(r"^#{1,6}\s+", "", stripped))
+                continue
+            if re.fullmatch(r"#+", stripped):
+                continue
+            lines.append(line)
+        normalized = "\n".join(lines)
+        normalized = re.sub(r"(?<![A-Za-z0-9])#(?=\s|$)", " ", normalized)
+        return normalized
+
+    @staticmethod
+    def _normalize_bullets_and_dividers(text: str) -> str:
+        lines: list[str] = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                lines.append("")
+                continue
+            if re.fullmatch(r"[-=*•·\s]{3,}", line):
+                continue
+            line = re.sub(r"^[-*•·]+\s+", "", line)
+            line = re.sub(r"^\d+\.\s+", "", line)
+            line = re.sub(r"\s[-–—]{2,}\s", " ", line)
+            lines.append(line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _normalize_brackets(text: str) -> str:
+        normalized = re.sub(r"\(\s*\)|\[\s*\]|\{\s*\}|<\s*>", " ", text)
+        normalized = re.sub(r"[\[\]{}()<>]", " ", normalized)
+        return normalized
+
+    @staticmethod
+    def _normalize_spacing(text: str) -> str:
+        normalized = re.sub(r"[ \t]+", " ", text)
+        normalized = re.sub(r" *\n *", "\n", normalized)
+        normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+        return normalized
 
     def speak(self, text: str, cancellation_token=None) -> None:
-        cleaned = self._clean_markdown(text)
+        cleaned = self._normalize_for_speech(text)
         if not cleaned:
             return
         try:

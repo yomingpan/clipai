@@ -19,12 +19,14 @@ from clipai.ui.tooltip import attach_tooltip
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
-POPUP_BORDER_COLOR = "#0F3D78"
+POPUP_BORDER_COLOR = "#6B7280"
 POPUP_TITLE_COLOR = "#4F89D9"
 SUCCESS_COLOR = "#2E9E5B"
 ERROR_COLOR = "#D64545"
 STOP_COLOR = "#C84C4C"
 POPUP_MASK_COLOR = "#010203"
+SELECTION_BG_COLOR = "#2A4E7A"
+SELECTION_FG_COLOR = "#F7FAFF"
 CHUNK_FLUSH_MS = 40
 POPUP_WIDTH_RATIO = 0.20
 POPUP_HEIGHT_RATIO = 0.27
@@ -40,7 +42,7 @@ ICON_PIN = "\U0001F4CC"
 ICON_STOP = "\u25A0"
 ICON_CHECK = "\u2713"
 ICON_ERROR = "!"
-CLOSE_GRACE_SEC = 1.2
+CLOSE_GRACE_SEC = 0.35
 
 
 class PopupPresenter:
@@ -128,12 +130,8 @@ class PopupPresenter:
 
     def _apply_tts_state_on_ui(self, phase: str, is_speaking: bool) -> None:
         ui_state = self._speak_phase_to_ui_state(phase, is_speaking)
-        if phase.strip().lower() in {"start", "stop", "end", "error"}:
-            self._suppress_auto_close()
         if ui_state is not None:
             self._set_speak_button_state_on_ui(ui_state)
-        if phase.strip().lower() in {"end", "stop", "error"}:
-            self._refocus_popup()
 
     def _ensure_ui_thread(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -314,7 +312,7 @@ class PopupPresenter:
         input_value = ctk.CTkLabel(
             main_frame,
             text=self._format_input_preview(session.original_input),
-            font=("Microsoft JhengHei", 9),
+            font=("Microsoft JhengHei", 10),
             text_color=("gray52", "gray58"),
             justify="left",
             anchor="w",
@@ -333,7 +331,7 @@ class PopupPresenter:
 
         text_widget = tk.Text(
             text_container,
-            font=("Microsoft JhengHei", 10),
+            font=("Microsoft JhengHei", 11),
             wrap="word",
             padx=10,
             pady=8,
@@ -342,6 +340,8 @@ class PopupPresenter:
             bg=window._apply_appearance_mode(ctk.ThemeManager.theme["CTkTextbox"]["fg_color"]),
             fg=window._apply_appearance_mode(ctk.ThemeManager.theme["CTkTextbox"]["text_color"]),
             insertbackground=window._apply_appearance_mode(ctk.ThemeManager.theme["CTkTextbox"]["text_color"]),
+            selectbackground=SELECTION_BG_COLOR,
+            selectforeground=SELECTION_FG_COLOR,
         )
         text_widget.pack(fill="both", expand=True, padx=2, pady=2)
         self._text_widget = text_widget
@@ -372,8 +372,6 @@ class PopupPresenter:
 
         def _close(event=None) -> None:
             del event
-            if self._tts_service is not None and self._tts_service.is_speaking():
-                self._tts_service.stop()
             self._destroy_active_window(window)
 
         def _close_if_focus_left() -> None:
@@ -382,8 +380,6 @@ class PopupPresenter:
             if self._is_pinned:
                 return
             if time.monotonic() < self._close_suppressed_until:
-                return
-            if self._tts_service is not None and self._tts_service.is_speaking():
                 return
             try:
                 focused = window.focus_get()
@@ -445,13 +441,6 @@ class PopupPresenter:
 
     def _suppress_auto_close(self, seconds: float = CLOSE_GRACE_SEC) -> None:
         self._close_suppressed_until = max(self._close_suppressed_until, time.monotonic() + seconds)
-
-    def _refocus_popup(self) -> None:
-        if self._active_window is None or not self._active_window.winfo_exists():
-            return
-        self._active_window.after(50, lambda: self._active_window and self._active_window.winfo_exists() and self._active_window.focus_force())
-        if self._text_widget is not None and self._text_widget.winfo_exists():
-            self._active_window.after(90, lambda: self._text_widget and self._text_widget.winfo_exists() and self._text_widget.focus_set())
 
     def _bind_popup_shortcuts(self, window, session: PopupSession, close_cb) -> None:
         window.bind("<Escape>", close_cb)
@@ -598,7 +587,6 @@ class PopupPresenter:
             color = ERROR_COLOR
             duration_ms = 3000
         else:
-            color = BRAND_COLOR
             color = POPUP_BORDER_COLOR
             duration_ms = 0
 
@@ -645,15 +633,28 @@ class PopupPresenter:
         self._follow_entry.delete(0, "end")
 
     @staticmethod
+    def _code_tag_palette(text_widget: tk.Text) -> tuple[str, str]:
+        background = str(text_widget.cget("bg") or "").strip()
+        if background.startswith("#") and len(background) == 7:
+            red = int(background[1:3], 16)
+            green = int(background[3:5], 16)
+            blue = int(background[5:7], 16)
+            luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
+            if luminance < 128:
+                return "#2C3442", "#F7FAFF"
+        return "#EEF3F8", "#1F2937"
+
+    @staticmethod
     def _render_session_text(text_widget: tk.Text, session: PopupSession) -> None:
         text_widget.config(state="normal")
         text_widget.delete("1.0", "end")
+        code_bg, code_fg = PopupPresenter._code_tag_palette(text_widget)
         text_widget.tag_configure("body", spacing1=2, spacing3=3)
         text_widget.tag_configure("history", foreground="#7A7F87")
         text_widget.tag_configure("md_h1", font=("Microsoft JhengHei", 14, "bold"), spacing1=6, spacing3=4)
         text_widget.tag_configure("md_h2", font=("Microsoft JhengHei", 13, "bold"), spacing1=5, spacing3=3)
-        text_widget.tag_configure("md_bold", font=("Microsoft JhengHei", 10, "bold"))
-        text_widget.tag_configure("md_code", font=("Consolas", 9), background="#EEF3F8")
+        text_widget.tag_configure("md_bold", font=("Microsoft JhengHei", 11, "bold"))
+        text_widget.tag_configure("md_code", font=("Consolas", 10), background=code_bg, foreground=code_fg)
         PopupPresenter._insert_markdown(text_widget, session.latest_result.strip() or " ", base_tag="body")
         if session.rounds:
             for item in session.rounds:
@@ -748,7 +749,6 @@ class PopupPresenter:
         if self._tts_service.is_speaking():
             self._tts_service.stop()
             self._set_speak_button_state_on_ui(False)
-            self._refocus_popup()
             return
         self._set_speak_button_state_on_ui(True)
         self._tts_service.speak_async(content)
