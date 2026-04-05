@@ -58,7 +58,7 @@ def test_popup_presenter_sets_readability_selection_colors_and_font_sizes() -> N
 
 def test_popup_presenter_uses_neutral_border_color() -> None:
     content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
-    assert 'POPUP_BORDER_COLOR = "#6B7280"' in content
+    assert 'POPUP_BORDER_COLOR = "#3A4454"' in content
     assert 'POPUP_TITLE_COLOR = "#4F89D9"' in content
 
 
@@ -67,3 +67,17 @@ def test_popup_presenter_has_theme_aware_inline_code_palette() -> None:
     assert "def _code_tag_palette" in content
     assert 'return "#2C3442", "#F7FAFF"' in content
     assert 'return "#EEF3F8", "#1F2937"' in content
+
+
+def test_popup_presenter_uses_shared_selection_or_full_policy_for_actions() -> None:
+    content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
+    assert "def _selected_output_or_full" in content
+    assert "payload = self._selected_output_or_full(self._text_widget, session)" in content
+    assert "content = self._selected_output_or_full(self._text_widget, session)" in content
+
+
+def test_popup_presenter_clears_text_selection_when_hiding_follow_up() -> None:
+    content = Path("clipai/ui/popup_presenter.py").read_text(encoding="utf-8")
+    assert "def _clear_text_selection_on_ui" in content
+    assert 'text_widget.tag_remove("sel", "1.0", "end")' in content
+    assert "self._clear_text_selection_on_ui(self._text_widget)" in content

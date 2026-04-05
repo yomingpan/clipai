@@ -19,7 +19,7 @@ from clipai.ui.tooltip import attach_tooltip
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
-POPUP_BORDER_COLOR = "#6B7280"
+POPUP_BORDER_COLOR = "#3A4454"
 POPUP_TITLE_COLOR = "#4F89D9"
 SUCCESS_COLOR = "#2E9E5B"
 ERROR_COLOR = "#D64545"
@@ -483,6 +483,7 @@ class PopupPresenter:
         else:
             self._follow_frame.pack_forget()
             if self._text_widget is not None:
+                self._clear_text_selection_on_ui(self._text_widget)
                 self._text_widget.focus_set()
 
     def _toggle_secondary_actions_on_ui(self) -> None:
@@ -633,6 +634,16 @@ class PopupPresenter:
         self._follow_entry.delete(0, "end")
 
     @staticmethod
+    def _clear_text_selection_on_ui(text_widget: tk.Text | None) -> None:
+        if text_widget is None:
+            return
+        try:
+            text_widget.tag_remove("sel", "1.0", "end")
+            text_widget.mark_set("insert", "end-1c")
+        except tk.TclError:
+            return
+
+    @staticmethod
     def _code_tag_palette(text_widget: tk.Text) -> tuple[str, str]:
         background = str(text_widget.cget("bg") or "").strip()
         if background.startswith("#") and len(background) == 7:
@@ -706,7 +717,7 @@ class PopupPresenter:
             text_widget.insert("end", line[cursor:], base_tags)
 
     @staticmethod
-    def _copy_selection_or_full(text_widget: tk.Text | None, session: PopupSession) -> str:
+    def _selected_output_or_full(text_widget: tk.Text | None, session: PopupSession) -> str:
         if text_widget is not None:
             try:
                 selection = text_widget.get("sel.first", "sel.last").strip()
@@ -719,7 +730,7 @@ class PopupPresenter:
     def _copy_current_output(self, session: PopupSession) -> None:
         try:
             self._suppress_auto_close()
-            payload = self._copy_selection_or_full(self._text_widget, session)
+            payload = self._selected_output_or_full(self._text_widget, session)
             write_clipboard_text(payload)
             button = self._button_refs.get("copy")
             if button is not None:
@@ -732,7 +743,8 @@ class PopupPresenter:
     def _archive_current_output(self, session: PopupSession) -> None:
         try:
             self._suppress_auto_close()
-            self._archive_service.append_session(session)
+            payload = self._selected_output_or_full(self._text_widget, session)
+            self._archive_service.append_text(session, payload)
             button = self._button_refs.get("archive")
             if button is not None:
                 self._pulse_button(button, ICON_CHECK, SUCCESS_COLOR)
@@ -745,7 +757,7 @@ class PopupPresenter:
         if self._tts_service is None:
             return
         self._suppress_auto_close()
-        content = session.latest_result or session.render_full_text()
+        content = self._selected_output_or_full(self._text_widget, session)
         if self._tts_service.is_speaking():
             self._tts_service.stop()
             self._set_speak_button_state_on_ui(False)

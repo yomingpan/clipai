@@ -19,6 +19,11 @@ class ArchiveService:
         self.append_record(record)
         return self._write_output_file(record)
 
+    def append_text(self, session: PopupSession, text: str) -> str:
+        record = self._session_record(session, latest_result=text, selection_only=True)
+        self.append_record(record)
+        return self._write_output_file(record)
+
     def append_record(self, record: dict[str, Any]) -> None:
         folder = os.path.dirname(self._path)
         if folder:
@@ -35,13 +40,19 @@ class ArchiveService:
         return path
 
     @staticmethod
-    def _session_record(session: PopupSession) -> dict[str, Any]:
+    def _session_record(
+        session: PopupSession,
+        *,
+        latest_result: str | None = None,
+        selection_only: bool = False,
+    ) -> dict[str, Any]:
         return {
             "session_id": session.session_id,
             "action_id": session.action_id,
             "action_name": session.action_name,
             "original_input": session.original_input,
-            "latest_result": session.latest_result,
+            "latest_result": session.latest_result if latest_result is None else latest_result,
+            "selection_only": selection_only,
             "round_count": session.round_count,
             "max_rounds": session.max_rounds,
             "rounds": [
@@ -76,6 +87,7 @@ class ArchiveService:
             f"- Session: `{record.get('session_id', '')}`",
             f"- Action: `{record.get('action_id', '')}`",
             f"- Archived At: `{record.get('archived_at', '')}`",
+            f"- Scope: `{'selection' if record.get('selection_only') else 'full_output'}`",
             "",
             "## Analysis",
             "",
