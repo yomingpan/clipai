@@ -99,3 +99,18 @@ def test_popup_session_snapshot_is_safe_for_rendering() -> None:
     assert snapshot.action_id == "summarize_next_steps"
     assert snapshot.latest_result == "final popup output"
     assert snapshot.can_continue() is True
+
+
+def test_popup_session_tracks_current_result_metadata() -> None:
+    session = PopupSession(
+        action_id="summarize_next_steps",
+        action_name="Summary",
+        original_input="source text",
+        latest_result="final popup output",
+    )
+
+    session.update_result_metadata(provider="gemini", model="gemini-3.1-flash-lite-preview")
+    snapshot = session.snapshot()
+
+    assert snapshot.current_provider == "gemini"
+    assert snapshot.current_model == "gemini-3.1-flash-lite-preview"

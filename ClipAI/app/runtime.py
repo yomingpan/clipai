@@ -251,6 +251,10 @@ class DesktopRuntime:
                             variant_applied=resolved_action.variant_applied,
                             resolved_action_def=action_def,
                         )
+                        popup_session.update_result_metadata(
+                            provider=outcome.provider_name,
+                            model=outcome.model_name,
+                        )
                         popup_session.mark_input_ready(outcome.input_resolution.text)
                         popup_session.mark_result_ready(outcome.result.content)
                         presenter.refresh_session(popup_session.session_id)
@@ -348,6 +352,10 @@ class DesktopRuntime:
                     callbacks=callbacks,
                     explicit_text=prompt_text,
                     explicit_messages=self._build_follow_up_messages(session, action_def, prompt_text),
+                )
+                session.update_result_metadata(
+                    provider=outcome.provider_name,
+                    model=outcome.model_name,
                 )
                 session.mark_result_ready(outcome.result.content)
                 presenter.refresh_session(session.session_id)

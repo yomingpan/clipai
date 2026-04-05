@@ -25,6 +25,8 @@ SUCCESS_COLOR = "#2E9E5B"
 ERROR_COLOR = "#D64545"
 STOP_COLOR = "#C84C4C"
 POPUP_MASK_COLOR = "#010203"
+BUTTON_ACCENT_BG = ("#E8F0FF", "#24415F")
+BUTTON_ACCENT_HOVER = ("#D6E6FF", "#2D4B6B")
 SELECTION_BG_COLOR = "#2A4E7A"
 SELECTION_FG_COLOR = "#F7FAFF"
 CHUNK_FLUSH_MS = 40
@@ -36,8 +38,8 @@ POPUP_MIN_HEIGHT = 220
 POPUP_MAX_HEIGHT = 290
 ELLIPSIS = "..."
 ICON_SPEAK = "\U0001F50A"
-ICON_COPY = "\u29C9"
-ICON_ARCHIVE = "\u21A7"
+ICON_COPY = "\U0001F4CB"
+ICON_ARCHIVE = "\U0001F4E6"
 ICON_PIN = "\U0001F4CC"
 ICON_STOP = "\u25A0"
 ICON_CHECK = "\u2713"
@@ -73,9 +75,11 @@ class PopupPresenter:
         self._secondary_row = None
         self._secondary_visible = False
         self._input_label = None
+        self._meta_row = None
         self._pin_button = None
         self._main_frame = None
         self._title_label = None
+        self._source_label = None
         self._is_pinned = False
         self._ready = threading.Event()
         self._chunk_flush_scheduled = False
@@ -87,7 +91,7 @@ class PopupPresenter:
         self._tts_subscription_id = self._event_bus.subscribe(EVENT_TTS_STATE, self._handle_tts_state)
 
     @staticmethod
-    def _format_input_preview(text: str, max_chars: int = 88) -> str:
+    def _format_input_preview(text: str, max_chars: int = 58) -> str:
         return PopupMarkdownRenderer.format_input_preview(text, max_chars=max_chars)
 
     @staticmethod
@@ -326,6 +330,7 @@ class PopupPresenter:
         action_bar.pack(side="right")
 
         def _header_button(name: str, text: str, tooltip: str, command, *, width: int = 26) -> ctk.CTkButton:
+            use_accent = name in {"speak", "copy", "archive"}
             button = ctk.CTkButton(
                 action_bar,
                 text=text,
@@ -333,11 +338,11 @@ class PopupPresenter:
                 height=24,
                 corner_radius=8,
                 font=("Segoe UI Symbol", 10, "bold"),
-                fg_color="transparent",
-                hover_color=("#E8EEF5", "#232A35"),
+                fg_color=BUTTON_ACCENT_BG if use_accent else "transparent",
+                hover_color=BUTTON_ACCENT_HOVER if use_accent else ("#E8EEF5", "#232A35"),
                 border_width=1,
-                border_color=("#D8DEE8", "#2B3240"),
-                text_color=("gray10", "#DCE4EE"),
+                border_color=("#C9D7EA", "#32485E") if use_accent else ("#D8DEE8", "#2B3240"),
+                text_color=("#294766", "#EEF4FB") if use_accent else ("gray10", "#DCE4EE"),
                 command=command,
             )
             button.pack(side="left", padx=(4, 0))
@@ -369,8 +374,8 @@ class PopupPresenter:
             widget.bind("<B1-Motion>", _drag_window, add="+")
 
         _header_button("speak", ICON_SPEAK, "Speak / Stop", lambda: self._toggle_speak(session))
-        _header_button("copy", ICON_COPY, "Copy", lambda: self._copy_current_output(session))
-        _header_button("archive", ICON_ARCHIVE, "Archive", lambda: self._archive_current_output(session))
+        _header_button("copy", ICON_COPY, "Copy Result", lambda: self._copy_current_output(session))
+        _header_button("archive", ICON_ARCHIVE, "Archive Result", lambda: self._archive_current_output(session))
         _header_button("overflow", ELLIPSIS, "More actions", self._toggle_secondary_actions_on_ui, width=28)
         self._pin_button = _header_button("pin", ICON_PIN, "Pin", _toggle_pin)
 
@@ -399,7 +404,7 @@ class PopupPresenter:
         follow_entry = ctk.CTkEntry(
             follow_frame,
             placeholder_text=f"Follow-up ({session_state.round_count}/{session_state.max_rounds})",
-            font=("Microsoft JhengHei", 10),
+            font=("Microsoft JhengHei", 9),
             height=26,
         )
         follow_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
@@ -408,23 +413,39 @@ class PopupPresenter:
         follow_hint = ctk.CTkLabel(
             follow_frame,
             text=f"{session_state.round_count}/{session_state.max_rounds}",
-            font=("Microsoft JhengHei", 10),
+            font=("Microsoft JhengHei", 9),
             text_color=("gray45", "gray60"),
         )
         follow_hint.pack(side="right")
         self._follow_hint_label = follow_hint
         self._sync_follow_up_controls(session)
 
+        meta_row = ctk.CTkFrame(main_frame, fg_color="transparent")
+        meta_row.pack(fill="x", padx=10, pady=(0, 5))
+        meta_row.grid_columnconfigure(0, weight=1)
+        meta_row.grid_columnconfigure(1, weight=0)
+        self._meta_row = meta_row
+
         input_value = ctk.CTkLabel(
-            main_frame,
+            meta_row,
             text=self._input_preview_for_session(session_state),
             font=("Microsoft JhengHei", 10),
             text_color=("gray52", "gray58"),
             justify="left",
             anchor="w",
         )
-        input_value.pack(fill="x", padx=10, pady=(0, 4))
+        input_value.grid(row=0, column=0, sticky="ew")
         self._input_label = input_value
+
+        source_label = ctk.CTkLabel(
+            meta_row,
+            text=PopupMarkdownRenderer.source_label_for_session(session_state),
+            font=("Microsoft JhengHei", 10),
+            text_color=("gray50", "gray55"),
+            anchor="e",
+        )
+        source_label.grid(row=0, column=1, sticky="e", padx=(10, 0))
+        self._source_label = source_label
 
         text_container = ctk.CTkFrame(
             main_frame,
@@ -439,8 +460,8 @@ class PopupPresenter:
             text_container,
             font=("Microsoft JhengHei", 11),
             wrap="word",
-            padx=10,
-            pady=8,
+            padx=9,
+            pady=7,
             borderwidth=0,
             highlightthickness=0,
             bg=window._apply_appearance_mode(ctk.ThemeManager.theme["CTkTextbox"]["fg_color"]),
@@ -538,9 +559,11 @@ class PopupPresenter:
         self._secondary_row = None
         self._secondary_visible = False
         self._input_label = None
+        self._meta_row = None
         self._pin_button = None
         self._main_frame = None
         self._title_label = None
+        self._source_label = None
         self._button_refs = {}
         self._pending_chunks = []
         self._chunk_flush_scheduled = False
@@ -582,12 +605,17 @@ class PopupPresenter:
         return "break"
 
     def _toggle_follow_up_on_ui(self) -> None:
-        if self._follow_frame is None or self._active_window is None or not self._active_window.winfo_exists():
+        if (
+            self._follow_frame is None
+            or self._meta_row is None
+            or self._active_window is None
+            or not self._active_window.winfo_exists()
+        ):
             return
         self._follow_visible = not self._follow_visible
         if self._follow_visible:
             self._clear_follow_up_entry_on_ui()
-            self._follow_frame.pack(fill="x", padx=10, pady=(0, 4), before=self._input_label)
+            self._follow_frame.pack(fill="x", padx=10, pady=(0, 4), before=self._meta_row)
             if self._follow_entry is not None:
                 self._follow_entry.focus_set()
         else:
@@ -597,11 +625,11 @@ class PopupPresenter:
                 self._text_widget.focus_set()
 
     def _toggle_secondary_actions_on_ui(self) -> None:
-        if self._secondary_row is None or self._input_label is None:
+        if self._secondary_row is None or self._meta_row is None:
             return
         self._secondary_visible = not self._secondary_visible
         if self._secondary_visible:
-            self._secondary_row.pack(fill="x", padx=10, pady=(0, 4), before=self._input_label)
+            self._secondary_row.pack(fill="x", padx=10, pady=(0, 4), before=self._meta_row)
         else:
             self._secondary_row.pack_forget()
 
@@ -669,9 +697,10 @@ class PopupPresenter:
             autoscroll = True
         text_widget.config(state="normal")
         session_state = self._active_session.snapshot()
-        if session_state.result_loading or text_widget.get("1.0", "end-1c").strip() == "Connecting...":
-            text_widget.delete("1.0", "end")
-        text_widget.insert("end", chunk, ("body",))
+        del chunk
+        streaming_text = self._result_text_for_session(session_state)
+        text_widget.delete("1.0", "end")
+        text_widget.insert("end", streaming_text, ("body",))
         if autoscroll:
             text_widget.see("end")
         text_widget.config(state="disabled")
@@ -767,6 +796,8 @@ class PopupPresenter:
     def _render_input_preview_on_ui(self, session: PopupSession) -> None:
         if self._input_label is not None:
             self._input_label.configure(text=self._input_preview_for_session(session))
+        if self._source_label is not None:
+            self._source_label.configure(text=PopupMarkdownRenderer.source_label_for_session(session))
 
     def _sync_session_header_on_ui(self, session: PopupSession) -> None:
         session_state = session.snapshot()
@@ -781,11 +812,12 @@ class PopupPresenter:
 
     @staticmethod
     def _insert_markdown(text_widget: tk.Text, content: str, base_tag: str = "body") -> None:
-        PopupMarkdownRenderer.insert_markdown(text_widget, content, base_tag=base_tag)
+        PopupMarkdownRenderer.insert_markdown(text_widget, content, style=base_tag)
 
     @staticmethod
     def _insert_inline_markdown(text_widget: tk.Text, line: str, base_tags: tuple[str, ...]) -> None:
-        PopupMarkdownRenderer.insert_inline_markdown(text_widget, line, base_tags)
+        del base_tags
+        PopupMarkdownRenderer.insert_inline_markdown(text_widget, line, style="body")
 
     @staticmethod
     def _selected_output_or_full(text_widget: tk.Text | None, session: PopupSession) -> str:
@@ -837,11 +869,11 @@ class PopupPresenter:
             return
         button.configure(
             text=ICON_SPEAK,
-            fg_color="transparent",
-            hover_color=("#E8EEF5", "#232A35"),
+            fg_color=BUTTON_ACCENT_BG,
+            hover_color=BUTTON_ACCENT_HOVER,
             border_width=1,
-            border_color=("#D8DEE8", "#2B3240"),
-            text_color=("gray10", "#DCE4EE"),
+            border_color=("#C9D7EA", "#32485E"),
+            text_color=("#294766", "#EEF4FB"),
         )
 
     @staticmethod

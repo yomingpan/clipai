@@ -35,6 +35,8 @@ class PopupSessionSnapshot:
     resolved_action_def: dict[str, object]
     input_loading: bool
     result_loading: bool
+    current_provider: str
+    current_model: str
     rounds: tuple[PopupRound, ...]
     round_count: int
     max_rounds: int
@@ -56,6 +58,8 @@ class PopupSession:
     resolved_action_def: dict[str, object] = field(default_factory=dict)
     input_loading: bool = False
     result_loading: bool = False
+    current_provider: str = ""
+    current_model: str = ""
     session_id: str = field(default_factory=lambda: str(uuid4()))
     rounds: list[PopupRound] = field(default_factory=list)
     round_count: int = 0
@@ -89,6 +93,8 @@ class PopupSession:
                 resolved_action_def=dict(self.resolved_action_def),
                 input_loading=self.input_loading,
                 result_loading=self.result_loading,
+                current_provider=self.current_provider,
+                current_model=self.current_model,
                 rounds=tuple(self.rounds),
                 round_count=self.round_count,
                 max_rounds=self.max_rounds,
@@ -114,6 +120,12 @@ class PopupSession:
                 self.result_loading = False
                 self.latest_result = ""
             self.latest_result += chunk
+            self.updated_at = _utc_now_iso()
+
+    def update_result_metadata(self, *, provider: str, model: str) -> None:
+        with self._lock:
+            self.current_provider = provider
+            self.current_model = model
             self.updated_at = _utc_now_iso()
 
     def update_action_metadata(
@@ -154,6 +166,8 @@ class PopupSession:
             self.input_loading = False
             self.latest_result = placeholder
             self.result_loading = True
+            self.current_provider = ""
+            self.current_model = ""
             self.updated_at = _utc_now_iso()
 
     def start_round(self, *, kind: RoundKind, prompt_text: str, model: str, placeholder: str = "Connecting...") -> None:

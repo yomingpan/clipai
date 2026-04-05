@@ -3,7 +3,7 @@ from __future__ import annotations
 from clipai.core.constants import EVENT_TTS_STATE
 from clipai.core.event_bus import EventBus
 from clipai.services.popup_session import PopupSession
-from clipai.ui.popup_presenter import PopupPresenter
+from clipai.ui.popup_presenter import ICON_ARCHIVE, ICON_COPY, PopupPresenter
 from clipai.ui.result_popup.action_handler import PopupActionHandler
 from clipai.ui.result_popup.markdown_renderer import PopupMarkdownRenderer
 
@@ -15,6 +15,7 @@ class _FakeTextWidget:
         self.inserted: list[tuple[str, tuple[str, ...]]] = []
         self.config_calls: list[dict[str, object]] = []
         self.tags: dict[str, dict[str, object]] = {}
+        self.see_calls: list[str] = []
 
     def config(self, **kwargs) -> None:
         self.config_calls.append(kwargs)
@@ -48,6 +49,12 @@ class _FakeTextWidget:
     def mark_set(self, mark: str, value: str) -> None:
         del mark, value
 
+    def yview(self) -> tuple[float, float]:
+        return (0.0, 1.0)
+
+    def see(self, index: str) -> None:
+        self.see_calls.append(index)
+
 
 class _FakeLabel:
     def __init__(self) -> None:
@@ -63,6 +70,29 @@ class _FakeWindow:
 
     def title(self, value: str) -> None:
         self.title_text = value
+
+    def winfo_exists(self) -> bool:
+        return True
+
+
+class _FakePackFrame:
+    def __init__(self) -> None:
+        self.pack_calls: list[dict[str, object]] = []
+        self.forget_calls = 0
+
+    def pack(self, **kwargs) -> None:
+        self.pack_calls.append(kwargs)
+
+    def pack_forget(self) -> None:
+        self.forget_calls += 1
+
+
+class _FakeEntry:
+    def __init__(self) -> None:
+        self.focus_calls = 0
+
+    def focus_set(self) -> None:
+        self.focus_calls += 1
 
 
 class _FakeClipboard:
@@ -129,24 +159,48 @@ def test_popup_markdown_renderer_formats_loading_states() -> None:
     assert PopupMarkdownRenderer.result_text_for_session(session) == "final answer"
 
 
-def test_popup_markdown_renderer_renders_common_markdown_patterns() -> None:
+def test_popup_markdown_renderer_normalizes_spacing() -> None:
+    content = "\n\n## 重點\n\n\n- 第一點\n\n- 第二點"
+    assert PopupMarkdownRenderer.normalize_content(content) == "## 重點\n- 第一點\n- 第二點"
+
+
+def test_popup_markdown_renderer_uses_high_contrast_dark_palette() -> None:
     widget = _FakeTextWidget(bg="#141922")
     session = PopupSession(
         action_id="summarize_next_steps",
         action_name="Summary",
         original_input="hello",
-        latest_result="### Title\n- item\n> quote\n**bold** and `code`",
+        latest_result="## 重點\n- 這是主內容",
     )
+    session.start_round(kind="follow_up", prompt_text="再說明一次", model="gemini")
+    session.mark_result_ready("## 注意\n- 補充說明")
 
     PopupMarkdownRenderer.render_session_text(widget, session)
 
     inserted_tags = [tags for _, tags in widget.inserted]
-    assert ("md_h3",) in inserted_tags
-    assert ("body", "md_quote") in inserted_tags
-    assert ("body", "md_bold") in inserted_tags
-    assert ("body", "md_code") in inserted_tags
-    assert widget.tags["md_code"]["background"] == "#2C3442"
-    assert widget.tags["md_code"]["foreground"] == "#F7FAFF"
+    inserted_text = [text for text, _ in widget.inserted]
+    assert ("body_heading",) in inserted_tags
+    assert ("body_list_text",) in inserted_tags
+    assert ("history_label",) in inserted_tags
+    assert ("history_heading",) in inserted_tags
+    assert widget.tags["body_heading"]["foreground"] == "#AFCBFF"
+    assert widget.tags["history_heading"]["foreground"] == "#C3CDD9"
+    assert widget.tags["history_code"]["foreground"] == "#C3CDD9"
+    assert widget.tags["body_list_marker"]["foreground"] == "#C9DAF7"
+    assert "• " in inserted_text
+
+
+def test_popup_markdown_renderer_source_label_uses_provider_and_model() -> None:
+    session = PopupSession(
+        action_id="summarize",
+        action_name="Summarize",
+        original_input="Original",
+        latest_result="Full result",
+        current_provider="gemini",
+        current_model="gemini-3.1-flash-lite-preview",
+    )
+
+    assert PopupMarkdownRenderer.source_label_for_session(session) == "gemini | gemini-3.1-flash-lite-preview"
 
 
 def test_popup_action_handler_prefers_selection_to_full_output() -> None:
@@ -188,43 +242,10 @@ def test_popup_action_handler_toggle_speak_updates_tts() -> None:
     assert tts_service.stop_calls == 1
 
 
-def test_popup_presenter_refresh_session_repaints_input_preview_from_session_state() -> None:
-    presenter = PopupPresenter()
-    presenter._input_label = _FakeLabel()
-    presenter._text_widget = None
-    presenter._follow_entry = None
-    presenter._follow_hint_label = None
-
-    first = PopupSession(
-        action_id="first",
-        action_name="First",
-        original_input="",
-        latest_result="",
-        input_loading=True,
-        result_loading=True,
-    )
-    first.mark_input_ready("first input")
-    presenter._active_session = first
-    presenter._refresh_session_on_ui(first.session_id)
-    assert presenter._input_label.text == "Analysis: first input"
-
-    second = PopupSession(
-        action_id="second",
-        action_name="Second",
-        original_input="second input",
-        latest_result="done",
-        input_loading=False,
-        result_loading=False,
-    )
-    presenter._active_session = second
-    presenter._refresh_session_on_ui(second.session_id)
-    assert presenter._input_label.text == "Analysis: second input"
-    presenter.dispose()
-
-
-def test_popup_presenter_refresh_session_updates_header_title() -> None:
+def test_popup_presenter_refresh_session_updates_title_and_source_label() -> None:
     presenter = PopupPresenter()
     presenter._title_label = _FakeLabel()
+    presenter._source_label = _FakeLabel()
     presenter._active_window = _FakeWindow()
     presenter._input_label = None
     presenter._text_widget = None
@@ -236,6 +257,8 @@ def test_popup_presenter_refresh_session_updates_header_title() -> None:
         action_name="Translate EN",
         original_input="hello",
         latest_result="world",
+        current_provider="gemini",
+        current_model="gemini-1.5-flash",
         input_loading=False,
         result_loading=False,
     )
@@ -244,8 +267,62 @@ def test_popup_presenter_refresh_session_updates_header_title() -> None:
     presenter._refresh_session_on_ui(session.session_id)
 
     assert presenter._title_label.text == "ClipAI - Translate EN"
+    assert presenter._source_label.text == "gemini | gemini-1.5-flash"
     assert presenter._active_window.title_text == "ClipAI - Translate EN"
     presenter.dispose()
+
+
+def test_popup_presenter_flush_pending_chunks_repaints_stable_stream_text() -> None:
+    presenter = PopupPresenter()
+    presenter._text_widget = _FakeTextWidget()
+    presenter._active_session = PopupSession(
+        action_id="summarize_next_steps",
+        action_name="Summary",
+        original_input="hello",
+        latest_result="## 重點\n- 第一點",
+        result_loading=False,
+    )
+    presenter._pending_chunks = ["## ", "重點"]
+
+    presenter._flush_pending_chunks_on_ui(presenter._active_session.session_id)
+
+    assert presenter._text_widget.get("1.0", "end") == "## 重點\n- 第一點"
+    assert presenter._text_widget.see_calls == ["end"]
+    presenter.dispose()
+
+
+def test_popup_presenter_toggle_follow_up_packs_before_meta_row() -> None:
+    presenter = PopupPresenter()
+    presenter._follow_frame = _FakePackFrame()
+    presenter._meta_row = object()
+    presenter._follow_entry = _FakeEntry()
+    presenter._active_window = _FakeWindow()
+    presenter._follow_visible = False
+
+    presenter._toggle_follow_up_on_ui()
+
+    assert presenter._follow_visible is True
+    assert presenter._follow_frame.pack_calls[0]["before"] is presenter._meta_row
+    assert presenter._follow_entry.focus_calls == 1
+    presenter.dispose()
+
+
+def test_popup_presenter_toggle_secondary_actions_packs_before_meta_row() -> None:
+    presenter = PopupPresenter()
+    presenter._secondary_row = _FakePackFrame()
+    presenter._meta_row = object()
+    presenter._secondary_visible = False
+
+    presenter._toggle_secondary_actions_on_ui()
+
+    assert presenter._secondary_visible is True
+    assert presenter._secondary_row.pack_calls[0]["before"] is presenter._meta_row
+    presenter.dispose()
+
+
+def test_popup_presenter_uses_updated_copy_and_archive_icons() -> None:
+    assert ICON_COPY == "\U0001F4CB"
+    assert ICON_ARCHIVE == "\U0001F4E6"
 
 
 def test_popup_presenter_dispose_unsubscribes_tts_subscription() -> None:

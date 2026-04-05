@@ -38,6 +38,8 @@ class RunOutcome:
     press_type: str
     input_resolution: InputResolution
     output_mode: str
+    provider_name: str
+    model_name: str
     result: ActionRunResult
 
 
@@ -210,6 +212,8 @@ class ActionRunner:
             press_type=resolved_action.press_type,
             input_resolution=resolved_input,
             output_mode=output_mode,
+            provider_name=config.provider,
+            model_name=config.model,
             result=result,
         )
 

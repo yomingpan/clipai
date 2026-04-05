@@ -87,6 +87,8 @@ def test_run_resolved_action_uses_long_variant_prompt_and_output_mode(monkeypatc
     assert outcome.action_name == "Explain"
     assert outcome.press_type == "long"
     assert outcome.output_mode == "popup"
+    assert outcome.provider_name == "gemini"
+    assert outcome.model_name == "gemini-1.5-flash"
     assert captured["input_mode"] == "selection_or_clipboard"
     assert captured["enable_selection_capture"] is True
     assert captured["messages"] == [
@@ -153,6 +155,8 @@ def test_run_request_defaults_to_short_variant_for_legacy_actions(monkeypatch) -
 
     assert outcome.press_type == "short"
     assert outcome.output_mode == "paste"
+    assert outcome.provider_name == "gemini"
+    assert outcome.model_name == "gemini-1.5-flash"
     assert captured["messages"][1]["content"] == "Base prompt: selected text"
 
 
@@ -210,6 +214,8 @@ def test_run_resolved_action_passes_clipboard_image_to_provider(monkeypatch) -> 
     )
 
     assert outcome.press_type == "short"
+    assert outcome.provider_name == "gemini"
+    assert outcome.model_name == "gemini-1.5-flash"
     assert captured["messages"] == [
         {"role": "system", "content": "Global system"},
         {"role": "user", "content": "Explain: [Clipboard image attached]"},
@@ -338,6 +344,8 @@ def test_run_request_output_override_uses_popup_without_applying_paste(monkeypat
     )
 
     assert outcome.output_mode == "popup"
+    assert outcome.provider_name == "gemini"
+    assert outcome.model_name == "gemini-1.5-flash"
     assert captured["enable_selection_capture"] is False
     assert captured["messages"] == [
         {"role": "system", "content": "Global system\n\nTranslate system"},
