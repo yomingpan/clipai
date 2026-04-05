@@ -3,7 +3,7 @@ actions:
     name: 翻譯成中文
     hotkey: ctrl+alt+1
     stream: true
-    input_mode: selection
+    input_mode: selection_or_clipboard
     output_mode: paste
     temperature: 0.1
     system_prompt: >
@@ -18,7 +18,7 @@ actions:
     name: 翻譯成英文
     hotkey: ctrl+alt+2
     stream: true
-    input_mode: selection
+    input_mode: selection_or_clipboard
     output_mode: paste
     temperature: 0.1
     system_prompt: >
@@ -33,7 +33,7 @@ actions:
     name: 將文字重組
     hotkey: ctrl+alt+3
     stream: true
-    input_mode: selection
+    input_mode: selection_or_clipboard
     output_mode: paste
     temperature: 0.2
     system_prompt: >
@@ -48,7 +48,7 @@ actions:
     name: 縮短句子
     hotkey: ctrl+alt+4
     stream: true
-    input_mode: selection
+    input_mode: selection_or_clipboard
     output_mode: paste
     temperature: 0.2
     system_prompt: >
@@ -63,7 +63,7 @@ actions:
     name: 總結重點與下一步
     hotkey: ctrl+alt+5
     stream: true
-    input_mode: selection
+    input_mode: selection_or_clipboard
     output_mode: popup
     temperature: 0.2
     system_prompt: >
@@ -82,5 +82,5 @@ actions:
   - id: tts_read_selection
     name: Read Selection
     hotkey: ctrl+alt+q
-    input_mode: selection
+    input_mode: selection_or_clipboard
     output_mode: none

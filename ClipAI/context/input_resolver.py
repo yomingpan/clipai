@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
+from uuid import uuid4
 
 from clipai.context.clipboard_session import ClipboardSession
-from clipai.platform.clipboard import read_clipboard_text
+from clipai.platform.clipboard import read_clipboard_text, write_clipboard_text
+
+logger = logging.getLogger("clipai.input")
 
 
 @dataclass(frozen=True)
@@ -18,8 +22,8 @@ class InputResolver:
     def __init__(
         self,
         *,
-        copy_delay_sec: float = 0.15,
-        poll_count: int = 30,
+        copy_delay_sec: float = 0.2,
+        poll_count: int = 50,
         poll_delay_sec: float = 0.01,
         enable_selection_capture: bool = True,
     ) -> None:
@@ -57,7 +61,9 @@ class InputResolver:
             return ""
 
         with ClipboardSession():
-            before = read_clipboard_text(retries=1, delay=0) or ""
+            sentinel = self._selection_sentinel()
+            write_clipboard_text(sentinel, retries=1, delay=0)
+            logger.info("[clipai] Selection capture start: sentinel written")
             time.sleep(self._copy_delay_sec)
 
             keyboard = pynput_keyboard.Controller()
@@ -66,12 +72,28 @@ class InputResolver:
             keyboard.release("c")
             keyboard.release(pynput_keyboard.Key.ctrl)
 
-            for _ in range(self._poll_count):
+            for poll_index in range(self._poll_count):
                 time.sleep(self._poll_delay_sec)
                 current = read_clipboard_text(retries=1, delay=0) or ""
-                if current and current != before:
+                if current == sentinel and poll_index in {0, 4, 9, self._poll_count - 1}:
+                    logger.info(
+                        "[clipai] Selection capture poll=%s/%s clipboard still sentinel",
+                        poll_index + 1,
+                        self._poll_count,
+                    )
+                if current and current != sentinel:
+                    logger.info(
+                        "[clipai] Selection capture success: poll=%s chars=%s",
+                        poll_index + 1,
+                        len(current.strip()),
+                    )
                     return current.strip()
+            logger.warning("[clipai] Selection capture failed: clipboard stayed at sentinel")
             return ""
+
+    @staticmethod
+    def _selection_sentinel() -> str:
+        return f"__CLIPAI_SELECTION_SENTINEL__:{uuid4()}__"
 
     @staticmethod
     def _prompt_for_text() -> str:
