@@ -33,10 +33,12 @@ class DesktopRuntime:
         self._tray: TrayIcon | None = None
         self._tts_engine: TTSEngine | None = None
         self._tts_service: TTSService | None = None
-        self._popup_presenter = PopupPresenter(on_follow_up=self._submit_follow_up)
+        self._popup_presenter: PopupPresenter | None = None
         self._popup_sessions: dict[str, PopupSession] = {}
 
     def _active_popup_chain_session(self) -> PopupSession | None:
+        if self._popup_presenter is None:
+            return None
         session_id = self._popup_presenter.get_active_session_id()
         if not session_id:
             return None
@@ -45,9 +47,7 @@ class DesktopRuntime:
             return None
         if not self._popup_presenter.is_session_active(session_id):
             return None
-        if session.input_loading or session.result_loading:
-            return None
-        if not session.latest_result.strip():
+        if not session.is_ready_for_chaining():
             return None
         return session
 
@@ -70,7 +70,14 @@ class DesktopRuntime:
 
     def start(self) -> None:
         self._init_tts()
-        self._popup_presenter = PopupPresenter(on_follow_up=self._submit_follow_up, tts_service=self._tts_service)
+        if self._popup_presenter is not None:
+            self._popup_presenter.dispose()
+        self._popup_presenter = PopupPresenter(
+            on_follow_up=self._submit_follow_up,
+            on_session_closed=self._close_popup_session,
+            tts_service=self._tts_service,
+            event_bus=self._bus,
+        )
         self._run_state["running"] = True
         self._register_hotkeys()
         self._start_tray()
@@ -97,7 +104,13 @@ class DesktopRuntime:
         if self._tray is not None:
             self._tray.stop()
             self._tray = None
+        if self._popup_presenter is not None:
+            self._popup_presenter.dispose()
+            self._popup_presenter = None
         logger.info("[clipai] Stopped.")
+
+    def _close_popup_session(self, session_id: str) -> None:
+        self._popup_sessions.pop(session_id, None)
 
     def _register_hotkeys(self) -> None:
         try:
@@ -167,8 +180,12 @@ class DesktopRuntime:
             return
 
         def _worker() -> None:
+            popup_session: PopupSession | None = None
             with logging_context(action_id=action_id, correlation_id=correlation_id):
                 try:
+                    presenter = self._popup_presenter
+                    if presenter is None:
+                        raise RuntimeError("Popup presenter is not initialized.")
                     self._bus.emit(Events.UI_STATUS, status="processing")
                     popup_session = self._active_popup_chain_session()
                     callbacks = None
@@ -187,8 +204,8 @@ class DesktopRuntime:
                             variant_applied=resolved_action.variant_applied,
                             resolved_action_def=action_def,
                         )
-                        self._popup_presenter.refresh_session(popup_session.session_id)
-                        callbacks = self._popup_callbacks(popup_session, self._popup_presenter)
+                        presenter.refresh_session(popup_session.session_id)
+                        callbacks = self._popup_callbacks(popup_session, presenter)
                     elif str(action_def.get("output_mode") or "stdout") == "popup":
                         popup_session = PopupSession(
                             action_id=action_id,
@@ -203,8 +220,8 @@ class DesktopRuntime:
                         )
                         self._popup_sessions[popup_session.session_id] = popup_session
                         logger.debug("[clipai] Popup session created: action_id=%s session_id=%s", action_id, popup_session.session_id)
-                        self._popup_presenter.show_session(popup_session)
-                        callbacks = self._popup_callbacks(popup_session, self._popup_presenter)
+                        presenter.show_session(popup_session)
+                        callbacks = self._popup_callbacks(popup_session, presenter)
                     outcome = self._runner.run_resolved_action(
                         resolved_action,
                         build_runtime_context(
@@ -227,37 +244,39 @@ class DesktopRuntime:
                     )
 
                     if popup_session is not None:
-                        popup_session.action_id = outcome.action_id
-                        popup_session.action_name = outcome.action_name
-                        popup_session.action_press_type = outcome.press_type
-                        popup_session.variant_applied = resolved_action.variant_applied
-                        popup_session.resolved_action_def = dict(action_def)
+                        popup_session.update_action_metadata(
+                            action_id=outcome.action_id,
+                            action_name=outcome.action_name,
+                            action_press_type=outcome.press_type,
+                            variant_applied=resolved_action.variant_applied,
+                            resolved_action_def=action_def,
+                        )
                         popup_session.mark_input_ready(outcome.input_resolution.text)
                         popup_session.mark_result_ready(outcome.result.content)
-                        self._popup_presenter.refresh_session(popup_session.session_id)
-                        self._popup_presenter.flash_status(popup_session.session_id, "success")
+                        presenter.refresh_session(popup_session.session_id)
+                        presenter.flash_status(popup_session.session_id, "success")
 
                     self._bus.emit(Events.UI_STATUS, status="success")
                 except ValueError as exc:
                     logger.error("[clipai] Execute action validation failed: action_id=%s error=%s", action_id, exc)
                     notify("ClipAI", str(exc))
                     if popup_session is not None:
-                        self._popup_presenter.finalize_result(popup_session.session_id, str(exc))
-                        self._popup_presenter.flash_status(popup_session.session_id, "error")
+                        presenter.finalize_result(popup_session.session_id, str(exc))
+                        presenter.flash_status(popup_session.session_id, "error")
                     self._bus.emit(Events.UI_STATUS, status="warning")
                 except OutputModeError as exc:
                     logger.error("[clipai] %s", exc)
                     notify("ClipAI", str(exc))
                     if popup_session is not None:
-                        self._popup_presenter.finalize_result(popup_session.session_id, str(exc))
-                        self._popup_presenter.flash_status(popup_session.session_id, "error")
+                        presenter.finalize_result(popup_session.session_id, str(exc))
+                        presenter.flash_status(popup_session.session_id, "error")
                     self._bus.emit(Events.UI_STATUS, status="error")
                 except Exception as exc:
                     logger.exception("[clipai] Action failed: %s", exc)
                     notify("ClipAI", f"Action failed: {exc}")
                     if popup_session is not None:
-                        self._popup_presenter.finalize_result(popup_session.session_id, f"Action failed: {exc}")
-                        self._popup_presenter.flash_status(popup_session.session_id, "error")
+                        presenter.finalize_result(popup_session.session_id, f"Action failed: {exc}")
+                        presenter.flash_status(popup_session.session_id, "error")
                     self._bus.emit(Events.UI_STATUS, status="error")
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -285,6 +304,10 @@ class DesktopRuntime:
         ).start()
 
     def _run_follow_up(self, session: PopupSession, prompt_text: str, correlation_id: str) -> None:
+        presenter = self._popup_presenter
+        if presenter is None:
+            notify("ClipAI", "Popup presenter is not initialized.")
+            return
         action_def = dict(session.resolved_action_def)
         if not action_def:
             base_action_def = self._bundle.action_map.get(session.action_id)
@@ -308,10 +331,10 @@ class DesktopRuntime:
         with logging_context(action_id=session.action_id, correlation_id=correlation_id):
             try:
                 session.start_round(kind="follow_up", prompt_text=prompt_text, model=model or "default")
-                self._popup_presenter.refresh_session(session.session_id)
+                presenter.refresh_session(session.session_id)
                 callbacks = RunCallbacks(
-                    on_chunk=lambda chunk: self._popup_presenter.append_chunk(session.session_id, chunk),
-                    on_complete=lambda result: self._popup_presenter.finalize_result(session.session_id, result.content),
+                    on_chunk=lambda chunk: presenter.append_chunk(session.session_id, chunk),
+                    on_complete=lambda result: presenter.finalize_result(session.session_id, result.content),
                 )
                 outcome = self._runner.run_resolved_action(
                     resolved_action,
@@ -326,18 +349,18 @@ class DesktopRuntime:
                     explicit_text=prompt_text,
                     explicit_messages=self._build_follow_up_messages(session, action_def, prompt_text),
                 )
-                session.latest_result = outcome.result.content
-                self._popup_presenter.refresh_session(session.session_id)
-                self._popup_presenter.flash_status(session.session_id, "success")
+                session.mark_result_ready(outcome.result.content)
+                presenter.refresh_session(session.session_id)
+                presenter.flash_status(session.session_id, "success")
             except ValueError as exc:
-                self._popup_presenter.finalize_result(session.session_id, str(exc))
-                self._popup_presenter.flash_status(session.session_id, "error")
+                presenter.finalize_result(session.session_id, str(exc))
+                presenter.flash_status(session.session_id, "error")
             except Exception as exc:
                 logger.exception("[clipai] Follow-up failed: %s", exc)
-                self._popup_presenter.finalize_result(session.session_id, f"Follow-up failed: {exc}")
-                self._popup_presenter.flash_status(session.session_id, "error")
+                presenter.finalize_result(session.session_id, f"Follow-up failed: {exc}")
+                presenter.flash_status(session.session_id, "error")
             finally:
-                self._popup_presenter.set_follow_up_enabled(session.session_id, True)
+                presenter.set_follow_up_enabled(session.session_id, True)
 
     def _build_follow_up_messages(
         self,

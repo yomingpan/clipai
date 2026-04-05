@@ -65,3 +65,37 @@ def test_popup_session_begin_chained_action_reuses_session_with_new_metadata() -
     assert session.latest_result == "Connecting..."
     assert session.input_loading is False
     assert session.result_loading is True
+
+
+def test_popup_session_append_result_chunk_clears_loading_placeholder_once() -> None:
+    session = PopupSession(
+        action_id="summarize_next_steps",
+        action_name="Summary",
+        original_input="source text",
+        latest_result="Connecting...",
+        input_loading=False,
+        result_loading=True,
+    )
+
+    session.append_result_chunk("Hello")
+    session.append_result_chunk(" world")
+
+    assert session.latest_result == "Hello world"
+    assert session.result_loading is False
+
+
+def test_popup_session_snapshot_is_safe_for_rendering() -> None:
+    session = PopupSession(
+        action_id="summarize_next_steps",
+        action_name="Summary",
+        original_input="source text",
+        latest_result="final popup output",
+        input_loading=False,
+        result_loading=False,
+    )
+
+    snapshot = session.snapshot()
+
+    assert snapshot.action_id == "summarize_next_steps"
+    assert snapshot.latest_result == "final popup output"
+    assert snapshot.can_continue() is True

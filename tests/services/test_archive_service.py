@@ -18,7 +18,7 @@ def test_archive_service_writes_markdown_and_jsonl(tmp_path: Path) -> None:
         latest_result="Final result",
     )
     session.start_round(kind="follow_up", prompt_text="Refine it", model="gemini")
-    session.latest_result = "Refined result"
+    session.mark_result_ready("Refined result")
 
     archive_path = service.append_session(session)
 

@@ -9,12 +9,16 @@ class _FakePresenter:
     def __init__(self, session_id: str | None, active: bool = True) -> None:
         self._session_id = session_id
         self._active = active
+        self.disposed = False
 
     def get_active_session_id(self) -> str | None:
         return self._session_id
 
     def is_session_active(self, session_id: str) -> bool:
         return self._active and self._session_id == session_id
+
+    def dispose(self) -> None:
+        self.disposed = True
 
 
 def _bundle() -> AppConfigBundle:
@@ -67,3 +71,32 @@ def test_runtime_skips_popup_chaining_when_popup_is_loading_or_empty() -> None:
     runtime._popup_presenter = _FakePresenter(session.session_id)
 
     assert runtime._active_popup_chain_session() is None
+
+
+def test_runtime_close_popup_session_removes_cached_session() -> None:
+    runtime = DesktopRuntime(_bundle())
+    session = PopupSession(
+        action_id="summarize_next_steps",
+        action_name="Summary",
+        original_input="source text",
+        latest_result="final popup output",
+        input_loading=False,
+        result_loading=False,
+    )
+
+    runtime._popup_sessions[session.session_id] = session
+    runtime._close_popup_session(session.session_id)
+
+    assert session.session_id not in runtime._popup_sessions
+
+
+def test_runtime_stop_disposes_presenter() -> None:
+    runtime = DesktopRuntime(_bundle())
+    runtime._run_state["running"] = True
+    presenter = _FakePresenter(None)
+    runtime._popup_presenter = presenter
+
+    runtime.stop()
+
+    assert presenter.disposed is True
+    assert runtime._popup_presenter is None

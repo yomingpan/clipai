@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""Legacy popup widget kept for compatibility.
+
+The active popup implementation lives in `clipai.ui.popup_presenter`
+and `clipai.ui.result_popup.*` helpers.
+"""
+
 import tkinter as tk
 
 

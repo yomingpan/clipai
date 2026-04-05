@@ -5,7 +5,7 @@ from .archive_service import ArchiveService
 from .hedged_action_service import HedgeRoute, HedgedActionService
 from .output_applier import OutputApplier, OutputModeError
 from .pipeline_coordinator import PipelineCoordinator, PipelineSession
-from .popup_session import PopupRound, PopupSession, RoundKind
+from .popup_session import PopupRound, PopupSession, PopupSessionSnapshot, RoundKind
 
 __all__ = [
     "ActionRunResult",
@@ -20,6 +20,7 @@ __all__ = [
     "PipelineSession",
     "PopupRound",
     "PopupSession",
+    "PopupSessionSnapshot",
     "ResolvedActionConfig",
     "RoundKind",
     "RunCallbacks",

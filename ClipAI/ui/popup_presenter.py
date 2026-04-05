@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import logging
 import queue
-import re
 import threading
 import time
 import tkinter as tk
@@ -10,11 +10,11 @@ from typing import Callable
 import customtkinter as ctk
 
 from clipai.core.constants import EVENT_TTS_STATE
-from clipai.core.event_bus import get_event_bus
-from clipai.platform.clipboard import write_clipboard_text
-from clipai.services.archive_service import ArchiveService
+from clipai.core.event_bus import EventBus, get_event_bus
 from clipai.services.popup_session import PopupSession
 from clipai.ui.tooltip import attach_tooltip
+from clipai.ui.result_popup.action_handler import PopupActionHandler
+from clipai.ui.result_popup.markdown_renderer import PopupMarkdownRenderer
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -44,12 +44,22 @@ ICON_CHECK = "\u2713"
 ICON_ERROR = "!"
 CLOSE_GRACE_SEC = 0.35
 
+logger = logging.getLogger("clipai.ui.popup_presenter")
+
 
 class PopupPresenter:
-    def __init__(self, on_follow_up: Callable[[PopupSession, str], None] | None = None, tts_service=None) -> None:
-        self._archive_service = ArchiveService()
+    def __init__(
+        self,
+        on_follow_up: Callable[[PopupSession, str], None] | None = None,
+        *,
+        on_session_closed: Callable[[str], None] | None = None,
+        tts_service=None,
+        event_bus: EventBus | None = None,
+    ) -> None:
         self._on_follow_up = on_follow_up
-        self._tts_service = tts_service
+        self._on_session_closed = on_session_closed
+        self._event_bus = event_bus or get_event_bus()
+        self._action_handler = PopupActionHandler(tts_service=tts_service)
         self._jobs: queue.Queue[Callable[[], None]] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._root: ctk.CTk | None = None
@@ -72,28 +82,21 @@ class PopupPresenter:
         self._pending_chunks: list[str] = []
         self._button_refs: dict[str, ctk.CTkButton] = {}
         self._close_suppressed_until = 0.0
-        get_event_bus().subscribe(EVENT_TTS_STATE, self._handle_tts_state)
+        self._shutdown_requested = False
+        self._disposed = False
+        self._tts_subscription_id = self._event_bus.subscribe(EVENT_TTS_STATE, self._handle_tts_state)
 
     @staticmethod
     def _format_input_preview(text: str, max_chars: int = 88) -> str:
-        compact = " ".join((text or "").split())
-        if not compact:
-            return "Analysis: (empty input)"
-        if len(compact) > max_chars:
-            compact = compact[: max_chars - 3].rstrip() + "..."
-        return f"Analysis: {compact}"
+        return PopupMarkdownRenderer.format_input_preview(text, max_chars=max_chars)
 
     @staticmethod
     def _input_preview_for_session(session: PopupSession) -> str:
-        if session.input_loading:
-            return "Analysis: Connecting..."
-        return PopupPresenter._format_input_preview(session.original_input)
+        return PopupMarkdownRenderer.input_preview_for_session(session)
 
     @staticmethod
     def _result_text_for_session(session: PopupSession) -> str:
-        if session.result_loading and not session.latest_result.strip():
-            return "Connecting..."
-        return session.latest_result
+        return PopupMarkdownRenderer.result_text_for_session(session)
 
     @staticmethod
     def _speak_phase_to_ui_state(phase: str, is_speaking: bool) -> bool | None:
@@ -107,7 +110,11 @@ class PopupPresenter:
         return None
 
     def show_session(self, session: PopupSession) -> None:
+        if self._disposed:
+            return
         self._ensure_ui_thread()
+        if self._disposed:
+            return
         self._jobs.put(lambda: self._show_session_on_ui(session))
 
     def get_active_session_id(self) -> str | None:
@@ -128,30 +135,93 @@ class PopupPresenter:
         return active_session_id == session_id
 
     def update_input(self, session_id: str, original_input: str) -> None:
+        if self._disposed:
+            return
         self._ensure_ui_thread()
+        if self._disposed:
+            return
         self._jobs.put(lambda: self._update_input_on_ui(session_id, original_input))
 
     def append_chunk(self, session_id: str, chunk: str) -> None:
+        if self._disposed:
+            return
         self._ensure_ui_thread()
+        if self._disposed:
+            return
         self._jobs.put(lambda: self._append_chunk_on_ui(session_id, chunk))
 
     def finalize_result(self, session_id: str, content: str) -> None:
+        if self._disposed:
+            return
         self._ensure_ui_thread()
+        if self._disposed:
+            return
         self._jobs.put(lambda: self._finalize_result_on_ui(session_id, content))
 
     def flash_status(self, session_id: str, status: str) -> None:
+        if self._disposed:
+            return
         self._ensure_ui_thread()
+        if self._disposed:
+            return
         self._jobs.put(lambda: self._flash_status_on_ui(session_id, status))
 
     def refresh_session(self, session_id: str) -> None:
+        if self._disposed:
+            return
         self._ensure_ui_thread()
+        if self._disposed:
+            return
         self._jobs.put(lambda: self._refresh_session_on_ui(session_id))
 
     def set_follow_up_enabled(self, session_id: str, enabled: bool) -> None:
+        if self._disposed:
+            return
         self._ensure_ui_thread()
+        if self._disposed:
+            return
         self._jobs.put(lambda: self._set_follow_up_enabled_on_ui(session_id, enabled))
 
+    def dispose(self) -> None:
+        if self._disposed:
+            return
+        self._disposed = True
+        self._shutdown_requested = True
+        if self._tts_subscription_id is not None:
+            self._event_bus.unsubscribe(self._tts_subscription_id)
+            self._tts_subscription_id = None
+        if self._thread is None and self._root is None:
+            return
+
+        closed = threading.Event()
+
+        def _shutdown() -> None:
+            try:
+                self._destroy_active_window()
+                if self._root is not None:
+                    try:
+                        self._root.quit()
+                    except Exception:
+                        logger.exception("Popup root quit failed.")
+                    try:
+                        self._root.destroy()
+                    except Exception:
+                        logger.exception("Popup root destroy failed.")
+                    self._root = None
+            finally:
+                closed.set()
+
+        self._jobs.put(_shutdown)
+        closed.wait(timeout=2)
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=2)
+        self._thread = None
+
     def _handle_tts_state(self, payload: dict) -> None:
+        if self._disposed:
+            return
+        if self._thread is None and self._root is None and self._active_window is None:
+            return
         self._ensure_ui_thread()
         phase = str(payload.get("phase") or "")
         is_speaking = bool(payload.get("is_speaking"))
@@ -163,8 +233,11 @@ class PopupPresenter:
             self._set_speak_button_state_on_ui(ui_state)
 
     def _ensure_ui_thread(self) -> None:
+        if self._disposed:
+            return
         if self._thread and self._thread.is_alive():
             return
+        self._shutdown_requested = False
         self._ready.clear()
         self._thread = threading.Thread(target=self._ui_loop, daemon=True)
         self._thread.start()
@@ -185,22 +258,26 @@ class PopupPresenter:
                 try:
                     job()
                 except Exception:
-                    pass
+                    logger.exception("Popup UI job failed.")
+            if self._shutdown_requested:
+                return
             root.after(30, _pump)
 
         root.after(30, _pump)
         root.mainloop()
+        self._root = None
 
     def _show_session_on_ui(self, session: PopupSession) -> None:
         if self._root is None:
             return
         self._destroy_active_window()
+        session_state = session.snapshot()
 
         root = self._root
         window = ctk.CTkToplevel(root)
         self._active_window = window
         self._active_session = session
-        window.title(f"ClipAI - {session.action_name}")
+        window.title(f"ClipAI - {session_state.action_name}")
         window.configure(fg_color=POPUP_MASK_COLOR)
         window.overrideredirect(True)
         try:
@@ -237,7 +314,7 @@ class PopupPresenter:
 
         title_label = ctk.CTkLabel(
             header_frame,
-            text=f"ClipAI - {session.action_name}",
+            text=f"ClipAI - {session_state.action_name}",
             font=("Microsoft JhengHei", 11, "bold"),
             text_color=POPUP_TITLE_COLOR,
             anchor="w",
@@ -321,7 +398,7 @@ class PopupPresenter:
 
         follow_entry = ctk.CTkEntry(
             follow_frame,
-            placeholder_text=f"Follow-up ({session.round_count}/{session.max_rounds})",
+            placeholder_text=f"Follow-up ({session_state.round_count}/{session_state.max_rounds})",
             font=("Microsoft JhengHei", 10),
             height=26,
         )
@@ -330,7 +407,7 @@ class PopupPresenter:
 
         follow_hint = ctk.CTkLabel(
             follow_frame,
-            text=f"{session.round_count}/{session.max_rounds}",
+            text=f"{session_state.round_count}/{session_state.max_rounds}",
             font=("Microsoft JhengHei", 10),
             text_color=("gray45", "gray60"),
         )
@@ -340,7 +417,7 @@ class PopupPresenter:
 
         input_value = ctk.CTkLabel(
             main_frame,
-            text=self._input_preview_for_session(session),
+            text=self._input_preview_for_session(session_state),
             font=("Microsoft JhengHei", 10),
             text_color=("gray52", "gray58"),
             justify="left",
@@ -440,15 +517,17 @@ class PopupPresenter:
         window.after(100, lambda: text_widget.focus_set())
         window.lift()
         window.attributes("-topmost", True)
-        self._set_speak_button_state_on_ui(self._tts_service.is_speaking() if self._tts_service else False)
+        self._set_speak_button_state_on_ui(self._action_handler.is_speaking())
 
     def _destroy_active_window(self, window=None) -> None:
         target = window or self._active_window
+        closing_active = target is not None and target == self._active_window
+        session_id = self._active_session.session_id if closing_active and self._active_session is not None else None
         if target is not None:
             try:
                 target.destroy()
             except Exception:
-                pass
+                logger.exception("Popup window destroy failed.")
         self._active_window = None
         self._active_session = None
         self._text_widget = None
@@ -467,6 +546,8 @@ class PopupPresenter:
         self._chunk_flush_scheduled = False
         self._is_pinned = False
         self._close_suppressed_until = 0.0
+        if session_id is not None and self._on_session_closed is not None:
+            self._on_session_closed(session_id)
 
     def _suppress_auto_close(self, seconds: float = CLOSE_GRACE_SEC) -> None:
         self._close_suppressed_until = max(self._close_suppressed_until, time.monotonic() + seconds)
@@ -554,7 +635,8 @@ class PopupPresenter:
             return
         if self._follow_entry is None:
             return
-        state = "normal" if enabled and self._active_session.can_continue() else "disabled"
+        session_state = self._active_session.snapshot()
+        state = "normal" if enabled and session_state.can_continue() else "disabled"
         self._follow_entry.configure(state=state)
         if enabled:
             self._clear_follow_up_entry_on_ui()
@@ -564,10 +646,7 @@ class PopupPresenter:
     def _append_chunk_on_ui(self, session_id: str, chunk: str) -> None:
         if self._active_session is None or self._active_session.session_id != session_id:
             return
-        if self._active_session.result_loading:
-            self._active_session.result_loading = False
-            self._active_session.latest_result = ""
-        self._active_session.latest_result += chunk
+        self._active_session.append_result_chunk(chunk)
         self._pending_chunks.append(chunk)
         if self._chunk_flush_scheduled or self._active_window is None:
             return
@@ -589,9 +668,9 @@ class PopupPresenter:
         except Exception:
             autoscroll = True
         text_widget.config(state="normal")
-        if self._active_session.result_loading or text_widget.get("1.0", "end-1c").strip() == "Connecting...":
+        session_state = self._active_session.snapshot()
+        if session_state.result_loading or text_widget.get("1.0", "end-1c").strip() == "Connecting...":
             text_widget.delete("1.0", "end")
-        self._active_session.result_loading = False
         text_widget.insert("end", chunk, ("body",))
         if autoscroll:
             text_widget.see("end")
@@ -638,13 +717,14 @@ class PopupPresenter:
             self._main_frame.configure(border_color=color)
 
     def _sync_follow_up_controls(self, session: PopupSession) -> None:
+        session_state = session.snapshot()
         if self._follow_hint_label is not None:
-            self._follow_hint_label.configure(text=f"{session.round_count}/{session.max_rounds}")
+            self._follow_hint_label.configure(text=f"{session_state.round_count}/{session_state.max_rounds}")
         if self._follow_entry is not None:
-            if session.can_continue():
+            if session_state.can_continue():
                 self._follow_entry.configure(
                     state="normal",
-                    placeholder_text=f"Follow-up ({session.round_count}/{session.max_rounds})",
+                    placeholder_text=f"Follow-up ({session_state.round_count}/{session_state.max_rounds})",
                 )
             else:
                 self._follow_entry.configure(
@@ -678,45 +758,19 @@ class PopupPresenter:
 
     @staticmethod
     def _code_tag_palette(text_widget: tk.Text) -> tuple[str, str]:
-        background = str(text_widget.cget("bg") or "").strip()
-        if background.startswith("#") and len(background) == 7:
-            red = int(background[1:3], 16)
-            green = int(background[3:5], 16)
-            blue = int(background[5:7], 16)
-            luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
-            if luminance < 128:
-                return "#2C3442", "#F7FAFF"
-        return "#EEF3F8", "#1F2937"
+        return PopupMarkdownRenderer.code_tag_palette(text_widget)
 
     @staticmethod
     def _render_session_text(text_widget: tk.Text, session: PopupSession) -> None:
-        text_widget.config(state="normal")
-        text_widget.delete("1.0", "end")
-        code_bg, code_fg = PopupPresenter._code_tag_palette(text_widget)
-        text_widget.tag_configure("body", spacing1=2, spacing3=3)
-        text_widget.tag_configure("history", foreground="#7A7F87")
-        text_widget.tag_configure("md_h1", font=("Microsoft JhengHei", 14, "bold"), spacing1=6, spacing3=4)
-        text_widget.tag_configure("md_h2", font=("Microsoft JhengHei", 13, "bold"), spacing1=5, spacing3=3)
-        text_widget.tag_configure("md_h3", font=("Microsoft JhengHei", 12, "bold"), spacing1=4, spacing3=3)
-        text_widget.tag_configure("md_h4", font=("Microsoft JhengHei", 11, "bold"), spacing1=3, spacing3=2)
-        text_widget.tag_configure("md_bold", font=("Microsoft JhengHei", 11, "bold"))
-        text_widget.tag_configure("md_code", font=("Consolas", 10), background=code_bg, foreground=code_fg)
-        text_widget.tag_configure("md_quote", foreground="#94A3B8", lmargin1=16, lmargin2=16, spacing1=2, spacing3=2)
-        PopupPresenter._insert_markdown(text_widget, PopupPresenter._result_text_for_session(session).strip() or " ", base_tag="body")
-        if session.rounds:
-            for item in session.rounds:
-                text_widget.insert("end", f"\n\n--- round {item.round_index} ---\n", ("history",))
-                label = "Deep Think" if item.kind == "deep_think" else "Follow-up"
-                text_widget.insert("end", f"{label}: {item.prompt_text.strip()}\n", ("history",))
-                PopupPresenter._insert_markdown(text_widget, item.result_text.strip(), base_tag="history")
-        text_widget.config(state="disabled")
+        PopupMarkdownRenderer.render_session_text(text_widget, session)
 
     def _render_input_preview_on_ui(self, session: PopupSession) -> None:
         if self._input_label is not None:
             self._input_label.configure(text=self._input_preview_for_session(session))
 
     def _sync_session_header_on_ui(self, session: PopupSession) -> None:
-        title_text = f"ClipAI - {session.action_name}"
+        session_state = session.snapshot()
+        title_text = f"ClipAI - {session_state.action_name}"
         if self._title_label is not None:
             self._title_label.configure(text=title_text)
         if self._active_window is not None:
@@ -727,70 +781,20 @@ class PopupPresenter:
 
     @staticmethod
     def _insert_markdown(text_widget: tk.Text, content: str, base_tag: str = "body") -> None:
-        for raw_line in content.splitlines():
-            line = raw_line.rstrip()
-            if not line:
-                text_widget.insert("end", "\n", (base_tag,))
-                continue
-
-            heading_match = re.match(r"^(#{1,4})\s+(.*)$", line)
-            if heading_match:
-                level = len(heading_match.group(1))
-                heading_text = heading_match.group(2)
-                heading_tag = {
-                    1: "md_h1",
-                    2: "md_h2",
-                    3: "md_h3",
-                    4: "md_h4",
-                }.get(level, "md_h4")
-                PopupPresenter._insert_inline_markdown(text_widget, heading_text, (heading_tag,))
-                text_widget.insert("end", "\n")
-                continue
-            if re.match(r"^(\-|\*|\d+\.)\s+", line):
-                normalized = re.sub(r"^(\-|\*|\d+\.)\s+", "- ", line, count=1)
-                PopupPresenter._insert_inline_markdown(text_widget, normalized, (base_tag,))
-                text_widget.insert("end", "\n")
-                continue
-            if line.startswith("> "):
-                PopupPresenter._insert_inline_markdown(text_widget, line[2:], (base_tag, "md_quote"))
-                text_widget.insert("end", "\n")
-                continue
-
-            PopupPresenter._insert_inline_markdown(text_widget, line, (base_tag,))
-            text_widget.insert("end", "\n")
+        PopupMarkdownRenderer.insert_markdown(text_widget, content, base_tag=base_tag)
 
     @staticmethod
     def _insert_inline_markdown(text_widget: tk.Text, line: str, base_tags: tuple[str, ...]) -> None:
-        pattern = re.compile(r"(\*\*[^*]+\*\*|`[^`]+`)")
-        cursor = 0
-        for match in pattern.finditer(line):
-            if match.start() > cursor:
-                text_widget.insert("end", line[cursor:match.start()], base_tags)
-            token = match.group(0)
-            if token.startswith("**") and token.endswith("**"):
-                text_widget.insert("end", token[2:-2], base_tags + ("md_bold",))
-            elif token.startswith("`") and token.endswith("`"):
-                text_widget.insert("end", token[1:-1], base_tags + ("md_code",))
-            cursor = match.end()
-        if cursor < len(line):
-            text_widget.insert("end", line[cursor:], base_tags)
+        PopupMarkdownRenderer.insert_inline_markdown(text_widget, line, base_tags)
 
     @staticmethod
     def _selected_output_or_full(text_widget: tk.Text | None, session: PopupSession) -> str:
-        if text_widget is not None:
-            try:
-                selection = text_widget.get("sel.first", "sel.last").strip()
-            except tk.TclError:
-                selection = ""
-            if selection:
-                return selection
-        return session.render_full_text()
+        return PopupActionHandler.selected_output_or_full(text_widget, session)
 
     def _copy_current_output(self, session: PopupSession) -> None:
         try:
             self._suppress_auto_close()
-            payload = self._selected_output_or_full(self._text_widget, session)
-            write_clipboard_text(payload)
+            self._action_handler.copy_output(self._text_widget, session)
             button = self._button_refs.get("copy")
             if button is not None:
                 self._pulse_button(button, ICON_CHECK, SUCCESS_COLOR)
@@ -802,8 +806,7 @@ class PopupPresenter:
     def _archive_current_output(self, session: PopupSession) -> None:
         try:
             self._suppress_auto_close()
-            payload = self._selected_output_or_full(self._text_widget, session)
-            self._archive_service.append_text(session, payload)
+            self._action_handler.archive_output(self._text_widget, session)
             button = self._button_refs.get("archive")
             if button is not None:
                 self._pulse_button(button, ICON_CHECK, SUCCESS_COLOR)
@@ -813,16 +816,11 @@ class PopupPresenter:
                 self._pulse_button(button, ICON_ERROR, ERROR_COLOR)
 
     def _toggle_speak(self, session: PopupSession) -> None:
-        if self._tts_service is None:
-            return
         self._suppress_auto_close()
-        content = self._selected_output_or_full(self._text_widget, session)
-        if self._tts_service.is_speaking():
-            self._tts_service.stop()
-            self._set_speak_button_state_on_ui(False)
+        speaking_state = self._action_handler.toggle_speak(self._text_widget, session)
+        if speaking_state is None:
             return
-        self._set_speak_button_state_on_ui(True)
-        self._tts_service.speak_async(content)
+        self._set_speak_button_state_on_ui(speaking_state)
 
     def _set_speak_button_state_on_ui(self, is_speaking: bool) -> None:
         button = self._button_refs.get("speak")
