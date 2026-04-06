@@ -29,10 +29,11 @@ def test_english_companion_action_loads_with_long_press_variant() -> None:
 
     assert short_action.action_name == "English Companion"
     assert short_action.action_def["output_mode"] == "popup"
-    assert "## Summary" in short_action.action_def["prompt"]
-    assert "## Context" in short_action.action_def["prompt"]
-    assert "## Words & Phrases" in short_action.action_def["prompt"]
-    assert "## Natural Examples" in short_action.action_def["prompt"]
+    assert "smallest useful learning unit" in short_action.action_def["system_prompt"]
+    assert "Word:" in short_action.action_def["prompt"]
+    assert "Meaning:" in short_action.action_def["prompt"]
+    assert "Example:" in short_action.action_def["prompt"]
+    assert "Synonyms:" in short_action.action_def["prompt"]
 
     assert long_action.action_def["output_mode"] == "popup"
     assert "## What Sounds Off" in long_action.action_def["prompt"]
