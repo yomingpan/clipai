@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 from clipai.app.config import AppConfigBundle
@@ -48,6 +48,13 @@ class RunCallbacks:
     on_input_resolved: Callable[[InputResolution], None] | None = None
     on_chunk: Callable[[str], None] | None = None
     on_complete: Callable[[ActionRunResult], None] | None = None
+
+
+@dataclass(frozen=True)
+class _ExecutionOutcome:
+    result: ActionRunResult
+    provider_name: str
+    model_name: str
 
 
 class ActionRunner:
@@ -180,7 +187,7 @@ class ActionRunner:
             "temperature": action_def.get("temperature", self._bundle.app_cfg.get("temperature", 0.2)),
         }
         config = resolve_action_config(action_def, mode=runtime.mode, runtime_flags=runtime_flags)
-        result = self._run_action_request(
+        execution = self._run_action_request(
             action_def=action_def,
             config=config,
             provider_cfg=provider_cfg,
@@ -192,11 +199,12 @@ class ActionRunner:
             runtime=runtime,
             on_chunk=callbacks.on_chunk if callbacks else None,
         )
+        result = execution.result
         logger.info(
             "[clipai] Run complete: action_id=%s press_type=%s model=%s chars=%s",
             config.action_id,
             resolved_action.press_type,
-            config.model,
+            execution.model_name,
             len(result.content or ""),
         )
         if callbacks and callbacks.on_complete is not None:
@@ -212,8 +220,8 @@ class ActionRunner:
             press_type=resolved_action.press_type,
             input_resolution=resolved_input,
             output_mode=output_mode,
-            provider_name=config.provider,
-            model_name=config.model,
+            provider_name=execution.provider_name,
+            model_name=execution.model_name,
             result=result,
         )
 
@@ -254,12 +262,14 @@ class ActionRunner:
         output_mode: str,
         runtime: RuntimeContext,
         on_chunk: Callable[[str], None] | None,
-    ) -> ActionRunResult:
+    ) -> _ExecutionOutcome:
         if not self._should_use_hedge(action_def, output_mode, runtime):
-            return action_service.run_action(
-                config,
-                messages,
-                cancellation_token=cancellation.token,
+            return self._run_with_default_model_fallback(
+                config=config,
+                provider_cfg=provider_cfg,
+                action_service=action_service,
+                messages=messages,
+                cancellation=cancellation,
                 source_meta=source_meta,
                 on_chunk=on_chunk,
             )
@@ -288,7 +298,7 @@ class ActionRunner:
             fallback_cfg["default_model"] = secondary_model
 
         hedged_service = HedgedActionService(self._bus)
-        return hedged_service.run_action(
+        result = hedged_service.run_action(
             config,
             messages,
             HedgeRoute(
@@ -309,6 +319,59 @@ class ActionRunner:
             on_chunk=on_chunk,
             hedge_delay_ms=hedge_delay_ms,
         )
+        return _ExecutionOutcome(
+            result=result,
+            provider_name=result.provider_name or str(provider_cfg.get("provider", config.provider)),
+            model_name=result.model_name or config.model,
+        )
+
+    def _run_with_default_model_fallback(
+        self,
+        *,
+        config,
+        provider_cfg: dict[str, Any],
+        action_service: ActionService,
+        messages: list[dict[str, str]],
+        cancellation: CancellationController,
+        source_meta: dict[str, Any],
+        on_chunk: Callable[[str], None] | None,
+    ) -> _ExecutionOutcome:
+        try:
+            result = action_service.run_action(
+                config,
+                messages,
+                cancellation_token=cancellation.token,
+                source_meta=source_meta,
+                on_chunk=on_chunk,
+            )
+            return _ExecutionOutcome(
+                result=result,
+                provider_name=result.provider_name or config.provider,
+                model_name=result.model_name or config.model,
+            )
+        except Exception:
+            default_model = str(provider_cfg.get("default_model") or "").strip()
+            if not default_model or default_model == config.model:
+                raise
+            logger.warning(
+                "[clipai] Model failed, retrying with default model: provider=%s model=%s fallback_model=%s",
+                config.provider,
+                config.model,
+                default_model,
+            )
+            fallback_config = replace(config, model=default_model)
+            result = action_service.run_action(
+                fallback_config,
+                messages,
+                cancellation_token=cancellation.token,
+                source_meta=source_meta,
+                on_chunk=on_chunk,
+            )
+            return _ExecutionOutcome(
+                result=result,
+                provider_name=result.provider_name or fallback_config.provider,
+                model_name=result.model_name or fallback_config.model,
+            )
 
     def _should_use_hedge(self, action_def: dict[str, Any], output_mode: str, runtime: RuntimeContext) -> bool:
         if runtime.mode != "desktop_hotkey":

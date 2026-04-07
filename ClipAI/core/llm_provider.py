@@ -46,6 +46,9 @@ class ProviderResult:
 
 
 class LLMProvider(ABC):
+    def list_models(self) -> list[str]:
+        return []
+
     @abstractmethod
     def chat_completion(
         self,

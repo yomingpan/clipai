@@ -10,6 +10,10 @@ class AzureOpenAIProvider(LLMProvider):
     def __init__(self, config: dict[str, Any]) -> None:
         self._config = config
 
+    def list_models(self) -> list[str]:
+        model = str(self._config.get("default_model") or "").strip()
+        return [model] if model else []
+
     def chat_completion(
         self,
         messages: Iterable[dict[str, Any]],

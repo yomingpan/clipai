@@ -19,6 +19,8 @@ from clipai.services.action_config import ResolvedActionConfig
 class ActionRunResult:
     action_id: str
     content: str
+    provider_name: str = ""
+    model_name: str = ""
 
 
 class ActionService:
@@ -104,4 +106,9 @@ class ActionService:
                 "ts": int(time.time() * 1000),
             },
         )
-        return ActionRunResult(action_id=config.action_id, content=final_content)
+        return ActionRunResult(
+            action_id=config.action_id,
+            content=final_content,
+            provider_name=config.provider,
+            model_name=config.model,
+        )

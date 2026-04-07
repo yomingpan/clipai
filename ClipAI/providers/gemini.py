@@ -7,6 +7,7 @@ import threading
 from typing import Any, Generator, Iterable
 
 import aiohttp
+import requests
 
 from clipai.core.cancellation import CancellationToken
 from clipai.core.llm_provider import (
@@ -33,6 +34,39 @@ class GeminiProvider(LLMProvider):
             or os.getenv("GEMINI_BASE_URL")
             or "https://generativelanguage.googleapis.com"
         )
+
+    def list_models(self) -> list[str]:
+        if not self._api_key:
+            raise LLMResponseError("missing Gemini API key")
+
+        url = f"{self._base_url}/v1beta/models?key={self._api_key}"
+        try:
+            resp = requests.get(url, timeout=30)
+        except requests.exceptions.ConnectionError as exc:
+            raise LLMConnectionError(str(exc)) from exc
+        except requests.exceptions.Timeout as exc:
+            raise LLMConnectionError(str(exc)) from exc
+
+        if resp.status_code >= 400:
+            retry_after = self._parse_retry_after(resp.headers.get("Retry-After"))
+            raise map_http_error(resp.status_code, resp.text, retry_after=retry_after)
+
+        try:
+            payload = resp.json()
+        except ValueError as exc:
+            raise LLMResponseError(f"invalid Gemini JSON: {exc}") from exc
+
+        models: list[str] = []
+        for item in payload.get("models") or []:
+            methods = item.get("supportedGenerationMethods") or []
+            if not any(method in {"generateContent", "streamGenerateContent"} for method in methods):
+                continue
+            name = str(item.get("name") or "").strip()
+            if name.startswith("models/"):
+                name = name[len("models/") :]
+            if name and name not in models:
+                models.append(name)
+        return models
 
     def chat_completion(
         self,

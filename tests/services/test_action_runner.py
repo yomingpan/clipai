@@ -352,3 +352,65 @@ def test_run_request_output_override_uses_popup_without_applying_paste(monkeypat
         {"role": "user", "content": "Translate: popup output"},
     ]
     assert captured["applied"] == []
+
+
+def test_run_resolved_action_retries_with_default_model_when_requested_model_fails(monkeypatch) -> None:
+    bundle = _bundle(
+        [
+            {
+                "id": "summarize",
+                "name": "Summary",
+                "prompt": "Base prompt: {input}",
+                "input_mode": "selection_or_clipboard",
+                "output_mode": "popup",
+                "model": "broken-model",
+            }
+        ]
+    )
+    runner = ActionRunner(bundle, event_bus=EventBus())
+    captured: dict[str, object] = {"models": []}
+
+    monkeypatch.setattr("clipai.services.action_runner.build_provider", lambda cfg: {"provider": cfg["provider"]})
+
+    class _FakeActionService:
+        def __init__(self, event_bus, provider) -> None:
+            del event_bus, provider
+
+        def run_action(self, config, messages, cancellation_token, source_meta=None, on_chunk=None):
+            del messages, cancellation_token, source_meta, on_chunk
+            model_calls = captured["models"]
+            assert isinstance(model_calls, list)
+            model_calls.append(config.model)
+            if config.model == "broken-model":
+                raise RuntimeError("boom")
+            return ActionRunResult(
+                action_id=config.action_id,
+                content="done",
+                provider_name=config.provider,
+                model_name=config.model,
+            )
+
+    class _FakeResolver:
+        def __init__(self, enable_selection_capture: bool) -> None:
+            del enable_selection_capture
+
+        def resolve_text(self, explicit_text, input_mode: str = "selection_or_clipboard") -> InputResolution:
+            del explicit_text, input_mode
+            return InputResolution(text="selected text", source="selection")
+
+    monkeypatch.setattr("clipai.services.action_runner.ActionService", _FakeActionService)
+    monkeypatch.setattr("clipai.services.action_runner.InputResolver", _FakeResolver)
+
+    outcome = runner.run_resolved_action(
+        resolve_action_variant(bundle.action_map["summarize"], "short"),
+        build_runtime_context(
+            mode="desktop_hotkey",
+            apply_output=False,
+            use_selection=True,
+            stream_enabled=True,
+            stream_to_stdout=False,
+        ),
+    )
+
+    assert captured["models"] == ["broken-model", "gemini-1.5-flash"]
+    assert outcome.model_name == "gemini-1.5-flash"

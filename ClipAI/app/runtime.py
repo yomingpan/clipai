@@ -15,6 +15,7 @@ from clipai.platform.tts import TTSEngine
 from clipai.platform.tts_service import TTSService
 from clipai.logging_setup import logging_context, new_correlation_id
 from clipai.services.action_runner import ActionRunner, RunCallbacks
+from clipai.services.model_manager import ModelManager
 from clipai.services.output_applier import OutputModeError
 from clipai.services.popup_session import PopupSession
 from clipai.ui.popup_presenter import PopupPresenter
@@ -28,6 +29,7 @@ class DesktopRuntime:
         self._bundle = bundle
         self._bus = get_event_bus()
         self._runner = ActionRunner(bundle, event_bus=self._bus)
+        self._model_manager = ModelManager(bundle)
         self._run_state = {"running": False}
         self._listener = None
         self._tray: TrayIcon | None = None
@@ -126,7 +128,7 @@ class DesktopRuntime:
     def _start_tray(self) -> None:
         self._tray = TrayIcon(
             on_quit_callback=self.stop,
-            client=None,
+            client=self._model_manager,
             tts_engine=self._tts_engine,
             app_cfg=self._bundle.app_cfg,
             actions_list=self._bundle.actions,

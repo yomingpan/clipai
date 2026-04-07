@@ -155,7 +155,13 @@ class HedgedActionService:
                     "model": winner_route.model if winner_route else config.model,
                 },
             )
-            return ActionRunResult(action_id=config.action_id, content=final_content)
+            return ActionRunResult(
+                action_id=config.action_id,
+                content=final_content,
+                provider_name=winner_route.provider_name if winner_route else config.provider,
+                model_name=winner_route.model if winner_route else config.model,
+            )
+            
         except Exception as exc:
             self._event_bus.publish(
                 EVENT_ACTION_ERROR,

@@ -100,3 +100,25 @@ def test_olama_connection_error(monkeypatch) -> None:
     )
     with pytest.raises(LLMConnectionError):
         list(gen)
+
+
+def test_olama_list_models(monkeypatch) -> None:
+    provider = OllamaProvider({"ollama_base_url": "http://localhost:11434"})
+
+    class _FakeTagsResponse:
+        status_code = 200
+        headers = {}
+        text = ""
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {
+                "models": [
+                    {"name": "qwen2.5:7b"},
+                    {"name": "llama3.2:3b"},
+                ]
+            }
+
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: _FakeTagsResponse())
+
+    assert provider.list_models() == ["qwen2.5:7b", "llama3.2:3b"]

@@ -27,7 +27,8 @@ app:
 provider:
   provider: gemini
   gemini_base_url: https://generativelanguage.googleapis.com
-  default_model: gemini-3.1-flash-lite-preview
+  default_model: gemma-4-31b-it
+  #gemini-3.1-flash-lite-preview
 
 tts:
   enabled: true
