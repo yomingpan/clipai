@@ -4,7 +4,7 @@ import asyncio
 import threading
 from pathlib import Path
 
-from clipai.platform.tts import TTSEngine
+from clipai.platform.tts import TTSEngine, _QueuedStreamSource
 
 
 def test_tts_engine_resolves_single_voice_without_fallback(tmp_path: Path) -> None:
@@ -43,3 +43,11 @@ def test_tts_engine_logs_voice_resolution_steps_exist() -> None:
     assert "TTS voice resolved by manual mode" in content
     assert "TTS voice resolved by auto detect" in content
     assert "TTS synthesize request" in content
+
+
+def test_miniaudio_stream_source_exposes_callback_state() -> None:
+    source = _QueuedStreamSource(threading.Event())
+
+    assert hasattr(source, "ffi_handle")
+    assert hasattr(source, "error_in_readcallback")
+    assert source.error_in_readcallback is None

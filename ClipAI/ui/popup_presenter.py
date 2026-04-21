@@ -105,7 +105,7 @@ class PopupPresenter:
     @staticmethod
     def _speak_phase_to_ui_state(phase: str, is_speaking: bool) -> bool | None:
         normalized = (phase or "").strip().lower()
-        if normalized == "start":
+        if normalized in {"requesting", "buffering", "start"}:
             return True
         if normalized in {"stop", "end", "error"}:
             return False

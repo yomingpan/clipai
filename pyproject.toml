@@ -18,6 +18,7 @@ dependencies = [
   "pystray",
   "Pillow",
   "h-tts",
+  "miniaudio",
   "pygame-ce",
   "langdetect",
   "certifi",

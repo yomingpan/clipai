@@ -149,6 +149,12 @@ class TTSService:
         return True
 
     def _invoke_with_callbacks(self, cleaned: str) -> bool:
+        def on_request() -> None:
+            self._emit_state(True, "requesting")
+
+        def on_buffering() -> None:
+            self._emit_state(True, "buffering")
+
         def on_start() -> None:
             self._emit_state(True, "start")
 
@@ -156,9 +162,15 @@ class TTSService:
             self._emit_state(False, "end")
 
         try:
-            self._speak_fn(cleaned, on_start=on_start, on_end=on_end)
+            self._speak_fn(
+                cleaned,
+                on_request=on_request,
+                on_buffering=on_buffering,
+                on_start=on_start,
+                on_end=on_end,
+            )
             return True
         except TypeError as exc:
-            if "on_start" not in str(exc) and "on_end" not in str(exc):
+            if not any(marker in str(exc) for marker in ("on_request", "on_buffering", "on_start", "on_end")):
                 raise
             return False

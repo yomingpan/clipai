@@ -18,6 +18,8 @@ def build_provider(config: dict[str, Any]):
         return GeminiProvider(config)
     if provider_name == "azure_openai":
         return AzureOpenAIProvider(config)
+    if provider_name == "openai":
+        return OpenAICompactProvider(config)
     if provider_name == "openai_compact":
         return OpenAICompactProvider(config)
     raise ValueError(f"unsupported provider: {provider_name}")

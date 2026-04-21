@@ -228,7 +228,7 @@ def test_run_resolved_action_rejects_clipboard_image_for_unsupported_provider(mo
         config_path="config/config.yaml",
         cfg={},
         app_cfg={"system_prompt": "", "temperature": 0.2},
-        provider_cfg={"provider": "openai_compact", "default_model": "x"},
+        provider_cfg={"provider": "azure_openai", "default_model": "x"},
         tts_cfg={},
         actions=[
             {
@@ -250,8 +250,6 @@ def test_run_resolved_action_rejects_clipboard_image_for_unsupported_provider(mo
         },
     )
     runner = ActionRunner(bundle, event_bus=EventBus())
-
-    monkeypatch.setattr("clipai.services.action_runner.build_provider", lambda cfg: {"provider": cfg["provider"]})
 
     class _FakeResolver:
         def __init__(self, enable_selection_capture: bool) -> None:

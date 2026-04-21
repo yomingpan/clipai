@@ -131,6 +131,8 @@ class _FakeTTSService:
 
 
 def test_speak_phase_to_ui_state_is_phase_aware() -> None:
+    assert PopupPresenter._speak_phase_to_ui_state("requesting", True) is True
+    assert PopupPresenter._speak_phase_to_ui_state("buffering", True) is True
     assert PopupPresenter._speak_phase_to_ui_state("start", True) is True
     assert PopupPresenter._speak_phase_to_ui_state("stop", False) is False
     assert PopupPresenter._speak_phase_to_ui_state("end", False) is False

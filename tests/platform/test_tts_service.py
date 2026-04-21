@@ -11,8 +11,12 @@ def test_tts_service_uses_callback_lifecycle_when_supported() -> None:
     seen: list[tuple[bool, str]] = []
     bus.subscribe("tts_state", lambda payload: seen.append((payload["is_speaking"], payload["phase"])))
 
-    def speak_fn(text: str, *, on_start=None, on_end=None) -> None:
+    def speak_fn(text: str, *, on_request=None, on_buffering=None, on_start=None, on_end=None) -> None:
         assert text == "hello"
+        if on_request:
+            on_request()
+        if on_buffering:
+            on_buffering()
         if on_start:
             on_start()
         if on_end:
@@ -21,7 +25,12 @@ def test_tts_service_uses_callback_lifecycle_when_supported() -> None:
     service = TTSService(bus, speak_fn)
     service.speak("hello")
 
-    assert seen == [(True, "start"), (False, "end")]
+    assert seen == [
+        (True, "requesting"),
+        (True, "buffering"),
+        (True, "start"),
+        (False, "end"),
+    ]
 
 
 def test_tts_service_normalizes_markdown_and_symbols_for_speech() -> None:

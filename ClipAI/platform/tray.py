@@ -82,6 +82,7 @@ class TrayIcon:
         bus = get_event_bus()
         bus.subscribe(Events.MEMORY_CHANGED, self._on_memory_changed)
         bus.subscribe(Events.UI_STATUS, self._on_ui_status)
+        bus.subscribe(Events.TTS_STATE, self._on_tts_state)
 
     def _refresh_models(self):
         client = self.client
@@ -248,6 +249,28 @@ class TrayIcon:
             self._status_reset_timer = threading.Timer(reset_after, lambda: self.update_status("idle"))
             self._status_reset_timer.daemon = True
             self._status_reset_timer.start()
+
+    def _on_tts_state(self, payload=None, phase=None, is_speaking=None, **kwargs):
+        if isinstance(payload, dict):
+            phase = payload.get("phase", phase)
+            is_speaking = payload.get("is_speaking", is_speaking)
+            kwargs = {**payload, **kwargs}
+        del kwargs
+        normalized = str(phase or "").strip().lower()
+        if normalized in {"requesting", "buffering"}:
+            self._on_ui_status(status="processing", reset_after=0)
+            return
+        if normalized == "start":
+            self._on_ui_status(status="success", reset_after=0)
+            return
+        if normalized in {"stop", "end"}:
+            self._on_ui_status(status="idle", reset_after=0)
+            return
+        if normalized == "error":
+            self._on_ui_status(status="error")
+            return
+        if is_speaking:
+            self._on_ui_status(status="processing", reset_after=0)
 
     def _set_model(self, model_id):
         if self.client:

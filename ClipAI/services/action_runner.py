@@ -83,7 +83,7 @@ class ActionRunner:
 
     @staticmethod
     def _provider_supports_image(provider_name: str) -> bool:
-        return provider_name.lower() in {"gemini", "ollama", "olama"}
+        return provider_name.lower() in {"gemini", "ollama", "olama", "openai", "openai_compact"}
 
     def run(self, request: RunRequest, runtime: RuntimeContext, callbacks: RunCallbacks | None = None) -> RunOutcome:
         action_def = self._bundle.action_map.get(request.action_id)
