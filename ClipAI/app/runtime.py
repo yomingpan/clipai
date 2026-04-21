@@ -298,6 +298,7 @@ class DesktopRuntime:
             notify("ClipAI", resolved.error or "No text selected.")
             return
 
+        logger.info("[clipai] TTS read selection dispatch: chars=%s", len(resolved.text.strip()))
         notify("ClipAI", "Reading selected text...")
         self._tts_service.speak_async(resolved.text)
 

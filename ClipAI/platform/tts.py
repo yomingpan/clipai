@@ -28,7 +28,11 @@ logger = logging.getLogger(__name__)
 
 # Initialize pygame.mixer once at module level for fallback playback.
 _mixer_initialized = False
-STREAM_START_MIN_BYTES = 16 * 1024
+STREAM_START_MIN_BYTES = 4 * 1024
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return int((time.perf_counter() - started_at) * 1000)
 
 
 class _QueuedStreamSource:
@@ -150,6 +154,11 @@ class TTSEngine:
         except Exception as exc:
             logger.warning("TTS language detection failed, using default voice %s: %s", self.default_voice, exc)
             return self.default_voice
+
+    @staticmethod
+    def _sanitize_text_for_tts(text: str) -> str:
+        sanitized = text.encode("utf-8", errors="ignore").decode("utf-8")
+        return sanitized
 
     def _play_audio_thread(self, output_path, delete_after, speak_id):
         """Play audio using pygame.mixer in a thread."""
@@ -276,7 +285,18 @@ class TTSEngine:
         speak_id: int,
         *,
         on_start: Callable[[], None] | None = None,
+        started_at: float | None = None,
     ) -> None:
+        def _on_start() -> None:
+            if started_at is not None:
+                logger.info(
+                    "TTS playback started: source=cache backend=miniaudio elapsed_ms=%s path=%s",
+                    _elapsed_ms(started_at),
+                    path,
+                )
+            if on_start:
+                on_start()
+
         handle = self._start_miniaudio_playback(
             lambda completion: self._wrap_miniaudio_stream(
                 self._prime_generator(miniaudio.stream_file(path)),
@@ -284,7 +304,7 @@ class TTSEngine:
                 completion,
             ),
             speak_id,
-            on_start=on_start,
+            on_start=_on_start,
         )
         await self._wait_for_playback(handle, speak_id)
 
@@ -298,14 +318,23 @@ class TTSEngine:
         on_request: Callable[[], None] | None = None,
         on_buffering: Callable[[], None] | None = None,
         on_start: Callable[[], None] | None = None,
+        started_at: float | None = None,
     ) -> None:
         if on_request:
             on_request()
+        if started_at is not None:
+            logger.info(
+                "TTS request started: backend=miniaudio elapsed_ms=%s voice=%s chars=%s",
+                _elapsed_ms(started_at),
+                voice,
+                len(text),
+            )
         logger.info("TTS synthesize request: voice=%s chars=%s streaming=miniaudio", voice, len(text))
         stream_source = _QueuedStreamSource(self._stop_event)
         playback_handle = None
         bytes_written = 0
         buffering_emitted = False
+        first_chunk_logged = False
         communicate = edge_tts.Communicate(
             text,
             voice,
@@ -328,13 +357,38 @@ class TTSEngine:
                         continue
                     if not buffering_emitted:
                         buffering_emitted = True
+                        if started_at is not None:
+                            logger.info(
+                                "TTS buffering started: backend=miniaudio elapsed_ms=%s voice=%s",
+                                _elapsed_ms(started_at),
+                                voice,
+                            )
                         if on_buffering:
                             on_buffering()
+                    if not first_chunk_logged and started_at is not None:
+                        first_chunk_logged = True
+                        logger.info(
+                            "TTS first audio chunk: backend=miniaudio elapsed_ms=%s bytes=%s voice=%s",
+                            _elapsed_ms(started_at),
+                            len(data),
+                            voice,
+                        )
                     stream_file.write(data)
                     stream_file.flush()
                     stream_source.feed(data)
                     bytes_written += len(data)
                     if playback_handle is None and bytes_written >= STREAM_START_MIN_BYTES:
+                        def _on_start() -> None:
+                            if started_at is not None:
+                                logger.info(
+                                    "TTS playback started: source=stream backend=miniaudio elapsed_ms=%s buffered_bytes=%s voice=%s",
+                                    _elapsed_ms(started_at),
+                                    bytes_written,
+                                    voice,
+                                )
+                            if on_start:
+                                on_start()
+
                         playback_handle = self._start_miniaudio_playback(
                             lambda completion: self._wrap_miniaudio_stream(
                                 self._prime_generator(
@@ -347,13 +401,24 @@ class TTSEngine:
                                 completion,
                             ),
                             speak_id,
-                            on_start=on_start,
+                            on_start=_on_start,
                             stream_source=stream_source,
                         )
             stream_source.finish()
             if bytes_written == 0:
                 raise RuntimeError(f"No audio was received for voice {voice}.")
             if playback_handle is None:
+                def _on_start() -> None:
+                    if started_at is not None:
+                        logger.info(
+                            "TTS playback started: source=stream backend=miniaudio elapsed_ms=%s buffered_bytes=%s voice=%s",
+                            _elapsed_ms(started_at),
+                            bytes_written,
+                            voice,
+                        )
+                    if on_start:
+                        on_start()
+
                 playback_handle = self._start_miniaudio_playback(
                     lambda completion: self._wrap_miniaudio_stream(
                         self._prime_generator(
@@ -366,7 +431,7 @@ class TTSEngine:
                         completion,
                     ),
                     speak_id,
-                    on_start=on_start,
+                    on_start=_on_start,
                     stream_source=stream_source,
                 )
             await self._wait_for_playback(playback_handle, speak_id)
@@ -388,6 +453,7 @@ class TTSEngine:
         on_request: Callable[[], None] | None = None,
         on_buffering: Callable[[], None] | None = None,
         on_start: Callable[[], None] | None = None,
+        started_at: float | None = None,
     ):
         """Generate audio for full text and play it with cache/stop support.
 
@@ -399,30 +465,85 @@ class TTSEngine:
             return
 
         try:
-            voice = self._detect_voice(text)
-            cache_key = f"{voice}|{self.rate}|{self.volume}|{text}".encode("utf-8")
+            sanitized_text = self._sanitize_text_for_tts(text)
+            if sanitized_text != text:
+                logger.warning(
+                    "TTS sanitized input text: removed_chars=%s original_chars=%s sanitized_chars=%s",
+                    len(text) - len(sanitized_text),
+                    len(text),
+                    len(sanitized_text),
+                )
+            if not sanitized_text.strip():
+                raise RuntimeError("No valid text remained after TTS sanitization.")
+            voice = self._detect_voice(sanitized_text)
+            if started_at is not None:
+                logger.info(
+                    "TTS voice resolved: elapsed_ms=%s voice=%s chars=%s",
+                    _elapsed_ms(started_at),
+                    voice,
+                    len(sanitized_text),
+                )
+            cache_key = f"{voice}|{self.rate}|{self.volume}|{sanitized_text}".encode("utf-8")
             cache_hash = hashlib.md5(cache_key).hexdigest()
             cached_path = os.path.abspath(os.path.join(self.cache_dir, f"{cache_hash}.mp3"))
             if os.path.exists(cached_path):
                 logger.info("TTS cache hit: voice=%s path=%s", voice, cached_path)
                 if miniaudio is not None:
-                    await self._play_cached_with_miniaudio(cached_path, speak_id, on_start=on_start)
+                    await self._play_cached_with_miniaudio(
+                        cached_path,
+                        speak_id,
+                        on_start=on_start,
+                        started_at=started_at,
+                    )
                     return
                 output_path = cached_path
                 delete_after = False
             elif miniaudio is not None:
-                await self._stream_synthesize_and_play(
-                    text,
-                    voice,
-                    cached_path,
-                    speak_id,
-                    on_request=on_request,
-                    on_buffering=on_buffering,
-                    on_start=on_start,
-                )
-                return
+                try:
+                    await self._stream_synthesize_and_play(
+                        sanitized_text,
+                        voice,
+                        cached_path,
+                        speak_id,
+                        on_request=on_request,
+                        on_buffering=on_buffering,
+                        on_start=on_start,
+                        started_at=started_at,
+                    )
+                    return
+                except RuntimeError as exc:
+                    if "No audio was received" not in str(exc):
+                        raise
+                    logger.warning(
+                        "TTS stream returned no audio; retrying once: voice=%s chars=%s elapsed_ms=%s",
+                        voice,
+                        len(sanitized_text),
+                        _elapsed_ms(started_at) if started_at is not None else -1,
+                    )
+                try:
+                    await self._stream_synthesize_and_play(
+                        sanitized_text,
+                        voice,
+                        cached_path,
+                        speak_id,
+                        on_request=None,
+                        on_buffering=on_buffering,
+                        on_start=on_start,
+                        started_at=started_at,
+                    )
+                    return
+                except RuntimeError as exc:
+                    if "No audio was received" not in str(exc):
+                        raise
+                    logger.warning(
+                        "TTS stream retry returned no audio; falling back to full download path: voice=%s chars=%s elapsed_ms=%s",
+                        voice,
+                        len(sanitized_text),
+                        _elapsed_ms(started_at) if started_at is not None else -1,
+                    )
+                    output_path, delete_after = await self._resolve_audio_path(sanitized_text, speak_id)
             else:
-                output_path, delete_after = await self._resolve_audio_path(text, speak_id)
+                output_path, delete_after = await self._resolve_audio_path(sanitized_text, speak_id)
             if output_path is None:
                 return
 
@@ -434,6 +555,12 @@ class TTSEngine:
                     on_request()
                 if on_buffering and output_path != cached_path:
                     on_buffering()
+                if started_at is not None:
+                    logger.info(
+                        "TTS playback started: source=file backend=pygame elapsed_ms=%s path=%s",
+                        _elapsed_ms(started_at),
+                        output_path,
+                    )
                 if on_start:
                     on_start()
                 t = threading.Thread(
@@ -577,6 +704,8 @@ class TTSEngine:
         self._stop_event.clear()
         self._speak_id += 1
         speak_id = self._speak_id
+        started_at = time.perf_counter()
+        logger.info("TTS speak begin: chars=%s speak_id=%s", len(text), speak_id)
 
         async def _run_with_callbacks():
             completed = False
@@ -587,9 +716,17 @@ class TTSEngine:
                     on_request=on_request,
                     on_buffering=on_buffering,
                     on_start=on_start,
+                    started_at=started_at,
                 )
                 completed = True
             finally:
+                logger.info(
+                    "TTS speak finished: completed=%s stopped=%s elapsed_ms=%s speak_id=%s",
+                    completed,
+                    self._stop_event.is_set(),
+                    _elapsed_ms(started_at),
+                    speak_id,
+                )
                 if completed and on_end:
                     on_end()
 
