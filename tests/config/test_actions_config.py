@@ -41,6 +41,16 @@ def test_english_companion_action_loads_with_long_press_variant() -> None:
     assert "## Full Rewrite" in long_action.action_def["prompt"]
 
 
+def test_voice_input_action_uses_ctrl_alt_w() -> None:
+    actions = load_actions("config/config.yaml")
+    action_map = {action["id"]: action for action in actions}
+
+    action = action_map["voice_input"]
+
+    assert action["hotkey"] == "ctrl+alt+w"
+    assert action["output_mode"] == "none"
+
+
 def test_popup_summary_action_uses_compact_popup_structure() -> None:
     actions = load_actions("config/config.yaml")
     action_map = {action["id"]: action for action in actions}

@@ -15,4 +15,5 @@ aiohttp
 python-certifi-win32
 markdown
 customtkinter
+pywebview
 pytest

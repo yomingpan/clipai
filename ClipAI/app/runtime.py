@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import importlib.util
+import subprocess
+import sys
 import threading
 import time
 
@@ -37,6 +40,7 @@ class DesktopRuntime:
         self._tts_service: TTSService | None = None
         self._popup_presenter: PopupPresenter | None = None
         self._popup_sessions: dict[str, PopupSession] = {}
+        self._voice_input_process: subprocess.Popen | None = None
 
     def _active_popup_chain_session(self) -> PopupSession | None:
         if self._popup_presenter is None:
@@ -181,6 +185,10 @@ class DesktopRuntime:
             threading.Thread(target=_tts_worker, daemon=True).start()
             return
 
+        if action_id == "voice_input":
+            self._show_voice_input(correlation_id)
+            return
+
         def _worker() -> None:
             popup_session: PopupSession | None = None
             with logging_context(action_id=action_id, correlation_id=correlation_id):
@@ -286,6 +294,36 @@ class DesktopRuntime:
                     self._bus.emit(Events.UI_STATUS, status="error")
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _show_voice_input(self, correlation_id: str) -> None:
+        with logging_context(action_id="voice_input", correlation_id=correlation_id):
+            if self._voice_input_process is not None and self._voice_input_process.poll() is None:
+                notify("ClipAI", "Voice input is already open.")
+                return
+            if importlib.util.find_spec("webview") is None:
+                notify("ClipAI", "Voice input requires pywebview. Install dependencies from requirements.txt.")
+                self._bus.emit(Events.UI_STATUS, status="warning")
+                return
+
+            try:
+                self._voice_input_process = subprocess.Popen(
+                    [
+                        sys.executable,
+                        "-m",
+                        "clipai.ui.voice_input_webview",
+                        "--config",
+                        self._bundle.config_path,
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                )
+                logger.info("[clipai] Voice input WebView launched.")
+                self._bus.emit(Events.UI_STATUS, status="success")
+            except Exception as exc:
+                logger.exception("[clipai] Voice input launch failed: %s", exc)
+                notify("ClipAI", f"Voice input failed: {exc}")
+                self._bus.emit(Events.UI_STATUS, status="error")
 
     def _read_selection_aloud(self) -> None:
         if self._tts_service is None:

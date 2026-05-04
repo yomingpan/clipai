@@ -36,6 +36,18 @@ tts:
   rate: "+0%"
   volume: "+0%"
 
+voice_input:
+  # google uses the browser/WebView SpeechRecognition API.
+  # openai records short WebM chunks in the WebView and sends them to OpenAI transcription.
+  mode: google
+  auto_start: true
+  openai:
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    model: whisper-1
+    language: zh
+    timeout_sec: 60
+
 logging:
   enabled: true
   profile: production

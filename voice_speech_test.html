@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClipAI Voice Speech Test</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: "Segoe UI", "Microsoft JhengHei", Arial, sans-serif;
+      background: #f6f7f9;
+      color: #16181d;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      background: #ffffff;
+      border-bottom: 1px solid #d8dde6;
+    }
+
+    button {
+      height: 34px;
+      padding: 0 12px;
+      border: 1px solid #b9c0ca;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #16181d;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: #0f6cbd;
+      border-color: #0f6cbd;
+      color: #ffffff;
+    }
+
+    button.danger {
+      background: #c42b1c;
+      border-color: #c42b1c;
+      color: #ffffff;
+    }
+
+    main {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 10px;
+      padding: 12px;
+      min-height: 0;
+    }
+
+    .interim {
+      min-height: 34px;
+      padding: 8px 10px;
+      border: 1px solid #d0d6df;
+      border-radius: 6px;
+      background: #fffbe6;
+      color: #5b4b00;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+
+    textarea {
+      width: 100%;
+      height: 100%;
+      min-height: 320px;
+      box-sizing: border-box;
+      resize: none;
+      border: 1px solid #c8ced8;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 18px;
+      line-height: 1.55;
+      background: #ffffff;
+      color: #16181d;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-top: 1px solid #d8dde6;
+      background: #ffffff;
+      color: #4e5968;
+      font-size: 13px;
+    }
+
+    #status {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        background: #1c1f24;
+        color: #f2f4f7;
+      }
+
+      header,
+      footer,
+      textarea,
+      button {
+        background: #262a31;
+        color: #f2f4f7;
+        border-color: #414852;
+      }
+
+      .interim {
+        background: #302b18;
+        border-color: #62562a;
+        color: #ffe08a;
+      }
+
+      button.primary {
+        background: #2d7dcb;
+        border-color: #2d7dcb;
+      }
+
+      button.danger {
+        background: #d13438;
+        border-color: #d13438;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <button id="start" class="primary">Start</button>
+    <button id="stop" class="danger">Stop</button>
+    <button id="copy">Copy</button>
+    <button id="clear">Clear</button>
+  </header>
+
+  <main>
+    <div id="interim" class="interim"></div>
+    <textarea id="text" spellcheck="false"></textarea>
+  </main>
+
+  <footer>
+    <span id="status">Ready</span>
+    <span id="count">0 chars</span>
+  </footer>
+
+  <script>
+    const startButton = document.getElementById("start");
+    const stopButton = document.getElementById("stop");
+    const copyButton = document.getElementById("copy");
+    const clearButton = document.getElementById("clear");
+    const interimBox = document.getElementById("interim");
+    const textBox = document.getElementById("text");
+    const statusBox = document.getElementById("status");
+    const countBox = document.getElementById("count");
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let manualStop = false;
+    let listening = false;
+
+    function setStatus(value) {
+      statusBox.textContent = value;
+    }
+
+    function updateCount() {
+      countBox.textContent = `${textBox.value.length} chars`;
+    }
+
+    function appendFinal(transcript) {
+      const value = transcript.trim();
+      if (!value) return;
+      const separator = textBox.value && !textBox.value.endsWith("\n") ? "\n" : "";
+      textBox.value += separator + value;
+      updateCount();
+    }
+
+    function createRecognition() {
+      const instance = new SpeechRecognition();
+      instance.lang = "zh-TW";
+      instance.continuous = true;
+      instance.interimResults = true;
+      instance.maxAlternatives = 1;
+
+      instance.onstart = () => {
+        listening = true;
+        setStatus("Listening");
+      };
+
+      instance.onerror = (event) => {
+        setStatus(`Error: ${event.error || "unknown"}`);
+      };
+
+      instance.onend = () => {
+        listening = false;
+        interimBox.textContent = "";
+        if (!manualStop) {
+          setStatus("Restarting");
+          window.setTimeout(() => {
+            try {
+              recognition.start();
+            } catch (error) {
+              setStatus(String(error));
+            }
+          }, 250);
+          return;
+        }
+        setStatus("Stopped");
+      };
+
+      instance.onresult = (event) => {
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          const transcript = result[0].transcript;
+          if (result.isFinal) {
+            appendFinal(transcript);
+          } else {
+            interim += transcript;
+          }
+        }
+        interimBox.textContent = interim;
+        if (interim) setStatus("Listening");
+      };
+
+      return instance;
+    }
+
+    startButton.addEventListener("click", () => {
+      if (!SpeechRecognition) {
+        setStatus("SpeechRecognition is not available. Open this page in Chrome or Edge.");
+        return;
+      }
+      if (listening) return;
+      manualStop = false;
+      recognition = recognition || createRecognition();
+      try {
+        recognition.start();
+      } catch (error) {
+        setStatus(String(error));
+      }
+    });
+
+    stopButton.addEventListener("click", () => {
+      manualStop = true;
+      if (recognition) recognition.stop();
+    });
+
+    copyButton.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(textBox.value);
+        setStatus("Copied");
+      } catch (error) {
+        textBox.select();
+        document.execCommand("copy");
+        setStatus("Copied with fallback");
+      }
+    });
+
+    clearButton.addEventListener("click", () => {
+      textBox.value = "";
+      interimBox.textContent = "";
+      updateCount();
+      setStatus("Cleared");
+    });
+
+    textBox.addEventListener("input", updateCount);
+
+    if (!SpeechRecognition) {
+      setStatus("SpeechRecognition is not available. Use Chrome or Edge.");
+    }
+  </script>
+</body>
+</html>

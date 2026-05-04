@@ -25,6 +25,7 @@ dependencies = [
   "aiohttp",
   "certifi-win32",
   "Markdown",
+  "pywebview",
 ]
 
 [project.optional-dependencies]

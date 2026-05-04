@@ -105,6 +105,12 @@ actions:
     input_mode: selection_or_clipboard
     output_mode: none
 
+  - id: voice_input
+    name: Voice Input
+    hotkey: ctrl+alt+w
+    input_mode: none
+    output_mode: none
+
   - id: english_companion
     name: English Companion
     hotkey: ctrl+alt+8
