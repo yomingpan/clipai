@@ -176,7 +176,9 @@ class VoiceInputApi:
         voice_cfg = dict(cfg.get("voice_input", {}) or {})
         openai_cfg = OpenAITranscriptionConfig.from_mapping(voice_cfg.get("openai"))
         self._client = OpenAITranscriptionClient(openai_cfg)
-        self._mode = str(voice_cfg.get("mode") or "google").lower()
+        backend = str(voice_cfg.get("backend") or "").lower()
+        default_mode = "openai" if backend in {"openai", "openai_transcribe"} else "google"
+        self._mode = str(voice_cfg.get("mode") or default_mode).lower()
         self._auto_start = bool(voice_cfg.get("auto_start", True))
 
     def get_config(self) -> dict[str, Any]:

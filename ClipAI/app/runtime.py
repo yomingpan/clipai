@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import logging
 import importlib.util
+import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
+import webbrowser
 
 from clipai.app.config import AppConfigBundle
 from clipai.actions import ResolvedAction, resolve_action_variant
@@ -18,6 +21,7 @@ from clipai.platform.tts import TTSEngine
 from clipai.platform.tts_service import TTSService
 from clipai.logging_setup import logging_context, new_correlation_id
 from clipai.services.action_runner import ActionRunner, RunCallbacks
+from clipai.services.browser_voice_input import BrowserVoiceInputConfig, BrowserVoiceInputServer
 from clipai.services.model_manager import ModelManager
 from clipai.services.output_applier import OutputModeError
 from clipai.services.popup_session import PopupSession
@@ -41,6 +45,7 @@ class DesktopRuntime:
         self._popup_presenter: PopupPresenter | None = None
         self._popup_sessions: dict[str, PopupSession] = {}
         self._voice_input_process: subprocess.Popen | None = None
+        self._browser_voice_input_server: BrowserVoiceInputServer | None = None
 
     def _active_popup_chain_session(self) -> PopupSession | None:
         if self._popup_presenter is None:
@@ -113,6 +118,9 @@ class DesktopRuntime:
         if self._popup_presenter is not None:
             self._popup_presenter.dispose()
             self._popup_presenter = None
+        if self._browser_voice_input_server is not None:
+            self._browser_voice_input_server.stop()
+            self._browser_voice_input_server = None
         logger.info("[clipai] Stopped.")
 
     def _close_popup_session(self, session_id: str) -> None:
@@ -297,33 +305,87 @@ class DesktopRuntime:
 
     def _show_voice_input(self, correlation_id: str) -> None:
         with logging_context(action_id="voice_input", correlation_id=correlation_id):
-            if self._voice_input_process is not None and self._voice_input_process.poll() is None:
-                notify("ClipAI", "Voice input is already open.")
-                return
-            if importlib.util.find_spec("webview") is None:
-                notify("ClipAI", "Voice input requires pywebview. Install dependencies from requirements.txt.")
-                self._bus.emit(Events.UI_STATUS, status="warning")
+            voice_cfg = dict(self._bundle.cfg.get("voice_input", {}) or {})
+            backend = str(voice_cfg.get("backend") or voice_cfg.get("mode") or "browser_speech").lower()
+            if backend in {"browser_speech", "google", "chrome", "edge"}:
+                self._show_browser_voice_input(voice_cfg)
                 return
 
-            try:
-                self._voice_input_process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-m",
-                        "clipai.ui.voice_input_webview",
-                        "--config",
-                        self._bundle.config_path,
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    close_fds=True,
-                )
-                logger.info("[clipai] Voice input WebView launched.")
-                self._bus.emit(Events.UI_STATUS, status="success")
-            except Exception as exc:
-                logger.exception("[clipai] Voice input launch failed: %s", exc)
-                notify("ClipAI", f"Voice input failed: {exc}")
-                self._bus.emit(Events.UI_STATUS, status="error")
+            self._show_webview_voice_input()
+
+    def _show_browser_voice_input(self, voice_cfg: dict[str, object]) -> None:
+        try:
+            if self._browser_voice_input_server is None or not self._browser_voice_input_server.is_running:
+                server_cfg = BrowserVoiceInputConfig.from_mapping(voice_cfg)
+                self._browser_voice_input_server = BrowserVoiceInputServer(server_cfg)
+            url = self._browser_voice_input_server.start()
+            self._open_voice_input_browser(url, voice_cfg)
+            logger.info("[clipai] Browser voice input launched: %s", url)
+            self._bus.emit(Events.UI_STATUS, status="success")
+        except Exception as exc:
+            logger.exception("[clipai] Browser voice input launch failed: %s", exc)
+            notify("ClipAI", f"Voice input failed: {exc}")
+            self._bus.emit(Events.UI_STATUS, status="error")
+
+    def _open_voice_input_browser(self, url: str, voice_cfg: dict[str, object]) -> None:
+        browser = str(voice_cfg.get("browser") or "edge").strip().lower()
+        browser_path = str(voice_cfg.get("browser_path") or "").strip()
+        if browser_path:
+            subprocess.Popen([browser_path, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+
+        candidates: list[str] = []
+        if browser in {"edge", "msedge"}:
+            candidates = [
+                "msedge",
+                "msedge.exe",
+                os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+                os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            ]
+        elif browser in {"chrome", "google_chrome", "google-chrome"}:
+            candidates = [
+                "chrome",
+                "chrome.exe",
+                os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+                os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            ]
+
+        for candidate in candidates:
+            resolved = shutil.which(candidate) or (candidate if os.path.isfile(candidate) else "")
+            if resolved:
+                subprocess.Popen([resolved, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+
+        webbrowser.open(url)
+
+    def _show_webview_voice_input(self) -> None:
+        if self._voice_input_process is not None and self._voice_input_process.poll() is None:
+            notify("ClipAI", "Voice input is already open.")
+            return
+        if importlib.util.find_spec("webview") is None:
+            notify("ClipAI", "Voice input requires pywebview. Install dependencies from requirements.txt.")
+            self._bus.emit(Events.UI_STATUS, status="warning")
+            return
+
+        try:
+            self._voice_input_process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "clipai.ui.voice_input_webview",
+                    "--config",
+                    self._bundle.config_path,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+            logger.info("[clipai] Voice input WebView launched.")
+            self._bus.emit(Events.UI_STATUS, status="success")
+        except Exception as exc:
+            logger.exception("[clipai] Voice input launch failed: %s", exc)
+            notify("ClipAI", f"Voice input failed: {exc}")
+            self._bus.emit(Events.UI_STATUS, status="error")
 
     def _read_selection_aloud(self) -> None:
         if self._tts_service is None:
