@@ -100,3 +100,23 @@ def test_runtime_stop_disposes_presenter() -> None:
 
     assert presenter.disposed is True
     assert runtime._popup_presenter is None
+
+
+def test_runtime_run_forever_uses_blocking_tray_loop() -> None:
+    runtime = DesktopRuntime(_bundle())
+    calls = []
+
+    class _FakeTray:
+        def run(self, *, detached: bool = True) -> None:
+            calls.append(detached)
+            runtime._run_state["running"] = False
+
+        def stop(self) -> None:
+            calls.append("stop")
+
+    runtime._run_state["running"] = True
+    runtime._tray = _FakeTray()
+
+    runtime.run_forever()
+
+    assert calls == [False]

@@ -95,6 +95,8 @@ class PopupMarkdownRenderer:
             if not stripped:
                 if normalized_lines and _HEADING_PATTERN.match(normalized_lines[-1]):
                     continue
+                if normalized_lines and _LIST_PATTERN.match(normalized_lines[-1]):
+                    continue
                 if previous_blank:
                     continue
                 normalized_lines.append("")

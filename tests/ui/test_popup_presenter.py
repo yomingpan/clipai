@@ -90,9 +90,24 @@ class _FakePackFrame:
 class _FakeEntry:
     def __init__(self) -> None:
         self.focus_calls = 0
+        self.deleted = False
+        self.state = "normal"
 
     def focus_set(self) -> None:
         self.focus_calls += 1
+
+    def cget(self, key: str) -> str:
+        if key == "state":
+            return self.state
+        return ""
+
+    def configure(self, **kwargs) -> None:
+        if "state" in kwargs:
+            self.state = str(kwargs["state"])
+
+    def delete(self, start, end) -> None:
+        del start, end
+        self.deleted = True
 
 
 class _FakeClipboard:

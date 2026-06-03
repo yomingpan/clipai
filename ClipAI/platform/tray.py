@@ -1,5 +1,6 @@
 import threading
 import time
+import logging
 
 import pystray
 from PIL import Image, ImageDraw
@@ -9,6 +10,7 @@ from clipai.platform import notification
 
 # Global state for markdown formatting
 markdown_enabled = True
+logger = logging.getLogger("clipai.tray")
 
 
 def create_image(status="idle", size=64):
@@ -296,11 +298,35 @@ class TrayIcon:
         self._status = status
         self._safe_update_icon(status)
 
-    def run(self):
+    def _run_icon_loop(self):
+        if self.icon is None:
+            return
+        try:
+            logger.info("[clipai] Tray icon loop starting.")
+            self.icon.run(self._on_icon_ready)
+            logger.info("[clipai] Tray icon loop stopped.")
+        except Exception:
+            logger.exception("[clipai] Tray icon loop failed.")
+            raise
+
+    def _on_icon_ready(self, icon):
+        try:
+            logger.info("[clipai] Tray icon setup ready; requesting visible icon.")
+            icon.visible = True
+            logger.info("[clipai] Tray icon visible=%s", icon.visible)
+        except Exception:
+            logger.exception("[clipai] Tray icon setup failed.")
+            raise
+
+    def run(self, *, detached: bool = True):
         self._running = True
         self.icon = pystray.Icon("ClipAI", create_image("idle"), "ClipAI", self._create_menu())
-        self._thread = threading.Thread(target=self.icon.run, daemon=True)
-        self._thread.start()
+        if detached:
+            self._thread = threading.Thread(target=self._run_icon_loop, daemon=True, name="ClipAITray")
+            self._thread.start()
+            return
+        self._thread = threading.current_thread()
+        self._run_icon_loop()
 
     def stop(self):
         self._running = False

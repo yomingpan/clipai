@@ -91,13 +91,16 @@ class DesktopRuntime:
         )
         self._run_state["running"] = True
         self._register_hotkeys()
-        self._start_tray()
+        self._init_tray()
         logger.info("[clipai] Desktop runtime started.")
         if self._listener is None:
             logger.info("[clipai] Running without hotkeys.")
 
     def run_forever(self) -> None:
         try:
+            if self._tray is not None:
+                self._tray.run(detached=False)
+                return
             while self._run_state["running"]:
                 time.sleep(0.5)
         except KeyboardInterrupt:
@@ -137,7 +140,7 @@ class DesktopRuntime:
             logger.error("[clipai] Hotkey registration unavailable: %s", exc)
             notify("ClipAI", f"Hotkeys unavailable: {exc}")
 
-    def _start_tray(self) -> None:
+    def _init_tray(self) -> None:
         self._tray = TrayIcon(
             on_quit_callback=self.stop,
             client=self._model_manager,
@@ -145,7 +148,6 @@ class DesktopRuntime:
             app_cfg=self._bundle.app_cfg,
             actions_list=self._bundle.actions,
         )
-        self._tray.run()
 
     def _init_tts(self) -> None:
         tts_cfg = self._bundle.tts_cfg
