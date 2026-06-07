@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import tkinter as tk
-from typing import Any
 
 import customtkinter as ctk
 
-from clipai.core.event_bus import get_event_bus
-from clipai.ui.dialog_lifecycle import DialogLifecycle
+from ClipAI.core.event_bus import get_event_bus
+from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
 
 class BaseDialog:
@@ -43,6 +42,7 @@ class BaseDialog:
 
             self.lifecycle = DialogLifecycle(get_event_bus(), self.root)
             self.root.protocol("WM_DELETE_WINDOW", self.lifecycle.close)
+            self.root.bind("<Escape>", lambda _event: self.lifecycle.close())
         except Exception:
             self._valid = False
             raise
@@ -69,3 +69,6 @@ class BaseDialog:
             y = max(20, (screen_h - height) // 2)
 
         self.root.geometry(f"{width}x{height}+{x}+{y}")
+
+    def run_dialog(self) -> None:
+        self.lifecycle.run_dialog()
