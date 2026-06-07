@@ -1,1 +1,0 @@
-use PS C:\Users\88698\ClipAI_v2> & c:\Users\88698\ClipAI_v2\.venv\Scripts\Activate.ps1 this python venv 
