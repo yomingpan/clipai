@@ -76,7 +76,7 @@ class MockBaseDialogSurface:
         self.dialog.main_frame.grid_rowconfigure(3, weight=1)
 
         header = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 5))
+        header.grid(row=0, column=0, sticky="ew", padx=14, pady=(6, 1))
         header.grid_columnconfigure(0, weight=1)
 
         title_area = ctk.CTkFrame(header, fg_color="transparent")
@@ -85,8 +85,9 @@ class MockBaseDialogSurface:
         title_label = ctk.CTkLabel(
             title_area,
             text="ClipAI - Explain Word",
-            font=ctk.CTkFont(size=17, weight="bold"),
-            text_color="#020617",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color="#475569",
+            wraplength=330,
         )
         title_label.pack(anchor="w")
 
@@ -96,48 +97,48 @@ class MockBaseDialogSurface:
         self.close_button = ctk.CTkButton(
             window_actions,
             text="×",
-            width=26,
-            height=26,
-            corner_radius=13,
+            width=18,
+            height=18,
+            corner_radius=9,
             fg_color="#FEE2E2",
             hover_color="#FECACA",
             text_color="#B91C1C",
-            font=ctk.CTkFont(size=17, weight="bold"),
+            font=ctk.CTkFont(size=12, weight="bold"),
             command=self.dialog.lifecycle.close,
         )
-        self.close_button.pack(side="left", padx=(0, 6))
+        self.close_button.pack(side="left", padx=(0, 4))
 
         self.pin_button = ctk.CTkButton(
             window_actions,
             text="📌",
-            width=26,
-            height=26,
-            corner_radius=13,
+            width=18,
+            height=18,
+            corner_radius=9,
             fg_color="#DBEAFE",
             hover_color="#BFDBFE",
             text_color="#0F172A",
-            font=ctk.CTkFont(size=13),
+            font=ctk.CTkFont(size=9),
             command=self._toggle_pin,
         )
         self.pin_button.pack(side="left")
         self._enable_drag(header, title_area, title_label)
 
         actions = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="w", padx=16, pady=(0, 6))
-        self.speaker_button = self._slot_button(actions, "🔊 Speak", self._toggle_speaker, width=68)
-        self.copy_button = self._slot_button(actions, "⧉ Copy", self._copy_visible_text, width=58)
-        self.follow_button = self._slot_button(actions, "✎ Follow", self._toggle_follow_up, width=72)
+        actions.grid(row=1, column=0, sticky="w", padx=14, pady=(0, 1))
+        self.speaker_button = self._slot_button(actions, "🔊 Speak", self._toggle_speaker, width=56)
+        self.copy_button = self._slot_button(actions, "⧉ Copy", self._copy_visible_text, width=48)
+        self.follow_button = self._slot_button(actions, "✎ Follow", self._toggle_follow_up, width=60)
 
         clipboard_label = ctk.CTkLabel(
             self.dialog.main_frame,
             text='Clipboard: "Appetizer is a small dish served before the main course..."',
             anchor="w",
             justify="left",
-            font=ctk.CTkFont(size=13),
-            text_color="#64748B",
+            font=ctk.CTkFont(size=8),
+            text_color="#94A3B8",
             wraplength=390,
         )
-        clipboard_label.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 7))
+        clipboard_label.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 3))
 
         self.content_card = ctk.CTkScrollableFrame(
             self.dialog.main_frame,
@@ -145,7 +146,7 @@ class MockBaseDialogSurface:
             corner_radius=14,
             border_width=0,
         )
-        self.content_card.grid(row=3, column=0, sticky="nsew", padx=16, pady=(0, 10))
+        self.content_card.grid(row=3, column=0, sticky="nsew", padx=14, pady=(0, 6))
         self.content_card.grid_columnconfigure(0, weight=1)
 
         self.loading_label = ctk.CTkLabel(
@@ -197,15 +198,15 @@ class MockBaseDialogSurface:
             parent,
             text=text,
             width=width,
-            height=25,
-            corner_radius=8,
+            height=18,
+            corner_radius=6,
             fg_color="#EEF2F7",
             hover_color="#E3E8EF",
             text_color=text_color,
-            font=ctk.CTkFont(size=10),
+            font=ctk.CTkFont(size=8),
             command=command,
         )
-        button.pack(side="left", padx=(0, 6))
+        button.pack(side="left", padx=(0, 4))
         return button
 
     def _enable_drag(self, *widgets: ctk.CTkBaseClass) -> None:
@@ -235,7 +236,7 @@ class MockBaseDialogSurface:
             ("Synonyms", "Starter, hors d'oeuvre, first course."),
         ]
         for row, (heading, body) in enumerate(sections):
-            top_pad = 13 if row == 0 else 10
+            top_pad = 6 if row == 0 else 3
             ctk.CTkLabel(
                 self.content_card,
                 text=heading,
@@ -243,16 +244,17 @@ class MockBaseDialogSurface:
                 justify="left",
                 font=ctk.CTkFont(size=10, weight="bold"),
                 text_color="#0F172A",
-            ).grid(row=row * 2, column=0, sticky="w", padx=13, pady=(top_pad, 3))
+                wraplength=365,
+            ).grid(row=row * 2, column=0, sticky="w", padx=12, pady=(top_pad, 0))
             ctk.CTkLabel(
                 self.content_card,
                 text=body,
                 anchor="w",
                 justify="left",
                 wraplength=365,
-                font=ctk.CTkFont(size=11),
+                font=ctk.CTkFont(size=12),
                 text_color="#020617",
-            ).grid(row=row * 2 + 1, column=0, sticky="w", padx=13, pady=(0, 1))
+            ).grid(row=row * 2 + 1, column=0, sticky="w", padx=12, pady=(0, 0))
 
         self._content_rendered = True
         self._flash_state("success")
