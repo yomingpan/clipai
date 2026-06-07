@@ -44,8 +44,8 @@ class MockBaseDialogSurface:
 
         self.dialog = BaseDialog(
             title="ClipAI",
-            width=620,
-            height=430,
+            width=434,
+            height=301,
             position="center",
             border_color=DEFAULT_BORDER,
         )
@@ -68,7 +68,7 @@ class MockBaseDialogSurface:
         self.dialog.root.configure(fg_color="#E9EDF3")
         self.dialog.main_frame.configure(
             fg_color="#FFFFFF",
-            corner_radius=26,
+            corner_radius=20,
             border_width=3,
             border_color=DEFAULT_BORDER,
         )
@@ -76,7 +76,7 @@ class MockBaseDialogSurface:
         self.dialog.main_frame.grid_rowconfigure(3, weight=1)
 
         header = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=22, pady=(22, 8))
+        header.grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 5))
         header.grid_columnconfigure(0, weight=1)
 
         title_area = ctk.CTkFrame(header, fg_color="transparent")
@@ -85,31 +85,48 @@ class MockBaseDialogSurface:
         title_label = ctk.CTkLabel(
             title_area,
             text="ClipAI - Explain Word",
-            font=ctk.CTkFont(size=23, weight="bold"),
+            font=ctk.CTkFont(size=17, weight="bold"),
             text_color="#020617",
         )
         title_label.pack(anchor="w")
 
+        window_actions = ctk.CTkFrame(header, fg_color="transparent")
+        window_actions.grid(row=0, column=1, sticky="ne")
+
+        self.close_button = ctk.CTkButton(
+            window_actions,
+            text="×",
+            width=26,
+            height=26,
+            corner_radius=13,
+            fg_color="#FEE2E2",
+            hover_color="#FECACA",
+            text_color="#B91C1C",
+            font=ctk.CTkFont(size=17, weight="bold"),
+            command=self.dialog.lifecycle.close,
+        )
+        self.close_button.pack(side="left", padx=(0, 6))
+
         self.pin_button = ctk.CTkButton(
-            header,
+            window_actions,
             text="📌",
-            width=34,
-            height=34,
-            corner_radius=17,
+            width=26,
+            height=26,
+            corner_radius=13,
             fg_color="#DBEAFE",
             hover_color="#BFDBFE",
             text_color="#0F172A",
-            font=ctk.CTkFont(size=16),
-            command=self._pin_or_close,
+            font=ctk.CTkFont(size=13),
+            command=self._toggle_pin,
         )
-        self.pin_button.grid(row=0, column=1, sticky="ne")
+        self.pin_button.pack(side="left")
         self._enable_drag(header, title_area, title_label)
 
         actions = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="w", padx=22, pady=(0, 10))
-        self.speaker_button = self._slot_button(actions, "🔊 Speak", self._toggle_speaker, width=88)
-        self.copy_button = self._slot_button(actions, "⧉ Copy", self._copy_visible_text, width=78)
-        self.follow_button = self._slot_button(actions, "✎ Follow-up", self._toggle_follow_up, width=112)
+        actions.grid(row=1, column=0, sticky="w", padx=16, pady=(0, 6))
+        self.speaker_button = self._slot_button(actions, "🔊 Speak", self._toggle_speaker, width=68)
+        self.copy_button = self._slot_button(actions, "⧉ Copy", self._copy_visible_text, width=58)
+        self.follow_button = self._slot_button(actions, "✎ Follow", self._toggle_follow_up, width=72)
 
         clipboard_label = ctk.CTkLabel(
             self.dialog.main_frame,
@@ -118,17 +135,17 @@ class MockBaseDialogSurface:
             justify="left",
             font=ctk.CTkFont(size=13),
             text_color="#64748B",
-            wraplength=550,
+            wraplength=390,
         )
-        clipboard_label.grid(row=2, column=0, sticky="ew", padx=22, pady=(0, 12))
+        clipboard_label.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 7))
 
         self.content_card = ctk.CTkScrollableFrame(
             self.dialog.main_frame,
             fg_color="#F8FAFC",
-            corner_radius=18,
+            corner_radius=14,
             border_width=0,
         )
-        self.content_card.grid(row=3, column=0, sticky="nsew", padx=22, pady=(0, 14))
+        self.content_card.grid(row=3, column=0, sticky="nsew", padx=16, pady=(0, 10))
         self.content_card.grid_columnconfigure(0, weight=1)
 
         self.loading_label = ctk.CTkLabel(
@@ -136,34 +153,34 @@ class MockBaseDialogSurface:
             text="Loading result...",
             anchor="w",
             justify="left",
-            font=ctk.CTkFont(size=15),
+            font=ctk.CTkFont(size=11),
             text_color="#334155",
         )
-        self.loading_label.grid(row=0, column=0, sticky="w", padx=18, pady=18)
+        self.loading_label.grid(row=0, column=0, sticky="w", padx=13, pady=13)
 
         self.follow_row = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
         self.follow_row.grid_columnconfigure(0, weight=1)
         self.follow_entry = ctk.CTkEntry(
             self.follow_row,
-            height=42,
-            corner_radius=12,
+            height=30,
+            corner_radius=9,
             border_width=1,
             border_color="#CBD5E1",
             fg_color="#FFFFFF",
             text_color="#020617",
-            font=ctk.CTkFont(size=14),
+            font=ctk.CTkFont(size=10),
         )
-        self.follow_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        self.follow_entry.grid(row=0, column=0, sticky="ew", padx=(0, 7))
         self.follow_entry.insert(0, "5 more examples")
         ctk.CTkButton(
             self.follow_row,
             text="Send",
-            width=70,
-            height=42,
-            corner_radius=12,
+            width=49,
+            height=30,
+            corner_radius=9,
             fg_color="#3B82F6",
             hover_color="#2563EB",
-            font=ctk.CTkFont(size=14),
+            font=ctk.CTkFont(size=10),
             command=self._fake_send,
         ).grid(row=0, column=1, sticky="e")
 
@@ -180,15 +197,15 @@ class MockBaseDialogSurface:
             parent,
             text=text,
             width=width,
-            height=32,
-            corner_radius=10,
+            height=25,
+            corner_radius=8,
             fg_color="#EEF2F7",
             hover_color="#E3E8EF",
             text_color=text_color,
-            font=ctk.CTkFont(size=13),
+            font=ctk.CTkFont(size=10),
             command=command,
         )
-        button.pack(side="left", padx=(0, 8))
+        button.pack(side="left", padx=(0, 6))
         return button
 
     def _enable_drag(self, *widgets: ctk.CTkBaseClass) -> None:
@@ -218,24 +235,24 @@ class MockBaseDialogSurface:
             ("Synonyms", "Starter, hors d'oeuvre, first course."),
         ]
         for row, (heading, body) in enumerate(sections):
-            top_pad = 26 if row == 0 else 22
+            top_pad = 13 if row == 0 else 10
             ctk.CTkLabel(
                 self.content_card,
                 text=heading,
                 anchor="w",
                 justify="left",
-                font=ctk.CTkFont(size=14, weight="bold"),
+                font=ctk.CTkFont(size=10, weight="bold"),
                 text_color="#0F172A",
-            ).grid(row=row * 2, column=0, sticky="w", padx=18, pady=(top_pad, 5))
+            ).grid(row=row * 2, column=0, sticky="w", padx=13, pady=(top_pad, 3))
             ctk.CTkLabel(
                 self.content_card,
                 text=body,
                 anchor="w",
                 justify="left",
-                wraplength=530,
-                font=ctk.CTkFont(size=15),
+                wraplength=365,
+                font=ctk.CTkFont(size=11),
                 text_color="#020617",
-            ).grid(row=row * 2 + 1, column=0, sticky="w", padx=18, pady=(0, 1))
+            ).grid(row=row * 2 + 1, column=0, sticky="w", padx=13, pady=(0, 1))
 
         self._content_rendered = True
         self._flash_state("success")
@@ -264,22 +281,16 @@ class MockBaseDialogSurface:
     def _toggle_follow_up(self) -> None:
         self.follow_up_visible = not self.follow_up_visible
         if self.follow_up_visible:
-            self.follow_row.grid(row=4, column=0, sticky="ew", padx=22, pady=(0, 20))
+            self.follow_row.grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 14))
             self.dialog.lifecycle.focus(self.follow_entry)
         else:
             self.follow_row.grid_forget()
 
-    def _pin_or_close(self) -> None:
-        if self.pinned:
-            self.dialog.lifecycle.close()
-            return
-        self.pinned = True
+    def _toggle_pin(self) -> None:
+        self.pinned = not self.pinned
         self.pin_button.configure(
-            text="×",
-            fg_color="#FEE2E2",
-            hover_color="#FECACA",
-            text_color="#B91C1C",
-            font=ctk.CTkFont(size=20, weight="bold"),
+            fg_color="#BFDBFE" if self.pinned else "#DBEAFE",
+            hover_color="#93C5FD" if self.pinned else "#BFDBFE",
         )
 
     def _fake_send(self) -> None:
