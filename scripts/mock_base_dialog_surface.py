@@ -140,24 +140,23 @@ class MockBaseDialogSurface:
         )
         clipboard_label.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 3))
 
-        self.content_card = ctk.CTkScrollableFrame(
+        self.content_text = ctk.CTkTextbox(
             self.dialog.main_frame,
             fg_color="#F8FAFC",
-            corner_radius=10,
             border_width=0,
-        )
-        self.content_card.grid(row=3, column=0, sticky="nsew", padx=8, pady=(0, 6))
-        self.content_card.grid_columnconfigure(0, weight=1)
-
-        self.loading_label = ctk.CTkLabel(
-            self.content_card,
-            text="Loading result...",
-            anchor="w",
-            justify="left",
-            font=ctk.CTkFont(size=11),
+            corner_radius=10,
+            wrap="word",
+            font=ctk.CTkFont(size=12),
             text_color="#334155",
+            scrollbar_button_color="#CBD5E1",
+            scrollbar_button_hover_color="#94A3B8",
+            height=170,
         )
-        self.loading_label.grid(row=0, column=0, sticky="w", padx=8, pady=8)
+        self.content_text.grid(row=3, column=0, sticky="nsew", padx=8, pady=(0, 6))
+        self.content_text.tag_config("heading", foreground="#0F172A")
+        self.content_text.tag_config("body", foreground="#020617")
+        self.content_text.tag_config("loading", foreground="#334155")
+        self._set_content_text([("Loading result...", "loading")])
 
         self.follow_row = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
         self.follow_row.grid_columnconfigure(0, weight=1)
@@ -227,7 +226,6 @@ class MockBaseDialogSurface:
         self.dialog.lifecycle.schedule(700, self._show_result)
 
     def _show_result(self) -> None:
-        self.loading_label.destroy()
         sections = [
             ("Summary", "Appetizer is a small dish served before the main course."),
             ("Meaning", "It prepares the appetite and sets the tone for the meal."),
@@ -235,29 +233,25 @@ class MockBaseDialogSurface:
             ("Example", "We ordered a mushroom tart as an appetizer before the steak."),
             ("Synonyms", "Starter, hors d'oeuvre, first course."),
         ]
-        for row, (heading, body) in enumerate(sections):
-            top_pad = 6 if row == 0 else 3
-            ctk.CTkLabel(
-                self.content_card,
-                text=heading,
-                anchor="w",
-                justify="left",
-                font=ctk.CTkFont(size=10, weight="bold"),
-                text_color="#0F172A",
-                wraplength=330,
-            ).grid(row=row * 2, column=0, sticky="w", padx=8, pady=(top_pad, 0))
-            ctk.CTkLabel(
-                self.content_card,
-                text=body,
-                anchor="w",
-                justify="left",
-                wraplength=330,
-                font=ctk.CTkFont(size=12),
-                text_color="#020617",
-            ).grid(row=row * 2 + 1, column=0, sticky="w", padx=8, pady=(0, 0))
+        chunks: list[tuple[str, str]] = []
+        for heading, body in sections:
+            chunks.extend(
+                [
+                    (f"{heading}\n", "heading"),
+                    (f"{body}\n\n", "body"),
+                ]
+            )
+        self._set_content_text(chunks)
 
         self._content_rendered = True
         self._flash_state("success")
+
+    def _set_content_text(self, chunks: list[tuple[str, str]]) -> None:
+        self.content_text.configure(state="normal")
+        self.content_text.delete("1.0", "end")
+        for text, tag in chunks:
+            self.content_text.insert("end", text, tag)
+        self.content_text.configure(state="disabled")
 
     def _reset_status(self) -> None:
         self.dialog.main_frame.configure(border_color=DEFAULT_BORDER)
