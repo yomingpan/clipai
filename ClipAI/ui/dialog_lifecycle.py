@@ -51,6 +51,14 @@ class DialogLifecycle:
         self._scheduled_jobs.append(job_id)
         return job_id
 
+    def cancel(self, job_id: str) -> None:
+        if job_id in self._scheduled_jobs:
+            self._scheduled_jobs.remove(job_id)
+        try:
+            self._root.after_cancel(job_id)
+        except tk.TclError:
+            pass
+
     def subscribe(self, event_name: str, callback: Callable[[object], None]) -> None:
         self._unsubscribers.append(self._event_bus.subscribe(event_name, callback))
 

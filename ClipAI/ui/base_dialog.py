@@ -1,11 +1,145 @@
 from __future__ import annotations
 
 import tkinter as tk
+from dataclasses import dataclass
+from typing import Callable, Literal, Mapping
 
 import customtkinter as ctk
 
 from ClipAI.core.event_bus import get_event_bus
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
+
+DialogState = Literal["idle", "success", "error", "warning"]
+RGB = tuple[int, int, int]
+
+DEFAULT_STATE_COLORS: dict[DialogState, RGB] = {
+    "idle": (0, 82, 184),
+    "success": (0, 176, 79),
+    "error": (232, 17, 35),
+    "warning": (255, 215, 0),
+}
+
+
+def rgb_to_hex(color: RGB) -> str:
+    if len(color) != 3:
+        raise ValueError("RGB color must contain exactly three values")
+    for value in color:
+        if not isinstance(value, int) or value < 0 or value > 255:
+            raise ValueError("RGB color values must be integers from 0 to 255")
+    return "#{:02X}{:02X}{:02X}".format(*color)
+
+
+@dataclass(frozen=True)
+class SurfaceStateColors:
+    idle: RGB = DEFAULT_STATE_COLORS["idle"]
+    success: RGB = DEFAULT_STATE_COLORS["success"]
+    error: RGB = DEFAULT_STATE_COLORS["error"]
+    warning: RGB = DEFAULT_STATE_COLORS["warning"]
+
+    @classmethod
+    def from_mapping(cls, values: Mapping[str, RGB] | None) -> SurfaceStateColors:
+        if not values:
+            return cls()
+        allowed = {key: values[key] for key in DEFAULT_STATE_COLORS if key in values}
+        return cls(**allowed)
+
+    def hex(self, state: DialogState) -> str:
+        return rgb_to_hex(getattr(self, state))
+
+
+class SurfaceFlashController:
+    def __init__(
+        self,
+        *,
+        colors: SurfaceStateColors,
+        apply_color: Callable[[str], None],
+        schedule: Callable[[int, Callable[[], None]], str],
+        cancel: Callable[[str], None],
+    ) -> None:
+        self._colors = colors
+        self._apply_color = apply_color
+        self._schedule = schedule
+        self._cancel = cancel
+        self._reset_job: str | None = None
+        self.state: DialogState = "idle"
+
+    def reset(self) -> None:
+        self._reset_job = None
+        self.state = "idle"
+        self._apply_color(self._colors.hex("idle"))
+
+    def set_state(self, state: DialogState) -> None:
+        self._cancel_pending_reset()
+        self.state = state
+        self._apply_color(self._colors.hex(state))
+
+    def flash(self, state: DialogState) -> None:
+        if state == "idle":
+            self.set_state("idle")
+            return
+
+        self._cancel_pending_reset()
+        self.state = state
+        self._apply_color(self._colors.hex(state))
+        duration_ms = 1000 if state == "success" else 3000
+        self._reset_job = self._schedule(duration_ms, self.reset)
+
+    def _cancel_pending_reset(self) -> None:
+        if self._reset_job is not None:
+            self._cancel(self._reset_job)
+            self._reset_job = None
+
+
+class RoundedSurfacePainter:
+    def __init__(
+        self,
+        canvas,
+        *,
+        width: int,
+        height: int,
+        background_color: str,
+        surface_color: str,
+        radius: int = 18,
+        inset: int = 4,
+    ) -> None:
+        self._canvas = canvas
+        self._width = width
+        self._height = height
+        self._background_color = background_color
+        self._surface_color = surface_color
+        self._radius = radius
+        self._inset = inset
+
+    def draw(self, border_color: str) -> None:
+        self._canvas.delete("surface")
+        self._canvas.create_rectangle(
+            0,
+            0,
+            self._width,
+            self._height,
+            fill=self._background_color,
+            outline=self._background_color,
+            tags="surface",
+        )
+        self._draw_round_rect(0, 0, self._width, self._height, self._radius, border_color)
+        self._draw_round_rect(
+            self._inset,
+            self._inset,
+            self._width - self._inset,
+            self._height - self._inset,
+            max(1, self._radius - self._inset),
+            self._surface_color,
+        )
+        self._canvas.tag_lower("surface")
+
+    def _draw_round_rect(self, x1: int, y1: int, x2: int, y2: int, radius: int, color: str) -> None:
+        options = {"fill": color, "outline": color, "tags": "surface"}
+        self._canvas.create_rectangle(x1 + radius, y1, x2 - radius, y2, **options)
+        self._canvas.create_rectangle(x1, y1 + radius, x2, y2 - radius, **options)
+        self._canvas.create_oval(x1, y1, x1 + radius * 2, y1 + radius * 2, **options)
+        self._canvas.create_oval(x2 - radius * 2, y1, x2, y1 + radius * 2, **options)
+        self._canvas.create_oval(x1, y2 - radius * 2, x1 + radius * 2, y2, **options)
+        self._canvas.create_oval(x2 - radius * 2, y2 - radius * 2, x2, y2, **options)
 
 
 class BaseDialog:
@@ -16,39 +150,118 @@ class BaseDialog:
         width: int,
         height: int,
         position: str = "center",
-        border_color: str = "#D8DEE8",
+        state_colors: Mapping[str, RGB] | None = None,
+        border_color: str | None = None,
+        background_color: str = "#E9EDF3",
+        surface_color: str = "#FFFFFF",
+        frameless: bool = False,
+        transparent_background: bool = False,
+        surface_inset: int = 8,
+        corner_radius: int = 18,
         track_dialog_state: bool = True,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
         self._valid = True
+        self.width = width
+        self.height = height
+        self.pinned = False
+        self._drag_offset_x = 0
+        self._drag_offset_y = 0
+        self._state_colors = SurfaceStateColors.from_mapping(state_colors)
 
         try:
             self.root = ctk.CTk()
             self.root.title(title)
             self.root.geometry(f"{width}x{height}")
             self.root.minsize(min(width, 320), min(height, 180))
-            self.root.configure(fg_color=("#F7F8FA", "#111318"))
+            self.root.configure(fg_color=background_color)
+            if frameless:
+                self.root.overrideredirect(True)
+            if transparent_background:
+                try:
+                    self.root.attributes("-transparentcolor", background_color)
+                except Exception:
+                    pass
             self._position_window(width, height, position)
 
-            self.main_frame = ctk.CTkFrame(
+            self.canvas = tk.Canvas(
                 self.root,
-                fg_color=("white", "#181B22"),
-                corner_radius=14,
-                border_width=1,
-                border_color=border_color,
+                width=width,
+                height=height,
+                bg=background_color,
+                highlightthickness=0,
+                bd=0,
             )
-            self.main_frame.pack(fill="both", expand=True, padx=14, pady=14)
+            self.canvas.pack(fill="both", expand=True)
+            self._painter = RoundedSurfacePainter(
+                self.canvas,
+                width=width,
+                height=height,
+                background_color=background_color,
+                surface_color=surface_color,
+                radius=corner_radius,
+                inset=surface_inset // 2,
+            )
+            idle_color = border_color or self._state_colors.hex("idle")
+            self._painter.draw(idle_color)
+
+            self.surface = tk.Frame(self.canvas, bg=surface_color, bd=0, highlightthickness=0)
+            self.canvas.create_window(
+                surface_inset,
+                surface_inset,
+                anchor="nw",
+                window=self.surface,
+                width=width - surface_inset * 2,
+                height=height - surface_inset * 2,
+            )
+            self.main_frame = self.surface
 
             self.lifecycle = DialogLifecycle(get_event_bus(), self.root)
+            self._flash_controller = SurfaceFlashController(
+                colors=self._state_colors,
+                apply_color=self._painter.draw,
+                schedule=self.lifecycle.schedule,
+                cancel=self.lifecycle.cancel,
+            )
             self.root.protocol("WM_DELETE_WINDOW", self.lifecycle.close)
             self.root.bind("<Escape>", lambda _event: self.lifecycle.close())
+            self.enable_drag(self.canvas, self.surface)
         except Exception:
             self._valid = False
             raise
 
     def is_valid(self) -> bool:
         return self._valid
+
+    def flash(self, state: DialogState) -> None:
+        self._flash_controller.flash(state)
+
+    def set_pinned(self, pinned: bool) -> None:
+        self.pinned = pinned
+
+    def toggle_pin(self) -> bool:
+        self.pinned = not self.pinned
+        return self.pinned
+
+    def close(self) -> None:
+        self.lifecycle.close()
+
+    def enable_drag(self, *widgets) -> None:
+        for widget in widgets:
+            widget.bind("<ButtonPress-1>", self._start_drag)
+            widget.bind("<B1-Motion>", self._drag_window)
+
+    def _start_drag(self, event) -> None:
+        self._drag_offset_x = event.x_root - self.root.winfo_x()
+        self._drag_offset_y = event.y_root - self.root.winfo_y()
+
+    def _drag_window(self, event) -> None:
+        x, y = self.calculate_drag_position(event.x_root, event.y_root)
+        self.root.geometry(f"+{x}+{y}")
+
+    def calculate_drag_position(self, x_root: int, y_root: int) -> tuple[int, int]:
+        return x_root - self._drag_offset_x, y_root - self._drag_offset_y
 
     def _position_window(self, width: int, height: int, position: str) -> None:
         self.root.update_idletasks()
@@ -72,3 +285,185 @@ class BaseDialog:
 
     def run_dialog(self) -> None:
         self.lifecycle.run_dialog()
+
+
+class BaseResultSurface:
+    def __init__(self, dialog: BaseDialog) -> None:
+        self.dialog = dialog
+        self.root = dialog.surface
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_rowconfigure(3, weight=1)
+        self._action_buttons: dict[str, ctk.CTkButton] = {}
+        self.follow_up_visible = False
+        self._build()
+
+    def _build(self) -> None:
+        self.header = ctk.CTkFrame(self.root, fg_color="#FFFFFF")
+        self.header.grid(row=0, column=0, sticky="ew", padx=14, pady=(6, 1))
+        self.header.grid_columnconfigure(0, weight=1)
+
+        title_area = ctk.CTkFrame(self.header, fg_color="#FFFFFF")
+        title_area.grid(row=0, column=0, sticky="w")
+        self.title_label = ctk.CTkLabel(
+            title_area,
+            text="",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color="#475569",
+            wraplength=330,
+        )
+        self.title_label.pack(anchor="w")
+
+        self.window_actions = ctk.CTkFrame(self.header, fg_color="#FFFFFF")
+        self.window_actions.grid(row=0, column=1, sticky="ne")
+        self.close_button = ctk.CTkButton(
+            self.window_actions,
+            text="×",
+            width=18,
+            height=18,
+            corner_radius=9,
+            fg_color="#FEE2E2",
+            hover_color="#FECACA",
+            text_color="#B91C1C",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self.dialog.close,
+        )
+        self.close_button.pack(side="left", padx=(0, 4))
+        self.pin_button = ctk.CTkButton(
+            self.window_actions,
+            text="📌",
+            width=18,
+            height=18,
+            corner_radius=9,
+            fg_color="#DBEAFE",
+            hover_color="#BFDBFE",
+            text_color="#0F172A",
+            font=ctk.CTkFont(size=9),
+            command=self.toggle_pin,
+        )
+        self.pin_button.pack(side="left")
+        self.dialog.enable_drag(self.header, title_area, self.title_label)
+
+        self.actions = ctk.CTkFrame(self.root, fg_color="#FFFFFF")
+        self.actions.grid(row=1, column=0, sticky="w", padx=14, pady=(0, 1))
+
+        self.source_label = ctk.CTkLabel(
+            self.root,
+            text="",
+            anchor="w",
+            justify="left",
+            font=ctk.CTkFont(size=8),
+            text_color="#94A3B8",
+            wraplength=390,
+        )
+        self.source_label.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 3))
+
+        self.content_text = ctk.CTkTextbox(
+            self.root,
+            fg_color="#F8FAFC",
+            border_width=0,
+            corner_radius=10,
+            wrap="word",
+            font=ctk.CTkFont(size=12),
+            text_color="#334155",
+            scrollbar_button_color="#CBD5E1",
+            scrollbar_button_hover_color="#94A3B8",
+            height=170,
+        )
+        self.content_text.grid(row=3, column=0, sticky="nsew", padx=8, pady=(0, 6))
+        self.content_text.tag_config("heading", foreground="#0F172A")
+        self.content_text.tag_config("body", foreground="#020617")
+        self.content_text.tag_config("loading", foreground="#334155")
+
+        self.follow_row = ctk.CTkFrame(self.root, fg_color="#FFFFFF")
+        self.follow_row.grid_columnconfigure(0, weight=1)
+        self.follow_entry = ctk.CTkEntry(
+            self.follow_row,
+            height=30,
+            corner_radius=9,
+            border_width=1,
+            border_color="#CBD5E1",
+            fg_color="#FFFFFF",
+            text_color="#020617",
+            font=ctk.CTkFont(size=10),
+        )
+        self.follow_entry.grid(row=0, column=0, sticky="ew", padx=(0, 7))
+        self.follow_send_button = ctk.CTkButton(
+            self.follow_row,
+            text="Send",
+            width=49,
+            height=30,
+            corner_radius=9,
+            fg_color="#3B82F6",
+            hover_color="#2563EB",
+            font=ctk.CTkFont(size=10),
+        )
+        self.follow_send_button.grid(row=0, column=1, sticky="e")
+
+    def set_title(self, title: str) -> None:
+        self.title_label.configure(text=title)
+
+    def set_source_preview(self, text: str) -> None:
+        self.source_label.configure(text=text)
+
+    def add_action_slot(
+        self,
+        slot_id: str,
+        label: str,
+        command: Callable[[], None],
+        *,
+        width: int,
+        text_color: str = "#020617",
+    ) -> ctk.CTkButton:
+        button = ctk.CTkButton(
+            self.actions,
+            text=label,
+            width=width,
+            height=18,
+            corner_radius=6,
+            fg_color="#EEF2F7",
+            hover_color="#E3E8EF",
+            text_color=text_color,
+            font=ctk.CTkFont(size=8),
+            command=command,
+        )
+        button.pack(side="left", padx=(0, 4))
+        self._action_buttons[slot_id] = button
+        return button
+
+    def set_loading(self, text: str = "Loading result...") -> None:
+        self.set_content_chunks([(text, "loading")])
+
+    def set_sections(self, sections: list[tuple[str, str]]) -> None:
+        chunks: list[tuple[str, str]] = []
+        for heading, body in sections:
+            chunks.extend([(f"{heading}\n", "heading"), (f"{body}\n\n", "body")])
+        self.set_content_chunks(chunks)
+
+    def set_content_chunks(self, chunks: list[tuple[str, str]]) -> None:
+        self.content_text.configure(state="normal")
+        self.content_text.delete("1.0", "end")
+        for text, tag in chunks:
+            self.content_text.insert("end", text, tag)
+        self.content_text.configure(state="disabled")
+
+    def toggle_pin(self) -> bool:
+        pinned = self.dialog.toggle_pin()
+        self.pin_button.configure(
+            fg_color="#BFDBFE" if pinned else "#DBEAFE",
+            hover_color="#93C5FD" if pinned else "#BFDBFE",
+        )
+        return pinned
+
+    def show_follow_up(self, initial_text: str = "") -> None:
+        if not self.follow_up_visible:
+            self.follow_row.grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 14))
+            self.follow_up_visible = True
+        if initial_text:
+            self.follow_entry.delete(0, "end")
+            self.follow_entry.insert(0, initial_text)
+        self.dialog.lifecycle.focus(self.follow_entry)
+
+    def hide_follow_up(self) -> None:
+        if self.follow_up_visible:
+            self.follow_row.grid_forget()
+            self.follow_up_visible = False

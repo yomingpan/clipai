@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
-from ClipAI.ui.base_dialog import BaseDialog
+from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 
 
 COLORS = {
@@ -13,30 +13,6 @@ COLORS = {
 }
 
 
-def _rgb_hex(color: tuple[int, int, int]) -> str:
-    return "#{:02X}{:02X}{:02X}".format(*color)
-
-
-STATE_COLORS = {name: _rgb_hex(rgb) for name, rgb in COLORS.items()}
-DEFAULT_BORDER = STATE_COLORS["idle"]
-
-
-MOCK_RESULT = """Summary
-Appetizer is a small dish served before the main course.
-
-Meaning
-It prepares the appetite and sets the tone for the meal.
-
-Context
-Common in restaurants, formal dinners, and multi-course meals.
-
-Example
-We ordered a mushroom tart as an appetizer before the steak.
-
-Synonyms
-Starter, hors d'oeuvre, first course."""
-
-
 class MockBaseDialogSurface:
     def __init__(self) -> None:
         ctk.set_appearance_mode("light")
@@ -44,222 +20,43 @@ class MockBaseDialogSurface:
 
         self.dialog = BaseDialog(
             title="ClipAI",
-            width=434,
-            height=301,
+            width=520,
+            height=350,
             position="center",
-            border_color=DEFAULT_BORDER,
+            state_colors=COLORS,
+            frameless=True,
+            transparent_background=True,
+            surface_inset=8,
+            corner_radius=18,
         )
-        self.dialog.root.overrideredirect(True)
-        self.dialog.root.configure(fg_color="#E9EDF3")
-        try:
-            self.dialog.root.attributes("-transparentcolor", "#E9EDF3")
-        except Exception:
-            pass
-        self.pinned = False
+        self.surface = BaseResultSurface(self.dialog)
         self.speaking = False
-        self.follow_up_visible = False
-        self._content_rendered = False
-        self._drag_offset_x = 0
-        self._drag_offset_y = 0
+        self.content_rendered = False
         self._build()
-        self._show_loading_then_result()
-
-    def _build(self) -> None:
-        self.dialog.root.configure(fg_color="#E9EDF3")
-        self.dialog.main_frame.configure(
-            fg_color="#FFFFFF",
-            corner_radius=20,
-            border_width=3,
-            border_color=DEFAULT_BORDER,
-        )
-        self.dialog.main_frame.grid_columnconfigure(0, weight=1)
-        self.dialog.main_frame.grid_rowconfigure(3, weight=1)
-
-        header = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=14, pady=(6, 1))
-        header.grid_columnconfigure(0, weight=1)
-
-        title_area = ctk.CTkFrame(header, fg_color="transparent")
-        title_area.grid(row=0, column=0, sticky="w")
-
-        title_label = ctk.CTkLabel(
-            title_area,
-            text="ClipAI - Explain Word",
-            font=ctk.CTkFont(size=10, weight="bold"),
-            text_color="#475569",
-            wraplength=330,
-        )
-        title_label.pack(anchor="w")
-
-        window_actions = ctk.CTkFrame(header, fg_color="transparent")
-        window_actions.grid(row=0, column=1, sticky="ne")
-
-        self.close_button = ctk.CTkButton(
-            window_actions,
-            text="×",
-            width=18,
-            height=18,
-            corner_radius=9,
-            fg_color="#FEE2E2",
-            hover_color="#FECACA",
-            text_color="#B91C1C",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self.dialog.lifecycle.close,
-        )
-        self.close_button.pack(side="left", padx=(0, 4))
-
-        self.pin_button = ctk.CTkButton(
-            window_actions,
-            text="📌",
-            width=18,
-            height=18,
-            corner_radius=9,
-            fg_color="#DBEAFE",
-            hover_color="#BFDBFE",
-            text_color="#0F172A",
-            font=ctk.CTkFont(size=9),
-            command=self._toggle_pin,
-        )
-        self.pin_button.pack(side="left")
-        self._enable_drag(header, title_area, title_label)
-
-        actions = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="w", padx=14, pady=(0, 1))
-        self.speaker_button = self._slot_button(actions, "🔊 Speak", self._toggle_speaker, width=56)
-        self.copy_button = self._slot_button(actions, "⧉ Copy", self._copy_visible_text, width=48)
-        self.follow_button = self._slot_button(actions, "✎ Follow", self._toggle_follow_up, width=60)
-
-        clipboard_label = ctk.CTkLabel(
-            self.dialog.main_frame,
-            text='Clipboard: "Appetizer is a small dish served before the main course..."',
-            anchor="w",
-            justify="left",
-            font=ctk.CTkFont(size=8),
-            text_color="#94A3B8",
-            wraplength=390,
-        )
-        clipboard_label.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 3))
-
-        self.content_text = ctk.CTkTextbox(
-            self.dialog.main_frame,
-            fg_color="#F8FAFC",
-            border_width=0,
-            corner_radius=10,
-            wrap="word",
-            font=ctk.CTkFont(size=12),
-            text_color="#334155",
-            scrollbar_button_color="#CBD5E1",
-            scrollbar_button_hover_color="#94A3B8",
-            height=170,
-        )
-        self.content_text.grid(row=3, column=0, sticky="nsew", padx=8, pady=(0, 6))
-        self.content_text.tag_config("heading", foreground="#0F172A")
-        self.content_text.tag_config("body", foreground="#020617")
-        self.content_text.tag_config("loading", foreground="#334155")
-        self._set_content_text([("Loading result...", "loading")])
-
-        self.follow_row = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
-        self.follow_row.grid_columnconfigure(0, weight=1)
-        self.follow_entry = ctk.CTkEntry(
-            self.follow_row,
-            height=30,
-            corner_radius=9,
-            border_width=1,
-            border_color="#CBD5E1",
-            fg_color="#FFFFFF",
-            text_color="#020617",
-            font=ctk.CTkFont(size=10),
-        )
-        self.follow_entry.grid(row=0, column=0, sticky="ew", padx=(0, 7))
-        self.follow_entry.insert(0, "5 more examples")
-        ctk.CTkButton(
-            self.follow_row,
-            text="Send",
-            width=49,
-            height=30,
-            corner_radius=9,
-            fg_color="#3B82F6",
-            hover_color="#2563EB",
-            font=ctk.CTkFont(size=10),
-            command=self._fake_send,
-        ).grid(row=0, column=1, sticky="e")
-
-    def _slot_button(
-        self,
-        parent: ctk.CTkFrame,
-        text: str,
-        command,
-        *,
-        text_color: str = "#020617",
-        width: int = 110,
-    ) -> ctk.CTkButton:
-        button = ctk.CTkButton(
-            parent,
-            text=text,
-            width=width,
-            height=18,
-            corner_radius=6,
-            fg_color="#EEF2F7",
-            hover_color="#E3E8EF",
-            text_color=text_color,
-            font=ctk.CTkFont(size=8),
-            command=command,
-        )
-        button.pack(side="left", padx=(0, 4))
-        return button
-
-    def _enable_drag(self, *widgets: ctk.CTkBaseClass) -> None:
-        for widget in widgets:
-            widget.bind("<ButtonPress-1>", self._start_drag)
-            widget.bind("<B1-Motion>", self._drag_window)
-
-    def _start_drag(self, event) -> None:
-        self._drag_offset_x = event.x_root - self.dialog.root.winfo_x()
-        self._drag_offset_y = event.y_root - self.dialog.root.winfo_y()
-
-    def _drag_window(self, event) -> None:
-        x = event.x_root - self._drag_offset_x
-        y = event.y_root - self._drag_offset_y
-        self.dialog.root.geometry(f"+{x}+{y}")
-
-    def _show_loading_then_result(self) -> None:
         self.dialog.lifecycle.schedule(700, self._show_result)
 
+    def _build(self) -> None:
+        self.surface.set_title("ClipAI - Explain Word")
+        self.surface.set_source_preview('Clipboard: "Appetizer is a small dish served before the main course..."')
+        self.speaker_button = self.surface.add_action_slot("speaker", "🔊 Speak", self._toggle_speaker, width=56)
+        self.surface.add_action_slot("copy", "⧉ Copy", self._copy_visible_text, width=48)
+        self.surface.add_action_slot("follow_up", "✎ Follow", self._toggle_follow_up, width=60)
+        self.surface.follow_entry.insert(0, "5 more examples")
+        self.surface.follow_send_button.configure(command=self._fake_send)
+        self.surface.set_loading()
+
     def _show_result(self) -> None:
-        sections = [
-            ("Summary", "Appetizer is a small dish served before the main course."),
-            ("Meaning", "It prepares the appetite and sets the tone for the meal."),
-            ("Context", "Common in restaurants, formal dinners, and multi-course meals."),
-            ("Example", "We ordered a mushroom tart as an appetizer before the steak."),
-            ("Synonyms", "Starter, hors d'oeuvre, first course."),
-        ]
-        chunks: list[tuple[str, str]] = []
-        for heading, body in sections:
-            chunks.extend(
-                [
-                    (f"{heading}\n", "heading"),
-                    (f"{body}\n\n", "body"),
-                ]
-            )
-        self._set_content_text(chunks)
-
-        self._content_rendered = True
-        self._flash_state("success")
-
-    def _set_content_text(self, chunks: list[tuple[str, str]]) -> None:
-        self.content_text.configure(state="normal")
-        self.content_text.delete("1.0", "end")
-        for text, tag in chunks:
-            self.content_text.insert("end", text, tag)
-        self.content_text.configure(state="disabled")
-
-    def _reset_status(self) -> None:
-        self.dialog.main_frame.configure(border_color=DEFAULT_BORDER)
-
-    def _flash_state(self, state: str) -> None:
-        duration_ms = 1000 if state == "success" else 3000
-        self.dialog.main_frame.configure(border_color=STATE_COLORS[state])
-        self.dialog.lifecycle.schedule(duration_ms, self._reset_status)
+        self.surface.set_sections(
+            [
+                ("Summary", "Appetizer is a small dish served before the main course."),
+                ("Meaning", "It prepares the appetite and sets the tone for the meal."),
+                ("Context", "Common in restaurants, formal dinners, and multi-course meals."),
+                ("Example", "We ordered a mushroom tart as an appetizer before the steak."),
+                ("Synonyms", "Starter, hors d'oeuvre, first course."),
+            ]
+        )
+        self.content_rendered = True
+        self.dialog.flash("success")
 
     def _toggle_speaker(self) -> None:
         self.speaking = not self.speaking
@@ -269,38 +66,22 @@ class MockBaseDialogSurface:
         )
 
     def _copy_visible_text(self) -> None:
-        if self._content_rendered:
-            self._flash_state("success")
-        else:
-            self._flash_state("warning")
+        self.dialog.flash("success" if self.content_rendered else "warning")
 
     def _toggle_follow_up(self) -> None:
-        self.follow_up_visible = not self.follow_up_visible
-        if self.follow_up_visible:
-            self.follow_row.grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 14))
-            self.dialog.lifecycle.focus(self.follow_entry)
+        if self.surface.follow_up_visible:
+            self.surface.hide_follow_up()
         else:
-            self.follow_row.grid_forget()
-
-    def _toggle_pin(self) -> None:
-        self.pinned = not self.pinned
-        self.pin_button.configure(
-            fg_color="#BFDBFE" if self.pinned else "#DBEAFE",
-            hover_color="#93C5FD" if self.pinned else "#BFDBFE",
-        )
+            self.surface.show_follow_up()
 
     def _fake_send(self) -> None:
-        prompt = self.follow_entry.get().strip().lower()
+        prompt = self.surface.follow_entry.get().strip().lower()
         if not prompt:
-            self._flash_state("warning")
+            self.dialog.flash("warning")
         elif prompt == "error":
-            self._flash_state("error")
+            self.dialog.flash("error")
         else:
-            self._flash_state("success")
-
-    def _fake_stop(self) -> None:
-        self.speaking = False
-        self.speaker_button.configure(text="🔊 Speak", text_color="#020617")
+            self.dialog.flash("success")
 
     def run(self) -> None:
         self.dialog.run_dialog()
