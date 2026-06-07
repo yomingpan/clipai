@@ -59,6 +59,8 @@ class MockBaseDialogSurface:
         self.speaking = False
         self.follow_up_visible = False
         self._content_rendered = False
+        self._drag_offset_x = 0
+        self._drag_offset_y = 0
         self._build()
         self._show_loading_then_result()
 
@@ -71,40 +73,54 @@ class MockBaseDialogSurface:
             border_color=DEFAULT_BORDER,
         )
         self.dialog.main_frame.grid_columnconfigure(0, weight=1)
-        self.dialog.main_frame.grid_rowconfigure(2, weight=1)
+        self.dialog.main_frame.grid_rowconfigure(3, weight=1)
 
         header = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=22, pady=(24, 12))
+        header.grid(row=0, column=0, sticky="ew", padx=22, pady=(22, 8))
         header.grid_columnconfigure(0, weight=1)
 
         title_area = ctk.CTkFrame(header, fg_color="transparent")
         title_area.grid(row=0, column=0, sticky="w")
 
-        ctk.CTkLabel(
+        title_label = ctk.CTkLabel(
             title_area,
-            text="Clip AI",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#64748B",
-        ).pack(anchor="w")
-        ctk.CTkLabel(
-            title_area,
-            text="Explain Word",
-            font=ctk.CTkFont(size=26, weight="bold"),
+            text="ClipAI - Explain Word",
+            font=ctk.CTkFont(size=23, weight="bold"),
             text_color="#020617",
-        ).pack(anchor="w", pady=(6, 0))
-        ctk.CTkLabel(
-            title_area,
+        )
+        title_label.pack(anchor="w")
+
+        self.pin_button = ctk.CTkButton(
+            header,
+            text="📌",
+            width=34,
+            height=34,
+            corner_radius=17,
+            fg_color="#DBEAFE",
+            hover_color="#BFDBFE",
+            text_color="#0F172A",
+            font=ctk.CTkFont(size=16),
+            command=self._pin_or_close,
+        )
+        self.pin_button.grid(row=0, column=1, sticky="ne")
+        self._enable_drag(header, title_area, title_label)
+
+        actions = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
+        actions.grid(row=1, column=0, sticky="w", padx=22, pady=(0, 10))
+        self.speaker_button = self._slot_button(actions, "🔊 Speak", self._toggle_speaker, width=88)
+        self.copy_button = self._slot_button(actions, "⧉ Copy", self._copy_visible_text, width=78)
+        self.follow_button = self._slot_button(actions, "✎ Follow-up", self._toggle_follow_up, width=112)
+
+        clipboard_label = ctk.CTkLabel(
+            self.dialog.main_frame,
             text='Clipboard: "Appetizer is a small dish served before the main course..."',
+            anchor="w",
+            justify="left",
             font=ctk.CTkFont(size=13),
             text_color="#64748B",
             wraplength=550,
-        ).pack(anchor="w", pady=(8, 0))
-
-        actions = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="w", padx=22, pady=(0, 16))
-        self.speaker_button = self._slot_button(actions, "Speak", self._toggle_speaker, width=94)
-        self.copy_button = self._slot_button(actions, "Copy", self._copy_visible_text, width=78)
-        self.follow_button = self._slot_button(actions, "Follow-up", self._toggle_follow_up, width=108)
+        )
+        clipboard_label.grid(row=2, column=0, sticky="ew", padx=22, pady=(0, 12))
 
         self.content_card = ctk.CTkScrollableFrame(
             self.dialog.main_frame,
@@ -112,7 +128,7 @@ class MockBaseDialogSurface:
             corner_radius=18,
             border_width=0,
         )
-        self.content_card.grid(row=2, column=0, sticky="nsew", padx=22, pady=(0, 14))
+        self.content_card.grid(row=3, column=0, sticky="nsew", padx=22, pady=(0, 14))
         self.content_card.grid_columnconfigure(0, weight=1)
 
         self.loading_label = ctk.CTkLabel(
@@ -164,16 +180,30 @@ class MockBaseDialogSurface:
             parent,
             text=text,
             width=width,
-            height=38,
-            corner_radius=12,
+            height=32,
+            corner_radius=10,
             fg_color="#EEF2F7",
             hover_color="#E3E8EF",
             text_color=text_color,
-            font=ctk.CTkFont(size=14),
+            font=ctk.CTkFont(size=13),
             command=command,
         )
-        button.pack(side="left", padx=(0, 10))
+        button.pack(side="left", padx=(0, 8))
         return button
+
+    def _enable_drag(self, *widgets: ctk.CTkBaseClass) -> None:
+        for widget in widgets:
+            widget.bind("<ButtonPress-1>", self._start_drag)
+            widget.bind("<B1-Motion>", self._drag_window)
+
+    def _start_drag(self, event) -> None:
+        self._drag_offset_x = event.x_root - self.dialog.root.winfo_x()
+        self._drag_offset_y = event.y_root - self.dialog.root.winfo_y()
+
+    def _drag_window(self, event) -> None:
+        x = event.x_root - self._drag_offset_x
+        y = event.y_root - self._drag_offset_y
+        self.dialog.root.geometry(f"+{x}+{y}")
 
     def _show_loading_then_result(self) -> None:
         self.dialog.lifecycle.schedule(700, self._show_result)
@@ -221,7 +251,7 @@ class MockBaseDialogSurface:
     def _toggle_speaker(self) -> None:
         self.speaking = not self.speaking
         self.speaker_button.configure(
-            text="Stop" if self.speaking else "Speak",
+            text="■ Stop" if self.speaking else "🔊 Speak",
             text_color="#DC2626" if self.speaking else "#020617",
         )
 
@@ -234,10 +264,23 @@ class MockBaseDialogSurface:
     def _toggle_follow_up(self) -> None:
         self.follow_up_visible = not self.follow_up_visible
         if self.follow_up_visible:
-            self.follow_row.grid(row=3, column=0, sticky="ew", padx=22, pady=(0, 20))
+            self.follow_row.grid(row=4, column=0, sticky="ew", padx=22, pady=(0, 20))
             self.dialog.lifecycle.focus(self.follow_entry)
         else:
             self.follow_row.grid_forget()
+
+    def _pin_or_close(self) -> None:
+        if self.pinned:
+            self.dialog.lifecycle.close()
+            return
+        self.pinned = True
+        self.pin_button.configure(
+            text="×",
+            fg_color="#FEE2E2",
+            hover_color="#FECACA",
+            text_color="#B91C1C",
+            font=ctk.CTkFont(size=20, weight="bold"),
+        )
 
     def _fake_send(self) -> None:
         prompt = self.follow_entry.get().strip().lower()
@@ -250,7 +293,7 @@ class MockBaseDialogSurface:
 
     def _fake_stop(self) -> None:
         self.speaking = False
-        self.speaker_button.configure(text="Speak", text_color="#020617")
+        self.speaker_button.configure(text="🔊 Speak", text_color="#020617")
 
     def run(self) -> None:
         self.dialog.run_dialog()
