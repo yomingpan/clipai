@@ -21,6 +21,7 @@ clipai/
   ui/               # 使用者介面
   utils/            # 通用工具
 config/             # 使用者設定，放在 package 外部
+  prompts/          # prompt template 與可調整的語意內容
 tests/              # Unit sims 與 integration tests
 ```
 
@@ -234,6 +235,32 @@ UI 只負責：
 - `config/prompts/`
 
 目標是避免把產品行為硬寫進程式。程式可以定義 schema、預設值、validation，但可調整內容應盡量外部化。
+
+### Prompts
+
+`config/prompts/` 是 prompt template 與可調整語意內容的外部化位置。
+
+應放入：
+
+- Action 使用的 system prompt 或 user prompt template。
+- 可由使用者或產品設計調整的輸出格式、語氣、段落結構。
+- 例如 summary、meaning、context、example、synonyms 這類內容組織方式。
+
+不得放入：
+
+- Provider API 參數或 HTTP 細節。
+- UI widget layout 或 popup lifecycle。
+- Clipboard、hotkey、keyboard、notification 等 platform 行為。
+- Action pipeline 的控制流程。
+- 需要 Python 程式才能執行的業務邏輯。
+
+依賴與讀取規則：
+
+- `app/config.py` 或 action config loader 可負責載入 prompt template。
+- `services` 可根據 action definition 選擇並 render prompt。
+- `provider` 只能接收已組好的 request，不得自行讀取 `config/prompts/`。
+- `platform` 與 `ui` 不得根據 prompt template 改變自己的行為。
+- prompt template 可以承載產品語意，但不應成為隱性的流程控制語言。
 
 ## 常見判斷範例
 
