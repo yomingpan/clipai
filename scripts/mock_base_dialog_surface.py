@@ -5,8 +5,20 @@ import customtkinter as ctk
 from ClipAI.ui.base_dialog import BaseDialog
 
 
-DEFAULT_BORDER = "#173D5C"
-SUCCESS_BORDER = "#30A46C"
+COLORS = {
+    "idle": (0, 82, 184),
+    "success": (0, 176, 79),
+    "error": (232, 17, 35),
+    "warning": (255, 215, 0),
+}
+
+
+def _rgb_hex(color: tuple[int, int, int]) -> str:
+    return "#{:02X}{:02X}{:02X}".format(*color)
+
+
+STATE_COLORS = {name: _rgb_hex(rgb) for name, rgb in COLORS.items()}
+DEFAULT_BORDER = STATE_COLORS["idle"]
 
 
 MOCK_RESULT = """Summary
@@ -32,8 +44,8 @@ class MockBaseDialogSurface:
 
         self.dialog = BaseDialog(
             title="ClipAI",
-            width=460,
-            height=560,
+            width=620,
+            height=430,
             position="center",
             border_color=DEFAULT_BORDER,
         )
@@ -46,6 +58,7 @@ class MockBaseDialogSurface:
         self.pinned = False
         self.speaking = False
         self.follow_up_visible = False
+        self._content_rendered = False
         self._build()
         self._show_loading_then_result()
 
@@ -54,7 +67,7 @@ class MockBaseDialogSurface:
         self.dialog.main_frame.configure(
             fg_color="#FFFFFF",
             corner_radius=26,
-            border_width=2,
+            border_width=3,
             border_color=DEFAULT_BORDER,
         )
         self.dialog.main_frame.grid_columnconfigure(0, weight=1)
@@ -84,7 +97,7 @@ class MockBaseDialogSurface:
             text='Clipboard: "Appetizer is a small dish served before the main course..."',
             font=ctk.CTkFont(size=13),
             text_color="#64748B",
-            wraplength=390,
+            wraplength=550,
         ).pack(anchor="w", pady=(8, 0))
 
         actions = ctk.CTkFrame(self.dialog.main_frame, fg_color="transparent")
@@ -189,16 +202,21 @@ class MockBaseDialogSurface:
                 text=body,
                 anchor="w",
                 justify="left",
-                wraplength=380,
+                wraplength=530,
                 font=ctk.CTkFont(size=15),
                 text_color="#020617",
             ).grid(row=row * 2 + 1, column=0, sticky="w", padx=18, pady=(0, 1))
 
-        self.dialog.main_frame.configure(border_color=SUCCESS_BORDER)
-        self.dialog.lifecycle.schedule(1000, self._reset_status)
+        self._content_rendered = True
+        self._flash_state("success")
 
     def _reset_status(self) -> None:
         self.dialog.main_frame.configure(border_color=DEFAULT_BORDER)
+
+    def _flash_state(self, state: str) -> None:
+        duration_ms = 1000 if state == "success" else 3000
+        self.dialog.main_frame.configure(border_color=STATE_COLORS[state])
+        self.dialog.lifecycle.schedule(duration_ms, self._reset_status)
 
     def _toggle_speaker(self) -> None:
         self.speaking = not self.speaking
@@ -208,8 +226,10 @@ class MockBaseDialogSurface:
         )
 
     def _copy_visible_text(self) -> None:
-        self.dialog.main_frame.configure(border_color=SUCCESS_BORDER)
-        self.dialog.lifecycle.schedule(700, self._reset_status)
+        if self._content_rendered:
+            self._flash_state("success")
+        else:
+            self._flash_state("warning")
 
     def _toggle_follow_up(self) -> None:
         self.follow_up_visible = not self.follow_up_visible
@@ -220,8 +240,13 @@ class MockBaseDialogSurface:
             self.follow_row.grid_forget()
 
     def _fake_send(self) -> None:
-        self.dialog.main_frame.configure(border_color=SUCCESS_BORDER)
-        self.dialog.lifecycle.schedule(700, self._reset_status)
+        prompt = self.follow_entry.get().strip().lower()
+        if not prompt:
+            self._flash_state("warning")
+        elif prompt == "error":
+            self._flash_state("error")
+        else:
+            self._flash_state("success")
 
     def _fake_stop(self) -> None:
         self.speaking = False
