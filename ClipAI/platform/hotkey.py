@@ -3,10 +3,15 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Literal
 
-from clipai.actions import PressType
-from clipai.logging_setup import diagnostics_enabled
+PressType = Literal["short", "long"]
+
+try:
+    from clipai.logging_setup import diagnostics_enabled
+except ModuleNotFoundError:
+    def diagnostics_enabled(_flag: str) -> bool:
+        return False
 
 logger = logging.getLogger("clipai.hotkey")
 
@@ -90,6 +95,15 @@ def expand_hotkeys(hotkey: str, modifier_mode: str = "ctrl_alt") -> list[str]:
     if not normalized:
         return []
     return [_canonicalize_modifier_prefix(normalized, modifier_mode)]
+
+
+def build_hotkey_bindings(action_map: dict[str, dict], *, modifier_mode: str = "alt_shift") -> list[tuple[str, set[str]]]:
+    hotkeys: list[tuple[str, set[str]]] = []
+    for action_id, action in action_map.items():
+        hotkey = str(action.get("hotkey") or "").strip()
+        for variant in expand_hotkeys(hotkey, modifier_mode=modifier_mode):
+            hotkeys.append((action_id, _parse_hotkey(variant)))
+    return hotkeys
 
 
 @dataclass
@@ -202,6 +216,22 @@ class _HotkeyDispatcher:
             callback()
 
 
+def create_hotkey_dispatcher(
+    action_map: dict[str, dict],
+    on_trigger: Callable[[str, PressType], None],
+    *,
+    modifier_mode: str = "alt_shift",
+    long_press_sec: float = LONG_PRESS_SEC,
+    timer_factory: Callable[..., threading.Timer] = threading.Timer,
+) -> _HotkeyDispatcher:
+    return _HotkeyDispatcher(
+        build_hotkey_bindings(action_map, modifier_mode=modifier_mode),
+        on_trigger,
+        long_press_sec=long_press_sec,
+        timer_factory=timer_factory,
+    )
+
+
 def register_hotkeys_with_long_press(
     action_map: dict[str, dict],
     on_trigger: Callable[[str, PressType], None],
@@ -214,12 +244,9 @@ def register_hotkeys_with_long_press(
     except ImportError as exc:
         raise RuntimeError("pynput is required for desktop hotkey mode") from exc
 
-    hotkeys: list[tuple[str, set[str]]] = []
-    for action_id, action in action_map.items():
-        hotkey = str(action.get("hotkey") or "").strip()
-        for variant in expand_hotkeys(hotkey, modifier_mode=modifier_mode):
-            hotkeys.append((action_id, _parse_hotkey(variant)))
-            logger.info("[clipai] Registered hotkey %s -> %s", variant, action_id)
+    hotkeys = build_hotkey_bindings(action_map, modifier_mode=modifier_mode)
+    for action_id, tokens in hotkeys:
+        logger.info("[clipai] Registered hotkey %s -> %s", "+".join(sorted(tokens)), action_id)
 
     logger.info("[clipai] Hotkey listener modifier_mode=%s long_press_sec=%s", modifier_mode, long_press_sec)
 

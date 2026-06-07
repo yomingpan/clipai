@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from ClipAI.platform.hotkey import create_hotkey_dispatcher, expand_hotkeys
+
+
+@dataclass
+class FakeKey:
+    name: str | None = None
+    char: str | None = None
+    vk: int | None = None
+
+
+class FakeTimer:
+    timers: list["FakeTimer"] = []
+
+    def __init__(self, interval: float, callback) -> None:
+        self.interval = interval
+        self.callback = callback
+        self.cancelled = False
+        self.started = False
+        self.daemon = False
+        FakeTimer.timers.append(self)
+
+    def start(self) -> None:
+        self.started = True
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+    def fire(self) -> None:
+        if not self.cancelled:
+            self.callback()
+
+
+def setup_function() -> None:
+    FakeTimer.timers.clear()
+
+
+def test_expand_hotkeys_adds_default_modifier_prefix() -> None:
+    assert expand_hotkeys("8", modifier_mode="ctrl_alt") == ["ctrl+alt+8"]
+
+
+def test_short_press_triggers_action_once() -> None:
+    events: list[tuple[str, str]] = []
+    dispatcher = create_hotkey_dispatcher(
+        {"explain_word": {"hotkey": "ctrl+alt+8"}},
+        lambda action_id, press_type: events.append((action_id, press_type)),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+    )
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="8"))
+    dispatcher.on_release(FakeKey(char="8"))
+    dispatcher.on_release(FakeKey(name="alt_l"))
+    dispatcher.on_release(FakeKey(name="ctrl_l"))
+
+    assert events == [("explain_word", "short")]
+    assert len(FakeTimer.timers) == 1
+    assert FakeTimer.timers[0].cancelled is True
+
+
+def test_long_press_triggers_long_without_release_short() -> None:
+    events: list[tuple[str, str]] = []
+    dispatcher = create_hotkey_dispatcher(
+        {"explain_word": {"hotkey": "ctrl+alt+8"}},
+        lambda action_id, press_type: events.append((action_id, press_type)),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+    )
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="8"))
+    FakeTimer.timers[0].fire()
+    dispatcher.on_release(FakeKey(char="8"))
+    dispatcher.on_release(FakeKey(name="alt_l"))
+    dispatcher.on_release(FakeKey(name="ctrl_l"))
+
+    assert events == [("explain_word", "long")]
