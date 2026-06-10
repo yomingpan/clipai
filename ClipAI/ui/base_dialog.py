@@ -10,6 +10,7 @@ from ClipAI.core.event_bus import get_event_bus
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
 DialogState = Literal["idle", "success", "error", "warning"]
+ResultActionId = Literal["speaker", "copy", "follow_up"]
 RGB = tuple[int, int, int]
 
 DEFAULT_STATE_COLORS: dict[DialogState, RGB] = {
@@ -23,10 +24,18 @@ SURFACE_BG = "#2B2B2B"
 TITLE_COLOR = "#305B9C"
 ACTION_COLOR = "#1F6AA5"
 ACTION_HOVER_COLOR = "#2879B8"
+SPEAKER_ACTIVE_COLOR = "#7F1D1D"
+SPEAKER_ACTIVE_HOVER_COLOR = "#991B1B"
+FOLLOW_ACTIVE_COLOR = "#305B9C"
 ANALYZING_COLOR = "#707070"
 MODEL_COLOR = "#6E6C69"
 CONTENT_COLOR = "#D8E0E8"
 TC_FONT_FAMILY = "Microsoft JhengHei UI"
+ACTION_ICON_FONT_FAMILY = "Segoe MDL2 Assets"
+SPEAKER_ICON = "\uE767"
+STOP_ICON = "\uE71A"
+COPY_ICON = "\uE77F"
+FOLLOW_UP_ICON = "\uE8BD"
 
 
 def rgb_to_hex(color: RGB) -> str:
@@ -332,6 +341,14 @@ class _Tooltip:
         )
         label.pack()
 
+    def set_text(self, text: str) -> None:
+        self.text = text
+        if self._window is None:
+            return
+        for child in self._window.winfo_children():
+            if isinstance(child, tk.Label):
+                child.configure(text=text)
+
     def _hide(self, _event=None) -> None:
         self._cancel()
         if self._window is not None:
@@ -344,6 +361,101 @@ class _Tooltip:
             self._job = None
 
 
+@dataclass(frozen=True)
+class ResultActionSpec:
+    slot_id: ResultActionId
+    icon: str
+    tooltip: str
+    active_icon: str | None = None
+    active_tooltip: str | None = None
+    active_color: str = ACTION_COLOR
+    active_hover_color: str = ACTION_HOVER_COLOR
+
+
+STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
+    ResultActionSpec(
+        slot_id="speaker",
+        icon=SPEAKER_ICON,
+        tooltip="Speak result",
+        active_icon=STOP_ICON,
+        active_tooltip="Stop speaking",
+        active_color=SPEAKER_ACTIVE_COLOR,
+        active_hover_color=SPEAKER_ACTIVE_HOVER_COLOR,
+    ),
+    ResultActionSpec(slot_id="copy", icon=COPY_ICON, tooltip="Copy result"),
+    ResultActionSpec(
+        slot_id="follow_up",
+        icon=FOLLOW_UP_ICON,
+        tooltip="Ask follow-up",
+        active_tooltip="Close follow-up",
+        active_color=FOLLOW_ACTIVE_COLOR,
+        active_hover_color=ACTION_HOVER_COLOR,
+    ),
+)
+
+
+class StandardResultActions:
+    def __init__(self, surface: BaseResultSurface) -> None:
+        self._surface = surface
+        self._specs = {spec.slot_id: spec for spec in STANDARD_RESULT_ACTIONS}
+        self._buttons = {
+            spec.slot_id: surface.add_action_slot(
+                spec.slot_id,
+                spec.icon,
+                None,
+                width=24,
+                tooltip=spec.tooltip,
+            )
+            for spec in STANDARD_RESULT_ACTIONS
+        }
+
+    def configure(
+        self,
+        *,
+        on_speak: Callable[[], None] | None = None,
+        on_copy: Callable[[], None] | None = None,
+        on_follow_up: Callable[[], None] | None = None,
+    ) -> None:
+        self._set_command("speaker", on_speak)
+        self._set_command("copy", on_copy)
+        self._set_command("follow_up", on_follow_up)
+
+    def set_speaker_active(self, active: bool) -> None:
+        self._set_active("speaker", active)
+
+    def set_follow_up_active(self, active: bool) -> None:
+        self._set_active("follow_up", active)
+
+    def set_enabled(self, slot_id: ResultActionId, enabled: bool) -> None:
+        self._buttons[slot_id].configure(state="normal" if enabled else "disabled")
+
+    def _set_command(self, slot_id: ResultActionId, command: Callable[[], None] | None) -> None:
+        self._buttons[slot_id].configure(command=command)
+        self.set_enabled(slot_id, command is not None)
+
+    def _set_active(self, slot_id: ResultActionId, active: bool) -> None:
+        spec = self._specs[slot_id]
+        self._buttons[slot_id].configure(**self.style_for(spec, active))
+        tooltip = spec.active_tooltip if active and spec.active_tooltip else spec.tooltip
+        self._surface.set_action_tooltip(slot_id, tooltip)
+
+    @staticmethod
+    def style_for(spec: ResultActionSpec, active: bool) -> dict[str, str]:
+        if not active:
+            return {
+                "text": spec.icon,
+                "fg_color": ACTION_COLOR,
+                "hover_color": ACTION_HOVER_COLOR,
+                "text_color": CONTENT_COLOR,
+            }
+        return {
+            "text": spec.active_icon or spec.icon,
+            "fg_color": spec.active_color,
+            "hover_color": spec.active_hover_color,
+            "text_color": CONTENT_COLOR,
+        }
+
+
 class BaseResultSurface:
     def __init__(self, dialog: BaseDialog) -> None:
         self.dialog = dialog
@@ -351,6 +463,7 @@ class BaseResultSurface:
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(3, weight=1)
         self._action_buttons: dict[str, ctk.CTkButton] = {}
+        self._action_tooltips: dict[str, _Tooltip] = {}
         self.follow_up_visible = False
         self._build()
 
@@ -402,6 +515,7 @@ class BaseResultSurface:
 
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="w", padx=9, pady=(0, 0))
+        self.standard_actions = StandardResultActions(self)
 
         self.source_label = ctk.CTkLabel(
             self.root,
@@ -476,11 +590,33 @@ class BaseResultSurface:
     def set_model(self, model: str) -> None:
         self.model_label.configure(text=f"model: {model}")
 
+    def configure_standard_actions(
+        self,
+        *,
+        on_speak: Callable[[], None] | None = None,
+        on_copy: Callable[[], None] | None = None,
+        on_follow_up: Callable[[], None] | None = None,
+    ) -> None:
+        self.standard_actions.configure(
+            on_speak=on_speak,
+            on_copy=on_copy,
+            on_follow_up=on_follow_up,
+        )
+
+    def set_speaker_active(self, active: bool) -> None:
+        self.standard_actions.set_speaker_active(active)
+
+    def set_follow_up_active(self, active: bool) -> None:
+        self.standard_actions.set_follow_up_active(active)
+
+    def set_standard_action_enabled(self, slot_id: ResultActionId, enabled: bool) -> None:
+        self.standard_actions.set_enabled(slot_id, enabled)
+
     def add_action_slot(
         self,
         slot_id: str,
         label: str,
-        command: Callable[[], None],
+        command: Callable[[], None] | None,
         *,
         width: int,
         tooltip: str | None = None,
@@ -495,14 +631,19 @@ class BaseResultSurface:
             fg_color=ACTION_COLOR,
             hover_color=ACTION_HOVER_COLOR,
             text_color=text_color,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=13, weight="bold"),
+            font=ctk.CTkFont(family=ACTION_ICON_FONT_FAMILY, size=10),
             command=command,
         )
         button.pack(side="left", padx=(0, 5))
         if tooltip:
-            _Tooltip(button, tooltip, self.dialog.lifecycle)
+            self._action_tooltips[slot_id] = _Tooltip(button, tooltip, self.dialog.lifecycle)
         self._action_buttons[slot_id] = button
         return button
+
+    def set_action_tooltip(self, slot_id: str, text: str) -> None:
+        tooltip = self._action_tooltips.get(slot_id)
+        if tooltip is not None:
+            tooltip.set_text(text)
 
     def set_loading(self, text: str = "Loading result...") -> None:
         self.set_content_chunks([(text, "loading")])

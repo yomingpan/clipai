@@ -41,26 +41,10 @@ class MockBaseDialogSurface:
         self.surface.set_title("ClipAI - 改成口語可說出口版本")
         self.surface.set_source_preview("🔍 Analyzing: 這樣可以，還可以這樣。像這樣跟他講話。然後我修好的...")
         self.surface.set_model("gpt-5.4")
-        self.speaker_button = self.surface.add_action_slot(
-            "speaker",
-            "🔊",
-            self._toggle_speaker,
-            width=24,
-            tooltip="Speak result",
-        )
-        self.surface.add_action_slot(
-            "copy",
-            "📋",
-            self._copy_visible_text,
-            width=24,
-            tooltip="Copy result",
-        )
-        self.follow_button = self.surface.add_action_slot(
-            "follow_up",
-            "💬",
-            self._toggle_follow_up,
-            width=24,
-            tooltip="Ask follow-up",
+        self.surface.configure_standard_actions(
+            on_speak=self._toggle_speaker,
+            on_copy=self._copy_visible_text,
+            on_follow_up=self._toggle_follow_up,
         )
         self.surface.follow_entry.insert(0, "5 more examples")
         self.surface.follow_send_button.configure(command=self._fake_send)
@@ -85,12 +69,7 @@ class MockBaseDialogSurface:
 
     def _toggle_speaker(self) -> None:
         self.speaking = not self.speaking
-        self.speaker_button.configure(
-            text="■" if self.speaking else "🔊",
-            fg_color="#7F1D1D" if self.speaking else "#1F6AA5",
-            hover_color="#991B1B" if self.speaking else "#2879B8",
-            text_color="#D8E0E8",
-        )
+        self.surface.set_speaker_active(self.speaking)
 
     def _copy_visible_text(self) -> None:
         self.dialog.flash("success" if self.content_rendered else "warning")
@@ -98,18 +77,9 @@ class MockBaseDialogSurface:
     def _toggle_follow_up(self) -> None:
         if self.surface.follow_up_visible:
             self.surface.hide_follow_up()
-            self.follow_button.configure(
-                fg_color="#1F6AA5",
-                hover_color="#2879B8",
-                text_color="#D8E0E8",
-            )
         else:
             self.surface.show_follow_up()
-            self.follow_button.configure(
-                fg_color="#305B9C",
-                hover_color="#2879B8",
-                text_color="#D8E0E8",
-            )
+        self.surface.set_follow_up_active(self.surface.follow_up_visible)
 
     def _fake_send(self) -> None:
         prompt = self.surface.follow_entry.get().strip().lower()

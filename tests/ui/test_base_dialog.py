@@ -3,7 +3,19 @@ from __future__ import annotations
 import pytest
 
 from ClipAI.ui.base_dialog import (
+    ACTION_COLOR,
+    ACTION_HOVER_COLOR,
+    CONTENT_COLOR,
+    COPY_ICON,
+    FOLLOW_ACTIVE_COLOR,
+    FOLLOW_UP_ICON,
     RoundedSurfacePainter,
+    SPEAKER_ICON,
+    SPEAKER_ACTIVE_COLOR,
+    SPEAKER_ACTIVE_HOVER_COLOR,
+    STANDARD_RESULT_ACTIONS,
+    STOP_ICON,
+    StandardResultActions,
     SurfaceFlashController,
     SurfaceStateColors,
     rgb_to_hex,
@@ -171,3 +183,46 @@ def test_drag_position_calculation_uses_recorded_offsets() -> None:
     from ClipAI.ui.base_dialog import BaseDialog
 
     assert BaseDialog.calculate_drag_position(DialogLike(), 100, 80) == (88, 75)
+
+
+def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
+    assert [spec.slot_id for spec in STANDARD_RESULT_ACTIONS] == ["speaker", "copy", "follow_up"]
+    assert [spec.icon for spec in STANDARD_RESULT_ACTIONS] == [
+        SPEAKER_ICON,
+        COPY_ICON,
+        FOLLOW_UP_ICON,
+    ]
+    assert [spec.tooltip for spec in STANDARD_RESULT_ACTIONS] == [
+        "Speak result",
+        "Copy result",
+        "Ask follow-up",
+    ]
+
+
+def test_standard_result_action_idle_style_is_uniform() -> None:
+    spec = STANDARD_RESULT_ACTIONS[0]
+
+    assert StandardResultActions.style_for(spec, False) == {
+        "text": SPEAKER_ICON,
+        "fg_color": ACTION_COLOR,
+        "hover_color": ACTION_HOVER_COLOR,
+        "text_color": CONTENT_COLOR,
+    }
+
+
+def test_standard_result_action_active_styles_are_semantic() -> None:
+    speaker = STANDARD_RESULT_ACTIONS[0]
+    follow_up = STANDARD_RESULT_ACTIONS[2]
+
+    assert StandardResultActions.style_for(speaker, True) == {
+        "text": STOP_ICON,
+        "fg_color": SPEAKER_ACTIVE_COLOR,
+        "hover_color": SPEAKER_ACTIVE_HOVER_COLOR,
+        "text_color": CONTENT_COLOR,
+    }
+    assert StandardResultActions.style_for(follow_up, True) == {
+        "text": FOLLOW_UP_ICON,
+        "fg_color": FOLLOW_ACTIVE_COLOR,
+        "hover_color": ACTION_HOVER_COLOR,
+        "text_color": CONTENT_COLOR,
+    }
