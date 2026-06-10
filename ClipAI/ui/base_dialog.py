@@ -532,15 +532,17 @@ class BaseResultSurface:
             self.root,
             fg_color=SURFACE_BG,
             border_width=0,
-            corner_radius=10,
+            border_spacing=0,
+            corner_radius=0,
             wrap="word",
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=12),
             text_color=CONTENT_COLOR,
             scrollbar_button_color="#4A4A4A",
             scrollbar_button_hover_color="#5A5A5A",
             height=170,
+            pady=0,
         )
-        self.content_text.grid(row=3, column=0, sticky="nsew", padx=5, pady=(0, 5))
+        self.content_text.grid(row=3, column=0, sticky="nsew", padx=0, pady=(0, 0))
         self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
         self.content_text.tag_config("body", foreground=CONTENT_COLOR)
         self.content_text.tag_config("loading", foreground=ANALYZING_COLOR)
