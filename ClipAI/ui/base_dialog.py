@@ -485,6 +485,13 @@ class BaseResultSurface:
 
         self.window_actions = ctk.CTkFrame(self.header, fg_color=SURFACE_BG)
         self.window_actions.grid(row=0, column=1, sticky="ne")
+        self.model_label = ctk.CTkLabel(
+            self.window_actions,
+            text="",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            text_color=MODEL_COLOR,
+        )
+        self.model_label.pack(side="left", padx=(0, 10))
         self.close_button = ctk.CTkButton(
             self.window_actions,
             text="×",
@@ -542,7 +549,7 @@ class BaseResultSurface:
             height=170,
             pady=0,
         )
-        self.content_text.grid(row=3, column=0, sticky="nsew", padx=0, pady=(0, 0))
+        self.content_text.grid(row=3, column=0, sticky="nsew", padx=9, pady=(0, 9))
         self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
         self.content_text.tag_config("body", foreground=CONTENT_COLOR)
         self.content_text.tag_config("loading", foreground=ANALYZING_COLOR)
@@ -571,17 +578,6 @@ class BaseResultSurface:
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
         )
         self.follow_send_button.grid(row=0, column=1, sticky="e")
-
-        self.footer = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
-        self.footer.grid(row=5, column=0, sticky="ew", padx=9, pady=(0, 4))
-        self.footer.grid_columnconfigure(0, weight=1)
-        self.model_label = ctk.CTkLabel(
-            self.footer,
-            text="",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
-            text_color=MODEL_COLOR,
-        )
-        self.model_label.grid(row=0, column=0, sticky="e")
 
     def set_title(self, title: str) -> None:
         self.title_label.configure(text=title)
