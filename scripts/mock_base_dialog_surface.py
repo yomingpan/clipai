@@ -6,7 +6,7 @@ from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 
 
 COLORS = {
-    "idle": (0, 82, 184),
+    "idle": (31, 106, 165),
     "success": (0, 176, 79),
     "error": (232, 17, 35),
     "warning": (255, 215, 0),
@@ -24,6 +24,8 @@ class MockBaseDialogSurface:
             height=350,
             position="center",
             state_colors=COLORS,
+            background_color="#E9EDF3",
+            surface_color="#2B2B2B",
             frameless=True,
             transparent_background=True,
             surface_inset=8,
@@ -36,8 +38,9 @@ class MockBaseDialogSurface:
         self.dialog.lifecycle.schedule(700, self._show_result)
 
     def _build(self) -> None:
-        self.surface.set_title("ClipAI - Explain Word")
-        self.surface.set_source_preview('Clipboard: "Appetizer is a small dish served before the main course..."')
+        self.surface.set_title("ClipAI - 改成口語可說出口版本")
+        self.surface.set_source_preview("🔍 Analyzing: 這樣可以，還可以這樣。像這樣跟他講話。然後我修好的...")
+        self.surface.set_model("gpt-5.4")
         self.speaker_button = self.surface.add_action_slot(
             "speaker",
             "🔊",
@@ -64,13 +67,17 @@ class MockBaseDialogSurface:
         self.surface.set_loading()
 
     def _show_result(self) -> None:
-        self.surface.set_sections(
+        self.surface.set_content_chunks(
             [
-                ("Summary", "Appetizer is a small dish served before the main course."),
-                ("Meaning", "It prepares the appetite and sets the tone for the meal."),
-                ("Context", "Common in restaurants, formal dinners, and multi-course meals."),
-                ("Example", "We ordered a mushroom tart as an appetizer before the steak."),
-                ("Synonyms", "Starter, hors d'oeuvre, first course."),
+                (
+                    "可以這樣跟他說：我把那個會一直跳來跳去的問題修好了，"
+                    "現在你按住拖動也不會亂閃。之前會這樣，主要是因為你按很多螢幕時，"
+                    "每個螢幕的顯示大小不太一樣，所以系統會搞混；如果只用一個螢幕，"
+                    "通常就沒事。還有，你處理完之後按一下 Ctrl+P，就可以把內容整理好，"
+                    "接著你再繼續講，它也會記得前面在說什麼；如果中間停一下，"
+                    "它也會自己想一下再接上。",
+                    "body",
+                )
             ]
         )
         self.content_rendered = True
@@ -80,9 +87,9 @@ class MockBaseDialogSurface:
         self.speaking = not self.speaking
         self.speaker_button.configure(
             text="■" if self.speaking else "🔊",
-            fg_color="#FEE2E2" if self.speaking else "#EEF2F7",
-            hover_color="#FECACA" if self.speaking else "#DCE4EF",
-            text_color="#DC2626" if self.speaking else "#020617",
+            fg_color="#7F1D1D" if self.speaking else "#1F6AA5",
+            hover_color="#991B1B" if self.speaking else "#2879B8",
+            text_color="#D8E0E8",
         )
 
     def _copy_visible_text(self) -> None:
@@ -92,16 +99,16 @@ class MockBaseDialogSurface:
         if self.surface.follow_up_visible:
             self.surface.hide_follow_up()
             self.follow_button.configure(
-                fg_color="#EEF2F7",
-                hover_color="#DCE4EF",
-                text_color="#020617",
+                fg_color="#1F6AA5",
+                hover_color="#2879B8",
+                text_color="#D8E0E8",
             )
         else:
             self.surface.show_follow_up()
             self.follow_button.configure(
-                fg_color="#DBEAFE",
-                hover_color="#BFDBFE",
-                text_color="#1D4ED8",
+                fg_color="#305B9C",
+                hover_color="#2879B8",
+                text_color="#D8E0E8",
             )
 
     def _fake_send(self) -> None:

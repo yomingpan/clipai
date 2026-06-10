@@ -19,6 +19,15 @@ DEFAULT_STATE_COLORS: dict[DialogState, RGB] = {
     "warning": (255, 215, 0),
 }
 
+SURFACE_BG = "#2B2B2B"
+TITLE_COLOR = "#305B9C"
+ACTION_COLOR = "#1F6AA5"
+ACTION_HOVER_COLOR = "#2879B8"
+ANALYZING_COLOR = "#707070"
+MODEL_COLOR = "#6E6C69"
+CONTENT_COLOR = "#D8E0E8"
+TC_FONT_FAMILY = "Microsoft JhengHei UI"
+
 
 def rgb_to_hex(color: RGB) -> str:
     if len(color) != 3:
@@ -319,7 +328,7 @@ class _Tooltip:
             fg="#FFFFFF",
             padx=8,
             pady=4,
-            font=("Segoe UI", 9),
+            font=(TC_FONT_FAMILY, 9),
         )
         label.pack()
 
@@ -346,22 +355,22 @@ class BaseResultSurface:
         self._build()
 
     def _build(self) -> None:
-        self.header = ctk.CTkFrame(self.root, fg_color="#FFFFFF")
+        self.header = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.header.grid(row=0, column=0, sticky="ew", padx=9, pady=(3, 0))
         self.header.grid_columnconfigure(0, weight=1)
 
-        title_area = ctk.CTkFrame(self.header, fg_color="#FFFFFF")
+        title_area = ctk.CTkFrame(self.header, fg_color=SURFACE_BG)
         title_area.grid(row=0, column=0, sticky="w")
         self.title_label = ctk.CTkLabel(
             title_area,
             text="",
-            font=ctk.CTkFont(size=10, weight="bold"),
-            text_color="#475569",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10, weight="bold"),
+            text_color=TITLE_COLOR,
             wraplength=330,
         )
         self.title_label.pack(anchor="w")
 
-        self.window_actions = ctk.CTkFrame(self.header, fg_color="#FFFFFF")
+        self.window_actions = ctk.CTkFrame(self.header, fg_color=SURFACE_BG)
         self.window_actions.grid(row=0, column=1, sticky="ne")
         self.close_button = ctk.CTkButton(
             self.window_actions,
@@ -369,10 +378,10 @@ class BaseResultSurface:
             width=18,
             height=18,
             corner_radius=9,
-            fg_color="#FEE2E2",
-            hover_color="#FECACA",
-            text_color="#B91C1C",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=SURFACE_BG,
+            hover_color="#3A3A3A",
+            text_color="#8A8A8A",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=12, weight="bold"),
             command=self.dialog.close,
         )
         self.close_button.pack(side="left", padx=(0, 4))
@@ -382,16 +391,16 @@ class BaseResultSurface:
             width=18,
             height=18,
             corner_radius=9,
-            fg_color="#DBEAFE",
-            hover_color="#BFDBFE",
-            text_color="#0F172A",
-            font=ctk.CTkFont(size=9),
+            fg_color=SURFACE_BG,
+            hover_color="#3A3A3A",
+            text_color="#8A8A8A",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
             command=self.toggle_pin,
         )
         self.pin_button.pack(side="left")
         self.dialog.enable_drag(self.header, title_area, self.title_label)
 
-        self.actions = ctk.CTkFrame(self.root, fg_color="#FFFFFF")
+        self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="w", padx=9, pady=(0, 0))
 
         self.source_label = ctk.CTkLabel(
@@ -399,40 +408,40 @@ class BaseResultSurface:
             text="",
             anchor="w",
             justify="left",
-            font=ctk.CTkFont(size=8),
-            text_color="#94A3B8",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=8),
+            text_color=ANALYZING_COLOR,
             wraplength=390,
         )
         self.source_label.grid(row=2, column=0, sticky="ew", padx=9, pady=(0, 2))
 
         self.content_text = ctk.CTkTextbox(
             self.root,
-            fg_color="#F8FAFC",
+            fg_color=SURFACE_BG,
             border_width=0,
             corner_radius=10,
             wrap="word",
-            font=ctk.CTkFont(size=12),
-            text_color="#334155",
-            scrollbar_button_color="#CBD5E1",
-            scrollbar_button_hover_color="#94A3B8",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=12),
+            text_color=CONTENT_COLOR,
+            scrollbar_button_color="#4A4A4A",
+            scrollbar_button_hover_color="#5A5A5A",
             height=170,
         )
         self.content_text.grid(row=3, column=0, sticky="nsew", padx=5, pady=(0, 5))
-        self.content_text.tag_config("heading", foreground="#0F172A")
-        self.content_text.tag_config("body", foreground="#020617")
-        self.content_text.tag_config("loading", foreground="#334155")
+        self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
+        self.content_text.tag_config("body", foreground=CONTENT_COLOR)
+        self.content_text.tag_config("loading", foreground=ANALYZING_COLOR)
 
-        self.follow_row = ctk.CTkFrame(self.root, fg_color="#FFFFFF")
+        self.follow_row = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.follow_row.grid_columnconfigure(0, weight=1)
         self.follow_entry = ctk.CTkEntry(
             self.follow_row,
             height=30,
             corner_radius=9,
             border_width=1,
-            border_color="#CBD5E1",
-            fg_color="#FFFFFF",
-            text_color="#020617",
-            font=ctk.CTkFont(size=10),
+            border_color="#4A4A4A",
+            fg_color=SURFACE_BG,
+            text_color=CONTENT_COLOR,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
         )
         self.follow_entry.grid(row=0, column=0, sticky="ew", padx=(0, 7))
         self.follow_send_button = ctk.CTkButton(
@@ -441,17 +450,31 @@ class BaseResultSurface:
             width=49,
             height=30,
             corner_radius=9,
-            fg_color="#3B82F6",
-            hover_color="#2563EB",
-            font=ctk.CTkFont(size=10),
+            fg_color=ACTION_COLOR,
+            hover_color=ACTION_HOVER_COLOR,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
         )
         self.follow_send_button.grid(row=0, column=1, sticky="e")
+
+        self.footer = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
+        self.footer.grid(row=5, column=0, sticky="ew", padx=9, pady=(0, 4))
+        self.footer.grid_columnconfigure(0, weight=1)
+        self.model_label = ctk.CTkLabel(
+            self.footer,
+            text="",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            text_color=MODEL_COLOR,
+        )
+        self.model_label.grid(row=0, column=0, sticky="e")
 
     def set_title(self, title: str) -> None:
         self.title_label.configure(text=title)
 
     def set_source_preview(self, text: str) -> None:
         self.source_label.configure(text=text)
+
+    def set_model(self, model: str) -> None:
+        self.model_label.configure(text=f"model: {model}")
 
     def add_action_slot(
         self,
@@ -461,7 +484,7 @@ class BaseResultSurface:
         *,
         width: int,
         tooltip: str | None = None,
-        text_color: str = "#020617",
+        text_color: str = CONTENT_COLOR,
     ) -> ctk.CTkButton:
         button = ctk.CTkButton(
             self.actions,
@@ -469,10 +492,10 @@ class BaseResultSurface:
             width=width,
             height=22,
             corner_radius=6,
-            fg_color="#EEF2F7",
-            hover_color="#DCE4EF",
+            fg_color=ACTION_COLOR,
+            hover_color=ACTION_HOVER_COLOR,
             text_color=text_color,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=13, weight="bold"),
             command=command,
         )
         button.pack(side="left", padx=(0, 5))
@@ -500,8 +523,9 @@ class BaseResultSurface:
     def toggle_pin(self) -> bool:
         pinned = self.dialog.toggle_pin()
         self.pin_button.configure(
-            fg_color="#BFDBFE" if pinned else "#DBEAFE",
-            hover_color="#93C5FD" if pinned else "#BFDBFE",
+            fg_color=ACTION_HOVER_COLOR if pinned else SURFACE_BG,
+            hover_color="#2F8DCE" if pinned else "#3A3A3A",
+            text_color=CONTENT_COLOR if pinned else "#8A8A8A",
         )
         return pinned
 
