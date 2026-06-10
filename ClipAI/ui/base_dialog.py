@@ -501,7 +501,7 @@ class BaseResultSurface:
             fg_color=SURFACE_BG,
             hover_color="#3A3A3A",
             text_color="#8A8A8A",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=12, weight="bold"),
+            font=ctk.CTkFont(family=ACTION_ICON_FONT_FAMILY, size=10, weight="bold"),
             command=self.dialog.close,
         )
         self.close_button.pack(side="left", padx=(0, 4))
@@ -514,7 +514,7 @@ class BaseResultSurface:
             fg_color=SURFACE_BG,
             hover_color="#3A3A3A",
             text_color="#8A8A8A",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=ACTION_ICON_FONT_FAMILY, size=10),
             command=self.toggle_pin,
         )
         self.pin_button.pack(side="left")
