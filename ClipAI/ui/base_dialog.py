@@ -287,6 +287,54 @@ class BaseDialog:
         self.lifecycle.run_dialog()
 
 
+class _Tooltip:
+    def __init__(self, widget, text: str, lifecycle: DialogLifecycle, delay_ms: int = 350) -> None:
+        self.widget = widget
+        self.text = text
+        self.lifecycle = lifecycle
+        self.delay_ms = delay_ms
+        self._window: tk.Toplevel | None = None
+        self._job: str | None = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _schedule(self, _event=None) -> None:
+        self._cancel()
+        self._job = self.lifecycle.schedule(self.delay_ms, self._show)
+
+    def _show(self) -> None:
+        self._job = None
+        if self._window is not None:
+            return
+        x = self.widget.winfo_rootx() + self.widget.winfo_width() // 2
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 8
+        self._window = tk.Toplevel(self.widget)
+        self._window.wm_overrideredirect(True)
+        self._window.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            self._window,
+            text=self.text,
+            bg="#0F172A",
+            fg="#FFFFFF",
+            padx=8,
+            pady=4,
+            font=("Segoe UI", 9),
+        )
+        label.pack()
+
+    def _hide(self, _event=None) -> None:
+        self._cancel()
+        if self._window is not None:
+            self._window.destroy()
+            self._window = None
+
+    def _cancel(self) -> None:
+        if self._job is not None:
+            self.lifecycle.cancel(self._job)
+            self._job = None
+
+
 class BaseResultSurface:
     def __init__(self, dialog: BaseDialog) -> None:
         self.dialog = dialog
@@ -299,7 +347,7 @@ class BaseResultSurface:
 
     def _build(self) -> None:
         self.header = ctk.CTkFrame(self.root, fg_color="#FFFFFF")
-        self.header.grid(row=0, column=0, sticky="ew", padx=14, pady=(6, 1))
+        self.header.grid(row=0, column=0, sticky="ew", padx=9, pady=(3, 0))
         self.header.grid_columnconfigure(0, weight=1)
 
         title_area = ctk.CTkFrame(self.header, fg_color="#FFFFFF")
@@ -344,7 +392,7 @@ class BaseResultSurface:
         self.dialog.enable_drag(self.header, title_area, self.title_label)
 
         self.actions = ctk.CTkFrame(self.root, fg_color="#FFFFFF")
-        self.actions.grid(row=1, column=0, sticky="w", padx=14, pady=(0, 1))
+        self.actions.grid(row=1, column=0, sticky="w", padx=9, pady=(0, 0))
 
         self.source_label = ctk.CTkLabel(
             self.root,
@@ -355,7 +403,7 @@ class BaseResultSurface:
             text_color="#94A3B8",
             wraplength=390,
         )
-        self.source_label.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 3))
+        self.source_label.grid(row=2, column=0, sticky="ew", padx=9, pady=(0, 2))
 
         self.content_text = ctk.CTkTextbox(
             self.root,
@@ -369,7 +417,7 @@ class BaseResultSurface:
             scrollbar_button_hover_color="#94A3B8",
             height=170,
         )
-        self.content_text.grid(row=3, column=0, sticky="nsew", padx=8, pady=(0, 6))
+        self.content_text.grid(row=3, column=0, sticky="nsew", padx=5, pady=(0, 5))
         self.content_text.tag_config("heading", foreground="#0F172A")
         self.content_text.tag_config("body", foreground="#020617")
         self.content_text.tag_config("loading", foreground="#334155")
@@ -412,21 +460,24 @@ class BaseResultSurface:
         command: Callable[[], None],
         *,
         width: int,
+        tooltip: str | None = None,
         text_color: str = "#020617",
     ) -> ctk.CTkButton:
         button = ctk.CTkButton(
             self.actions,
             text=label,
             width=width,
-            height=18,
+            height=22,
             corner_radius=6,
             fg_color="#EEF2F7",
-            hover_color="#E3E8EF",
+            hover_color="#DCE4EF",
             text_color=text_color,
-            font=ctk.CTkFont(size=8),
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=command,
         )
-        button.pack(side="left", padx=(0, 4))
+        button.pack(side="left", padx=(0, 5))
+        if tooltip:
+            _Tooltip(button, tooltip, self.dialog.lifecycle)
         self._action_buttons[slot_id] = button
         return button
 
@@ -456,7 +507,7 @@ class BaseResultSurface:
 
     def show_follow_up(self, initial_text: str = "") -> None:
         if not self.follow_up_visible:
-            self.follow_row.grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 14))
+            self.follow_row.grid(row=4, column=0, sticky="ew", padx=10, pady=(0, 10))
             self.follow_up_visible = True
         if initial_text:
             self.follow_entry.delete(0, "end")
