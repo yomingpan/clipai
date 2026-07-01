@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import queue
 
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 
@@ -20,23 +21,52 @@ class ResultDialogPresenter:
         )
         self._surface = BaseResultSurface(self._dialog)
         self._surface.configure_standard_actions()
+        self._updates: queue.Queue[Callable[[], None]] = queue.Queue()
+        self._dialog.lifecycle.schedule(25, self._drain_updates)
 
     def show_loading(self, *, title: str, source_preview: str, model: str) -> None:
-        self._surface.set_title(title)
-        self._surface.set_source_preview(source_preview)
-        self._surface.set_model(model)
-        self._surface.set_loading("Loading result...")
+        self._enqueue(
+            lambda: (
+                self._surface.set_title(title),
+                self._surface.set_source_preview(source_preview),
+                self._surface.set_model(model),
+                self._surface.set_loading("Loading result..."),
+            )
+        )
+
+    def show_status(self, text: str) -> None:
+        self._enqueue(lambda: self._surface.set_loading(text))
 
     def show_result(self, text: str) -> None:
-        self._dialog.flash("success")
-        self._surface.set_content_chunks([(text, "body")])
+        self._enqueue(
+            lambda: (
+                self._dialog.flash("success"),
+                self._surface.set_content_chunks([(text, "body")]),
+            )
+        )
 
     def show_error(self, message: str) -> None:
-        self._dialog.flash("error")
-        self._surface.set_content_chunks([(message, "body")])
+        self._enqueue(
+            lambda: (
+                self._dialog.flash("error"),
+                self._surface.set_content_chunks([(message, "body")]),
+            )
+        )
 
     def set_copy_action(self, callback: Callable[[], None] | None) -> None:
-        self._surface.configure_standard_actions(on_copy=callback)
+        self._enqueue(lambda: self._surface.configure_standard_actions(on_copy=callback))
 
     def run(self) -> None:
         self._dialog.run_dialog()
+
+    def _enqueue(self, update: Callable[[], None]) -> None:
+        self._updates.put(update)
+
+    def _drain_updates(self) -> None:
+        while True:
+            try:
+                update = self._updates.get_nowait()
+            except queue.Empty:
+                break
+            update()
+        self._dialog.lifecycle.schedule(50, self._drain_updates)

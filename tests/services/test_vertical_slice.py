@@ -30,6 +30,16 @@ class RecordingProvider:
         return self.result
 
 
+class InspectingProvider:
+    def __init__(self, result: str = "provider result") -> None:
+        self.result = result
+
+    def complete(self, request: ProviderRequest) -> str:
+        presenter = RecordingPresenter.instances[0]
+        assert presenter.statuses[-1] == "Asking Gemini..."
+        return self.result
+
+
 class FailingProvider:
     def complete(self, request: ProviderRequest) -> str:
         raise RuntimeError("provider boom")
@@ -40,6 +50,7 @@ class RecordingPresenter:
 
     def __init__(self) -> None:
         self.loading: dict[str, str] | None = None
+        self.statuses: list[str] = []
         self.result = ""
         self.error = ""
         self.copy_callback: Callable[[], None] | None = None
@@ -48,6 +59,9 @@ class RecordingPresenter:
 
     def show_loading(self, *, title: str, source_preview: str, model: str) -> None:
         self.loading = {"title": title, "source_preview": source_preview, "model": model}
+
+    def show_status(self, text: str) -> None:
+        self.statuses.append(text)
 
     def show_result(self, text: str) -> None:
         self.result = text
@@ -73,19 +87,23 @@ def make_workflow(clipboard: FakeClipboard, provider) -> VerticalSliceWorkflow:
         clipboard=clipboard,
         provider=provider,
         presenter_factory=RecordingPresenter,
+        task_runner=lambda callback: callback(),
     )
 
 
 def test_missing_clipboard_text_shows_error_state() -> None:
-    workflow = make_workflow(FakeClipboard("   "), RecordingProvider())
+    provider = RecordingProvider()
+    workflow = make_workflow(FakeClipboard("   "), provider)
 
     outcome = workflow.run("english_companion", "short")
     presenter = RecordingPresenter.instances[0]
 
     assert outcome.status == "error"
+    assert presenter.statuses == ["Hotkey received", "Reading clipboard..."]
     assert "Clipboard is empty" in presenter.error
     assert presenter.copy_callback is None
     assert presenter.ran is True
+    assert provider.requests == []
 
 
 def test_fake_provider_result_updates_dialog_presenter_model() -> None:
@@ -100,6 +118,13 @@ def test_fake_provider_result_updates_dialog_presenter_model() -> None:
         "source_preview": "Clipboard: appetizer",
         "model": "fake-model",
     }
+    assert presenter.statuses == [
+        "Hotkey received",
+        "Reading clipboard...",
+        "Preparing English Companion...",
+        "Asking Gemini...",
+        "Rendering result...",
+    ]
     assert "Phase 3 Fake Result" in presenter.result
 
 
@@ -114,6 +139,14 @@ def test_copy_action_writes_result_to_clipboard() -> None:
     presenter.copy_callback()
 
     assert clipboard.writes == ["copied result"]
+
+
+def test_provider_sees_status_before_returning_result() -> None:
+    workflow = make_workflow(FakeClipboard("appetizer"), InspectingProvider("slow result"))
+
+    outcome = workflow.run("english_companion", "short")
+
+    assert outcome.status == "success"
 
 
 def test_provider_error_shows_dialog_error_state() -> None:
