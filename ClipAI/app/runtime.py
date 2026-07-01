@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from ClipAI.app.config import ConfigBundle
 from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.hotkey import PressType, register_hotkeys_with_long_press
-from ClipAI.providers.fake import FakeProvider
+from ClipAI.providers.factory import create_provider
 from ClipAI.services.vertical_slice import VerticalSliceWorkflow
 from ClipAI.ui.result_dialog import ResultDialogPresenter
 
@@ -26,7 +26,7 @@ class Phase3Runtime:
             app_config=bundle.app,
             actions=bundle.actions,
             clipboard=SystemClipboard(),
-            provider=FakeProvider(),
+            provider=create_provider(bundle.app.provider_config),
             presenter_factory=ResultDialogPresenter,
         )
 
@@ -38,7 +38,7 @@ class Phase3Runtime:
         )
 
     def run_forever(self) -> None:
-        print("[clipai] Phase 3 runtime ready. Press Ctrl+C to stop.")
+        print("[clipai] ClipAI runtime ready. Press Ctrl+C to stop.")
         try:
             while True:
                 event = self._events.get()

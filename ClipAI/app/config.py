@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -39,6 +40,8 @@ class ResolvedAction:
 class AppConfig:
     default_model: str
     temperature: float
+    provider_name: str = "fake"
+    provider_config: dict[str, Any] = field(default_factory=dict)
     modifier_mode: Literal["alt_shift", "ctrl_shift", "ctrl_alt"] = "ctrl_alt"
 
 
@@ -100,9 +103,14 @@ def load_app_config(path: str | Path) -> AppConfig:
     payload = _load_yaml_mapping(path)
     app_payload = _mapping(payload.get("app"))
     provider_payload = _mapping(payload.get("provider"))
+    provider_config = dict(provider_payload)
+    provider_name = str(provider_config.get("provider") or "fake").lower()
+    provider_config["provider"] = provider_name
     return AppConfig(
         default_model=str(provider_payload.get("default_model") or "fake-model"),
         temperature=float(app_payload.get("temperature", 0.2)),
+        provider_name=provider_name,
+        provider_config=provider_config,
     )
 
 

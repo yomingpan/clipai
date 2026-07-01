@@ -30,6 +30,11 @@ class RecordingProvider:
         return self.result
 
 
+class FailingProvider:
+    def complete(self, request: ProviderRequest) -> str:
+        raise RuntimeError("provider boom")
+
+
 class RecordingPresenter:
     instances: list["RecordingPresenter"] = []
 
@@ -109,3 +114,15 @@ def test_copy_action_writes_result_to_clipboard() -> None:
     presenter.copy_callback()
 
     assert clipboard.writes == ["copied result"]
+
+
+def test_provider_error_shows_dialog_error_state() -> None:
+    workflow = make_workflow(FakeClipboard("appetizer"), FailingProvider())
+
+    outcome = workflow.run("english_companion", "short")
+    presenter = RecordingPresenter.instances[0]
+
+    assert outcome.status == "error"
+    assert "Provider failed: provider boom" == presenter.error
+    assert presenter.copy_callback is None
+    assert presenter.ran is True
