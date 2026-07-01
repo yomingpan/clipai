@@ -14,7 +14,7 @@ ResultActionId = Literal["speaker", "copy", "follow_up"]
 RGB = tuple[int, int, int]
 
 DEFAULT_STATE_COLORS: dict[DialogState, RGB] = {
-    "idle": (0, 82, 184),
+    "idle": (0, 119, 200),
     "success": (0, 176, 79),
     "error": (232, 17, 35),
     "warning": (255, 215, 0),

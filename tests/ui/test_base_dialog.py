@@ -61,7 +61,7 @@ class FakeScheduler:
 
 
 def test_rgb_to_hex_formats_uppercase_hex() -> None:
-    assert rgb_to_hex((0, 82, 184)) == "#0052B8"
+    assert rgb_to_hex((0, 119, 200)) == "#0077C8"
 
 
 @pytest.mark.parametrize("color", [(-1, 0, 0), (0, 256, 0), (0, 0, 1.5), (0, 0)])
@@ -73,7 +73,7 @@ def test_rgb_to_hex_rejects_invalid_rgb_values(color) -> None:
 def test_surface_state_colors_accepts_partial_override() -> None:
     colors = SurfaceStateColors.from_mapping({"success": (1, 2, 3)})
 
-    assert colors.hex("idle") == "#0052B8"
+    assert colors.hex("idle") == "#0077C8"
     assert colors.hex("success") == "#010203"
 
 
@@ -97,7 +97,7 @@ def test_flash_success_uses_one_second_then_resets_to_idle() -> None:
     scheduler.fire(job_id)
 
     assert controller.state == "idle"
-    assert applied[-1] == "#0052B8"
+    assert applied[-1] == "#0077C8"
 
 
 @pytest.mark.parametrize("state", ["error", "warning"])
@@ -166,7 +166,7 @@ def test_rounded_surface_painter_redraws_tagged_surface_below_widgets() -> None:
         inset=3,
     )
 
-    painter.draw("#0052B8")
+    painter.draw("#0077C8")
 
     assert canvas.calls[0] == ("delete", ("surface",), {})
     assert canvas.calls[-1] == ("tag_lower", ("surface",), {})
