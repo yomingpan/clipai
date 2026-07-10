@@ -11,6 +11,7 @@ from ClipAI.platform.hotkey import register_hotkeys_with_long_press
 from ClipAI.platform.selection import NoopSelectionReader
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gemini import GeminiProvider
+from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.services.execute_action import ExecuteAction
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
@@ -61,4 +62,6 @@ def _build_provider(bundle: ConfigBundle) -> tuple[LLMProvider, str]:
     settings = bundle.providers.active_settings()
     if active == "gemini":
         return GeminiProvider(bundle.providers.gemini), bundle.providers.gemini.model
+    if active == "openai":
+        return OpenAIProvider(bundle.providers.openai), bundle.providers.openai.model
     raise ValueError(f"unsupported provider: {active}")
