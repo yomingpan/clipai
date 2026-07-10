@@ -198,7 +198,7 @@ def _parse_anthropic(data: dict[str, Any]) -> AnthropicSettings:
         model=_string(data.get("model"), f"{path}.model", default="claude-sonnet-4-5"),
         timeout_sec=_positive_number(data.get("timeout_sec"), f"{path}.timeout_sec", 60.0),
         api_version=_string(data.get("api_version"), f"{path}.api_version", default="2023-06-01"),
-        max_tokens=_integer(data.get("max_tokens"), f"{path}.max_tokens", default=1024),
+        max_tokens=_positive_integer(data.get("max_tokens"), f"{path}.max_tokens", default=1024),
     )
 
 
@@ -263,6 +263,13 @@ def _integer(value: Any, path: str, *, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ConfigError(f"{path} must be an integer")
     return value
+
+
+def _positive_integer(value: Any, path: str, *, default: int) -> int:
+    result = _integer(value, path, default=default)
+    if result < 1:
+        raise ConfigError(f"{path} must be at least 1")
+    return result
 
 
 def _choice(value: Any, path: str, choices: set[str], default: str) -> str:
