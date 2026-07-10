@@ -20,6 +20,7 @@ from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.ui.result_dialog import ResultDialogPresenter
+from ClipAI.ui.tray import TrayController
 from ClipAI.support.logging_setup import configure_logging
 
 
@@ -54,6 +55,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         supervisor=TaskSupervisor(bundle.runtime.max_workers),
         model=model,
         hotkey_registrar=register,
+        tray_factory=TrayController,
     )
 
 

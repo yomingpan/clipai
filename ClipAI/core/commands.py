@@ -38,5 +38,9 @@ class TogglePin:
     session_id: str
 
 
-AppCommand: TypeAlias = StartAction | CloseSession | CancelSession | CopyResult | FollowUp | TogglePin
+@dataclass(frozen=True)
+class ShutdownApplication:
+    pass
 
+
+AppCommand: TypeAlias = StartAction | CloseSession | CancelSession | CopyResult | FollowUp | TogglePin | ShutdownApplication

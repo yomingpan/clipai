@@ -66,7 +66,20 @@ class Listener:
         self.stopped = True
 
 
-def make_runtime():
+class Tray:
+    def __init__(self, on_exit) -> None:
+        self.on_exit = on_exit
+        self.started = False
+        self.stopped = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+def make_runtime(*, with_tray: bool = False):
     action = ActionDefinition("a", "Action", "ctrl+alt+8", "system", "{input}", {})
     view = FakeView()
     supervisor = FakeSupervisor()
@@ -80,6 +93,7 @@ def make_runtime():
         supervisor=supervisor,
         model="model",
         hotkey_registrar=lambda _map, _callback: listener,
+        tray_factory=Tray if with_tray else None,
     )
     return runtime, view, supervisor, outputs, listener
 
@@ -135,3 +149,12 @@ def test_stop_releases_listener_supervisor_and_view() -> None:
     runtime.stop()
     assert listener.stopped and supervisor.closed and view.stopped
 
+
+def test_tray_exit_uses_typed_shutdown_command() -> None:
+    runtime, view, supervisor, _outputs, listener = make_runtime(with_tray=True)
+    runtime.start()
+    tray = runtime._tray
+    assert tray is not None and tray.started
+    tray.on_exit()
+    runtime.drain_commands()
+    assert tray.stopped and listener.stopped and supervisor.closed and view.stopped

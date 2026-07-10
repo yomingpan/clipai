@@ -6,7 +6,7 @@ import queue
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import AppCommand, CancelSession, CloseSession, CopyResult, FollowUp, StartAction, TogglePin
+from ClipAI.core.commands import AppCommand, CancelSession, CloseSession, CopyResult, FollowUp, ShutdownApplication, StartAction, TogglePin
 from ClipAI.core.ports import ApplicationView
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -28,6 +28,7 @@ class AppRuntime:
         supervisor: TaskSupervisor,
         model: str,
         hotkey_registrar: Callable[[dict[str, dict[str, str]], Callable[[str, str], None]], object],
+        tray_factory: Callable[[Callable[[], None]], object] | None = None,
     ) -> None:
         self._actions = actions
         self._execute_action = execute_action
@@ -36,11 +37,13 @@ class AppRuntime:
         self._supervisor = supervisor
         self._model = model
         self._hotkey_registrar = hotkey_registrar
+        self._tray_factory = tray_factory
         self._commands: queue.Queue[AppCommand] = queue.Queue()
         self._sessions: dict[str, SessionController] = {}
         self._session_actions: dict[str, object] = {}
         self._foreground_id: str | None = None
         self._listener: object | None = None
+        self._tray: object | None = None
         self._stopping = False
         self._view.set_command_sink(self.enqueue)
 
@@ -53,6 +56,10 @@ class AppRuntime:
             self._actions.hotkey_action_map(),
             lambda action_id, press_type: self.enqueue(StartAction(action_id, press_type)),
         )
+        if self._tray_factory is not None:
+            self._tray = self._tray_factory(lambda: self.enqueue(ShutdownApplication()))
+            if hasattr(self._tray, "start"):
+                self._tray.start()
 
     def run_forever(self) -> None:
         self.start()
@@ -78,6 +85,9 @@ class AppRuntime:
         if self._listener is not None and hasattr(self._listener, "stop"):
             self._listener.stop()
         self._listener = None
+        if self._tray is not None and hasattr(self._tray, "stop"):
+            self._tray.stop()
+        self._tray = None
         self._supervisor.shutdown()
         self._view.stop()
 
@@ -98,6 +108,8 @@ class AppRuntime:
                 controller.toggle_pin()
         elif isinstance(command, FollowUp):
             self._follow_up(command)
+        elif isinstance(command, ShutdownApplication):
+            self.stop()
 
     def _start_action(self, command: StartAction) -> None:
         previous = self._sessions.get(self._foreground_id or "")
@@ -157,4 +169,3 @@ class AppRuntime:
         controller = self._sessions.get(session_id)
         if controller:
             controller.fail("ClipAI encountered an unexpected error.")
-
