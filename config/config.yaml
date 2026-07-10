@@ -1,5 +1,5 @@
 app:
-  default_action: translate_zh_tw
+  default_action: english_companion
   stream: false
   temperature: 0.2
   modifier_mode: ctrl_alt
@@ -74,7 +74,6 @@ voice_input:
 
 logging:
   enabled: true
-  profile: production
   level: INFO
   console: false
   console_level: INFO

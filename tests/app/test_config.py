@@ -64,3 +64,33 @@ runtime:
     )
     with pytest.raises(ConfigError, match="max_workers"):
         load_app_config(path)
+
+
+def test_default_action_must_exist(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+app:
+  default_action: missing
+provider:
+  active: fake
+  gemini: {}
+  openai: {}
+  anthropic: {}
+""",
+        encoding="utf-8",
+    )
+    actions_path = tmp_path / "actions.yaml"
+    actions_path.write_text(
+        """
+actions:
+  - id: existing
+    name: Existing
+    hotkey: ctrl+alt+8
+    system_prompt: system
+    prompt: "{input}"
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="default_action references unknown action"):
+        load_config_bundle(app_config_path=config_path, actions_path=actions_path)

@@ -21,11 +21,16 @@ def load_config_bundle(
     actions_path: str | Path = "config/actions.yaml",
 ) -> ConfigBundle:
     app, runtime, providers, tts, voice_input, logging_settings = load_app_config(app_config_path)
+    actions = load_action_catalog(actions_path)
+    try:
+        actions.get(app.default_action)
+    except ValueError as exc:
+        raise ConfigError(f"config.app.default_action references unknown action: {app.default_action}") from exc
     return ConfigBundle(
         app=app,
         runtime=runtime,
         providers=providers,
-        actions=load_action_catalog(actions_path),
+        actions=actions,
         tts=tts,
         voice_input=voice_input,
         logging=logging_settings,
@@ -106,7 +111,7 @@ def _parse_voice_input(value: Any) -> VoiceInputSettings:
 def _parse_logging(value: Any) -> LoggingSettings:
     path = "config.logging"
     data = _mapping(value, path, allow_none=True)
-    allowed = {"enabled", "profile", "level", "console", "console_level", "file_enabled", "file_path", "file_level", "module_levels", "diagnostics"}
+    allowed = {"enabled", "level", "console", "console_level", "file_enabled", "file_path", "file_level", "module_levels", "diagnostics"}
     _reject_unknown(data, allowed, path)
     module_levels = _mapping(data.get("module_levels"), f"{path}.module_levels", allow_none=True)
     diagnostics = _mapping(data.get("diagnostics"), f"{path}.diagnostics", allow_none=True)
