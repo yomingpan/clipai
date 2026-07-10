@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import CloseSession, CopyResult, StartAction, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, StartAction, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActionDefinition
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -56,6 +56,10 @@ class FakeOutputs:
         self.spoken: list[str] = []
         self.stops = 0
         self.can_speak = True
+        self.can_paste = True
+        self.can_archive = True
+        self.pasted: list[str] = []
+        self.archived: list[str] = []
 
     def copy(self, text: str) -> None:
         self.copied.append(text)
@@ -65,6 +69,12 @@ class FakeOutputs:
 
     def stop_speech(self) -> None:
         self.stops += 1
+
+    def paste(self, text: str) -> None:
+        self.pasted.append(text)
+
+    def archive(self, text: str) -> None:
+        self.archived.append(text)
 
 
 class Listener:
@@ -183,3 +193,17 @@ def test_speech_runs_as_supervised_output_and_can_stop() -> None:
     work()
     assert outputs.spoken == ["speak me"]
     assert controller.snapshot.speaking is False
+
+
+def test_paste_and_archive_flow_through_typed_commands() -> None:
+    runtime, view, _supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    controller = runtime._sessions[session_id]
+    controller._snapshot = controller.snapshot.evolve(content="use me")
+    runtime.enqueue(PasteResult(session_id))
+    runtime.enqueue(ArchiveResult(session_id))
+    runtime.drain_commands()
+    assert outputs.pasted == ["use me"]
+    assert outputs.archived == ["use me"]

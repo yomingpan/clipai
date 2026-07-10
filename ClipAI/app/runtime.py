@@ -6,7 +6,7 @@ import queue
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import AppCommand, CancelSession, CloseSession, CopyResult, FollowUp, ShutdownApplication, StartAction, TogglePin, ToggleSpeech
+from ClipAI.core.commands import AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, FollowUp, PasteResult, ShutdownApplication, StartAction, TogglePin, ToggleSpeech
 from ClipAI.core.ports import ApplicationView
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -102,6 +102,14 @@ class AppRuntime:
             controller = self._sessions.get(command.session_id)
             if controller and controller.snapshot.content:
                 self._output_actions.copy(controller.snapshot.content)
+        elif isinstance(command, PasteResult):
+            controller = self._sessions.get(command.session_id)
+            if controller and controller.snapshot.content and self._output_actions.can_paste:
+                self._output_actions.paste(controller.snapshot.content)
+        elif isinstance(command, ArchiveResult):
+            controller = self._sessions.get(command.session_id)
+            if controller and controller.snapshot.content and self._output_actions.can_archive:
+                self._output_actions.archive(controller.snapshot.content)
         elif isinstance(command, TogglePin):
             controller = self._sessions.get(command.session_id)
             if controller and controller.snapshot.status == SessionStatus.COMPLETED:

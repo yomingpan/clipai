@@ -9,7 +9,7 @@ import customtkinter as ctk
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
 DialogState = Literal["idle", "success", "error", "warning"]
-ResultActionId = Literal["speaker", "copy", "follow_up"]
+ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
 RGB = tuple[int, int, int]
 
 DEFAULT_STATE_COLORS: dict[DialogState, RGB] = {
@@ -34,6 +34,8 @@ ACTION_ICON_FONT_FAMILY = "Segoe MDL2 Assets"
 SPEAKER_ICON = "\uE767"
 STOP_ICON = "\uE71A"
 COPY_ICON = "\uE77F"
+PASTE_ICON = "↪"
+ARCHIVE_ICON = "▣"
 FOLLOW_UP_ICON = "\uE8BD"
 
 
@@ -383,6 +385,8 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
         active_hover_color=SPEAKER_ACTIVE_HOVER_COLOR,
     ),
     ResultActionSpec(slot_id="copy", icon=COPY_ICON, tooltip="Copy result"),
+    ResultActionSpec(slot_id="paste", icon=PASTE_ICON, tooltip="Paste result"),
+    ResultActionSpec(slot_id="archive", icon=ARCHIVE_ICON, tooltip="Archive result"),
     ResultActionSpec(
         slot_id="follow_up",
         icon=FOLLOW_UP_ICON,
@@ -414,10 +418,14 @@ class StandardResultActions:
         *,
         on_speak: Callable[[], None] | None = None,
         on_copy: Callable[[], None] | None = None,
+        on_paste: Callable[[], None] | None = None,
+        on_archive: Callable[[], None] | None = None,
         on_follow_up: Callable[[], None] | None = None,
     ) -> None:
         self._set_command("speaker", on_speak)
         self._set_command("copy", on_copy)
+        self._set_command("paste", on_paste)
+        self._set_command("archive", on_archive)
         self._set_command("follow_up", on_follow_up)
 
     def set_speaker_active(self, active: bool) -> None:
@@ -593,11 +601,15 @@ class BaseResultSurface:
         *,
         on_speak: Callable[[], None] | None = None,
         on_copy: Callable[[], None] | None = None,
+        on_paste: Callable[[], None] | None = None,
+        on_archive: Callable[[], None] | None = None,
         on_follow_up: Callable[[], None] | None = None,
     ) -> None:
         self.standard_actions.configure(
             on_speak=on_speak,
             on_copy=on_copy,
+            on_paste=on_paste,
+            on_archive=on_archive,
             on_follow_up=on_follow_up,
         )
 

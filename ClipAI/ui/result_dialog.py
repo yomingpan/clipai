@@ -7,7 +7,7 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import CloseSession, CopyResult, FollowUp, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, FollowUp, PasteResult, TogglePin, ToggleSpeech
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 
@@ -103,6 +103,8 @@ class ResultDialogPresenter:
         view.surface.configure_standard_actions(
             on_speak=(lambda sid=snapshot.session_id: self._command_sink(ToggleSpeech(sid))) if "speaker" in snapshot.available_actions else None,
             on_copy=(lambda sid=snapshot.session_id: self._command_sink(CopyResult(sid))) if "copy" in snapshot.available_actions else None,
+            on_paste=(lambda sid=snapshot.session_id: self._command_sink(PasteResult(sid))) if "paste" in snapshot.available_actions else None,
+            on_archive=(lambda sid=snapshot.session_id: self._command_sink(ArchiveResult(sid))) if "archive" in snapshot.available_actions else None,
             on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions else None,
         )
         view.surface.set_speaker_active(snapshot.speaking)

@@ -48,4 +48,14 @@ class ToggleSpeech:
     session_id: str
 
 
-AppCommand: TypeAlias = StartAction | CloseSession | CancelSession | CopyResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech
+@dataclass(frozen=True)
+class PasteResult:
+    session_id: str
+
+
+@dataclass(frozen=True)
+class ArchiveResult:
+    session_id: str
+
+
+AppCommand: TypeAlias = StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech

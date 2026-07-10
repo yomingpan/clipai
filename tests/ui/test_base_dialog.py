@@ -7,6 +7,8 @@ from ClipAI.ui.base_dialog import (
     ACTION_HOVER_COLOR,
     CONTENT_COLOR,
     COPY_ICON,
+    PASTE_ICON,
+    ARCHIVE_ICON,
     FOLLOW_ACTIVE_COLOR,
     FOLLOW_UP_ICON,
     RoundedSurfacePainter,
@@ -186,15 +188,19 @@ def test_drag_position_calculation_uses_recorded_offsets() -> None:
 
 
 def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
-    assert [spec.slot_id for spec in STANDARD_RESULT_ACTIONS] == ["speaker", "copy", "follow_up"]
+    assert [spec.slot_id for spec in STANDARD_RESULT_ACTIONS] == ["speaker", "copy", "paste", "archive", "follow_up"]
     assert [spec.icon for spec in STANDARD_RESULT_ACTIONS] == [
         SPEAKER_ICON,
         COPY_ICON,
+        PASTE_ICON,
+        ARCHIVE_ICON,
         FOLLOW_UP_ICON,
     ]
     assert [spec.tooltip for spec in STANDARD_RESULT_ACTIONS] == [
         "Speak result",
         "Copy result",
+        "Paste result",
+        "Archive result",
         "Ask follow-up",
     ]
 
@@ -212,7 +218,7 @@ def test_standard_result_action_idle_style_is_uniform() -> None:
 
 def test_standard_result_action_active_styles_are_semantic() -> None:
     speaker = STANDARD_RESULT_ACTIONS[0]
-    follow_up = STANDARD_RESULT_ACTIONS[2]
+    follow_up = STANDARD_RESULT_ACTIONS[-1]
 
     assert StandardResultActions.style_for(speaker, True) == {
         "text": STOP_ICON,

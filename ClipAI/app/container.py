@@ -11,6 +11,7 @@ from ClipAI.platform.hotkey import register_hotkeys_with_long_press
 from ClipAI.platform.selection import SystemSelectionReader
 from ClipAI.platform.filesystem import JsonlArchiveStore
 from ClipAI.platform.speech import EdgeSpeechOutput
+from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
@@ -43,7 +44,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         model=model,
         default_temperature=bundle.app.temperature,
         provider_name=bundle.providers.active,
-        available_actions=("copy", "follow_up", "speaker") if speech is not None else ("copy", "follow_up"),
+        available_actions=("copy", "paste", "archive", "follow_up", "speaker") if speech is not None else ("copy", "paste", "archive", "follow_up"),
     )
 
     def register(action_map: dict[str, dict[str, str]], callback: Callable[[str, str], None]) -> object:
@@ -57,7 +58,12 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     return AppRuntime(
         actions=bundle.actions,
         execute_action=execute_action,
-        output_actions=OutputActions(clipboard=clipboard, archive=JsonlArchiveStore(), speech=speech),
+        output_actions=OutputActions(
+            clipboard=clipboard,
+            archive=JsonlArchiveStore(),
+            speech=speech,
+            keyboard=SystemKeyboardOutput(),
+        ),
         view=view,
         supervisor=TaskSupervisor(bundle.runtime.max_workers),
         model=model,
