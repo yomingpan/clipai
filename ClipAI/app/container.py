@@ -10,6 +10,7 @@ from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.hotkey import register_hotkeys_with_long_press
 from ClipAI.platform.selection import SystemSelectionReader
 from ClipAI.platform.filesystem import JsonlArchiveStore
+from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
@@ -29,6 +30,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     provider, model = _build_provider(bundle)
     clipboard = SystemClipboard()
     view = ResultDialogPresenter()
+    speech = (
+        EdgeSpeechOutput(voice=bundle.tts.voice, rate=bundle.tts.rate, volume=bundle.tts.volume)
+        if bundle.tts.enabled and bundle.tts.voice
+        else None
+    )
     execute_action = ExecuteAction(
         input_resolver=InputResolver(clipboard, SystemSelectionReader(clipboard)),
         provider=provider,
@@ -37,6 +43,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         model=model,
         default_temperature=bundle.app.temperature,
         provider_name=bundle.providers.active,
+        available_actions=("copy", "follow_up", "speaker") if speech is not None else ("copy", "follow_up"),
     )
 
     def register(action_map: dict[str, dict[str, str]], callback: Callable[[str, str], None]) -> object:
@@ -50,7 +57,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     return AppRuntime(
         actions=bundle.actions,
         execute_action=execute_action,
-        output_actions=OutputActions(clipboard=clipboard, archive=JsonlArchiveStore()),
+        output_actions=OutputActions(clipboard=clipboard, archive=JsonlArchiveStore(), speech=speech),
         view=view,
         supervisor=TaskSupervisor(bundle.runtime.max_workers),
         model=model,

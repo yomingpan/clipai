@@ -43,4 +43,9 @@ class ShutdownApplication:
     pass
 
 
-AppCommand: TypeAlias = StartAction | CloseSession | CancelSession | CopyResult | FollowUp | TogglePin | ShutdownApplication
+@dataclass(frozen=True)
+class ToggleSpeech:
+    session_id: str
+
+
+AppCommand: TypeAlias = StartAction | CloseSession | CancelSession | CopyResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech

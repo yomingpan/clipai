@@ -59,3 +59,9 @@ class SessionController:
         self._presenter.render(snapshot)
         return snapshot
 
+    def set_speaking(self, speaking: bool) -> SessionSnapshot:
+        with self._lock:
+            self._snapshot = self._snapshot.evolve(speaking=speaking)
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return snapshot

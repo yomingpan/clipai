@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import CloseSession, CopyResult, StartAction, TogglePin
+from ClipAI.core.commands import CloseSession, CopyResult, StartAction, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActionDefinition
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -53,9 +53,18 @@ class FakeExecute:
 class FakeOutputs:
     def __init__(self) -> None:
         self.copied: list[str] = []
+        self.spoken: list[str] = []
+        self.stops = 0
+        self.can_speak = True
 
     def copy(self, text: str) -> None:
         self.copied.append(text)
+
+    def speak(self, text: str) -> None:
+        self.spoken.append(text)
+
+    def stop_speech(self) -> None:
+        self.stops += 1
 
 
 class Listener:
@@ -158,3 +167,19 @@ def test_tray_exit_uses_typed_shutdown_command() -> None:
     tray.on_exit()
     runtime.drain_commands()
     assert tray.stopped and listener.stopped and supervisor.closed and view.stopped
+
+
+def test_speech_runs_as_supervised_output_and_can_stop() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    controller = runtime._sessions[session_id]
+    controller._snapshot = controller.snapshot.evolve(content="speak me")
+    runtime.enqueue(ToggleSpeech(session_id))
+    runtime.drain_commands()
+    assert controller.snapshot.speaking is True
+    work = supervisor.work[f"speech:{session_id}"]
+    work()
+    assert outputs.spoken == ["speak me"]
+    assert controller.snapshot.speaking is False

@@ -6,7 +6,7 @@ import queue
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import AppCommand, CancelSession, CloseSession, CopyResult, FollowUp, ShutdownApplication, StartAction, TogglePin
+from ClipAI.core.commands import AppCommand, CancelSession, CloseSession, CopyResult, FollowUp, ShutdownApplication, StartAction, TogglePin, ToggleSpeech
 from ClipAI.core.ports import ApplicationView
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -110,6 +110,8 @@ class AppRuntime:
             self._follow_up(command)
         elif isinstance(command, ShutdownApplication):
             self.stop()
+        elif isinstance(command, ToggleSpeech):
+            self._toggle_speech(command.session_id)
 
     def _start_action(self, command: StartAction) -> None:
         previous = self._sessions.get(self._foreground_id or "")
@@ -155,10 +157,33 @@ class AppRuntime:
             controller.cancel()
             self._supervisor.cancel(session_id)
 
+    def _toggle_speech(self, session_id: str) -> None:
+        controller = self._sessions.get(session_id)
+        if controller is None or not controller.snapshot.content or not self._output_actions.can_speak:
+            return
+        if controller.snapshot.speaking:
+            self._output_actions.stop_speech()
+            controller.set_speaking(False)
+            return
+        controller.set_speaking(True)
+
+        def speak() -> None:
+            try:
+                self._output_actions.speak(controller.snapshot.content)
+            finally:
+                controller.set_speaking(False)
+
+        self._supervisor.submit(
+            f"speech:{session_id}",
+            speak,
+            lambda error: self._handle_unhandled(session_id, error),
+        )
+
     def _close(self, session_id: str) -> None:
         controller = self._sessions.pop(session_id, None)
         self._session_actions.pop(session_id, None)
         if controller:
+            self._output_actions.stop_speech()
             controller.close()
             self._supervisor.cancel(session_id)
         if self._foreground_id == session_id:

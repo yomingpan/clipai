@@ -28,3 +28,10 @@ class OutputActions:
             raise RuntimeError("speech output is not configured")
         self._speech.speak(text)
 
+    @property
+    def can_speak(self) -> bool:
+        return self._speech is not None
+
+    def stop_speech(self) -> None:
+        if self._speech is not None:
+            self._speech.stop()

@@ -64,6 +64,7 @@ class SessionSnapshot:
     pinned: bool = False
     available_actions: tuple[str, ...] = ()
     original_input: str = ""
+    speaking: bool = False
 
     def evolve(self, **changes: object) -> SessionSnapshot:
         return replace(self, revision=self.revision + 1, **changes)
