@@ -29,7 +29,7 @@ if /i "%choice%"=="y" (
 
   set "PYTHON_EXE=.venv\Scripts\python.exe"
 
-  echo [clipai] Installing requirements...
+  echo [clipai] Installing ClipAI from pyproject.toml...
   "!PYTHON_EXE!" -m pip install --upgrade pip
   if !errorlevel! neq 0 (
     echo [error] Failed to upgrade pip.
@@ -37,15 +37,11 @@ if /i "%choice%"=="y" (
     exit /b 1
   )
 
-  if exist "requirements.txt" (
-    "!PYTHON_EXE!" -m pip install -r requirements.txt
-    if !errorlevel! neq 0 (
-      echo [error] Failed to install dependencies from requirements.txt
-      pause
-      exit /b 1
-    )
-  ) else (
-    echo [warning] requirements.txt not found. Skipping dependency install.
+  "!PYTHON_EXE!" -m pip install -e ".[dev]"
+  if !errorlevel! neq 0 (
+    echo [error] Failed to install ClipAI from pyproject.toml
+    pause
+    exit /b 1
   )
 
 ) else (

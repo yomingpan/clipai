@@ -15,17 +15,28 @@ clipai/
   app/              # 組裝層與 runtime 啟動
   core/             # 核心抽象、事件、domain contract
   platform/         # 作業系統與裝置接縫
-  provider/         # AI provider adapter
+  providers/        # AI provider adapter
   services/         # 業務流程與 pipeline orchestration
   services/input/   # 輸入解析與輸入 session
   ui/               # 使用者介面
-  utils/            # 通用工具
+  support/          # logging、diagnostics 與純通用工具
 config/             # 使用者設定，放在 package 外部
   prompts/          # prompt template 與可調整的語意內容
 tests/              # Unit sims 與 integration tests
 ```
 
-目前 repo 仍可能存在過渡中的舊路徑，例如 `providers/` 或 `context/`。重構時應朝上方結構收斂，不新增新的長期依賴到舊路徑。
+`app` 是唯一 composition root。依賴方向固定為：`app -> services/platform/providers/ui -> core`；`support` 不得知道 ClipAI 業務模型。
+
+## Runtime 與協調契約
+
+- 整個程式只有一個 `AppRuntime`、一個 Tk root 與一個 Tk mainloop。
+- 主流程使用直接 method call；跨 thread 使用 typed command queue。
+- 禁止 global Event Bus。Event Bus 不得用來指揮 action pipeline 或修改 session。
+- 每個 session 只有一個 `SessionController` 能修改狀態。
+- Provider 採同步 contract，由單一有界 `ThreadPoolExecutor` 執行；Provider 自己不得建立 thread。
+- Hotkey callback 只能 enqueue command；worker 不得直接碰 Tkinter。
+- 新的未 pin action 取代舊 action；取消後晚到的結果必須依 session id/revision 丟棄。
+- 所有 concrete dependency 只在 `app/container.py` 建立並注入。
 
 ## Core
 
@@ -50,9 +61,9 @@ tests/              # Unit sims 與 integration tests
 - `core` 不得 import `app`, `services`, `ui`, `platform`, `provider`。
 - `core` 可以被所有其他層依賴。
 
-## Utils
+## Support
 
-`utils/` 提供不屬於任何業務的通用能力。
+`support/` 提供不屬於任何業務的通用能力。
 
 應放入：
 
@@ -70,7 +81,7 @@ tests/              # Unit sims 與 integration tests
 - Clipboard、keyboard、notification。
 - 會改變產品流程的設定解析。
 
-判斷方式：如果一個 helper 需要知道 ClipAI 的 action、provider、UI 或 runtime 狀態，它就不應放在 `utils/`。
+判斷方式：如果一個 helper 需要知道 ClipAI 的 action、provider、UI 或 runtime 狀態，它就不應放在 `support/`。
 
 ## Platform
 
@@ -100,9 +111,9 @@ tests/              # Unit sims 與 integration tests
 - `platform` 不得依賴 `ui` 或 `provider`。
 - `platform` 不應主動驅動業務流程，只提供可替換的外部能力。
 
-## Provider
+## Providers
 
-`provider/` 負責與外部 AI 溝通。
+`providers/` 負責與外部 AI 溝通。
 
 應放入：
 
@@ -110,7 +121,8 @@ tests/              # Unit sims 與 integration tests
 - Gemini adapter。
 - Azure OpenAI adapter。
 - Ollama adapter。
-- Provider factory。
+- Gemini、OpenAI、Anthropic 與 fake adapter。
+- 可注入的同步 HTTP transport。
 
 責任只有兩個：
 
@@ -127,9 +139,9 @@ tests/              # Unit sims 與 integration tests
 
 依賴規則：
 
-- `provider` 可依賴 `core` 的 `LLMProvider` contract。
-- `provider` 不得依賴 `ui`, `platform`, `services`。
-- `provider` 不得直接使用 event bus singleton。
+- `providers` 可依賴 `core` 的 `LLMProvider` contract。
+- `providers` 不得依賴 `ui`, `platform`, `services`, `app`。
+- Provider 選擇與實例建立屬於 `app/container.py`。
 
 ## Services
 
@@ -168,9 +180,9 @@ hotkey -> input -> safety/config -> prompt -> provider -> postprocess -> output
 
 依賴規則：
 
-- `services` 可依賴 `core`, `platform`, `provider` contract 或由 `app` 注入的具體能力。
+- `services` 只能依賴 `core` 的 models 與 ports；外部能力由 `app` 注入。
 - `services` 不得 import `ui`。
-- 需要通知 UI 時，使用 `UIGateway`、callback 或 event。
+- 需要通知 UI 時，呼叫注入的 `ResultPresenter.render(SessionSnapshot)`。
 
 ## UI
 
@@ -201,9 +213,9 @@ UI 只負責：
 
 依賴規則：
 
-- `ui` 可依賴 `core` event contract 與 service session model。
+- `ui` 可依賴 `core` commands、ports 與 session snapshot。
 - `ui` 不得 import concrete `provider`。
-- UI 需要服務時，應透過 callback、gateway 或 `app` 注入。
+- UI 操作只能送出 typed command，不得直接呼叫 service 或 concrete adapter。
 
 ## App
 

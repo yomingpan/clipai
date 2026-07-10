@@ -16,7 +16,8 @@ ClipAI 一開始就要把系統切成幾個好替換的接縫。像家電插頭�
 
 - `LLMProvider`
 - `UIGateway`
-- `EventBus`
+- typed command queue
+- `SessionController`
 - Clipboard/Input abstraction
 - Output abstraction
 
@@ -48,7 +49,7 @@ ClipAI 測試分成兩層。
 - 不開真實 UI。
 - 不碰真實剪貼簿。
 - 不送真實鍵盤事件。
-- 使用 fake provider、fake UI、fake clipboard、fake event bus。
+- 使用 fake provider、fake presenter、fake clipboard、in-memory command queue。
 
 目的：
 
@@ -94,7 +95,7 @@ tests/
   conftest.py
   helpers/
     fake_provider.py
-    fake_event_bus.py
+    fake_presenter.py
     fake_clipboard.py
     hotkey_driver.py
     popup_driver.py
@@ -119,7 +120,6 @@ tests/
 
 應清理：
 
-- 全域 event bus。
 - cancellation controller。
 - memory singleton。
 - 環境變數污染。
@@ -128,7 +128,7 @@ tests/
 應提供：
 
 - `fake_provider`
-- `fake_event_bus`
+- `fake_presenter`
 - `fake_clipboard`
 - `tmp_config_dir`
 
@@ -180,6 +180,25 @@ Integration 應測：
 - streaming 中按 copy/speak/archive。
 - popup 關閉後 background callback 不造成 crash。
 - clipboard restore 在錯誤與取消情境下仍穩定。
+
+## Runtime 與 concurrency 測試重點
+
+- 新 hotkey 取消舊的未 pin session。
+- closed/cancelled session 忽略晚到 provider result。
+- revision 較舊的 UI update 不可覆蓋新狀態。
+- Provider worker 不直接呼叫 Tkinter。
+- shutdown 會停止 listener、取消 sessions 並關閉 thread pool。
+- 程式生命週期只建立一個 Tk root/mainloop。
+
+## Architecture tests
+
+以 AST 掃描 imports，不額外依賴 lint plugin：
+
+- `core` 不得 import 其他 ClipAI layer。
+- `services` 只能 import `core`。
+- `platform`、`providers`、`ui` 不得彼此或反向 import `services/app`。
+- 只有 `app` 可以同時知道 concrete adapters 與 services。
+- 不得存在 global Event Bus 或未設移除期限的 compatibility shim。
 
 ## Marker 規則
 
