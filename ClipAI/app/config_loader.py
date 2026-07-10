@@ -22,10 +22,6 @@ def load_config_bundle(
 ) -> ConfigBundle:
     app, runtime, providers, tts, voice_input, logging_settings = load_app_config(app_config_path)
     actions = load_action_catalog(actions_path)
-    try:
-        actions.get(app.default_action)
-    except ValueError as exc:
-        raise ConfigError(f"config.app.default_action references unknown action: {app.default_action}") from exc
     return ConfigBundle(
         app=app,
         runtime=runtime,
@@ -41,9 +37,8 @@ def load_app_config(path: str | Path) -> tuple[AppSettings, RuntimeSettings, Pro
     root = _load_yaml_mapping(path)
     _reject_unknown(root, {"app", "provider", "runtime", "tts", "voice_input", "logging"}, "config")
     app_data = _mapping(root.get("app"), "config.app")
-    _reject_unknown(app_data, {"default_action", "stream", "temperature", "system_prompt", "modifier_mode"}, "config.app")
+    _reject_unknown(app_data, {"stream", "temperature", "system_prompt", "modifier_mode"}, "config.app")
     app = AppSettings(
-        default_action=_string(app_data.get("default_action"), "config.app.default_action", default="english_companion"),
         stream=_boolean(app_data.get("stream"), "config.app.stream", default=False),
         temperature=_number(app_data.get("temperature"), "config.app.temperature", default=0.2),
         system_prompt=_string(app_data.get("system_prompt"), "config.app.system_prompt", default=""),

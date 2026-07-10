@@ -121,3 +121,12 @@ def test_follow_up_keeps_previous_context() -> None:
     assert [message.role for message in provider.requests[1].messages] == ["system", "user", "assistant", "user"]
     assert provider.requests[1].messages[-1].content == "More examples?"
 
+
+def test_prompt_builder_includes_app_and_action_system_prompts() -> None:
+    request = PromptBuilder("App policy").build(
+        action(),
+        "input",
+        model="model",
+        default_temperature=0.2,
+    )
+    assert request.messages[0].content == "App policy\n\nCoach"

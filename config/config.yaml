@@ -1,5 +1,4 @@
 app:
-  default_action: english_companion
   stream: false
   temperature: 0.2
   modifier_mode: ctrl_alt

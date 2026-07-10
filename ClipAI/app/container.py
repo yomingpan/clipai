@@ -39,7 +39,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     execute_action = ExecuteAction(
         input_resolver=InputResolver(clipboard, SystemSelectionReader(clipboard)),
         provider=provider,
-        prompt_builder=PromptBuilder(),
+        prompt_builder=PromptBuilder(bundle.app.system_prompt),
         result_processor=ResultProcessor(),
         model=model,
         default_temperature=bundle.app.temperature,

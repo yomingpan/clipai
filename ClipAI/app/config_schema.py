@@ -13,7 +13,6 @@ ModifierMode = Literal["alt_shift", "ctrl_shift", "ctrl_alt"]
 
 @dataclass(frozen=True)
 class AppSettings:
-    default_action: str
     temperature: float
     stream: bool
     modifier_mode: ModifierMode
