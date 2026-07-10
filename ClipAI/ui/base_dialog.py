@@ -6,7 +6,6 @@ from typing import Callable, Literal, Mapping
 
 import customtkinter as ctk
 
-from ClipAI.core.event_bus import get_event_bus
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
 DialogState = Literal["idle", "success", "error", "warning"]
@@ -177,6 +176,7 @@ class BaseDialog:
         surface_inset: int = 8,
         corner_radius: int = 18,
         track_dialog_state: bool = True,
+        master: tk.Misc | None = None,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
@@ -189,7 +189,7 @@ class BaseDialog:
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
 
         try:
-            self.root = ctk.CTk()
+            self.root = ctk.CTkToplevel(master) if master is not None else ctk.CTk()
             self.root.title(title)
             self.root.geometry(f"{width}x{height}")
             self.root.minsize(min(width, 320), min(height, 180))
@@ -235,7 +235,7 @@ class BaseDialog:
             )
             self.main_frame = self.surface
 
-            self.lifecycle = DialogLifecycle(get_event_bus(), self.root)
+            self.lifecycle = DialogLifecycle(self.root, owns_mainloop=master is None)
             self._flash_controller = SurfaceFlashController(
                 colors=self._state_colors,
                 apply_color=self._painter.draw,

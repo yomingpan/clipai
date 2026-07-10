@@ -1,3 +1,2 @@
-from ClipAI.services.vertical_slice import VerticalSliceOutcome, VerticalSliceWorkflow
+"""Application use cases. This package may only depend on ClipAI.core."""
 
-__all__ = ["VerticalSliceOutcome", "VerticalSliceWorkflow"]

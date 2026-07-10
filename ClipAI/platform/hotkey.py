@@ -3,15 +3,9 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Callable
 
-PressType = Literal["short", "long"]
-
-try:
-    from clipai.logging_setup import diagnostics_enabled
-except ModuleNotFoundError:
-    def diagnostics_enabled(_flag: str) -> bool:
-        return False
+from ClipAI.core.models import PressType
 
 logger = logging.getLogger("clipai.hotkey")
 
@@ -130,11 +124,13 @@ class _HotkeyDispatcher:
         *,
         long_press_sec: float = LONG_PRESS_SEC,
         timer_factory: Callable[..., threading.Timer] = threading.Timer,
+        diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
     ) -> None:
         self._hotkeys = hotkeys
         self._on_trigger = on_trigger
         self._long_press_sec = long_press_sec
         self._timer_factory = timer_factory
+        self._diagnostics_enabled = diagnostics_enabled
         self._pressed: set[str] = set()
         self._active: dict[str, _HotkeyState] = {}
         self._lock = threading.RLock()
@@ -154,13 +150,13 @@ class _HotkeyDispatcher:
     def on_press(self, key) -> None:
         token = _normalize_key(key)
         if not token:
-            if diagnostics_enabled("hotkey_raw_events"):
+            if self._diagnostics_enabled("hotkey_raw_events"):
                 logger.debug("[clipai] Ignored key press: %s", _describe_key(key))
             return
 
         with self._lock:
             self._pressed.add(token)
-            if diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
+            if self._diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
                 logger.debug("[clipai] Key press token=%s raw=(%s) pressed=%s", token, _describe_key(key), sorted(self._pressed))
             for action_id, tokens in self._hotkeys:
                 if action_id in self._active:
@@ -181,13 +177,13 @@ class _HotkeyDispatcher:
     def on_release(self, key) -> None:
         token = _normalize_key(key)
         if not token:
-            if diagnostics_enabled("hotkey_raw_events"):
+            if self._diagnostics_enabled("hotkey_raw_events"):
                 logger.debug("[clipai] Ignored key release: %s", _describe_key(key))
             return
 
         callbacks: list[Callable[[], None]] = []
         with self._lock:
-            if diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
+            if self._diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
                 logger.debug(
                     "[clipai] Key release token=%s raw=(%s) pressed_before=%s",
                     token,
@@ -223,12 +219,14 @@ def create_hotkey_dispatcher(
     modifier_mode: str = "alt_shift",
     long_press_sec: float = LONG_PRESS_SEC,
     timer_factory: Callable[..., threading.Timer] = threading.Timer,
+    diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
 ) -> _HotkeyDispatcher:
     return _HotkeyDispatcher(
         build_hotkey_bindings(action_map, modifier_mode=modifier_mode),
         on_trigger,
         long_press_sec=long_press_sec,
         timer_factory=timer_factory,
+        diagnostics_enabled=diagnostics_enabled,
     )
 
 
@@ -238,6 +236,7 @@ def register_hotkeys_with_long_press(
     *,
     modifier_mode: str = "alt_shift",
     long_press_sec: float = LONG_PRESS_SEC,
+    diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
 ):
     try:
         from pynput import keyboard
@@ -250,7 +249,7 @@ def register_hotkeys_with_long_press(
 
     logger.info("[clipai] Hotkey listener modifier_mode=%s long_press_sec=%s", modifier_mode, long_press_sec)
 
-    dispatcher = _HotkeyDispatcher(hotkeys, on_trigger, long_press_sec=long_press_sec)
+    dispatcher = _HotkeyDispatcher(hotkeys, on_trigger, long_press_sec=long_press_sec, diagnostics_enabled=diagnostics_enabled)
     listener = keyboard.Listener(on_press=dispatcher.on_press, on_release=dispatcher.on_release)
     listener.start()
     return HotkeyListener(listener)

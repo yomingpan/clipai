@@ -1,7 +1,8 @@
 app:
   default_action: translate_zh_tw
-  stream: true
+  stream: false
   temperature: 0.2
+  modifier_mode: ctrl_alt
   system_prompt: |
     你是 ClipAI。
     你的目標是降低使用者的認知負荷，讓人用最短時間看懂重點。
@@ -25,10 +26,27 @@ app:
     - 不要先總結一次，再用另一種說法重講一次。
 
 provider:
-  provider: gemini
-  gemini_base_url: https://generativelanguage.googleapis.com
-  default_model: gemma-4-31b-it
-  #gemini-3.1-flash-lite-preview
+  active: gemini
+  gemini:
+    api_key_env: GEMINI_API_KEY
+    base_url: https://generativelanguage.googleapis.com
+    model: gemma-4-31b-it
+    timeout_sec: 60
+  openai:
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com
+    model: gpt-4.1-mini
+    timeout_sec: 60
+  anthropic:
+    api_key_env: ANTHROPIC_API_KEY
+    base_url: https://api.anthropic.com
+    model: claude-sonnet-4-5
+    timeout_sec: 60
+    api_version: "2023-06-01"
+    max_tokens: 1024
+
+runtime:
+  max_workers: 2
 
 tts:
   enabled: true

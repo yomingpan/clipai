@@ -5,9 +5,9 @@ from typing import Callable
 
 
 class DialogLifecycle:
-    def __init__(self, event_bus, root: tk.Misc) -> None:
-        self._event_bus = event_bus
+    def __init__(self, root: tk.Misc, *, owns_mainloop: bool = True) -> None:
         self._root = root
+        self._owns_mainloop = owns_mainloop
         self._scheduled_jobs: list[str] = []
         self._unsubscribers: list[Callable[[], None]] = []
         self._closed = False
@@ -31,10 +31,11 @@ class DialogLifecycle:
             unsubscribe()
         self._unsubscribers.clear()
 
-        try:
-            self._root.quit()
-        except tk.TclError:
-            pass
+        if self._owns_mainloop:
+            try:
+                self._root.quit()
+            except tk.TclError:
+                pass
         try:
             self._root.destroy()
         except tk.TclError:
@@ -58,9 +59,6 @@ class DialogLifecycle:
             self._root.after_cancel(job_id)
         except tk.TclError:
             pass
-
-    def subscribe(self, event_name: str, callback: Callable[[object], None]) -> None:
-        self._unsubscribers.append(self._event_bus.subscribe(event_name, callback))
 
     def focus(self, widget: tk.Misc | None = None) -> None:
         target = widget or self._root

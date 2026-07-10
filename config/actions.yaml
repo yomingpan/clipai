@@ -2,7 +2,7 @@ actions:
   - id: english_companion
     name: English Companion
     hotkey: ctrl+alt+8
-    stream: true
+    stream: false
     input_mode: selection_or_clipboard
     output_mode: popup
     temperature: 0.2

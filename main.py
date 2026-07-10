@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import multiprocessing
 
-from ClipAI.app.config import load_config_bundle
-from ClipAI.app.runtime import Phase3Runtime
+from ClipAI.app.config_loader import load_config_bundle
+from ClipAI.app.container import build_runtime
 
 try:
     from dotenv import load_dotenv
@@ -16,8 +16,7 @@ def main() -> None:
         load_dotenv()
 
     bundle = load_config_bundle()
-    runtime = Phase3Runtime(bundle)
-    runtime.start()
+    runtime = build_runtime(bundle)
     runtime.run_forever()
 
 

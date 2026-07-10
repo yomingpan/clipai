@@ -3,100 +3,89 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import requests
-
-from ClipAI.core.provider import (
-    ProviderConfigurationError,
-    ProviderRequest,
-    ProviderResponseError,
-)
+from ClipAI.core.errors import CancelledError, ProviderAuthError, ProviderResponseError
+from ClipAI.core.models import LLMRequest, LLMResult, LLMUsage
+from ClipAI.core.state import CancellationToken
+from ClipAI.providers.http_transport import HttpResponse, HttpTransport, RequestsHttpTransport
+from ClipAI.providers.settings import GeminiSettings
 
 
 class GeminiProvider:
-    def __init__(self, config: dict[str, Any] | None = None) -> None:
-        config = config or {}
-        self._api_key = (
-            config.get("gemini_api_key")
-            or config.get("api_key")
-            or os.getenv("GEMINI_API_KEY")
-            or os.getenv("LLM_API_KEY")
+    def __init__(self, settings: GeminiSettings, transport: HttpTransport | None = None) -> None:
+        self._settings = settings
+        self._transport = transport or RequestsHttpTransport()
+
+    def complete(self, request: LLMRequest, cancellation: CancellationToken) -> LLMResult:
+        if cancellation.is_cancelled:
+            raise CancelledError("request cancelled")
+        api_key = os.getenv(self._settings.api_key_env)
+        if not api_key:
+            raise ProviderAuthError(f"missing API key in {self._settings.api_key_env}")
+        response = self._transport.post(
+            f"{self._settings.base_url.rstrip('/')}/v1beta/models/{request.model}:generateContent",
+            params={"key": api_key},
+            json=self.to_payload(request),
+            timeout=self._settings.timeout_sec,
         )
-        self._base_url = str(
-            config.get("gemini_base_url")
-            or os.getenv("GEMINI_BASE_URL")
-            or "https://generativelanguage.googleapis.com"
-        ).rstrip("/")
-        self._timeout_sec = float(config.get("timeout_sec") or 60)
-
-    def complete(self, request: ProviderRequest) -> str:
-        if not self._api_key:
-            raise ProviderConfigurationError("missing Gemini API key")
-
-        url = f"{self._base_url}/v1beta/models/{request.model}:generateContent"
-        params = {"key": self._api_key}
-        payload = self.to_payload(request)
-
-        try:
-            response = requests.post(url, params=params, json=payload, timeout=self._timeout_sec)
-        except requests.exceptions.Timeout as exc:
-            raise ProviderResponseError("Gemini request timed out") from exc
-        except requests.exceptions.ConnectionError as exc:
-            raise ProviderResponseError("Gemini connection failed") from exc
-        except requests.exceptions.RequestException as exc:
-            raise ProviderResponseError(f"Gemini request failed: {exc}") from exc
-
-        if response.status_code >= 400:
-            detail = response.text.strip()
-            if len(detail) > 240:
-                detail = f"{detail[:239]}..."
-            raise ProviderResponseError(f"Gemini HTTP {response.status_code}: {detail}")
-
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise ProviderResponseError("Gemini returned invalid JSON") from exc
-
-        text = self.extract_text(payload).strip()
+        _raise_for_status("Gemini", response)
+        text = self.extract_text(response.payload).strip()
         if not text:
-            raise ProviderResponseError("Provider returned an empty response.")
-        return text
+            raise ProviderResponseError("Gemini returned an empty response")
+        usage_data = response.payload.get("usageMetadata") or {} if isinstance(response.payload, dict) else {}
+        return LLMResult(
+            text=text,
+            provider="gemini",
+            model=request.model,
+            finish_reason=self._finish_reason(response.payload),
+            usage=LLMUsage(
+                input_tokens=_optional_int(usage_data.get("promptTokenCount")),
+                output_tokens=_optional_int(usage_data.get("candidatesTokenCount")),
+            ),
+        )
 
     @staticmethod
-    def to_payload(request: ProviderRequest) -> dict[str, Any]:
-        system_text = "\n\n".join(
-            str(message.get("content") or "")
+    def to_payload(request: LLMRequest) -> dict[str, Any]:
+        system_text = "\n\n".join(message.content for message in request.messages if message.role == "system").strip()
+        contents = [
+            {"role": "model" if message.role == "assistant" else "user", "parts": [{"text": message.content}]}
             for message in request.messages
-            if message.get("role") == "system"
-        ).strip()
-        user_text = "\n\n".join(
-            str(message.get("content") or "")
-            for message in request.messages
-            if message.get("role") != "system"
-        ).strip()
-
-        payload: dict[str, Any] = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": user_text}],
-                }
-            ],
-            "generationConfig": {"temperature": request.temperature},
-        }
+            if message.role != "system"
+        ]
+        payload: dict[str, Any] = {"contents": contents, "generationConfig": {"temperature": request.temperature}}
         if system_text:
             payload["systemInstruction"] = {"parts": [{"text": system_text}]}
         return payload
 
     @staticmethod
     def extract_text(payload: Any) -> str:
-        if isinstance(payload, list):
-            return "".join(GeminiProvider.extract_text(item) for item in payload)
         if not isinstance(payload, dict):
             return ""
-
         texts: list[str] = []
         for candidate in payload.get("candidates") or []:
-            content = candidate.get("content") or {}
-            for part in content.get("parts") or []:
+            for part in (candidate.get("content") or {}).get("parts") or []:
                 texts.append(str(part.get("text") or ""))
         return "".join(texts)
+
+    @staticmethod
+    def _finish_reason(payload: Any) -> str | None:
+        if not isinstance(payload, dict) or not payload.get("candidates"):
+            return None
+        return str(payload["candidates"][0].get("finishReason") or "") or None
+
+
+def _raise_for_status(name: str, response: HttpResponse) -> None:
+    if response.status_code < 400:
+        if response.payload is None:
+            raise ProviderResponseError(f"{name} returned invalid JSON")
+        return
+    if response.status_code in {401, 403}:
+        raise ProviderAuthError(f"{name} rejected the API key")
+    detail = response.text.strip().replace("\n", " ")
+    if len(detail) > 200:
+        detail = f"{detail[:199]}..."
+    raise ProviderResponseError(f"{name} HTTP {response.status_code}: {detail or 'request failed'}")
+
+
+def _optional_int(value: Any) -> int | None:
+    return value if isinstance(value, int) else None
+
