@@ -18,7 +18,7 @@ dependencies = [
   "pystray",
   "Pillow",
   "customtkinter",
-  "h-tts",
+  "edge-tts",
   "miniaudio",
   "pygame-ce",
   "langdetect",

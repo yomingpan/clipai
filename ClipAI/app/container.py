@@ -8,7 +8,8 @@ from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider
 from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.hotkey import register_hotkeys_with_long_press
-from ClipAI.platform.selection import NoopSelectionReader
+from ClipAI.platform.selection import SystemSelectionReader
+from ClipAI.platform.filesystem import JsonlArchiveStore
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
@@ -28,7 +29,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     clipboard = SystemClipboard()
     view = ResultDialogPresenter()
     execute_action = ExecuteAction(
-        input_resolver=InputResolver(clipboard, NoopSelectionReader()),
+        input_resolver=InputResolver(clipboard, SystemSelectionReader(clipboard)),
         provider=provider,
         prompt_builder=PromptBuilder(),
         result_processor=ResultProcessor(),
@@ -48,7 +49,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     return AppRuntime(
         actions=bundle.actions,
         execute_action=execute_action,
-        output_actions=OutputActions(clipboard=clipboard),
+        output_actions=OutputActions(clipboard=clipboard, archive=JsonlArchiveStore()),
         view=view,
         supervisor=TaskSupervisor(bundle.runtime.max_workers),
         model=model,
