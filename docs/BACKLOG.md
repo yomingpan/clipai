@@ -318,6 +318,93 @@ Synonym: starter, hors d'oeuvre
 - 轉文字結果足夠精準，減少手動修正。
 - 語音輸入與現有 text input flow 可共存。
 
+## Core Direction: Composable Shortcut Chains
+
+這是 ClipAI 未來的核心產品能力，不是單一快捷鍵功能。ClipAI 應讓使用者把目前結果直接交給下一個 shortcut，形成低摩擦、可連續組合的內容處理鏈。
+
+核心精神：
+
+- Popup 不只是輸出終點，也能成為下一個 action 的輸入。
+- Shortcut 不只啟動獨立功能，也能接續前一步結果。
+- 使用者應能用短按、長按與後續 shortcut 表達處理強度和輸出方式。
+- 每一步都必須有明確 input、operation lifecycle、結果 ownership 與可見 feedback。
+- 不得以 Runtime action ID 特判、global event、UI widget 直讀或 platform 業務狀態機實作。
+
+### Capability A: Popup Result Chaining
+
+使用情境：
+
+- 新增「簡短內容」shortcut，例如 `Ctrl+Alt+X`。
+- 短按：保持原意，將內容縮短約 80%。
+- 長按：保持原意，縮短成最精煉、仍可理解的表達。
+- 沒有 active popup 時，使用既有 selection-first、clipboard fallback。
+- 有 active popup 時，以目前 foreground popup 已完成的可見結果作為輸入，而不是重新讀 selection 或 clipboard。
+- 處理結果延續在同一個使用者工作流中，讓「口語化 → 縮短 → 再加工」形成可理解的鏈。
+
+產品規則：
+
+- 只能使用已完成且仍有效的 session result；loading、failed、cancelled 或 closed session 不得成為 chain input。
+- 觸發瞬間先擷取 immutable input snapshot，再取消或更新舊工作，避免 session lifecycle race。
+- 使用者必須看到新一步已開始、成功或失敗；舊內容在新結果完成前不得無預警消失。
+- 新一步失敗時應保留上一個有效結果，讓使用者可重試或繼續使用。
+- 必須定義同一 popup 更新、歷史返回與 pinned session 的行為，不能用「session collection 非空」推測目標。
+
+需要的架構能力：
+
+- Typed input target，例如 `external_context`、`foreground_result` 與明確的 fallback policy。
+- `ForegroundSessionReader` 或等價 read-only port，只暴露 immutable session result，不讓 service 讀 UI widget。
+- Action invocation 必須攜帶 resolved input snapshot 或 target descriptor；Runtime 不以 action ID 決定來源。
+- Session lineage metadata，例如 parent session / step ID，支援追蹤鏈條、失敗回復與未來歷史功能。
+- Popup presenter 應呈現同一 workflow 的 revision/step，而不是讓多個 session controller 爭奪同一視窗。
+
+成功標準：
+
+- 使用者可連續執行「口語化 → 短按縮短 → 長按極簡」，每一步都以前一步結果為輸入。
+- Provider 失敗、快速重觸或舊工作晚完成時，不會覆蓋較新的結果。
+- 沒有 popup 時仍維持 selection-first、clipboard fallback。
+- Popup chaining 不讓 UI、platform、provider 跨越既有架構邊界。
+
+### Capability B: Shortcut Sequence Composition
+
+使用情境：
+
+- 使用者長按 `Ctrl+Alt+Q`，進入「處理後直接朗讀」的短暫等待狀態。
+- 接著按下另一個 action shortcut，例如 `Ctrl+Alt+6` 代表口語化表達。
+- ClipAI 取得來源內容，先執行 `Ctrl+Alt+6` 對應的 action，再將結果直接送入 TTS。
+- 整個流程不開啟 popup，但仍提供 processing、speaking、success 或 failure feedback。
+
+產品規則：
+
+- Sequence 必須有明確 timeout；逾時後取消等待狀態，不得永久攔截後續 shortcut。
+- 必須有清楚的 pending feedback，讓使用者知道系統正在等待下一個 shortcut。
+- 不支援的第二鍵、重複 prefix、Escape/shutdown 與新 sequence 都必須有確定的取消規則。
+- 第二個 shortcut 的 short/long press 語意必須保留，不能因 sequence 而退化。
+- Direct speech pipeline 若失敗，不得建立空 popup或播放舊內容。
+
+需要的架構能力：
+
+- Platform hotkey listener 繼續只輸出 atomic `shortcut_id + press_type`，不負責 sequence 語意。
+- 在 services/app 邊界新增 `ShortcutSequenceCoordinator` 狀態機，負責 idle、awaiting-next、executing、cancelled/expired。
+- Sequence resolution 產生 typed composite invocation，例如「執行 action，將結果 route 至 speech」。
+- Action pipeline 的 result destination 必須由 typed output route 表達，例如 `popup` 或 `speech`；不得用 action ID 或 UI branch 判斷。
+- Composite operation 需要 parent operation ID，並正確串接 provider 與 TTS lifecycle；provider 成功不等於整條 sequence 成功。
+
+成功標準：
+
+- `Ctrl+Alt+Q` 長按後接 action shortcut，可在不開 popup 的情況下朗讀轉換結果。
+- Sequence timeout、取消、錯誤與快速重觸行為可單元測試且可預測。
+- Provider 與 TTS 任一步失敗時，整體狀態正確，不顯示假成功。
+- 未參與 sequence 的既有 shortcuts 行為完全不變。
+
+### Recommended Architecture Order
+
+1. 先建立 typed `InputTarget` 與 foreground result snapshot contract，完成 popup result chaining。
+2. 將 action 執行結果與 presentation 拆開，建立 typed `ResultRoute`（popup / speech）。
+3. 再建立 `ShortcutSequenceCoordinator`，組合既有 action invocation 與 result route。
+4. 最後加入 sequence pending UI、timeout、取消與 workflow history。
+
+不建議現在只為範例快捷鍵新增 action ID 特判、把 popup content 寫回 clipboard、讓 hotkey listener 保存 sequence state，或讓 UI 直接呼叫 provider/TTS。這些作法會破壞 session ownership，也會讓未來每個 chain 增加新的耦合。
+
 ## Done
 
 - Product philosophy documented.
