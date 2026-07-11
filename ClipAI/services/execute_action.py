@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from ClipAI.core.errors import CancelledError, ClipAIError
-from ClipAI.core.models import ResolvedAction
-from ClipAI.core.ports import LLMProvider
+from ClipAI.core.models import LLMRequest, LLMResult, ResolvedAction
+from ClipAI.core.ports import LLMProvider, StatusIndicator
 from ClipAI.core.state import SessionStatus
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.prompt_builder import PromptBuilder
@@ -22,6 +22,7 @@ class ExecuteAction:
         default_temperature: float,
         provider_name: str,
         available_actions: tuple[str, ...] = ("copy", "follow_up"),
+        status_indicator: StatusIndicator | None = None,
     ) -> None:
         self._input_resolver = input_resolver
         self._provider = provider
@@ -31,6 +32,7 @@ class ExecuteAction:
         self._default_temperature = default_temperature
         self._provider_name = provider_name
         self._available_actions = available_actions
+        self._status_indicator = status_indicator
 
     def execute(self, action: ResolvedAction, session: SessionController) -> None:
         try:
@@ -55,7 +57,7 @@ class ExecuteAction:
                 status_text=f"Asking {self._provider_name}...",
             ) is None:
                 return
-            result = self._provider.complete(request, session.cancellation)
+            result = self._complete_provider(request, session)
             if session.transition(SessionStatus.PROCESSING_RESULT, status_text="Rendering result...") is None:
                 return
             processed = self._result_processor.process(result.text, action.output_profile)
@@ -87,7 +89,7 @@ class ExecuteAction:
             )
             if session.transition(SessionStatus.REQUESTING_PROVIDER, status_text=f"Asking {self._provider_name}...") is None:
                 return
-            result = self._provider.complete(request, session.cancellation)
+            result = self._complete_provider(request, session)
             if session.transition(SessionStatus.PROCESSING_RESULT, status_text="Rendering result...") is None:
                 return
             processed = self._result_processor.process(result.text, action.output_profile)
@@ -101,6 +103,23 @@ class ExecuteAction:
             session.cancel()
         except ClipAIError as exc:
             session.fail(str(exc))
+
+    def _complete_provider(self, request: LLMRequest, session: SessionController) -> LLMResult:
+        if self._status_indicator is not None:
+            self._status_indicator.set_status("processing")
+        try:
+            result = self._provider.complete(request, session.cancellation)
+        except CancelledError:
+            if self._status_indicator is not None:
+                self._status_indicator.set_status("idle")
+            raise
+        except BaseException:
+            if self._status_indicator is not None:
+                self._status_indicator.set_status("error")
+            raise
+        if self._status_indicator is not None:
+            self._status_indicator.set_status("success")
+        return result
 
 
 def _source_preview(source: str, text: str, limit: int = 90) -> str:

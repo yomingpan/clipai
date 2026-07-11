@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.commands import CopyResult, PasteResult, TogglePin
+from ClipAI.core.commands import ArchiveResult, CopyResult, PasteResult, TogglePin, ToggleSpeech
 from ClipAI.ui.result_dialog import ResultDialogPresenter, _SessionView
 
 
@@ -28,6 +28,12 @@ class Surface:
     def set_standard_action_enabled(self, slot_id: str, enabled: bool) -> None:
         self.events.append(f"{slot_id}:{enabled}")
 
+    def pulse_standard_action(self, slot_id: str, duration_ms: int = 800) -> None:
+        self.events.append(f"{slot_id}:pulse:{duration_ms}")
+
+    def set_speaker_active(self, active: bool) -> None:
+        self.events.append(f"speaker:{active}")
+
     def toggle_pin(self) -> bool:
         self.events.append("pin:toggled")
         return True
@@ -45,6 +51,24 @@ def test_text_command_carries_popup_selection() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._send_text_command("s1", CopyResult)
     assert events == [CopyResult("s1", "selected")]
+
+
+def test_copy_and_archive_show_feedback_before_emitting_command() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._copy("s1")
+    presenter._archive("s1")
+    assert events == [
+        "copy:pulse:800",
+        CopyResult("s1", "selected"),
+        "archive:pulse:800",
+        ArchiveResult("s1"),
+    ]
+
+
+def test_speaker_icon_changes_before_emitting_command() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._toggle_speech("s1")
+    assert events == ["speaker:True", ToggleSpeech("s1", "selected")]
 
 
 def test_paste_disables_and_hides_before_emitting_command() -> None:

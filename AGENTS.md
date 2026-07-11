@@ -1,38 +1,39 @@
 # ClipAI agent contract
 
-開始任何修改前，必須完整閱讀：
+Before changing this repository, read:
 
 - `docs/Product_philosophy.md`
 - `docs/ARCHITECTURE_BOUNDARIES.md`
 - `docs/TESTING_STRATEGY.md`
 
-任何文件缺失或彼此衝突時，停止修改並回報，不可自行猜測架構。
+## Product interaction principles
 
-## 工作流程
+1. Every user action must produce an immediate, visible response. A control must show a pending, active, success, or failure state as appropriate; examples include Speak changing to Stop while active and Copy or Archive briefly confirming completion.
+2. UI feedback must reflect the real lifecycle. Do not show success before the operation succeeds, and do not infer external API activity from unrelated UI or session revisions.
+3. Accessibility and clarity take priority over decorative effects. Use a stable icon vocabulary, tooltips, enabled/disabled states, and state changes that remain understandable without animation.
 
-1. 先執行 `git status --short`，辨識並保留使用者既有變更。
-2. 將工作拆成可獨立驗證、可回退的 cohesive changes。
-3. Contract 改變時，同一個 commit 更新對應 tests 與架構文件。
-4. 驗證順序為 targeted tests、architecture tests、完整 unit suite、必要的 integration smoke test。
-5. 刪除舊碼前用 `rg` 搜尋 imports、tests、config、scripts 與 docs；替代品驗證後立即刪除，不保留無期限 compatibility shim。
+## Architecture-first rule
 
-## 不可違反的架構規則
+1. Preserve architecture boundaries before adding feature-specific behavior. Put policy in core/services, orchestration in app, and toolkit or OS behavior in adapters.
+2. If a requested feature needs a one-off dependency, bypass, global event, raw cross-layer dictionary, or provider-specific UI branch, stop and warn that it will constrain future architecture changes. Describe the coupling and propose a reusable contract or adapter boundary before implementation.
+3. Do not add an abstraction speculatively. Add one when it removes actual coupling, duplication, or state ambiguity in the current design.
+4. UI must not directly call clipboard, keyboard, TTS, archive, or provider implementations. Use typed commands and injected ports.
 
-- `core` 只能依賴 Python standard library。
-- `services` 只能依賴 `core`。
-- `platform`、`providers`、`ui` 只能依賴 `core` 或 standard library/第三方套件。
-- 只有 `app` 可以組裝 concrete services、platform、providers 與 UI。
-- 主流程使用直接 method call；跨 thread 使用 typed command queue；禁止 global Event Bus。
-- 每個 session 只有一個 `SessionController` 可以改變狀態。
-- Provider worker 不得直接更新 Tkinter；UI 更新只能回到主 thread。
-- 設定在啟動時解析成 typed immutable models，不得用 raw dict 穿越 layers。
-- 不得把業務決策放進 `support`、generic utility、UI 或 provider adapter。
+## Dependency boundaries
 
-## Commit 規則
+- `core` depends only on the Python standard library.
+- `services` depends on `core`.
+- `platform`, `providers`, and `ui` depend on `core` plus their adapter libraries.
+- Only `app` composes concrete services, platform adapters, providers, and UI.
+- Cross-thread UI input uses the typed command queue, not a global Event Bus.
+- A session has one `SessionController` as its state owner.
+- Provider workers never mutate Tkinter; UI changes happen on the UI thread.
+- Use typed immutable models between layers instead of raw dictionaries.
 
-- Agent 應依變更責任自行拆 commit，不使用固定行數判斷大小。
-- 一個 commit 只回答一個問題；implementation 與其 tests 放在同一 commit。
-- 不混入格式化、無關 cleanup、其他 phase 或使用者既有變更。
-- commit 前檢查 `git diff --cached`；每個 commit 必須可理解、可回退並通過該 slice 的 gate。
-- 使用 `docs:`、`test:`、`refactor:`、`feat:`、`fix:` 等清楚前綴。
-- 若 baseline 已失敗，先記錄既有失敗，不得加入新的失敗。
+## Change workflow
+
+1. Check `git status --short` and preserve unrelated user changes.
+2. Keep each change cohesive and update its contracts and tests together.
+3. Run targeted tests, architecture tests, the unit suite, and an integration smoke test in proportion to the change risk.
+4. Search imports, tests, config, scripts, and docs before removing or renaming a public surface.
+5. Before committing, inspect `git diff --cached` and use a scoped commit prefix such as `feat:`, `fix:`, `refactor:`, `test:`, or `docs:`.

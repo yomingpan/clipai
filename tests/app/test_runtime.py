@@ -98,7 +98,18 @@ class Tray:
         self.stopped = True
 
 
-def make_runtime(*, with_tray: bool = False):
+class StatusIndicator:
+    def __init__(self) -> None:
+        self.statuses: list[str] = []
+
+    def set_status(self, status: str) -> None:
+        self.statuses.append(status)
+
+    def set_memory_active(self, active: bool) -> None:
+        pass
+
+
+def make_runtime(*, with_tray: bool = False, status_indicator=None):
     action = ActionDefinition("a", "Action", "ctrl+alt+8", "system", "{input}", {})
     view = FakeView()
     supervisor = FakeSupervisor()
@@ -113,6 +124,7 @@ def make_runtime(*, with_tray: bool = False):
         model="model",
         hotkey_registrar=lambda _map, _callback: listener,
         tray_factory=Tray if with_tray else None,
+        status_indicator=status_indicator,
     )
     return runtime, view, supervisor, outputs, listener
 
@@ -216,6 +228,19 @@ def test_speech_prefers_selected_command_text() -> None:
     runtime.drain_commands()
     supervisor.work[f"speech:{session_id}"]()
     assert outputs.spoken == ["selected"]
+
+
+def test_speech_reports_one_external_api_lifecycle() -> None:
+    indicator = StatusIndicator()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(status_indicator=indicator)
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    runtime._sessions[session_id]._snapshot = runtime._sessions[session_id].snapshot.evolve(content="speak")
+    runtime.enqueue(ToggleSpeech(session_id))
+    runtime.drain_commands()
+    supervisor.work[f"speech:{session_id}"]()
+    assert indicator.statuses == ["processing", "success"]
 
 
 def test_paste_and_archive_flow_through_typed_commands() -> None:

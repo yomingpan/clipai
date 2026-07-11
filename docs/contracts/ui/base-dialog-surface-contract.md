@@ -118,6 +118,9 @@ Optional slots：
 Slot command 綁定規則：
 
 - Base dialog surface 可以建立 slot、設定樣式、tooltip、enabled/disabled state 與 success/error pulse。
+- Every accepted user command must produce immediate visible feedback. Long-running actions retain an active state for their real lifecycle; fire-and-forget commands show a short requested/pressed state.
+- A requested state must not claim success. Copy or Archive may show `requested` immediately, but may show `copied` or `archived` only after an explicit typed acknowledgment exists.
+- Speaker changes to its Stop icon immediately when speech work is accepted and remains active until the supervised speech task ends or is stopped.
 - 具體 presenter 或 dialog 才能把 slot 綁到 TTS、clipboard、follow-up workflow、archive 或其他服務。
 - Base dialog surface 不得直接 import platform clipboard、TTS service、archive service 或 action runner。
 

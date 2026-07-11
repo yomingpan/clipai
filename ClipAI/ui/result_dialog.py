@@ -8,8 +8,6 @@ import tkinter as tk
 import customtkinter as ctk
 
 from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, FollowUp, PasteResult, TogglePin, ToggleSpeech
-from ClipAI.core.models import ApplicationStatus
-from ClipAI.core.ports import StatusIndicator
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 
@@ -19,12 +17,13 @@ class _SessionView:
     dialog: BaseDialog
     surface: BaseResultSurface
     revision: int = -1
+    speaking: bool = False
 
 
 class ResultDialogPresenter:
     """One persistent Tk root that renders any number of session Toplevels."""
 
-    def __init__(self, status_indicator: StatusIndicator | None = None) -> None:
+    def __init__(self) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
         self._updates: queue.Queue[SessionSnapshot] = queue.Queue()
@@ -33,14 +32,11 @@ class ResultDialogPresenter:
         self._stopping = False
         self._destroyed = False
         self._tick_job: str | None = None
-        self._status_indicator = status_indicator
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
 
     def render(self, snapshot: SessionSnapshot) -> None:
-        if self._status_indicator is not None:
-            self._status_indicator.set_status(_tray_status(snapshot.status))
         self._updates.put(snapshot)
 
     def run(self, command_pump: Callable[[], None]) -> None:
@@ -130,18 +126,41 @@ class ResultDialogPresenter:
         else:
             view.surface.set_loading(snapshot.status_text)
         view.surface.configure_standard_actions(
-            on_speak=(lambda sid=snapshot.session_id: self._send_text_command(sid, ToggleSpeech)) if "speaker" in snapshot.available_actions else None,
-            on_copy=(lambda sid=snapshot.session_id: self._send_text_command(sid, CopyResult)) if "copy" in snapshot.available_actions else None,
+            on_speak=(lambda sid=snapshot.session_id: self._toggle_speech(sid)) if "speaker" in snapshot.available_actions else None,
+            on_copy=(lambda sid=snapshot.session_id: self._copy(sid)) if "copy" in snapshot.available_actions else None,
             on_paste=(lambda sid=snapshot.session_id: self._paste(sid)) if "paste" in snapshot.available_actions else None,
-            on_archive=(lambda sid=snapshot.session_id: self._command_sink(ArchiveResult(sid))) if "archive" in snapshot.available_actions else None,
+            on_archive=(lambda sid=snapshot.session_id: self._archive(sid)) if "archive" in snapshot.available_actions else None,
             on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions else None,
         )
+        view.speaking = snapshot.speaking
         view.surface.set_speaker_active(snapshot.speaking)
 
     def _send_text_command(self, session_id: str, command_type) -> None:
         view = self._views.get(session_id)
         text = view.surface.selected_text() if view is not None else None
         self._command_sink(command_type(session_id, text))
+
+    def _copy(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None:
+            return
+        view.surface.pulse_standard_action("copy")
+        self._send_text_command(session_id, CopyResult)
+
+    def _toggle_speech(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None:
+            return
+        view.speaking = not view.speaking
+        view.surface.set_speaker_active(view.speaking)
+        self._send_text_command(session_id, ToggleSpeech)
+
+    def _archive(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None:
+            return
+        view.surface.pulse_standard_action("archive")
+        self._command_sink(ArchiveResult(session_id))
 
     def _paste(self, session_id: str) -> None:
         view = self._views.get(session_id)
@@ -211,13 +230,3 @@ class ResultDialogPresenter:
                 self._command_sink(CloseSession(session_id))
 
         self._root.after(100, check)
-
-
-def _tray_status(status: SessionStatus) -> ApplicationStatus:
-    if status == SessionStatus.COMPLETED:
-        return "success"
-    if status == SessionStatus.FAILED:
-        return "error"
-    if status in {SessionStatus.CANCELLED, SessionStatus.CLOSED}:
-        return "idle"
-    return "processing"

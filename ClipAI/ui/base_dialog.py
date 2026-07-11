@@ -389,9 +389,23 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
         active_color=SPEAKER_ACTIVE_COLOR,
         active_hover_color=SPEAKER_ACTIVE_HOVER_COLOR,
     ),
-    ResultActionSpec(slot_id="copy", icon=COPY_ICON, tooltip="Copy result"),
+    ResultActionSpec(
+        slot_id="copy",
+        icon=COPY_ICON,
+        tooltip="Copy result",
+        active_tooltip="Copy requested",
+        active_color="#305B9C",
+        active_hover_color=ACTION_HOVER_COLOR,
+    ),
     ResultActionSpec(slot_id="paste", icon=PASTE_ICON, tooltip="Paste result"),
-    ResultActionSpec(slot_id="archive", icon=ARCHIVE_ICON, tooltip="Archive result"),
+    ResultActionSpec(
+        slot_id="archive",
+        icon=ARCHIVE_ICON,
+        tooltip="Archive result",
+        active_tooltip="Archive requested",
+        active_color="#305B9C",
+        active_hover_color=ACTION_HOVER_COLOR,
+    ),
     ResultActionSpec(
         slot_id="follow_up",
         icon=FOLLOW_UP_ICON,
@@ -438,6 +452,10 @@ class StandardResultActions:
 
     def set_follow_up_active(self, active: bool) -> None:
         self._set_active("follow_up", active)
+
+    def pulse(self, slot_id: ResultActionId, duration_ms: int = 800) -> None:
+        self._set_active(slot_id, True)
+        self._surface.dialog.lifecycle.schedule(duration_ms, lambda: self._set_active(slot_id, False))
 
     def set_enabled(self, slot_id: ResultActionId, enabled: bool) -> None:
         self._buttons[slot_id].configure(state="normal" if enabled else "disabled")
@@ -627,6 +645,9 @@ class BaseResultSurface:
 
     def set_standard_action_enabled(self, slot_id: ResultActionId, enabled: bool) -> None:
         self.standard_actions.set_enabled(slot_id, enabled)
+
+    def pulse_standard_action(self, slot_id: ResultActionId, duration_ms: int = 800) -> None:
+        self.standard_actions.pulse(slot_id, duration_ms)
 
     def add_action_slot(
         self,

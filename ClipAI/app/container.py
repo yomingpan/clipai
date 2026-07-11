@@ -33,7 +33,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     clipboard = SystemClipboard()
     runtime_holder: list[AppRuntime] = []
     tray = TrayController(lambda: runtime_holder[0].enqueue(ShutdownApplication()))
-    view = ResultDialogPresenter(status_indicator=tray)
+    view = ResultDialogPresenter()
     speech = (
         EdgeSpeechOutput(voice=bundle.tts.voice, rate=bundle.tts.rate, volume=bundle.tts.volume)
         if bundle.tts.enabled and bundle.tts.voice
@@ -48,6 +48,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         default_temperature=bundle.app.temperature,
         provider_name=bundle.providers.active,
         available_actions=("copy", "paste", "archive", "follow_up", "speaker") if speech is not None else ("copy", "paste", "archive", "follow_up"),
+        status_indicator=tray,
     )
 
     def register(action_map: dict[str, dict[str, str]], callback: Callable[[str, str], None]) -> object:
@@ -72,6 +73,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         model=model,
         hotkey_registrar=register,
         tray_factory=lambda _on_exit: tray,
+        status_indicator=tray,
     )
     runtime_holder.append(runtime)
     return runtime

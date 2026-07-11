@@ -1,11 +1,26 @@
 # Tray Status Indicator Contract
 
-Tray 使用 ClipAI 雙斜線 logo 與一致燈號，提供低干擾的 application status 回饋。
+The tray is an injected UI adapter for application status. Providers and UI presenters must not drive it through globals or an Event Bus.
 
-- Core 只定義 `ApplicationStatus` 與 `StatusIndicator` port。
-- Tray 是 UI adapter，由 composition root 注入；禁止 provider 或 global Event Bus 更新 tray。
-- 工作中為橘色；完成為綠色 2 秒；失敗為紅色 3 秒；取消、關閉與無工作為藍色。
-- Tray adapter 負責 thread、icon lock、retry、reset timer 與 stop cleanup。
-- `memory_active` 預留在 port；沒有 memory service 時固定 false。
+## Status semantics
 
-Icon renderer、status mapping、memory pixel difference 與 timer cleanup 必須可在不啟動真實 tray 下測試。
+- `idle`: no external API call is active.
+- `processing`: an external LLM or TTS call has been sent and is waiting or running.
+- `success`: the external call returned successfully; the tray resets to idle after the configured delay.
+- `error`: the external call failed; the tray resets to idle after the configured delay.
+- `warning` and `paused`: reserved application states.
+
+Presenter rendering, selection changes, popup close, and speaking-state cleanup must not emit API success or error. LLM and TTS workflows set `processing` immediately before the adapter call, `success` only after it returns, `error` when it raises, and `idle` when it is cancelled.
+
+## Adapter ownership
+
+- Core defines `ApplicationStatus` and the `StatusIndicator` port.
+- The composition root injects the tray adapter into application/service workflows.
+- The tray owns its pystray thread, icon lock, retry, reset timer, and stop cleanup.
+- `memory_active` remains a separate API and defaults to false until a memory service is connected.
+
+## Concurrency constraint
+
+`StatusIndicator` is a single-operation projection for the current foreground-work model. Before concurrent external operations are supported, replace it with an operation-identity coordinator. Do not add feature-specific status precedence rules to presenters, providers, or adapters.
+
+Tests must cover status color mapping, external-call lifecycle, timer reset, memory pixel differences, update retry, and stop cleanup.

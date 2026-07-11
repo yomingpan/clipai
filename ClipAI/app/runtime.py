@@ -7,7 +7,7 @@ import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, FollowUp, PasteResult, ShutdownApplication, StartAction, TogglePin, ToggleSpeech
-from ClipAI.core.ports import ApplicationView
+from ClipAI.core.ports import ApplicationView, StatusIndicator
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ExecuteAction
@@ -29,6 +29,7 @@ class AppRuntime:
         model: str,
         hotkey_registrar: Callable[[dict[str, dict[str, str]], Callable[[str, str], None]], object],
         tray_factory: Callable[[Callable[[], None]], object] | None = None,
+        status_indicator: StatusIndicator | None = None,
     ) -> None:
         self._actions = actions
         self._execute_action = execute_action
@@ -38,6 +39,7 @@ class AppRuntime:
         self._model = model
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
+        self._status_indicator = status_indicator
         self._commands: queue.Queue[AppCommand] = queue.Queue()
         self._sessions: dict[str, SessionController] = {}
         self._session_actions: dict[str, object] = {}
@@ -184,14 +186,22 @@ class AppRuntime:
 
         def speak() -> None:
             try:
+                if self._status_indicator is not None:
+                    self._status_indicator.set_status("processing")
                 self._output_actions.speak(text)
+                if self._status_indicator is not None:
+                    self._status_indicator.set_status("success")
+            except BaseException:
+                if self._status_indicator is not None:
+                    self._status_indicator.set_status("error")
+                raise
             finally:
                 controller.set_speaking(False)
 
         self._supervisor.submit(
             f"speech:{session_id}",
             speak,
-            lambda error: self._handle_unhandled(session_id, error),
+            lambda error: self._handle_speech_error(session_id, error),
         )
 
     def _close(self, session_id: str) -> None:
@@ -209,3 +219,9 @@ class AppRuntime:
         controller = self._sessions.get(session_id)
         if controller:
             controller.fail("ClipAI encountered an unexpected error.")
+
+    def _handle_speech_error(self, session_id: str, error: BaseException) -> None:
+        logger.exception("Speech failed session_id=%s", session_id, exc_info=error)
+        controller = self._sessions.get(session_id)
+        if controller:
+            controller.set_speaking(False)

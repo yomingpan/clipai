@@ -7,6 +7,10 @@
 - TTS 使用獨立 speech text preprocessing，避免朗讀 Markdown 符號。
 - LLM 格式由集中式 output profile 管理，action 與 press variant 只引用 profile ID。
 - Tray 使用雙斜線 status icon；memory 黃點只預留 contract，等待真實 memory service。
+- Every accepted user action needs immediate visible feedback. Active workflows reflect their real lifecycle; commands without acknowledgment show only a requested state.
+- Tray status is driven by external LLM/TTS call boundaries, not by general session snapshots. This prevents duplicate success lights from speech cleanup or popup rendering.
+- Copy and Archive need a future typed acknowledgment if confirmed-success icons are required instead of requested feedback.
+- `StatusIndicator` remains a single foreground-operation port. Concurrent API work requires an operation-identity coordinator before it is enabled.
 
 本文件整理目前開發過程中浮現的需求。下次繼續開發時，先從這份 backlog 抽 item，再規劃當期 milestone 與優先順序。
 

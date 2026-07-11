@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.models import ActionVariant, LLMRequest, LLMResult, OutputProfile, ResolvedAction
+from ClipAI.core.errors import ProviderResponseError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.execute_action import ExecuteAction
@@ -39,6 +40,17 @@ class RecordingPresenter:
         self.snapshots.append(snapshot)
 
 
+class RecordingStatus:
+    def __init__(self) -> None:
+        self.statuses: list[str] = []
+
+    def set_status(self, status: str) -> None:
+        self.statuses.append(status)
+
+    def set_memory_active(self, active: bool) -> None:
+        pass
+
+
 def action() -> ResolvedAction:
     return ResolvedAction(
         id="english",
@@ -59,7 +71,7 @@ def controller(presenter: RecordingPresenter | None = None) -> SessionController
     )
 
 
-def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None) -> ExecuteAction:
+def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, status_indicator=None) -> ExecuteAction:
     return ExecuteAction(
         input_resolver=InputResolver(clipboard, selection),
         provider=provider or FakeProvider("result"),
@@ -68,6 +80,7 @@ def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None) 
         model="model",
         default_temperature=0.2,
         provider_name="fake",
+        status_indicator=status_indicator,
     )
 
 
@@ -78,6 +91,30 @@ def test_execute_action_uses_selection_before_clipboard() -> None:
     assert session.snapshot.original_input == "selected"
     assert session.snapshot.source_preview == "Selection: selected"
     assert session.snapshot.content == "result"
+
+
+def test_llm_reports_only_the_provider_call_lifecycle() -> None:
+    indicator = RecordingStatus()
+    session = controller()
+    workflow(FakeClipboard("clipboard"), FakeSelection("selected"), status_indicator=indicator).execute(action(), session)
+    assert indicator.statuses == ["processing", "success"]
+
+
+def test_llm_reports_provider_error_without_false_success() -> None:
+    class FailingProvider:
+        def complete(self, request, cancellation):
+            raise ProviderResponseError("provider failed")
+
+    indicator = RecordingStatus()
+    session = controller()
+    workflow(
+        FakeClipboard("clipboard"),
+        FakeSelection("selected"),
+        provider=FailingProvider(),
+        status_indicator=indicator,
+    ).execute(action(), session)
+    assert indicator.statuses == ["processing", "error"]
+    assert session.snapshot.status == SessionStatus.FAILED
 
 
 def test_empty_input_fails_without_calling_provider() -> None:
