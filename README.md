@@ -1,19 +1,51 @@
-# ClipAI v2
+# Clip AI
 
-Desktop AI companion with typed commands, render-only UI, a single runtime lifecycle, provider abstraction, and cooperative cancellation.
+> **Most AI assistants optimize for automation.
+> Clip AI optimizes for human thinking.**
 
-## Setup
+Clip AI removes operational friction so you can spend more time thinking, learning, and making better decisions.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-```
+---
 
-Configure `provider.active` in `config/config.yaml` as `gemini`, `openai`, `anthropic`, or `fake`, and set the corresponding API-key environment variable. ClipAI never performs automatic provider fallback.
+## Philosophy
 
-## Run and verify
+AI is like autonomous driving.
 
-```powershell
-.\.venv\Scripts\python.exe main.py
-.\.venv\Scripts\python.exe -m pytest
-```
+It should automate repetitive operations—not choose the destination.
+
+Some friction is waste.
+Some friction is growth.
+
+Clip AI removes the first while preserving the second.
+
+> **Remove operational friction. Preserve learning friction.**
+
+---
+
+## Principles
+
+* AI executes. Humans decide.
+* Automate repetition, not judgment.
+* Reduce context switching.
+* Keep humans in control.
+* Make understanding easier, not optional.
+
+---
+
+## What Clip AI Does
+
+* Capture context instantly
+* Explain what is on your screen
+* Summarize complex information
+* Reduce repetitive workflows
+* Help you stay focused on meaningful work
+
+---
+
+## Our Belief
+
+Technology should not replace human growth.
+
+It should create more opportunities for it.
+
+**AI should make us better thinkers, not just faster workers.**
