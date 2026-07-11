@@ -19,9 +19,16 @@ echo [clipai] Virtual environment not found.
 set /p choice="Would you like to create a virtual environment and install dependencies? (y/n): "
 
 if /i "%choice%"=="y" (
+  set "PYTHON_EXE=python"
+  call :require_python_310 "%PYTHON_EXE%"
+  if errorlevel 1 (
+    pause
+    exit /b 1
+  )
+
   echo [clipai] Creating virtual environment in .venv...
-  python -m venv .venv
-  if !errorlevel! neq 0 (
+  "%PYTHON_EXE%" -m venv .venv
+  if errorlevel 1 (
     echo [error] Failed to create virtual environment. Make sure Python is installed.
     pause
     exit /b 1
@@ -56,11 +63,27 @@ if /i "%choice%"=="y" (
 )
 
 :found
+call :require_python_310 "%PYTHON_EXE%"
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
+
 echo [clipai] Starting ClipAI...
 "%PYTHON_EXE%" main.py
-if %errorlevel% neq 0 (
+if errorlevel 1 (
   echo [clipai] Application exited with error code %errorlevel%.
   pause
 )
 
 endlocal
+exit /b
+
+:require_python_310
+"%~1" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"
+if errorlevel 1 (
+  echo [error] ClipAI requires Python 3.10 or newer.
+  "%~1" --version
+  exit /b 1
+)
+exit /b 0
