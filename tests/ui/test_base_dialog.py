@@ -6,6 +6,7 @@ from ClipAI.ui.base_dialog import (
     ACTION_COLOR,
     ACTION_HOVER_COLOR,
     CONTENT_COLOR,
+    CHECK_ICON,
     COPY_ICON,
     PASTE_ICON,
     PIN_ICON,
@@ -234,6 +235,53 @@ def test_standard_result_action_active_styles_are_semantic() -> None:
         "hover_color": ACTION_HOVER_COLOR,
         "text_color": CONTENT_COLOR,
     }
+
+
+def test_repeated_action_pulse_restarts_feedback_timer() -> None:
+    class Lifecycle:
+        def __init__(self) -> None:
+            self.scheduled: list[tuple[int, object]] = []
+            self.cancelled: list[str] = []
+
+        def schedule(self, delay_ms, callback):
+            job = f"job-{len(self.scheduled) + 1}"
+            self.scheduled.append((delay_ms, callback))
+            return job
+
+        def cancel(self, job):
+            self.cancelled.append(job)
+
+    class Button:
+        def configure(self, **kwargs):
+            pass
+
+    class Surface:
+        def __init__(self) -> None:
+            self.dialog = type("Dialog", (), {"lifecycle": Lifecycle()})()
+
+        def add_action_slot(self, *args, **kwargs):
+            return Button()
+
+        def set_action_tooltip(self, slot_id, text):
+            pass
+
+    surface = Surface()
+    actions = StandardResultActions(surface)
+    actions.pulse("copy")
+    actions.pulse("copy")
+
+    assert surface.dialog.lifecycle.cancelled == ["job-1"]
+    assert [delay for delay, _callback in surface.dialog.lifecycle.scheduled] == [1000, 1000]
+
+
+def test_copy_and_archive_feedback_use_green_check_icon() -> None:
+    copy = STANDARD_RESULT_ACTIONS[1]
+    archive = STANDARD_RESULT_ACTIONS[3]
+
+    for spec in (copy, archive):
+        style = StandardResultActions.style_for(spec, True)
+        assert style["text"] == CHECK_ICON
+        assert style["fg_color"] == "#00B04F"
 
 
 def test_pin_icons_use_stable_icon_font_glyphs() -> None:

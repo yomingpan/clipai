@@ -37,6 +37,7 @@ COPY_ICON = "\uE77F"
 PASTE_ICON = "↪"
 ARCHIVE_ICON = "▣"
 FOLLOW_UP_ICON = "\uE8BD"
+CHECK_ICON = "\uE73E"
 PIN_ICON = "\uE718"
 UNPIN_ICON = "\uE77A"
 
@@ -393,18 +394,20 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
         slot_id="copy",
         icon=COPY_ICON,
         tooltip="Copy result",
-        active_tooltip="Copy requested",
-        active_color="#305B9C",
-        active_hover_color=ACTION_HOVER_COLOR,
+        active_icon=CHECK_ICON,
+        active_tooltip="Copy accepted",
+        active_color="#00B04F",
+        active_hover_color="#00B04F",
     ),
     ResultActionSpec(slot_id="paste", icon=PASTE_ICON, tooltip="Paste result"),
     ResultActionSpec(
         slot_id="archive",
         icon=ARCHIVE_ICON,
         tooltip="Archive result",
-        active_tooltip="Archive requested",
-        active_color="#305B9C",
-        active_hover_color=ACTION_HOVER_COLOR,
+        active_icon=CHECK_ICON,
+        active_tooltip="Archive accepted",
+        active_color="#00B04F",
+        active_hover_color="#00B04F",
     ),
     ResultActionSpec(
         slot_id="follow_up",
@@ -421,6 +424,7 @@ class StandardResultActions:
     def __init__(self, surface: BaseResultSurface) -> None:
         self._surface = surface
         self._specs = {spec.slot_id: spec for spec in STANDARD_RESULT_ACTIONS}
+        self._pulse_jobs: dict[ResultActionId, str] = {}
         self._buttons = {
             spec.slot_id: surface.add_action_slot(
                 spec.slot_id,
@@ -453,9 +457,17 @@ class StandardResultActions:
     def set_follow_up_active(self, active: bool) -> None:
         self._set_active("follow_up", active)
 
-    def pulse(self, slot_id: ResultActionId, duration_ms: int = 800) -> None:
+    def pulse(self, slot_id: ResultActionId, duration_ms: int = 1000) -> None:
+        previous_job = self._pulse_jobs.pop(slot_id, None)
+        if previous_job is not None:
+            self._surface.dialog.lifecycle.cancel(previous_job)
         self._set_active(slot_id, True)
-        self._surface.dialog.lifecycle.schedule(duration_ms, lambda: self._set_active(slot_id, False))
+
+        def reset() -> None:
+            self._pulse_jobs.pop(slot_id, None)
+            self._set_active(slot_id, False)
+
+        self._pulse_jobs[slot_id] = self._surface.dialog.lifecycle.schedule(duration_ms, reset)
 
     def set_enabled(self, slot_id: ResultActionId, enabled: bool) -> None:
         self._buttons[slot_id].configure(state="normal" if enabled else "disabled")
@@ -646,7 +658,7 @@ class BaseResultSurface:
     def set_standard_action_enabled(self, slot_id: ResultActionId, enabled: bool) -> None:
         self.standard_actions.set_enabled(slot_id, enabled)
 
-    def pulse_standard_action(self, slot_id: ResultActionId, duration_ms: int = 800) -> None:
+    def pulse_standard_action(self, slot_id: ResultActionId, duration_ms: int = 1000) -> None:
         self.standard_actions.pulse(slot_id, duration_ms)
 
     def add_action_slot(

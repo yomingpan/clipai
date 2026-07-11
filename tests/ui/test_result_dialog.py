@@ -28,7 +28,7 @@ class Surface:
     def set_standard_action_enabled(self, slot_id: str, enabled: bool) -> None:
         self.events.append(f"{slot_id}:{enabled}")
 
-    def pulse_standard_action(self, slot_id: str, duration_ms: int = 800) -> None:
+    def pulse_standard_action(self, slot_id: str, duration_ms: int = 1000) -> None:
         self.events.append(f"{slot_id}:pulse:{duration_ms}")
 
     def set_speaker_active(self, active: bool) -> None:
@@ -58,9 +58,9 @@ def test_copy_and_archive_show_feedback_before_emitting_command() -> None:
     presenter._copy("s1")
     presenter._archive("s1")
     assert events == [
-        "copy:pulse:800",
+        "copy:pulse:1000",
         CopyResult("s1", "selected"),
-        "archive:pulse:800",
+        "archive:pulse:1000",
         ArchiveResult("s1"),
     ]
 
