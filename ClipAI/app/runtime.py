@@ -101,25 +101,31 @@ class AppRuntime:
         elif isinstance(command, CopyResult):
             controller = self._sessions.get(command.session_id)
             if controller and controller.snapshot.content:
-                self._output_actions.copy(controller.snapshot.content)
+                self._output_actions.copy(command.text.strip() if command.text and command.text.strip() else controller.snapshot.content)
         elif isinstance(command, PasteResult):
             controller = self._sessions.get(command.session_id)
             if controller and controller.snapshot.content and self._output_actions.can_paste:
-                self._output_actions.paste(controller.snapshot.content)
+                text = command.text.strip() if command.text and command.text.strip() else controller.snapshot.content
+                self._close(command.session_id)
+                self._supervisor.submit(
+                    f"paste:{command.session_id}",
+                    lambda: self._output_actions.paste(text),
+                    lambda error: logger.exception("Paste failed session_id=%s", command.session_id, exc_info=error),
+                )
         elif isinstance(command, ArchiveResult):
             controller = self._sessions.get(command.session_id)
             if controller and controller.snapshot.content and self._output_actions.can_archive:
                 self._output_actions.archive(controller.snapshot.content)
         elif isinstance(command, TogglePin):
             controller = self._sessions.get(command.session_id)
-            if controller and controller.snapshot.status == SessionStatus.COMPLETED:
+            if controller and controller.snapshot.status not in {SessionStatus.CANCELLED, SessionStatus.CLOSED}:
                 controller.toggle_pin()
         elif isinstance(command, FollowUp):
             self._follow_up(command)
         elif isinstance(command, ShutdownApplication):
             self.stop()
         elif isinstance(command, ToggleSpeech):
-            self._toggle_speech(command.session_id)
+            self._toggle_speech(command.session_id, command.text)
 
     def _start_action(self, command: StartAction) -> None:
         previous = self._sessions.get(self._foreground_id or "")
@@ -165,7 +171,7 @@ class AppRuntime:
             controller.cancel()
             self._supervisor.cancel(session_id)
 
-    def _toggle_speech(self, session_id: str) -> None:
+    def _toggle_speech(self, session_id: str, selected_text: str | None = None) -> None:
         controller = self._sessions.get(session_id)
         if controller is None or not controller.snapshot.content or not self._output_actions.can_speak:
             return
@@ -174,10 +180,11 @@ class AppRuntime:
             controller.set_speaking(False)
             return
         controller.set_speaking(True)
+        text = selected_text.strip() if selected_text and selected_text.strip() else controller.snapshot.content
 
         def speak() -> None:
             try:
-                self._output_actions.speak(controller.snapshot.content)
+                self._output_actions.speak(text)
             finally:
                 controller.set_speaking(False)
 

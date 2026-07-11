@@ -1,0 +1,24 @@
+profiles:
+  - id: plain_text
+    instruction: ""
+    presentation: plain_text
+
+  - id: english_learning_compact
+    presentation: english_learning
+    required_markers:
+      - "Synonym:"
+    instruction: |
+      Return exactly four concise lines: one core word or phrase, one natural Traditional Chinese meaning,
+      one short high-frequency English example, and `Synonym:` followed by 1-3 close alternatives or `None`.
+      Do not add headings, commentary, or extra sections.
+
+  - id: english_improvement
+    presentation: markdown_sections
+    required_markers:
+      - "## What Sounds Off"
+      - "## Better Ways To Say It"
+      - "## Full Rewrite"
+      - "## Useful Patterns"
+    instruction: |
+      Use exactly these four Markdown sections in order: What Sounds Off, Better Ways To Say It,
+      Full Rewrite, and Useful Patterns. Keep every section concise and avoid additional sections.

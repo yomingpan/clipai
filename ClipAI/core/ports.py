@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
-from ClipAI.core.models import LLMRequest, LLMResult
+from ClipAI.core.models import ApplicationStatus, LLMRequest, LLMResult
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -17,6 +17,10 @@ class ClipboardReader(Protocol):
 
 class ClipboardWriter(Protocol):
     def write_text(self, text: str) -> None: ...
+
+
+class ClipboardStore(ClipboardReader, ClipboardWriter, Protocol):
+    pass
 
 
 class SelectionReader(Protocol):
@@ -47,3 +51,9 @@ class SpeechOutput(Protocol):
 
 class KeyboardOutput(Protocol):
     def paste(self) -> None: ...
+
+
+class StatusIndicator(Protocol):
+    def set_status(self, status: ApplicationStatus) -> None: ...
+
+    def set_memory_active(self, active: bool) -> None: ...

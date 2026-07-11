@@ -8,6 +8,8 @@ from ClipAI.ui.base_dialog import (
     CONTENT_COLOR,
     COPY_ICON,
     PASTE_ICON,
+    PIN_ICON,
+    UNPIN_ICON,
     ARCHIVE_ICON,
     FOLLOW_ACTIVE_COLOR,
     FOLLOW_UP_ICON,
@@ -232,3 +234,8 @@ def test_standard_result_action_active_styles_are_semantic() -> None:
         "hover_color": ACTION_HOVER_COLOR,
         "text_color": CONTENT_COLOR,
     }
+
+
+def test_pin_icons_use_stable_icon_font_glyphs() -> None:
+    assert PIN_ICON == "\uE718"
+    assert UNPIN_ICON == "\uE77A"

@@ -20,12 +20,15 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert action.output_mode == "popup"
     assert action.stream is False
     assert action.temperature == 0.2
+    assert action.output_profile == "english_learning_compact"
+    assert bundle.output_profiles.get(action.output_profile).required_markers == ("Synonym:",)
 
 
 def test_long_press_uses_variant_prompt() -> None:
     resolved = load_action_catalog("config/actions.yaml").resolve("english_companion", "long")
     assert resolved.name == "英文改善建議"
     assert "Improve the following English" in resolved.prompt
+    assert resolved.output_profile == "english_improvement"
 
 
 def test_unknown_config_field_reports_full_path(tmp_path: Path) -> None:
@@ -64,4 +67,3 @@ runtime:
     )
     with pytest.raises(ConfigError, match="max_workers"):
         load_app_config(path)
-

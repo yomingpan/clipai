@@ -85,6 +85,9 @@ Base dialog surface 必須提供一致的視覺語言。
 - 尺寸必須有合理 minsize，避免內容在小視窗中擠壓到不可用。
 - Position 支援 center 與 cursor 附近定位。
 - 色彩必須服務狀態辨識，不應製造驚喜或分散注意力。
+- Result popup 預設 always-on-top；pin 只控制 focus out 後是否保留，不改變 topmost。
+- Pin 與 unpin 必須使用固定 icon、tooltip 與 active style，snapshot 更新時同步校正視覺狀態。
+- Header 的非互動區域皆可拖曳，包含 model label；close、pin 與其他 control 不得被 drag binding 攔截。
 
 目前實作參考：
 
@@ -101,6 +104,8 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - `copy`：複製目前可見結果或 selection。視覺上應使用 copy icon。
 - `follow_up`：開啟追問輸入。視覺上應使用 pen icon。
 - `pin`：固定 surface，避免 focus out 時自動關閉。Pin 必須保留為 base slot。
+- `speaker`、`copy`、`paste` 採 selection-first；沒有非空 selection 時才使用完整 result。
+- Paste 必須先隱藏 surface、釋放 focus，再送出 typed command；UI 不得直接操作 clipboard 或 keyboard。
 
 Optional slots：
 

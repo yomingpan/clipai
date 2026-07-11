@@ -25,6 +25,7 @@ class CancelSession:
 @dataclass(frozen=True)
 class CopyResult:
     session_id: str
+    text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -46,11 +47,13 @@ class ShutdownApplication:
 @dataclass(frozen=True)
 class ToggleSpeech:
     session_id: str
+    text: str | None = None
 
 
 @dataclass(frozen=True)
 class PasteResult:
     session_id: str
+    text: str | None = None
 
 
 @dataclass(frozen=True)

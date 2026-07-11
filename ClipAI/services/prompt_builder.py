@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from ClipAI.core.models import LLMMessage, LLMRequest, ResolvedAction
+from ClipAI.services.output_profiles import OutputProfileCatalog
 
 
 class PromptBuilder:
-    def __init__(self, default_system_prompt: str = "") -> None:
+    def __init__(self, default_system_prompt: str = "", output_profiles: OutputProfileCatalog | None = None) -> None:
         self._default_system_prompt = default_system_prompt.strip()
+        self._output_profiles = output_profiles or OutputProfileCatalog([])
 
     def build(self, action: ResolvedAction, input_text: str, *, model: str, default_temperature: float) -> LLMRequest:
         try:
@@ -14,7 +16,7 @@ class PromptBuilder:
             raise ValueError(f"invalid prompt template for action {action.id}: {exc}") from exc
         return LLMRequest(
             messages=(
-                LLMMessage(role="system", content=self._system_prompt(action.system_prompt)),
+                LLMMessage(role="system", content=self._system_prompt(action.system_prompt, action.output_profile)),
                 LLMMessage(role="user", content=user_prompt),
             ),
             model=model,
@@ -33,7 +35,7 @@ class PromptBuilder:
     ) -> LLMRequest:
         return LLMRequest(
             messages=(
-                LLMMessage(role="system", content=self._system_prompt(action.system_prompt)),
+                LLMMessage(role="system", content=self._system_prompt(action.system_prompt, action.output_profile)),
                 LLMMessage(role="user", content=action.prompt.format(input=original_input)),
                 LLMMessage(role="assistant", content=previous_result),
                 LLMMessage(role="user", content=question),
@@ -42,7 +44,6 @@ class PromptBuilder:
             temperature=action.temperature if action.temperature is not None else default_temperature,
         )
 
-    def _system_prompt(self, action_system_prompt: str) -> str:
-        if not self._default_system_prompt:
-            return action_system_prompt
-        return f"{self._default_system_prompt}\n\n{action_system_prompt}"
+    def _system_prompt(self, action_system_prompt: str, output_profile: str) -> str:
+        parts = [self._default_system_prompt, action_system_prompt, self._output_profiles.get(output_profile).instruction]
+        return "\n\n".join(part for part in parts if part.strip())

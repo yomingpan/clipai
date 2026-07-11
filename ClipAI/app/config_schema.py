@@ -5,6 +5,7 @@ from typing import Literal
 
 from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings, ProviderSettings
 from ClipAI.services.action_catalog import ActionCatalog
+from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.support.logging_setup import LoggingSettings
 
 ProviderName = Literal["fake", "gemini", "openai", "anthropic"]
@@ -76,3 +77,4 @@ class ConfigBundle:
     tts: TTSSettings
     voice_input: VoiceInputSettings
     logging: LoggingSettings
+    output_profiles: OutputProfileCatalog

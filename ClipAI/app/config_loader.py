@@ -7,9 +7,10 @@ import yaml
 
 from ClipAI.app.config_schema import AppSettings, ConfigBundle, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings, VoiceOpenAISettings
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.models import ActionDefinition, ActionVariant, InputMode, OutputMode, PressType
+from ClipAI.core.models import ActionDefinition, ActionVariant, InputMode, OutputMode, OutputProfile, PressType
 from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
+from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 
 T = TypeVar("T")
@@ -19,9 +20,11 @@ def load_config_bundle(
     *,
     app_config_path: str | Path = "config/config.yaml",
     actions_path: str | Path = "config/actions.yaml",
+    output_profiles_path: str | Path = "config/output_profiles.yaml",
 ) -> ConfigBundle:
     app, runtime, providers, tts, voice_input, logging_settings = load_app_config(app_config_path)
-    actions = load_action_catalog(actions_path)
+    output_profiles = load_output_profiles(output_profiles_path)
+    actions = load_action_catalog(actions_path, output_profiles=output_profiles)
     return ConfigBundle(
         app=app,
         runtime=runtime,
@@ -30,6 +33,7 @@ def load_config_bundle(
         tts=tts,
         voice_input=voice_input,
         logging=logging_settings,
+        output_profiles=output_profiles,
     )
 
 
@@ -124,19 +128,49 @@ def _parse_logging(value: Any) -> LoggingSettings:
     )
 
 
-def load_action_catalog(path: str | Path) -> ActionCatalog:
+def load_output_profiles(path: str | Path) -> OutputProfileCatalog:
+    payload = _load_yaml_mapping(path)
+    _reject_unknown(payload, {"profiles"}, "output_profiles")
+    raw_profiles = payload.get("profiles")
+    if not isinstance(raw_profiles, list):
+        raise ConfigError("output_profiles.profiles must be a list")
+    profiles: list[OutputProfile] = []
+    for index, value in enumerate(raw_profiles):
+        profile_path = f"output_profiles.profiles[{index}]"
+        data = _mapping(value, profile_path)
+        _reject_unknown(data, {"id", "instruction", "required_markers", "presentation"}, profile_path)
+        markers = data.get("required_markers", [])
+        if not isinstance(markers, list) or not all(isinstance(marker, str) and marker.strip() for marker in markers):
+            raise ConfigError(f"{profile_path}.required_markers must be a list of non-empty strings")
+        profiles.append(OutputProfile(
+            id=_string(data.get("id"), f"{profile_path}.id"),
+            instruction=_string(data.get("instruction"), f"{profile_path}.instruction", default=""),
+            required_markers=tuple(marker.strip() for marker in markers),
+            presentation=_string(data.get("presentation"), f"{profile_path}.presentation", default="plain_text"),
+        ))
+    return OutputProfileCatalog(profiles)
+
+
+def load_action_catalog(path: str | Path, *, output_profiles: OutputProfileCatalog | None = None) -> ActionCatalog:
+    output_profiles = output_profiles or load_output_profiles("config/output_profiles.yaml")
     payload = _load_yaml_mapping(path)
     _reject_unknown(payload, {"actions"}, "actions")
     raw_actions = payload.get("actions")
     if not isinstance(raw_actions, list):
         raise ConfigError("actions.actions must be a list")
-    return ActionCatalog([_parse_action(item, index) for index, item in enumerate(raw_actions)])
+    actions = [_parse_action(item, index) for index, item in enumerate(raw_actions)]
+    for action in actions:
+        profile_ids = [action.output_profile, *(variant.output_profile for variant in action.press_variants.values() if variant.output_profile)]
+        for profile_id in profile_ids:
+            if not output_profiles.contains(profile_id):
+                raise ConfigError(f"action {action.id} references unknown output profile: {profile_id}")
+    return ActionCatalog(actions)
 
 
 def _parse_action(value: Any, index: int) -> ActionDefinition:
     path = f"actions.actions[{index}]"
     data = _mapping(value, path)
-    allowed = {"id", "name", "hotkey", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "output_mode", "temperature"}
+    allowed = {"id", "name", "hotkey", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "output_mode", "temperature", "output_profile"}
     _reject_unknown(data, allowed, path)
     variants: dict[PressType, ActionVariant] = {}
     raw_variants = _mapping(data.get("press_variants"), f"{path}.press_variants", allow_none=True)
@@ -146,11 +180,12 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
             continue
         variant_path = f"{path}.press_variants.{press_type}"
         variant = _mapping(raw_variants[press_type], variant_path)
-        _reject_unknown(variant, {"name", "system_prompt", "prompt"}, variant_path)
+        _reject_unknown(variant, {"name", "system_prompt", "prompt", "output_profile"}, variant_path)
         variants[cast(PressType, press_type)] = ActionVariant(
             name=_string(variant.get("name"), f"{variant_path}.name"),
             system_prompt=_string(variant.get("system_prompt"), f"{variant_path}.system_prompt"),
             prompt=_string(variant.get("prompt"), f"{variant_path}.prompt"),
+            output_profile=_string(variant.get("output_profile"), f"{variant_path}.output_profile", default="") or None,
         )
     temperature = data.get("temperature")
     return ActionDefinition(
@@ -164,6 +199,7 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         input_mode=cast(InputMode, _choice(data.get("input_mode"), f"{path}.input_mode", {"clipboard", "selection_or_clipboard"}, "clipboard")),
         output_mode=cast(OutputMode, _choice(data.get("output_mode"), f"{path}.output_mode", {"popup"}, "popup")),
         temperature=None if temperature is None else _number(temperature, f"{path}.temperature"),
+        output_profile=_string(data.get("output_profile"), f"{path}.output_profile", default="plain_text"),
     )
 
 

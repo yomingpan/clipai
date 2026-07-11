@@ -216,6 +216,7 @@ UI 只負責：
 - `ui` 可依賴 `core` commands、ports 與 session snapshot。
 - `ui` 不得 import concrete `provider`。
 - UI 操作只能送出 typed command，不得直接呼叫 service 或 concrete adapter。
+- Tray 是由 `app` 注入的 `StatusIndicator` UI adapter；session status 只能透過明確 snapshot projection 更新，禁止使用 global Event Bus 或由 provider 更新 tray。
 
 ## App
 

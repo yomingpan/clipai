@@ -58,7 +58,7 @@ class ExecuteAction:
             result = self._provider.complete(request, session.cancellation)
             if session.transition(SessionStatus.PROCESSING_RESULT, status_text="Rendering result...") is None:
                 return
-            processed = self._result_processor.process(result.text)
+            processed = self._result_processor.process(result.text, action.output_profile)
             session.transition(
                 SessionStatus.COMPLETED,
                 status_text="Completed",
@@ -90,7 +90,7 @@ class ExecuteAction:
             result = self._provider.complete(request, session.cancellation)
             if session.transition(SessionStatus.PROCESSING_RESULT, status_text="Rendering result...") is None:
                 return
-            processed = self._result_processor.process(result.text)
+            processed = self._result_processor.process(result.text, action.output_profile)
             session.transition(
                 SessionStatus.COMPLETED,
                 status_text="Completed",

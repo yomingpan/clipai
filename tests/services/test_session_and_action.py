@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from ClipAI.core.models import ActionVariant, LLMRequest, LLMResult, ResolvedAction
+from ClipAI.core.models import ActionVariant, LLMRequest, LLMResult, OutputProfile, ResolvedAction
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.execute_action import ExecuteAction
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
+from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.session_controller import SessionController
 
 
@@ -130,3 +131,19 @@ def test_prompt_builder_includes_app_and_action_system_prompts() -> None:
         default_temperature=0.2,
     )
     assert request.messages[0].content == "App policy\n\nCoach"
+
+
+def test_prompt_builder_adds_output_profile_instruction_once() -> None:
+    profile = OutputProfile("compact", "Return exactly four lines.", ("Synonym:",))
+    catalog = OutputProfileCatalog([profile])
+    profiled = ResolvedAction(**{**action().__dict__, "output_profile": "compact"})
+    request = PromptBuilder("App policy", catalog).build(profiled, "input", model="model", default_temperature=0.2)
+    assert request.messages[0].content.count("Return exactly four lines.") == 1
+
+
+def test_result_processor_warns_but_preserves_text_when_profile_marker_is_missing(caplog) -> None:
+    profile = OutputProfile("compact", "", ("Synonym:",))
+    processor = ResultProcessor(OutputProfileCatalog([profile]))
+    result = processor.process("Useful readable result", "compact")
+    assert result.text == "Useful readable result"
+    assert "missing markers: Synonym:" in caplog.text

@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from ClipAI.app.config_schema import ConfigBundle
 from ClipAI.app.runtime import AppRuntime
+from ClipAI.core.commands import ShutdownApplication
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider
 from ClipAI.platform.clipboard import SystemClipboard
@@ -30,7 +31,9 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     configure_logging(bundle.logging)
     provider, model = _build_provider(bundle)
     clipboard = SystemClipboard()
-    view = ResultDialogPresenter()
+    runtime_holder: list[AppRuntime] = []
+    tray = TrayController(lambda: runtime_holder[0].enqueue(ShutdownApplication()))
+    view = ResultDialogPresenter(status_indicator=tray)
     speech = (
         EdgeSpeechOutput(voice=bundle.tts.voice, rate=bundle.tts.rate, volume=bundle.tts.volume)
         if bundle.tts.enabled and bundle.tts.voice
@@ -39,8 +42,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     execute_action = ExecuteAction(
         input_resolver=InputResolver(clipboard, SystemSelectionReader(clipboard)),
         provider=provider,
-        prompt_builder=PromptBuilder(bundle.app.system_prompt),
-        result_processor=ResultProcessor(),
+        prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),
+        result_processor=ResultProcessor(bundle.output_profiles),
         model=model,
         default_temperature=bundle.app.temperature,
         provider_name=bundle.providers.active,
@@ -55,7 +58,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
         )
 
-    return AppRuntime(
+    runtime = AppRuntime(
         actions=bundle.actions,
         execute_action=execute_action,
         output_actions=OutputActions(
@@ -68,8 +71,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         supervisor=TaskSupervisor(bundle.runtime.max_workers),
         model=model,
         hotkey_registrar=register,
-        tray_factory=TrayController,
+        tray_factory=lambda _on_exit: tray,
     )
+    runtime_holder.append(runtime)
+    return runtime
 
 
 def _build_provider(bundle: ConfigBundle) -> tuple[LLMProvider, str]:

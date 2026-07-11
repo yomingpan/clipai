@@ -162,6 +162,17 @@ def test_copy_and_close_are_commands() -> None:
     assert session_id not in runtime._sessions
 
 
+def test_copy_prefers_selected_command_text() -> None:
+    runtime, view, _supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    runtime._sessions[session_id]._snapshot = runtime._sessions[session_id].snapshot.evolve(content="full result")
+    runtime.enqueue(CopyResult(session_id, " selected "))
+    runtime.drain_commands()
+    assert outputs.copied == ["selected"]
+
+
 def test_stop_releases_listener_supervisor_and_view() -> None:
     runtime, view, supervisor, _outputs, listener = make_runtime()
     runtime.start()
@@ -195,6 +206,18 @@ def test_speech_runs_as_supervised_output_and_can_stop() -> None:
     assert controller.snapshot.speaking is False
 
 
+def test_speech_prefers_selected_command_text() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    runtime._sessions[session_id]._snapshot = runtime._sessions[session_id].snapshot.evolve(content="full")
+    runtime.enqueue(ToggleSpeech(session_id, "selected"))
+    runtime.drain_commands()
+    supervisor.work[f"speech:{session_id}"]()
+    assert outputs.spoken == ["selected"]
+
+
 def test_paste_and_archive_flow_through_typed_commands() -> None:
     runtime, view, _supervisor, outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
@@ -202,8 +225,11 @@ def test_paste_and_archive_flow_through_typed_commands() -> None:
     session_id = view.snapshots[-1].session_id
     controller = runtime._sessions[session_id]
     controller._snapshot = controller.snapshot.evolve(content="use me")
-    runtime.enqueue(PasteResult(session_id))
     runtime.enqueue(ArchiveResult(session_id))
     runtime.drain_commands()
-    assert outputs.pasted == ["use me"]
     assert outputs.archived == ["use me"]
+    runtime.enqueue(PasteResult(session_id, "selected"))
+    runtime.drain_commands()
+    assert session_id not in runtime._sessions
+    _supervisor.work[f"paste:{session_id}"]()
+    assert outputs.pasted == ["selected"]

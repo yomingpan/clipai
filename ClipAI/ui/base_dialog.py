@@ -37,6 +37,8 @@ COPY_ICON = "\uE77F"
 PASTE_ICON = "↪"
 ARCHIVE_ICON = "▣"
 FOLLOW_UP_ICON = "\uE8BD"
+PIN_ICON = "\uE718"
+UNPIN_ICON = "\uE77A"
 
 
 def rgb_to_hex(color: RGB) -> str:
@@ -179,6 +181,7 @@ class BaseDialog:
         corner_radius: int = 18,
         track_dialog_state: bool = True,
         master: tk.Misc | None = None,
+        topmost: bool = True,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
@@ -203,6 +206,8 @@ class BaseDialog:
                     self.root.attributes("-transparentcolor", background_color)
                 except Exception:
                     pass
+            if topmost:
+                self.root.attributes("-topmost", True)
             self._position_window(width, height, position)
 
             self.canvas = tk.Canvas(
@@ -515,7 +520,7 @@ class BaseResultSurface:
         self.close_button.pack(side="left", padx=(0, 4))
         self.pin_button = ctk.CTkButton(
             self.window_actions,
-            text="📌",
+            text=PIN_ICON,
             width=18,
             height=18,
             corner_radius=9,
@@ -526,7 +531,8 @@ class BaseResultSurface:
             command=self.toggle_pin,
         )
         self.pin_button.pack(side="left")
-        self.dialog.enable_drag(self.header, title_area, self.title_label)
+        self._pin_tooltip = _Tooltip(self.pin_button, "Keep open", self.dialog.lifecycle)
+        self.dialog.enable_drag(self.header, title_area, self.title_label, self.model_label)
 
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="w", padx=9, pady=(0, 0))
@@ -671,13 +677,26 @@ class BaseResultSurface:
             self.content_text.insert("end", text, tag)
         self.content_text.configure(state="disabled")
 
-    def toggle_pin(self) -> bool:
-        pinned = self.dialog.toggle_pin()
+    def selected_text(self) -> str | None:
+        try:
+            selected = self.content_text.get("sel.first", "sel.last").strip()
+        except (tk.TclError, AttributeError):
+            return None
+        return selected or None
+
+    def set_pinned_state(self, pinned: bool) -> None:
+        self.dialog.set_pinned(pinned)
         self.pin_button.configure(
+            text=UNPIN_ICON if pinned else PIN_ICON,
             fg_color=ACTION_HOVER_COLOR if pinned else SURFACE_BG,
             hover_color="#2F8DCE" if pinned else "#3A3A3A",
             text_color=CONTENT_COLOR if pinned else "#8A8A8A",
         )
+        self._pin_tooltip.set_text("Unpin" if pinned else "Keep open")
+
+    def toggle_pin(self) -> bool:
+        pinned = self.dialog.toggle_pin()
+        self.set_pinned_state(pinned)
         return pinned
 
     def show_follow_up(self, initial_text: str = "") -> None:

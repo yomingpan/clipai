@@ -1,5 +1,13 @@
 # ClipAI Next-gen Backlog
 
+## 2026-07-11 Interaction Contract Decisions
+
+- Result popup 永遠 topmost；pin 只控制 focus out 留存，且 pin/unpin 必須有明確 icon、tooltip 與 active state。
+- Speaker、copy、paste 統一 selection-first；paste 隱藏 popup 後貼回原應用並恢復原 clipboard。
+- TTS 使用獨立 speech text preprocessing，避免朗讀 Markdown 符號。
+- LLM 格式由集中式 output profile 管理，action 與 press variant 只引用 profile ID。
+- Tray 使用雙斜線 status icon；memory 黃點只預留 contract，等待真實 memory service。
+
 本文件整理目前開發過程中浮現的需求。下次繼續開發時，先從這份 backlog 抽 item，再規劃當期 milestone 與優先順序。
 
 ## Current State
@@ -50,7 +58,32 @@
 - 使用者知道目前卡在哪個階段。
 - 即使 provider 很慢，使用者仍感覺自己掌控流程。
 
-## Priority 2: Provider Runtime Hardening
+## Priority 2: Click Outside To Close
+
+目標：dialog 出現後，如果使用者點擊非 ClipAI UI 的其他區域，視窗應自動關閉，符合輕量 popup 的使用直覺。
+
+目前觀察到的問題：
+
+- dialog 目前需要手動按 close。
+- 使用者如果只是想快速看一下結果，額外關閉動作會增加摩擦。
+- 小工具型 UI 應該像 popup 一樣，不打擾使用者回到原本工作流。
+
+需求：
+
+- dialog 開啟後，偵測使用者點擊 ClipAI 視窗外部。
+- 點擊外部時自動 close dialog。
+- 點擊 dialog 內部、選取文字、按 copy/follow-up/button 不應關閉。
+- pinned 狀態應保留視窗，不因外部點擊關閉。
+- 後續若有 follow-up input，輸入中不應被誤判關閉。
+
+成功標準：
+
+- 使用者按 hotkey 看完結果後，點擊其他 app/桌面區域，dialog 自動關閉。
+- 使用者點擊 dialog 內操作時不會誤關閉。
+- pinned dialog 不會因外部點擊關閉。
+- 這個行為可用 unit 或 integration seam 驗證，不把 OS mouse listener 直接塞進 service。
+
+## Priority 3: Provider Runtime Hardening
 
 目標：讓真實 Gemini 使用時比較穩。
 
@@ -66,7 +99,7 @@
 - API key 缺失、網路錯誤、HTTP error 都能被使用者理解。
 - 測試不需要打真實網路。
 
-## Priority 3: Result Presentation Cleanup
+## Priority 4: Result Presentation Cleanup
 
 目標：讓 Gemini 回來的內容變成適合小視窗閱讀的產品輸出。這是後續體驗優化，不是下一步最優先。
 
@@ -101,7 +134,7 @@ Synonym: starter, hors d'oeuvre
 - 不出現 prompt/debug/任務說明類內容。
 - 內容少於 5 個主要認知點。
 
-## Priority 4: Dialog Rendering Quality
+## Priority 5: Dialog Rendering Quality
 
 目標：讓 UI 呈現更像產品，而不是 raw text viewer。
 
@@ -121,7 +154,7 @@ Synonym: starter, hors d'oeuvre
 - 同一份 result 在 dialog 內更容易掃讀。
 - 文字不需要使用者自行解析 Markdown 結構。
 
-## Priority 5: Input Scope Expansion
+## Priority 6: Input Scope Expansion
 
 目標：從 clipboard-only 擴展到更貼近真實使用。
 
@@ -136,7 +169,7 @@ Synonym: starter, hors d'oeuvre
 - 使用者選取文字後按 hotkey，可直接分析選取內容。
 - 沒有 selection 時仍可用 clipboard。
 
-## Priority 6: Output Actions
+## Priority 7: Output Actions
 
 目標：讓結果可以被拿去用，而不只被看。
 
@@ -153,7 +186,7 @@ Synonym: starter, hors d'oeuvre
 - 每個 output action 都可獨立測試。
 - UI button 不會露出尚未實作但可點擊的假功能。
 
-## Priority 7: Follow-up Loop
+## Priority 8: Follow-up Loop
 
 目標：讓使用者可以基於目前結果追問。
 
@@ -169,7 +202,7 @@ Synonym: starter, hors d'oeuvre
 - 使用者可以在同一個 dialog 追問一次以上。
 - close 後 session cleanup 正確。
 
-## Priority 8: Desktop Runtime Productization
+## Priority 9: Desktop Runtime Productization
 
 目標：從可跑的 script 變成可長期使用的桌面 app。
 

@@ -7,6 +7,7 @@ PressType = Literal["short", "long"]
 MessageRole = Literal["system", "user", "assistant"]
 InputMode = Literal["clipboard", "selection_or_clipboard"]
 OutputMode = Literal["popup"]
+ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class ActionVariant:
     name: str
     system_prompt: str
     prompt: str
+    output_profile: str | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,7 @@ class ActionDefinition:
     input_mode: InputMode = "clipboard"
     output_mode: OutputMode = "popup"
     temperature: float | None = None
+    output_profile: str = "plain_text"
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,15 @@ class ResolvedAction:
     input_mode: InputMode
     output_mode: OutputMode
     temperature: float | None
+    output_profile: str = "plain_text"
+
+
+@dataclass(frozen=True)
+class OutputProfile:
+    id: str
+    instruction: str
+    required_markers: tuple[str, ...] = ()
+    presentation: str = "plain_text"
 
 
 @dataclass(frozen=True)
@@ -79,4 +91,3 @@ class InputDocument:
 @dataclass(frozen=True)
 class ProcessedResult:
     text: str
-
