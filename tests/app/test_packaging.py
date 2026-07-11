@@ -19,5 +19,6 @@ def test_project_metadata_matches_the_supported_runtime() -> None:
 def test_windows_launcher_checks_the_minimum_python_version() -> None:
     launcher = (PROJECT_ROOT / "run_clipai.bat").read_text(encoding="utf-8")
 
-    assert "call :require_python_310" in launcher
+    assert 'call :require_python_310 "!PYTHON_EXE!"' in launcher
+    assert '"!PYTHON_EXE!" -m venv .venv' in launcher
     assert "ClipAI requires Python 3.10 or newer." in launcher
