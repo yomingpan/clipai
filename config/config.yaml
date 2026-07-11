@@ -52,6 +52,7 @@ runtime:
 tts:
   enabled: true
   voice: zh-TW-HsiaoChenNeural
+  english_voice: en-US-AndrewNeural
   rate: "+0%"
   volume: "+0%"
 

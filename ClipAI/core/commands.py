@@ -51,6 +51,11 @@ class ToggleSpeech:
 
 
 @dataclass(frozen=True)
+class SpeakSelectionOrClipboard:
+    pass
+
+
+@dataclass(frozen=True)
 class PasteResult:
     session_id: str
     text: str | None = None
@@ -66,4 +71,4 @@ class ExportDiagnostics:
     pass
 
 
-AppCommand: TypeAlias = StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | ExportDiagnostics
+AppCommand: TypeAlias = StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ExportDiagnostics

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ApplicationStatus, LLMRequest, LLMResult, OperationKind
+from ClipAI.core.models import ApplicationStatus, LLMRequest, LLMResult, OperationKind, SpeechRequest
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -45,7 +45,7 @@ class ArchiveStore(Protocol):
 
 
 class SpeechOutput(Protocol):
-    def speak(self, text: str) -> None: ...
+    def speak(self, request: SpeechRequest) -> None: ...
 
     def stop(self) -> None: ...
 

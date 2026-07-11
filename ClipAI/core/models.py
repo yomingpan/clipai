@@ -3,12 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from ClipAI.core.state import CancellationToken
+
 PressType = Literal["short", "long"]
 MessageRole = Literal["system", "user", "assistant"]
 InputMode = Literal["clipboard", "selection_or_clipboard"]
 OutputMode = Literal["popup"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
 OperationKind = Literal["llm", "tts"]
+ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
 
 
 @dataclass(frozen=True)
@@ -51,7 +54,6 @@ class ActionVariant:
 class ActionDefinition:
     id: str
     name: str
-    hotkey: str
     system_prompt: str
     prompt: str
     press_variants: dict[PressType, ActionVariant]
@@ -60,6 +62,21 @@ class ActionDefinition:
     output_mode: OutputMode = "popup"
     temperature: float | None = None
     output_profile: str = "plain_text"
+
+
+@dataclass(frozen=True)
+class ShortcutDefinition:
+    id: str
+    hotkey: str
+    command: ShortcutCommandKind
+    action_id: str | None = None
+
+
+@dataclass(frozen=True)
+class SpeechRequest:
+    text: str
+    voice_override: str | None
+    cancellation: CancellationToken
 
 
 @dataclass(frozen=True)

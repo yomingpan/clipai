@@ -6,13 +6,15 @@ import queue
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, PasteResult, ShutdownApplication, StartAction, TogglePin, ToggleSpeech
+from ClipAI.core.commands import AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, PasteResult, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
 from ClipAI.core.ports import ApplicationView, DiagnosticsExporter, OperationHandle, OperationTracker, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ExecuteAction
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.session_controller import SessionController
+from ClipAI.services.shortcut_catalog import ShortcutCatalog
+from ClipAI.services.speech_coordinator import SpeechCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime")
@@ -23,6 +25,7 @@ class AppRuntime:
         self,
         *,
         actions: ActionCatalog,
+        shortcuts: ShortcutCatalog,
         execute_action: ExecuteAction,
         output_actions: OutputActions,
         view: ApplicationView,
@@ -34,8 +37,10 @@ class AppRuntime:
         diagnostics_exporter: DiagnosticsExporter | None = None,
         notifier: UserNotifier | None = None,
         incident_reporter: IncidentReporter | None = None,
+        speech_coordinator: SpeechCoordinator | None = None,
     ) -> None:
         self._actions = actions
+        self._shortcuts = shortcuts
         self._execute_action = execute_action
         self._output_actions = output_actions
         self._view = view
@@ -47,6 +52,7 @@ class AppRuntime:
         self._diagnostics_exporter = diagnostics_exporter
         self._notifier = notifier
         self._incident_reporter = incident_reporter or IncidentReporter(logger)
+        self._speech_coordinator = speech_coordinator
         self._commands: queue.Queue[AppCommand] = queue.Queue()
         self._sessions: dict[str, SessionController] = {}
         self._session_actions: dict[str, object] = {}
@@ -63,8 +69,8 @@ class AppRuntime:
 
     def start(self) -> None:
         self._listener = self._hotkey_registrar(
-            self._actions.hotkey_action_map(),
-            lambda action_id, press_type: self.enqueue(StartAction(action_id, press_type)),
+            self._shortcuts.hotkey_map(),
+            lambda shortcut_id, press_type: self.enqueue(self._shortcuts.resolve(shortcut_id, press_type)),
         )
         if self._tray_factory is not None:
             self._tray = self._tray_factory(lambda: self.enqueue(ShutdownApplication()))
@@ -95,6 +101,8 @@ class AppRuntime:
         for operation in list(self._speech_operations.values()):
             operation.cancel()
         self._speech_operations.clear()
+        if self._speech_coordinator is not None:
+            self._speech_coordinator.cancel_current()
         if self._listener is not None and hasattr(self._listener, "stop"):
             self._listener.stop()
         self._listener = None
@@ -143,6 +151,21 @@ class AppRuntime:
             self._toggle_speech(command.session_id, command.text)
         elif isinstance(command, ExportDiagnostics):
             self._export_diagnostics()
+        elif isinstance(command, SpeakSelectionOrClipboard):
+            self._speak_selection_or_clipboard()
+
+    def _speak_selection_or_clipboard(self) -> None:
+        if self._speech_coordinator is None:
+            return
+        job = self._speech_coordinator.create_job(clipboard_only=self._has_active_sessions())
+        self._supervisor.submit(
+            f"speech:{job.operation_id}",
+            job.run,
+            lambda error: self._handle_speech_error(job.operation_id, error),
+        )
+
+    def _has_active_sessions(self) -> bool:
+        return bool(self._sessions)
 
     def _start_action(self, command: StartAction) -> None:
         previous = self._sessions.get(self._foreground_id or "")
@@ -199,6 +222,8 @@ class AppRuntime:
             if operation is not None:
                 operation.cancel()
             return
+        if self._speech_coordinator is not None:
+            self._speech_coordinator.cancel_current()
         controller.set_speaking(True)
         text = selected_text.strip() if selected_text and selected_text.strip() else controller.snapshot.content
         operation = self._operation_tracker.start(f"tts:{session_id}", "tts") if self._operation_tracker else None

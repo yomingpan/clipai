@@ -1,9 +1,8 @@
-schema_version: 1
+schema_version: 2
 
 actions:
   - id: english_companion
     name: English Companion
-    hotkey: ctrl+alt+8
     stream: false
     input_mode: selection_or_clipboard
     output_mode: popup

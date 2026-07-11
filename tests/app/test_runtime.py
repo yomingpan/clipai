@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, StartAction, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActionDefinition
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActionDefinition, ShortcutDefinition
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
+from ClipAI.services.shortcut_catalog import ShortcutCatalog
 
 
 class FakeView:
@@ -147,14 +148,42 @@ class Notifier:
         self.messages.append((title, message))
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None):
-    action = ActionDefinition("a", "Action", "ctrl+alt+8", "system", "{input}", {})
+class SpeechJob:
+    operation_id = "tts:clipboard:unique"
+
+    def __init__(self, calls: list[str]) -> None:
+        self.calls = calls
+
+    def run(self) -> None:
+        self.calls.append("run")
+
+
+class GlobalSpeech:
+    def __init__(self) -> None:
+        self.clipboard_only: list[bool] = []
+        self.calls: list[str] = []
+        self.cancelled = 0
+
+    def create_job(self, *, clipboard_only: bool) -> SpeechJob:
+        self.clipboard_only.append(clipboard_only)
+        return SpeechJob(self.calls)
+
+    def cancel_current(self) -> None:
+        self.cancelled += 1
+
+
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None):
+    action = ActionDefinition("a", "Action", "system", "{input}", {})
     view = FakeView()
     supervisor = FakeSupervisor()
     outputs = FakeOutputs()
     listener = Listener()
     runtime = AppRuntime(
         actions=ActionCatalog([action]),
+        shortcuts=ShortcutCatalog([
+            ShortcutDefinition("a", "ctrl+alt+8", "start_action", "a"),
+            ShortcutDefinition("speech", "ctrl+alt+q", "speak_selection_or_clipboard"),
+        ]),
         execute_action=FakeExecute(),
         output_actions=outputs,
         view=view,
@@ -165,8 +194,31 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         operation_tracker=operation_tracker,
         diagnostics_exporter=diagnostics_exporter,
         notifier=notifier,
+        speech_coordinator=speech_coordinator,
     )
     return runtime, view, supervisor, outputs, listener
+
+
+def test_global_speech_command_is_supervised_without_creating_session() -> None:
+    speech = GlobalSpeech()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
+    runtime.enqueue(SpeakSelectionOrClipboard())
+    runtime.drain_commands()
+    assert speech.clipboard_only == [False]
+    assert view.snapshots == []
+    work = supervisor.work["speech:tts:clipboard:unique"]
+    work()
+    assert speech.calls == ["run"]
+
+
+def test_global_speech_uses_clipboard_only_when_session_exists() -> None:
+    speech = GlobalSpeech()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    runtime.enqueue(SpeakSelectionOrClipboard())
+    runtime.drain_commands()
+    assert speech.clipboard_only == [True]
 
 
 def test_latest_start_cancels_previous_unpinned_session() -> None:

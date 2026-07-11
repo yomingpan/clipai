@@ -1,0 +1,11 @@
+schema_version: 1
+
+shortcuts:
+  - id: english_companion
+    hotkey: ctrl+alt+8
+    command: start_action
+    action_id: english_companion
+
+  - id: speak_selection_or_clipboard
+    hotkey: ctrl+alt+q
+    command: speak_selection_or_clipboard

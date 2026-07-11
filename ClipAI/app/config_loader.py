@@ -7,38 +7,44 @@ import yaml
 
 from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings, VoiceOpenAISettings
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.models import ActionDefinition, ActionVariant, InputMode, OutputMode, OutputProfile, PressType
+from ClipAI.core.models import ActionDefinition, ActionVariant, InputMode, OutputMode, OutputProfile, PressType, ShortcutCommandKind, ShortcutDefinition
 from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.output_profiles import OutputProfileCatalog
+from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 
 T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
+ACTIONS_SCHEMA_VERSION = 2
 
 
 def load_config_bundle(
     *,
     app_config_path: str | Path = "config/config.yaml",
     actions_path: str | Path = "config/actions.yaml",
+    shortcuts_path: str | Path = "config/shortcuts.yaml",
     output_profiles_path: str | Path = "config/output_profiles.yaml",
 ) -> ConfigBundle:
     app, runtime, providers, tts, voice_input, logging_settings = load_app_config(app_config_path)
     output_profiles = load_output_profiles(output_profiles_path)
     actions = load_action_catalog(actions_path, output_profiles=output_profiles)
+    shortcuts = load_shortcut_catalog(shortcuts_path, actions=actions)
     return ConfigBundle(
         app=app,
         runtime=runtime,
         providers=providers,
         actions=actions,
+        shortcuts=shortcuts,
         tts=tts,
         voice_input=voice_input,
         logging=logging_settings,
         output_profiles=output_profiles,
         schema_versions=ConfigSchemaVersions(
             app=_read_schema_version(app_config_path),
-            actions=_read_schema_version(actions_path),
+            actions=_read_schema_version(actions_path, max_version=ACTIONS_SCHEMA_VERSION),
             output_profiles=_read_schema_version(output_profiles_path),
+            shortcuts=_read_schema_version(shortcuts_path),
         ),
     )
 
@@ -78,12 +84,13 @@ def load_app_config(path: str | Path) -> tuple[AppSettings, RuntimeSettings, Pro
 def _parse_tts(value: Any) -> TTSSettings:
     path = "config.tts"
     data = _mapping(value, path, allow_none=True)
-    _reject_unknown(data, {"enabled", "voice", "rate", "volume"}, path)
+    _reject_unknown(data, {"enabled", "voice", "english_voice", "rate", "volume"}, path)
     return TTSSettings(
         enabled=_boolean(data.get("enabled"), f"{path}.enabled", default=False),
         voice=_string(data.get("voice"), f"{path}.voice", default=""),
         rate=_string(data.get("rate"), f"{path}.rate", default="+0%"),
         volume=_string(data.get("volume"), f"{path}.volume", default="+0%"),
+        english_voice=_string(data.get("english_voice"), f"{path}.english_voice", default="en-US-AndrewNeural"),
     )
 
 
@@ -162,7 +169,7 @@ def load_output_profiles(path: str | Path) -> OutputProfileCatalog:
 def load_action_catalog(path: str | Path, *, output_profiles: OutputProfileCatalog | None = None) -> ActionCatalog:
     output_profiles = output_profiles or load_output_profiles("config/output_profiles.yaml")
     payload = _load_yaml_mapping(path)
-    _schema_version(payload, path)
+    _schema_version(payload, path, max_version=ACTIONS_SCHEMA_VERSION)
     _reject_unknown(payload, {"schema_version", "actions"}, "actions")
     raw_actions = payload.get("actions")
     if not isinstance(raw_actions, list):
@@ -179,7 +186,7 @@ def load_action_catalog(path: str | Path, *, output_profiles: OutputProfileCatal
 def _parse_action(value: Any, index: int) -> ActionDefinition:
     path = f"actions.actions[{index}]"
     data = _mapping(value, path)
-    allowed = {"id", "name", "hotkey", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "output_mode", "temperature", "output_profile"}
+    allowed = {"id", "name", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "output_mode", "temperature", "output_profile"}
     _reject_unknown(data, allowed, path)
     variants: dict[PressType, ActionVariant] = {}
     raw_variants = _mapping(data.get("press_variants"), f"{path}.press_variants", allow_none=True)
@@ -200,7 +207,6 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
     return ActionDefinition(
         id=_string(data.get("id"), f"{path}.id"),
         name=_string(data.get("name"), f"{path}.name"),
-        hotkey=_string(data.get("hotkey"), f"{path}.hotkey", default=""),
         system_prompt=_string(data.get("system_prompt"), f"{path}.system_prompt"),
         prompt=_string(data.get("prompt"), f"{path}.prompt"),
         press_variants=variants,
@@ -210,6 +216,41 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         temperature=None if temperature is None else _number(temperature, f"{path}.temperature"),
         output_profile=_string(data.get("output_profile"), f"{path}.output_profile", default="plain_text"),
     )
+
+
+def load_shortcut_catalog(path: str | Path, *, actions: ActionCatalog) -> ShortcutCatalog:
+    payload = _load_yaml_mapping(path)
+    _schema_version(payload, path)
+    _reject_unknown(payload, {"schema_version", "shortcuts"}, "shortcuts")
+    raw_shortcuts = payload.get("shortcuts")
+    if not isinstance(raw_shortcuts, list):
+        raise ConfigError("shortcuts.shortcuts must be a list")
+    shortcuts: list[ShortcutDefinition] = []
+    hotkeys: set[str] = set()
+    ids: set[str] = set()
+    for index, value in enumerate(raw_shortcuts):
+        shortcut_path = f"shortcuts.shortcuts[{index}]"
+        data = _mapping(value, shortcut_path)
+        _reject_unknown(data, {"id", "hotkey", "command", "action_id"}, shortcut_path)
+        shortcut_id = _string(data.get("id"), f"{shortcut_path}.id")
+        hotkey = _string(data.get("hotkey"), f"{shortcut_path}.hotkey").lower()
+        command = cast(ShortcutCommandKind, _choice(data.get("command"), f"{shortcut_path}.command", {"start_action", "speak_selection_or_clipboard"}, "start_action"))
+        action_id = _string(data.get("action_id"), f"{shortcut_path}.action_id", default="") or None
+        if shortcut_id in ids:
+            raise ConfigError(f"duplicate shortcut id: {shortcut_id}")
+        if hotkey in hotkeys:
+            raise ConfigError(f"duplicate shortcut hotkey: {hotkey}")
+        if command == "start_action":
+            if action_id is None:
+                raise ConfigError(f"{shortcut_path}.action_id is required for start_action")
+            if not actions.contains(action_id):
+                raise ConfigError(f"{shortcut_path}.action_id references unknown action: {action_id}")
+        elif action_id is not None:
+            raise ConfigError(f"{shortcut_path}.action_id is only supported for start_action")
+        ids.add(shortcut_id)
+        hotkeys.add(hotkey)
+        shortcuts.append(ShortcutDefinition(shortcut_id, hotkey, command, action_id))
+    return ShortcutCatalog(shortcuts)
 
 
 def _parse_gemini(data: dict[str, Any]) -> GeminiSettings:
@@ -257,18 +298,18 @@ def _load_yaml_mapping(path: str | Path) -> dict[str, Any]:
         raise ConfigError(f"invalid YAML in {path}: {exc}") from exc
 
 
-def _read_schema_version(path: str | Path) -> int:
-    return _schema_version(_load_yaml_mapping(path), path)
+def _read_schema_version(path: str | Path, *, max_version: int = CURRENT_SCHEMA_VERSION) -> int:
+    return _schema_version(_load_yaml_mapping(path), path, max_version=max_version)
 
 
-def _schema_version(data: dict[str, Any], path: str | Path) -> int:
+def _schema_version(data: dict[str, Any], path: str | Path, *, max_version: int = CURRENT_SCHEMA_VERSION) -> int:
     """Treat unversioned documents as legacy v0 without rewriting them."""
     value = data.get("schema_version", 0)
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ConfigError(f"{path}.schema_version must be a non-negative integer")
-    if value > CURRENT_SCHEMA_VERSION:
+    if value > max_version:
         raise ConfigError(
-            f"{path} uses schema_version {value}; this ClipAI supports up to {CURRENT_SCHEMA_VERSION}"
+            f"{path} uses schema_version {value}; this ClipAI supports up to {max_version}"
         )
     return value
 
