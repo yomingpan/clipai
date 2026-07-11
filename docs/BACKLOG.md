@@ -232,6 +232,92 @@ Synonym: starter, hors d'oeuvre
 - 使用者可以用正常入口啟動，不需要手動拼 `PYTHONPATH`。
 - runtime stop 後 hotkey listener 會釋放。
 
+## Priority 10: Image Input via Screenshot Hotkey
+
+目標：讓使用者可以在現有快捷鍵流程中，直接輸入圖片內容，例如截圖後立即分析。
+
+目前觀察到的問題：
+
+- 目前僅支援 clipboard text input，缺少 image input。
+- 使用者在工作流中常常需要先截圖再切換到其他工具。
+- 以 screenshot 進入的資訊，對於視覺理解或 UI/設計/錯誤訊息等場景很有價值。
+
+需求：
+
+- 支援 screenshot capture flow，使用者可選取區域或全螢幕截圖。
+- 截圖後可透過 hotkey 直接送入流程。
+- image input 需要在 platform 層抽象 capture 能力，並由 services/providers 進行 multimodal 處理。
+- 如 provider 無法處理 image，需有清楚 fallback / error。
+
+成功標準：
+
+- 使用者可在不離開當前工作流下，截圖並送入 ClipAI。
+- 截圖內容可被正確辨識與分析。
+- 既有 text-only flow 不受影響。
+
+## Priority 11: Guided Hotkey Onboarding
+
+目標：讓新使用者知道如何使用快捷鍵，並提升第一次使用的成功率。
+
+目前觀察到的問題：
+
+- 使用者可能不知道 hotkey 是什麼、如何啟動、如何觸發。
+- 功能本身很實用，但缺乏可見的引導與學習曲線。
+
+需求：
+
+- 需設計一套使用者引導機制，包含首次啟動提示、熱鍵介紹與可操作範例。
+- 引導設計需要深入討論，評估是否以 overlay、toast、settings page、或首次使用動畫等方式呈現。
+- 引導內容必須在不打斷使用者主要工作流的前提下提供。
+
+成功標準：
+
+- 新使用者能在短時間內理解「如何使用 ClipAI」。
+- 引導機制不會造成過多干擾。
+- 設計討論完成後，可落成可測試的 onboarding flow。
+
+## Priority 12: Language-aware Speech Output
+
+目標：讓 speak 的語音輸出能根據內容語言選擇更合適的語音。
+
+目前觀察到的問題：
+
+- 目前 TTS 可能無法自然區分中英文內容。
+- 使用者希望英文內容使用較自然的英文語音，中文內容使用中文語音。
+
+需求：
+
+- 依內容語言自動選擇語音，英文使用英語語音，中文使用中文語音。
+- 這個行為可作為未來的 voice profile / language profile 設計之一。
+- 若有更好的方案，應在實作前研議。
+
+成功標準：
+
+- 英文內容朗讀時使用英文語音。
+- 中文內容朗讀時使用中文語音。
+- 使用者可感受到語音更自然，減少語感不一致。
+
+## Priority 13: Voice Input via Speech-to-Text
+
+目標：讓使用者可以直接用語音輸入，降低打字成本並提升輸入準確度。
+
+目前觀察到的問題：
+
+- 文字輸入仍是摩擦點，尤其在切換應用或快速記錄時。
+- 使用者希望更自然的輸入方式。
+
+需求：
+
+- 可整合語音輸入流程，例如利用 ChatGPT 的 speech-to-text / transcription 能力。
+- 語音轉文字後可直接進入 ClipAI 的輸入流程，提升輸入精準度。
+- 需評估 privacy、latency、accuracy 與 fallback strategy。
+
+成功標準：
+
+- 使用者可透過語音輸入建立內容。
+- 轉文字結果足夠精準，減少手動修正。
+- 語音輸入與現有 text input flow 可共存。
+
 ## Done
 
 - Product philosophy documented.
