@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.models import ActionVariant, LLMRequest, LLMResult, OutputProfile, ResolvedAction
+from ClipAI.core.models import ActionVariant, LLMRequest, LLMResult, OutputProfile, ReadinessIssue, ResolvedAction
 from ClipAI.core.errors import ProviderResponseError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.providers.fake import FakeProvider
@@ -40,15 +40,28 @@ class RecordingPresenter:
         self.snapshots.append(snapshot)
 
 
-class RecordingStatus:
+class RecordingOperation:
+    def __init__(self, events: list[tuple[str, ...]], operation_id: str) -> None:
+        self.events = events
+        self.operation_id = operation_id
+
+    def succeed(self) -> None:
+        self.events.append(("success", self.operation_id))
+
+    def fail(self) -> None:
+        self.events.append(("error", self.operation_id))
+
+    def cancel(self) -> None:
+        self.events.append(("cancel", self.operation_id))
+
+
+class RecordingOperations:
     def __init__(self) -> None:
-        self.statuses: list[str] = []
+        self.events: list[tuple[str, ...]] = []
 
-    def set_status(self, status: str) -> None:
-        self.statuses.append(status)
-
-    def set_memory_active(self, active: bool) -> None:
-        pass
+    def start(self, operation_id: str, kind: str):
+        self.events.append(("start", operation_id, kind))
+        return RecordingOperation(self.events, operation_id)
 
 
 def action() -> ResolvedAction:
@@ -71,7 +84,7 @@ def controller(presenter: RecordingPresenter | None = None) -> SessionController
     )
 
 
-def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, status_indicator=None) -> ExecuteAction:
+def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, operation_tracker=None, readiness_issues=()) -> ExecuteAction:
     return ExecuteAction(
         input_resolver=InputResolver(clipboard, selection),
         provider=provider or FakeProvider("result"),
@@ -80,7 +93,8 @@ def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, 
         model="model",
         default_temperature=0.2,
         provider_name="fake",
-        status_indicator=status_indicator,
+        operation_tracker=operation_tracker,
+        readiness_issues=readiness_issues,
     )
 
 
@@ -94,10 +108,10 @@ def test_execute_action_uses_selection_before_clipboard() -> None:
 
 
 def test_llm_reports_only_the_provider_call_lifecycle() -> None:
-    indicator = RecordingStatus()
+    operations = RecordingOperations()
     session = controller()
-    workflow(FakeClipboard("clipboard"), FakeSelection("selected"), status_indicator=indicator).execute(action(), session)
-    assert indicator.statuses == ["processing", "success"]
+    workflow(FakeClipboard("clipboard"), FakeSelection("selected"), operation_tracker=operations).execute(action(), session)
+    assert operations.events == [("start", "llm:s1", "llm"), ("success", "llm:s1")]
 
 
 def test_llm_reports_provider_error_without_false_success() -> None:
@@ -105,16 +119,33 @@ def test_llm_reports_provider_error_without_false_success() -> None:
         def complete(self, request, cancellation):
             raise ProviderResponseError("provider failed")
 
-    indicator = RecordingStatus()
+    operations = RecordingOperations()
     session = controller()
     workflow(
         FakeClipboard("clipboard"),
         FakeSelection("selected"),
         provider=FailingProvider(),
-        status_indicator=indicator,
+        operation_tracker=operations,
     ).execute(action(), session)
-    assert indicator.statuses == ["processing", "error"]
+    assert operations.events == [("start", "llm:s1", "llm"), ("error", "llm:s1")]
     assert session.snapshot.status == SessionStatus.FAILED
+
+
+def test_missing_provider_key_fails_before_input_or_provider_call() -> None:
+    class NeverProvider:
+        def complete(self, request, cancellation):
+            raise AssertionError("provider must not be called")
+
+    issue = ReadinessIssue("provider.missing_api_key", "Set GEMINI_API_KEY and restart ClipAI.", "llm")
+    session = controller()
+    workflow(
+        FakeClipboard("clipboard"),
+        FakeSelection("selected"),
+        provider=NeverProvider(),
+        readiness_issues=(issue,),
+    ).execute(action(), session)
+    assert session.snapshot.status == SessionStatus.FAILED
+    assert session.snapshot.error == issue.message
 
 
 def test_empty_input_fails_without_calling_provider() -> None:

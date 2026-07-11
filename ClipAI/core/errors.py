@@ -1,39 +1,40 @@
 class ClipAIError(RuntimeError):
     """Base error with a user-safe message."""
 
+    code = "clipai.error"
+
 
 class ConfigError(ClipAIError):
-    pass
+    code = "config.invalid"
 
 
 class InputError(ClipAIError):
-    pass
+    code = "input.invalid"
 
 
 class ProviderError(ClipAIError):
-    pass
+    code = "provider.error"
 
 
 class ProviderAuthError(ProviderError):
-    pass
+    code = "provider.auth"
 
 
 class ProviderTimeoutError(ProviderError):
-    pass
+    code = "provider.timeout"
 
 
 class ProviderUnavailableError(ProviderError):
-    pass
+    code = "provider.unavailable"
 
 
 class ProviderResponseError(ProviderError):
-    pass
+    code = "provider.response"
 
 
 class CancelledError(ClipAIError):
-    pass
+    code = "operation.cancelled"
 
 
 class InternalApplicationError(ClipAIError):
-    pass
-
+    code = "internal.unexpected"

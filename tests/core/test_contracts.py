@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.commands import StartAction
+from ClipAI.core.errors import ProviderAuthError, ProviderTimeoutError
 from ClipAI.core.models import LLMMessage, LLMRequest, LLMResult
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 
@@ -24,3 +25,7 @@ def test_cancellation_token_is_cooperative() -> None:
     token.cancel()
     assert token.is_cancelled is True
 
+
+def test_expected_errors_have_stable_codes() -> None:
+    assert ProviderAuthError.code == "provider.auth"
+    assert ProviderTimeoutError.code == "provider.timeout"

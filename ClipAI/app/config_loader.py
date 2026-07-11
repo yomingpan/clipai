@@ -5,7 +5,7 @@ from typing import Any, TypeVar, cast
 
 import yaml
 
-from ClipAI.app.config_schema import AppSettings, ConfigBundle, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings, VoiceOpenAISettings
+from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings, VoiceOpenAISettings
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.models import ActionDefinition, ActionVariant, InputMode, OutputMode, OutputProfile, PressType
 from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings
@@ -14,6 +14,7 @@ from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 
 T = TypeVar("T")
+CURRENT_SCHEMA_VERSION = 1
 
 
 def load_config_bundle(
@@ -34,12 +35,18 @@ def load_config_bundle(
         voice_input=voice_input,
         logging=logging_settings,
         output_profiles=output_profiles,
+        schema_versions=ConfigSchemaVersions(
+            app=_read_schema_version(app_config_path),
+            actions=_read_schema_version(actions_path),
+            output_profiles=_read_schema_version(output_profiles_path),
+        ),
     )
 
 
 def load_app_config(path: str | Path) -> tuple[AppSettings, RuntimeSettings, ProviderCatalog, TTSSettings, VoiceInputSettings, LoggingSettings]:
     root = _load_yaml_mapping(path)
-    _reject_unknown(root, {"app", "provider", "runtime", "tts", "voice_input", "logging"}, "config")
+    _schema_version(root, path)
+    _reject_unknown(root, {"schema_version", "app", "provider", "runtime", "tts", "voice_input", "logging"}, "config")
     app_data = _mapping(root.get("app"), "config.app")
     _reject_unknown(app_data, {"stream", "temperature", "system_prompt", "modifier_mode"}, "config.app")
     app = AppSettings(
@@ -117,20 +124,21 @@ def _parse_logging(value: Any) -> LoggingSettings:
     enabled_flags = frozenset(name for name, enabled in diagnostics.items() if _boolean(enabled, f"{path}.diagnostics.{name}", default=False))
     return LoggingSettings(
         enabled=_boolean(data.get("enabled"), f"{path}.enabled", default=True),
-        level=_string(data.get("level"), f"{path}.level", default="INFO"),
+        level=_logging_level(data.get("level"), f"{path}.level", default="INFO"),
         console=_boolean(data.get("console"), f"{path}.console", default=False),
-        console_level=_string(data.get("console_level"), f"{path}.console_level", default="INFO"),
+        console_level=_logging_level(data.get("console_level"), f"{path}.console_level", default="INFO"),
         file_enabled=_boolean(data.get("file_enabled"), f"{path}.file_enabled", default=True),
         file_path=_string(data.get("file_path"), f"{path}.file_path", default="logs/clipai.log"),
-        file_level=_string(data.get("file_level"), f"{path}.file_level", default="DEBUG"),
-        module_levels=tuple((str(name), _string(level, f"{path}.module_levels.{name}")) for name, level in module_levels.items()),
+        file_level=_logging_level(data.get("file_level"), f"{path}.file_level", default="DEBUG"),
+        module_levels=tuple((str(name), _logging_level(level, f"{path}.module_levels.{name}")) for name, level in module_levels.items()),
         diagnostics=Diagnostics(enabled_flags),
     )
 
 
 def load_output_profiles(path: str | Path) -> OutputProfileCatalog:
     payload = _load_yaml_mapping(path)
-    _reject_unknown(payload, {"profiles"}, "output_profiles")
+    _schema_version(payload, path)
+    _reject_unknown(payload, {"schema_version", "profiles"}, "output_profiles")
     raw_profiles = payload.get("profiles")
     if not isinstance(raw_profiles, list):
         raise ConfigError("output_profiles.profiles must be a list")
@@ -154,7 +162,8 @@ def load_output_profiles(path: str | Path) -> OutputProfileCatalog:
 def load_action_catalog(path: str | Path, *, output_profiles: OutputProfileCatalog | None = None) -> ActionCatalog:
     output_profiles = output_profiles or load_output_profiles("config/output_profiles.yaml")
     payload = _load_yaml_mapping(path)
-    _reject_unknown(payload, {"actions"}, "actions")
+    _schema_version(payload, path)
+    _reject_unknown(payload, {"schema_version", "actions"}, "actions")
     raw_actions = payload.get("actions")
     if not isinstance(raw_actions, list):
         raise ConfigError("actions.actions must be a list")
@@ -248,6 +257,22 @@ def _load_yaml_mapping(path: str | Path) -> dict[str, Any]:
         raise ConfigError(f"invalid YAML in {path}: {exc}") from exc
 
 
+def _read_schema_version(path: str | Path) -> int:
+    return _schema_version(_load_yaml_mapping(path), path)
+
+
+def _schema_version(data: dict[str, Any], path: str | Path) -> int:
+    """Treat unversioned documents as legacy v0 without rewriting them."""
+    value = data.get("schema_version", 0)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ConfigError(f"{path}.schema_version must be a non-negative integer")
+    if value > CURRENT_SCHEMA_VERSION:
+        raise ConfigError(
+            f"{path} uses schema_version {value}; this ClipAI supports up to {CURRENT_SCHEMA_VERSION}"
+        )
+    return value
+
+
 def _mapping(value: Any, path: str, *, allow_none: bool = False) -> dict[str, Any]:
     if value is None and allow_none:
         return {}
@@ -312,4 +337,12 @@ def _choice(value: Any, path: str, choices: set[str], default: str) -> str:
     result = _string(value, path, default=default).lower()
     if result not in choices:
         raise ConfigError(f"{path} must be one of: {', '.join(sorted(choices))}")
+    return result
+
+
+def _logging_level(value: Any, path: str, default: str | None = None) -> str:
+    result = _string(value, path, default=default).upper()
+    allowed = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+    if result not in allowed:
+        raise ConfigError(f"{path} must be one of: {', '.join(sorted(allowed))}")
     return result

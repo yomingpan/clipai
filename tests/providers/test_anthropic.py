@@ -7,7 +7,7 @@ from ClipAI.core.models import LLMMessage, LLMRequest
 from ClipAI.core.state import CancellationToken
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.http_transport import HttpResponse
-from ClipAI.providers.settings import AnthropicSettings
+from ClipAI.providers.settings import AnthropicSettings, ProviderCredential
 
 
 class FakeTransport:
@@ -32,15 +32,14 @@ def request() -> LLMRequest:
     return LLMRequest((LLMMessage("system", "Be concise"), LLMMessage("user", "Hello")), "claude", 0.2)
 
 
-def test_anthropic_maps_messages_api(monkeypatch) -> None:
-    monkeypatch.setenv("ANTHROPIC_KEY", "secret")
+def test_anthropic_maps_messages_api() -> None:
     payload = {
         "content": [{"type": "text", "text": "Claude result"}],
         "stop_reason": "end_turn",
         "usage": {"input_tokens": 2, "output_tokens": 6},
     }
     transport = FakeTransport(HttpResponse(200, "", payload))
-    result = AnthropicProvider(settings(), transport).complete(request(), CancellationToken())
+    result = AnthropicProvider(settings(), ProviderCredential("ANTHROPIC_KEY", "secret"), transport).complete(request(), CancellationToken())
     assert result.text == "Claude result"
     assert result.usage and result.usage.output_tokens == 6
     assert transport.calls[0][0] == "https://anthropic.test/v1/messages"
@@ -48,22 +47,18 @@ def test_anthropic_maps_messages_api(monkeypatch) -> None:
     assert transport.calls[0][1]["json"]["max_tokens"] == 512
 
 
-def test_anthropic_missing_key_is_auth_error(monkeypatch) -> None:
-    monkeypatch.delenv("ANTHROPIC_MISSING", raising=False)
+def test_anthropic_missing_key_is_auth_error() -> None:
     with pytest.raises(ProviderAuthError):
-        AnthropicProvider(settings("ANTHROPIC_MISSING"), FakeTransport()).complete(request(), CancellationToken())
+        AnthropicProvider(settings("ANTHROPIC_MISSING"), ProviderCredential("ANTHROPIC_MISSING"), FakeTransport()).complete(request(), CancellationToken())
 
 
-def test_anthropic_preserves_timeout_error(monkeypatch) -> None:
-    monkeypatch.setenv("ANTHROPIC_KEY", "secret")
-    provider = AnthropicProvider(settings(), FakeTransport(error=ProviderTimeoutError("timed out")))
+def test_anthropic_preserves_timeout_error() -> None:
+    provider = AnthropicProvider(settings(), ProviderCredential("ANTHROPIC_KEY", "secret"), FakeTransport(error=ProviderTimeoutError("timed out")))
     with pytest.raises(ProviderTimeoutError):
         provider.complete(request(), CancellationToken())
 
 
-def test_anthropic_invalid_json_is_response_error(monkeypatch) -> None:
-    monkeypatch.setenv("ANTHROPIC_KEY", "secret")
-    provider = AnthropicProvider(settings(), FakeTransport(HttpResponse(200, "invalid", None)))
+def test_anthropic_invalid_json_is_response_error() -> None:
+    provider = AnthropicProvider(settings(), ProviderCredential("ANTHROPIC_KEY", "secret"), FakeTransport(HttpResponse(200, "invalid", None)))
     with pytest.raises(ProviderResponseError, match="invalid JSON"):
         provider.complete(request(), CancellationToken())
-

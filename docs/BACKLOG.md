@@ -10,7 +10,15 @@
 - Every accepted user action needs immediate visible feedback. Active workflows reflect their real lifecycle; commands without acknowledgment show only a requested state.
 - Tray status is driven by external LLM/TTS call boundaries, not by general session snapshots. This prevents duplicate success lights from speech cleanup or popup rendering.
 - Copy and Archive need a future typed acknowledgment if confirmed-success icons are required instead of requested feedback.
-- `StatusIndicator` remains a single foreground-operation port. Concurrent API work requires an operation-identity coordinator before it is enabled.
+- Concurrent API work is projected through an operation-identity coordinator; feature code must not add local tray precedence rules.
+
+## 2026-07-11 Reliability Foundation
+
+- Windows CI validates Python 3.10-3.13 with constrained dependencies; release tags must match project metadata.
+- Config catalogs use schema version 1 with in-memory legacy migration.
+- Provider secrets are resolved only in the composition root; missing active credentials are non-fatal readiness issues.
+- Concurrent LLM/TTS status is owned by `OperationLifecycleCoordinator`.
+- Tray can request a redacted diagnostics archive through a typed command.
 
 本文件整理目前開發過程中浮現的需求。下次繼續開發時，先從這份 backlog 抽 item，再規劃當期 milestone 與優先順序。
 

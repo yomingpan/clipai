@@ -58,14 +58,14 @@ def create_tray_image(status: ApplicationStatus = "idle", *, memory_active: bool
 
 
 class TrayController:
-    def __init__(self, on_exit: Callable[[], None]) -> None:
+    def __init__(self, on_exit: Callable[[], None], on_export_diagnostics: Callable[[], None] | None = None) -> None:
         self._on_exit = on_exit
+        self._on_export_diagnostics = on_export_diagnostics
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
         self._memory_active = False
         self._lock = threading.Lock()
-        self._reset_timer: threading.Timer | None = None
 
     def start(self) -> None:
         import pystray
@@ -74,11 +74,21 @@ class TrayController:
             icon.stop()
             self._on_exit()
 
+        menu_items = []
+        if self._on_export_diagnostics is not None:
+            menu_items.extend(
+                (
+                    pystray.MenuItem("Export Diagnostics", lambda _icon, _item: self._on_export_diagnostics()),
+                    pystray.Menu.SEPARATOR,
+                )
+            )
+        menu_items.append(pystray.MenuItem("Quit ClipAI", quit_app))
+
         self._icon = pystray.Icon(
             "clipai",
             create_tray_image(self._status, memory_active=self._memory_active),
             "ClipAI",
-            menu=pystray.Menu(pystray.MenuItem("Quit ClipAI", quit_app)),
+            menu=pystray.Menu(*menu_items),
         )
         self._thread = threading.Thread(target=self._run, daemon=True, name="ClipAITray")
         self._thread.start()
@@ -91,13 +101,7 @@ class TrayController:
 
     def set_status(self, status: ApplicationStatus) -> None:
         self._status = status
-        self._cancel_reset()
         self._update_icon()
-        delay = {"success": 2.0, "warning": 3.0, "error": 3.0}.get(status)
-        if delay is not None:
-            self._reset_timer = threading.Timer(delay, lambda: self.set_status("idle"))
-            self._reset_timer.daemon = True
-            self._reset_timer.start()
 
     def set_memory_active(self, active: bool) -> None:
         self._memory_active = active
@@ -118,13 +122,7 @@ class TrayController:
             except Exception:
                 logger.exception("Tray icon update failed")
 
-    def _cancel_reset(self) -> None:
-        if self._reset_timer is not None:
-            self._reset_timer.cancel()
-            self._reset_timer = None
-
     def stop(self) -> None:
-        self._cancel_reset()
         if self._icon is not None:
             self._icon.stop()
             self._icon = None

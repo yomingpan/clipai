@@ -8,6 +8,7 @@ MessageRole = Literal["system", "user", "assistant"]
 InputMode = Literal["clipboard", "selection_or_clipboard"]
 OutputMode = Literal["popup"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
+OperationKind = Literal["llm", "tts"]
 
 
 @dataclass(frozen=True)
@@ -91,3 +92,10 @@ class InputDocument:
 @dataclass(frozen=True)
 class ProcessedResult:
     text: str
+
+
+@dataclass(frozen=True)
+class ReadinessIssue:
+    code: str
+    message: str
+    feature: str

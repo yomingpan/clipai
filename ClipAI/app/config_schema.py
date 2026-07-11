@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from ClipAI.core.models import ReadinessIssue
 from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings, ProviderSettings
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.output_profiles import OutputProfileCatalog
@@ -69,6 +70,13 @@ class ProviderCatalog:
 
 
 @dataclass(frozen=True)
+class ConfigSchemaVersions:
+    app: int
+    actions: int
+    output_profiles: int
+
+
+@dataclass(frozen=True)
 class ConfigBundle:
     app: AppSettings
     runtime: RuntimeSettings
@@ -78,3 +86,5 @@ class ConfigBundle:
     voice_input: VoiceInputSettings
     logging: LoggingSettings
     output_profiles: OutputProfileCatalog
+    schema_versions: ConfigSchemaVersions
+    readiness_issues: tuple[ReadinessIssue, ...] = ()

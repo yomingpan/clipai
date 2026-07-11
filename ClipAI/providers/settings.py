@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class ProviderCredential:
+    """A resolved provider secret. Its value must never appear in repr or logs."""
+
+    env_name: str
+    value: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)

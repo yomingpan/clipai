@@ -6,13 +6,14 @@ import queue
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, FollowUp, PasteResult, ShutdownApplication, StartAction, TogglePin, ToggleSpeech
-from ClipAI.core.ports import ApplicationView, StatusIndicator
+from ClipAI.core.commands import AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, PasteResult, ShutdownApplication, StartAction, TogglePin, ToggleSpeech
+from ClipAI.core.ports import ApplicationView, DiagnosticsExporter, OperationHandle, OperationTracker, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ExecuteAction
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.session_controller import SessionController
+from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime")
 
@@ -29,7 +30,10 @@ class AppRuntime:
         model: str,
         hotkey_registrar: Callable[[dict[str, dict[str, str]], Callable[[str, str], None]], object],
         tray_factory: Callable[[Callable[[], None]], object] | None = None,
-        status_indicator: StatusIndicator | None = None,
+        operation_tracker: OperationTracker | None = None,
+        diagnostics_exporter: DiagnosticsExporter | None = None,
+        notifier: UserNotifier | None = None,
+        incident_reporter: IncidentReporter | None = None,
     ) -> None:
         self._actions = actions
         self._execute_action = execute_action
@@ -39,10 +43,14 @@ class AppRuntime:
         self._model = model
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
-        self._status_indicator = status_indicator
+        self._operation_tracker = operation_tracker
+        self._diagnostics_exporter = diagnostics_exporter
+        self._notifier = notifier
+        self._incident_reporter = incident_reporter or IncidentReporter(logger)
         self._commands: queue.Queue[AppCommand] = queue.Queue()
         self._sessions: dict[str, SessionController] = {}
         self._session_actions: dict[str, object] = {}
+        self._speech_operations: dict[str, OperationHandle] = {}
         self._foreground_id: str | None = None
         self._listener: object | None = None
         self._tray: object | None = None
@@ -84,6 +92,9 @@ class AppRuntime:
         self._stopping = True
         for controller in list(self._sessions.values()):
             controller.cancel()
+        for operation in list(self._speech_operations.values()):
+            operation.cancel()
+        self._speech_operations.clear()
         if self._listener is not None and hasattr(self._listener, "stop"):
             self._listener.stop()
         self._listener = None
@@ -91,6 +102,8 @@ class AppRuntime:
             self._tray.stop()
         self._tray = None
         self._supervisor.shutdown()
+        if self._operation_tracker is not None and hasattr(self._operation_tracker, "stop"):
+            self._operation_tracker.stop()  # type: ignore[attr-defined]
         self._view.stop()
 
     def _handle(self, command: AppCommand) -> None:
@@ -128,6 +141,8 @@ class AppRuntime:
             self.stop()
         elif isinstance(command, ToggleSpeech):
             self._toggle_speech(command.session_id, command.text)
+        elif isinstance(command, ExportDiagnostics):
+            self._export_diagnostics()
 
     def _start_action(self, command: StartAction) -> None:
         previous = self._sessions.get(self._foreground_id or "")
@@ -180,22 +195,27 @@ class AppRuntime:
         if controller.snapshot.speaking:
             self._output_actions.stop_speech()
             controller.set_speaking(False)
+            operation = self._speech_operations.pop(session_id, None)
+            if operation is not None:
+                operation.cancel()
             return
         controller.set_speaking(True)
         text = selected_text.strip() if selected_text and selected_text.strip() else controller.snapshot.content
+        operation = self._operation_tracker.start(f"tts:{session_id}", "tts") if self._operation_tracker else None
+        if operation is not None:
+            self._speech_operations[session_id] = operation
 
         def speak() -> None:
             try:
-                if self._status_indicator is not None:
-                    self._status_indicator.set_status("processing")
                 self._output_actions.speak(text)
-                if self._status_indicator is not None:
-                    self._status_indicator.set_status("success")
+                if operation is not None:
+                    operation.succeed()
             except BaseException:
-                if self._status_indicator is not None:
-                    self._status_indicator.set_status("error")
+                if operation is not None:
+                    operation.fail()
                 raise
             finally:
+                self._speech_operations.pop(session_id, None)
                 controller.set_speaking(False)
 
         self._supervisor.submit(
@@ -209,19 +229,44 @@ class AppRuntime:
         self._session_actions.pop(session_id, None)
         if controller:
             self._output_actions.stop_speech()
+            operation = self._speech_operations.pop(session_id, None)
+            if operation is not None:
+                operation.cancel()
             controller.close()
             self._supervisor.cancel(session_id)
         if self._foreground_id == session_id:
             self._foreground_id = None
 
     def _handle_unhandled(self, session_id: str, error: BaseException) -> None:
-        logger.exception("Unhandled session error session_id=%s", session_id, exc_info=error)
+        incident_id = self._incident_reporter.report(error, context=f"session:{session_id}")
         controller = self._sessions.get(session_id)
         if controller:
-            controller.fail("ClipAI encountered an unexpected error.")
+            controller.fail(f"ClipAI encountered an unexpected error. Incident: {incident_id}")
 
     def _handle_speech_error(self, session_id: str, error: BaseException) -> None:
-        logger.exception("Speech failed session_id=%s", session_id, exc_info=error)
+        self._incident_reporter.report(error, context=f"speech:{session_id}")
         controller = self._sessions.get(session_id)
         if controller:
             controller.set_speaking(False)
+
+    def _export_diagnostics(self) -> None:
+        if self._diagnostics_exporter is None:
+            if self._notifier is not None:
+                self._notifier.notify("ClipAI Diagnostics", "Diagnostics export is not configured.")
+            return
+
+        def export() -> None:
+            destination = self._diagnostics_exporter.export()
+            if self._notifier is not None:
+                self._notifier.notify("ClipAI Diagnostics", f"Exported to {destination}")
+
+        self._supervisor.submit(
+            "diagnostics:export",
+            export,
+            self._handle_diagnostics_error,
+        )
+
+    def _handle_diagnostics_error(self, error: BaseException) -> None:
+        incident_id = self._incident_reporter.report(error, context="diagnostics:export")
+        if self._notifier is not None:
+            self._notifier.notify("ClipAI Diagnostics", f"Export failed. Incident: {incident_id}")

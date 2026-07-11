@@ -1,0 +1,32 @@
+name: Build release artifacts
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: python -m pip install --upgrade pip build tomli
+      - name: Verify tag matches package version
+        shell: pwsh
+        run: |
+          $version = python -c "import tomli; print(tomli.load(open('pyproject.toml','rb'))['project']['version'])"
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag must be v$version" }
+      - run: python -m build
+      - name: Smoke install wheel in a fresh environment
+        shell: pwsh
+        run: |
+          python -m venv release-smoke
+          release-smoke\Scripts\python.exe -m pip install -c constraints/windows.txt (Get-ChildItem dist\*.whl).FullName
+          release-smoke\Scripts\python.exe -c "import ClipAI; import main"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clipai-${{ github.ref_name }}
+          path: dist/*

@@ -4,3 +4,7 @@ __pycache__
 logs/
 temp_audio/
 .pytest_cache/
+build/
+dist/
+*.egg-info/
+diagnostics/

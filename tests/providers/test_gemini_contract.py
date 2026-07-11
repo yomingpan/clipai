@@ -8,7 +8,7 @@ from ClipAI.core.state import CancellationToken
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.http_transport import HttpResponse
-from ClipAI.providers.settings import GeminiSettings
+from ClipAI.providers.settings import GeminiSettings, ProviderCredential
 
 
 class FakeTransport:
@@ -34,42 +34,37 @@ def test_fake_provider_implements_common_contract() -> None:
     assert (result.text, result.provider, result.model) == ("ok", "fake", "test-model")
 
 
-def test_gemini_maps_payload_and_response(monkeypatch) -> None:
-    monkeypatch.setenv("GEMINI_KEY", "secret")
+def test_gemini_maps_payload_and_response() -> None:
     transport = FakeTransport(HttpResponse(200, "", {
         "candidates": [{"content": {"parts": [{"text": "Gemini result"}]}, "finishReason": "STOP"}],
         "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 4},
     }))
-    provider = GeminiProvider(GeminiSettings("GEMINI_KEY", "https://gemini.test", "gemini", 10), transport)
+    provider = GeminiProvider(GeminiSettings("GEMINI_KEY", "https://gemini.test", "gemini", 10), ProviderCredential("GEMINI_KEY", "secret"), transport)
     result = provider.complete(request("gemini"), CancellationToken())
     assert result.text == "Gemini result"
     assert result.usage and result.usage.output_tokens == 4
     assert transport.calls[0][0].endswith("/v1beta/models/gemini:generateContent")
 
 
-def test_gemini_missing_key_is_auth_error(monkeypatch) -> None:
-    monkeypatch.delenv("MISSING_KEY", raising=False)
-    provider = GeminiProvider(GeminiSettings("MISSING_KEY", "https://test", "m", 1), FakeTransport())
+def test_gemini_missing_key_is_auth_error() -> None:
+    provider = GeminiProvider(GeminiSettings("MISSING_KEY", "https://test", "m", 1), ProviderCredential("MISSING_KEY"), FakeTransport())
     with pytest.raises(ProviderAuthError):
         provider.complete(request(), CancellationToken())
 
 
-def test_gemini_preserves_transport_timeout(monkeypatch) -> None:
-    monkeypatch.setenv("GEMINI_KEY", "secret")
+def test_gemini_preserves_transport_timeout() -> None:
     provider = GeminiProvider(
         GeminiSettings("GEMINI_KEY", "https://test", "m", 1),
-        FakeTransport(error=ProviderTimeoutError("timed out")),
+        ProviderCredential("GEMINI_KEY", "secret"), FakeTransport(error=ProviderTimeoutError("timed out")),
     )
     with pytest.raises(ProviderTimeoutError):
         provider.complete(request(), CancellationToken())
 
 
-def test_gemini_invalid_json_is_response_error(monkeypatch) -> None:
-    monkeypatch.setenv("GEMINI_KEY", "secret")
+def test_gemini_invalid_json_is_response_error() -> None:
     provider = GeminiProvider(
         GeminiSettings("GEMINI_KEY", "https://test", "m", 1),
-        FakeTransport(HttpResponse(200, "not json", None)),
+        ProviderCredential("GEMINI_KEY", "secret"), FakeTransport(HttpResponse(200, "not json", None)),
     )
     with pytest.raises(ProviderResponseError, match="invalid JSON"):
         provider.complete(request(), CancellationToken())
-

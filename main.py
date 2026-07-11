@@ -4,6 +4,8 @@ import multiprocessing
 
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.container import build_runtime
+from ClipAI.core.errors import ConfigError
+from ClipAI.ui.startup_error import show_startup_error
 
 try:
     from dotenv import load_dotenv
@@ -12,12 +14,16 @@ except Exception:
 
 
 def main() -> None:
-    if load_dotenv:
-        load_dotenv()
+    try:
+        if load_dotenv:
+            load_dotenv()
 
-    bundle = load_config_bundle()
-    runtime = build_runtime(bundle)
-    runtime.run_forever()
+        bundle = load_config_bundle()
+        runtime = build_runtime(bundle)
+        runtime.run_forever()
+    except ConfigError as exc:
+        show_startup_error(str(exc))
+        raise SystemExit(2) from None
 
 
 if __name__ == "__main__":

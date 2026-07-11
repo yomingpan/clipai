@@ -1,26 +1,20 @@
 # Tray Status Indicator Contract
 
-The tray is an injected UI adapter for application status. Providers and UI presenters must not drive it through globals or an Event Bus.
+Tray is a dumb, injected UI adapter. It renders `ApplicationStatus`, memory state, and menu callbacks; it does not infer application state or own lifecycle timers.
 
-## Status semantics
+## Ownership
 
-- `idle`: no external API call is active.
-- `processing`: an external LLM or TTS call has been sent and is waiting or running.
-- `success`: the external call returned successfully; the tray resets to idle after the configured delay.
-- `error`: the external call failed; the tray resets to idle after the configured delay.
-- `warning` and `paused`: reserved application states.
+- `OperationLifecycleCoordinator` is the single owner of processing/success/error timing.
+- LLM and TTS report through `OperationTracker`; providers and presenters never drive tray directly.
+- Tray owns only the pystray thread, icon lock, OSError retry, memory pixel, menu construction, and icon cleanup.
+- `Export Diagnostics` and Quit only enqueue typed commands through injected callbacks.
 
-Presenter rendering, selection changes, popup close, and speaking-state cleanup must not emit API success or error. LLM and TTS workflows set `processing` immediately before the adapter call, `success` only after it returns, `error` when it raises, and `idle` when it is cancelled.
+## Projection
 
-## Adapter ownership
+- Any active operation: processing orange.
+- Last operation succeeds: success green for two seconds, then readiness baseline.
+- Failure: error red for three seconds; if work remains, return to processing.
+- Cancellation: no success flash.
+- Ready baseline: idle blue. Not-ready baseline: warning yellow.
 
-- Core defines `ApplicationStatus` and the `StatusIndicator` port.
-- The composition root injects the tray adapter into application/service workflows.
-- The tray owns its pystray thread, icon lock, retry, reset timer, and stop cleanup.
-- `memory_active` remains a separate API and defaults to false until a memory service is connected.
-
-## Concurrency constraint
-
-`StatusIndicator` is a single-operation projection for the current foreground-work model. Before concurrent external operations are supported, replace it with an operation-identity coordinator. Do not add feature-specific status precedence rules to presenters, providers, or adapters.
-
-Tests must cover status color mapping, external-call lifecycle, timer reset, memory pixel differences, update retry, and stop cleanup.
+Concurrent, timer-reset, late-event, icon retry, menu callback, and stop cleanup behavior must be covered by tests.

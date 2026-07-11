@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ApplicationStatus, LLMRequest, LLMResult
+from ClipAI.core.models import ApplicationStatus, LLMRequest, LLMResult, OperationKind
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -57,3 +58,23 @@ class StatusIndicator(Protocol):
     def set_status(self, status: ApplicationStatus) -> None: ...
 
     def set_memory_active(self, active: bool) -> None: ...
+
+
+class OperationHandle(Protocol):
+    def succeed(self) -> None: ...
+
+    def fail(self) -> None: ...
+
+    def cancel(self) -> None: ...
+
+
+class OperationTracker(Protocol):
+    def start(self, operation_id: str, kind: OperationKind) -> OperationHandle: ...
+
+
+class UserNotifier(Protocol):
+    def notify(self, title: str, message: str) -> None: ...
+
+
+class DiagnosticsExporter(Protocol):
+    def export(self) -> Path: ...

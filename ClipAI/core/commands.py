@@ -61,4 +61,9 @@ class ArchiveResult:
     session_id: str
 
 
-AppCommand: TypeAlias = StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech
+@dataclass(frozen=True)
+class ExportDiagnostics:
+    pass
+
+
+AppCommand: TypeAlias = StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | ExportDiagnostics

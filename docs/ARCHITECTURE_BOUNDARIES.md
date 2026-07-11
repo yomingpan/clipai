@@ -37,6 +37,9 @@ tests/              # Unit sims 與 integration tests
 - Hotkey callback 只能 enqueue command；worker 不得直接碰 Tkinter。
 - 新的未 pin action 取代舊 action；取消後晚到的結果必須依 session id/revision 丟棄。
 - 所有 concrete dependency 只在 `app/container.py` 建立並注入。
+- 只有 composition root 可以讀取 API key environment variables；provider 只接收已解析且不可洩漏的 credential。
+- 所有 LLM/TTS operation 狀態由單一 `OperationLifecycleCoordinator` 管理；tray 不擁有 success/error timer。
+- Tray menu 只能 enqueue typed command，不得直接匯出檔案、讀 config 或執行 diagnostics。
 
 ## Core
 
@@ -69,6 +72,7 @@ tests/              # Unit sims 與 integration tests
 
 - logging setup。
 - diagnostics flag。
+- 安全診斷資料的 redaction 與 incident reference；不得知道 clipboard、prompt 或 provider payload。
 - template helper。
 - 純文字處理。
 - 無副作用或低副作用的通用工具。

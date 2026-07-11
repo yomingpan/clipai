@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from ClipAI.core.errors import CancelledError, ClipAIError
-from ClipAI.core.models import LLMRequest, LLMResult, ResolvedAction
-from ClipAI.core.ports import LLMProvider, StatusIndicator
+from ClipAI.core.models import LLMRequest, LLMResult, ReadinessIssue, ResolvedAction
+from ClipAI.core.ports import LLMProvider, OperationHandle, OperationTracker
 from ClipAI.core.state import SessionStatus
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.prompt_builder import PromptBuilder
@@ -22,7 +22,8 @@ class ExecuteAction:
         default_temperature: float,
         provider_name: str,
         available_actions: tuple[str, ...] = ("copy", "follow_up"),
-        status_indicator: StatusIndicator | None = None,
+        operation_tracker: OperationTracker | None = None,
+        readiness_issues: tuple[ReadinessIssue, ...] = (),
     ) -> None:
         self._input_resolver = input_resolver
         self._provider = provider
@@ -32,11 +33,14 @@ class ExecuteAction:
         self._default_temperature = default_temperature
         self._provider_name = provider_name
         self._available_actions = available_actions
-        self._status_indicator = status_indicator
+        self._operation_tracker = operation_tracker
+        self._readiness_issues = readiness_issues
 
     def execute(self, action: ResolvedAction, session: SessionController) -> None:
         try:
             if session.transition(SessionStatus.READING_INPUT, status_text="Reading input...") is None:
+                return
+            if self._fail_if_not_ready(session):
                 return
             document = self._input_resolver.resolve(action.input_mode)
             if session.transition(
@@ -79,6 +83,8 @@ class ExecuteAction:
         try:
             if session.transition(SessionStatus.PREPARING_REQUEST, status_text="Preparing follow-up...") is None:
                 return
+            if self._fail_if_not_ready(session):
+                return
             request = self._prompt_builder.build_follow_up(
                 action,
                 original_input=previous.original_input,
@@ -105,21 +111,29 @@ class ExecuteAction:
             session.fail(str(exc))
 
     def _complete_provider(self, request: LLMRequest, session: SessionController) -> LLMResult:
-        if self._status_indicator is not None:
-            self._status_indicator.set_status("processing")
+        operation: OperationHandle | None = None
+        if self._operation_tracker is not None:
+            operation = self._operation_tracker.start(f"llm:{session.snapshot.session_id}", "llm")
         try:
             result = self._provider.complete(request, session.cancellation)
         except CancelledError:
-            if self._status_indicator is not None:
-                self._status_indicator.set_status("idle")
+            if operation is not None:
+                operation.cancel()
             raise
         except BaseException:
-            if self._status_indicator is not None:
-                self._status_indicator.set_status("error")
+            if operation is not None:
+                operation.fail()
             raise
-        if self._status_indicator is not None:
-            self._status_indicator.set_status("success")
+        if operation is not None:
+            operation.succeed()
         return result
+
+    def _fail_if_not_ready(self, session: SessionController) -> bool:
+        issue = next((item for item in self._readiness_issues if item.feature == "llm"), None)
+        if issue is None:
+            return False
+        session.fail(issue.message)
+        return True
 
 
 def _source_preview(source: str, text: str, limit: int = 90) -> str:

@@ -63,6 +63,8 @@ ClipAI 測試分成兩層。
 python -m pytest
 ```
 
+GitHub Windows CI 必須在 Python 3.10、3.11、3.12、3.13 執行 constrained clean install、compile、unit tests 與 architecture tests。排程工作另測未鎖定依賴，但不得影響正式安裝 constraints。
+
 ### Integration Tests
 
 這是手動觸發的真實世界測試。

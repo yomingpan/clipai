@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, StartAction, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, StartAction, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActionDefinition
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -31,9 +31,11 @@ class FakeSupervisor:
         self.work: dict[str, object] = {}
         self.cancelled: list[str] = []
         self.closed = False
+        self.error_handlers: dict[str, object] = {}
 
     def submit(self, session_id, work, on_unhandled_error):
         self.work[session_id] = work
+        self.error_handlers[session_id] = on_unhandled_error
 
     def cancel(self, session_id) -> None:
         self.cancelled.append(session_id)
@@ -98,18 +100,54 @@ class Tray:
         self.stopped = True
 
 
-class StatusIndicator:
+class Operation:
+    def __init__(self, events: list[tuple[str, ...]], operation_id: str) -> None:
+        self.events = events
+        self.operation_id = operation_id
+
+    def succeed(self) -> None:
+        self.events.append(("success", self.operation_id))
+
+    def fail(self) -> None:
+        self.events.append(("error", self.operation_id))
+
+    def cancel(self) -> None:
+        self.events.append(("cancel", self.operation_id))
+
+
+class OperationTracker:
     def __init__(self) -> None:
-        self.statuses: list[str] = []
+        self.events: list[tuple[str, ...]] = []
+        self.stopped = False
 
-    def set_status(self, status: str) -> None:
-        self.statuses.append(status)
+    def start(self, operation_id: str, kind: str):
+        self.events.append(("start", operation_id, kind))
+        return Operation(self.events, operation_id)
 
-    def set_memory_active(self, active: bool) -> None:
-        pass
+    def stop(self) -> None:
+        self.stopped = True
 
 
-def make_runtime(*, with_tray: bool = False, status_indicator=None):
+class Exporter:
+    def __init__(self, destination="diagnostics.zip", error=None) -> None:
+        self.destination = destination
+        self.error = error
+
+    def export(self):
+        if self.error:
+            raise self.error
+        return self.destination
+
+
+class Notifier:
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, str]] = []
+
+    def notify(self, title: str, message: str) -> None:
+        self.messages.append((title, message))
+
+
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None):
     action = ActionDefinition("a", "Action", "ctrl+alt+8", "system", "{input}", {})
     view = FakeView()
     supervisor = FakeSupervisor()
@@ -124,7 +162,9 @@ def make_runtime(*, with_tray: bool = False, status_indicator=None):
         model="model",
         hotkey_registrar=lambda _map, _callback: listener,
         tray_factory=Tray if with_tray else None,
-        status_indicator=status_indicator,
+        operation_tracker=operation_tracker,
+        diagnostics_exporter=diagnostics_exporter,
+        notifier=notifier,
     )
     return runtime, view, supervisor, outputs, listener
 
@@ -231,8 +271,8 @@ def test_speech_prefers_selected_command_text() -> None:
 
 
 def test_speech_reports_one_external_api_lifecycle() -> None:
-    indicator = StatusIndicator()
-    runtime, view, supervisor, _outputs, _listener = make_runtime(status_indicator=indicator)
+    operations = OperationTracker()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(operation_tracker=operations)
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
     session_id = view.snapshots[-1].session_id
@@ -240,7 +280,34 @@ def test_speech_reports_one_external_api_lifecycle() -> None:
     runtime.enqueue(ToggleSpeech(session_id))
     runtime.drain_commands()
     supervisor.work[f"speech:{session_id}"]()
-    assert indicator.statuses == ["processing", "success"]
+    assert operations.events == [("start", f"tts:{session_id}", "tts"), ("success", f"tts:{session_id}")]
+
+
+def test_diagnostics_export_is_typed_supervised_work_with_feedback() -> None:
+    notifier = Notifier()
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(
+        diagnostics_exporter=Exporter("C:/diagnostics/report.zip"),
+        notifier=notifier,
+    )
+    runtime.enqueue(ExportDiagnostics())
+    runtime.drain_commands()
+    supervisor.work["diagnostics:export"]()
+    assert notifier.messages == [("ClipAI Diagnostics", "Exported to C:/diagnostics/report.zip")]
+
+
+def test_diagnostics_export_failure_reports_incident() -> None:
+    notifier = Notifier()
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(
+        diagnostics_exporter=Exporter(error=OSError("disk full")),
+        notifier=notifier,
+    )
+    runtime.enqueue(ExportDiagnostics())
+    runtime.drain_commands()
+    try:
+        supervisor.work["diagnostics:export"]()
+    except OSError as error:
+        supervisor.error_handlers["diagnostics:export"](error)
+    assert "Export failed. Incident:" in notifier.messages[-1][1]
 
 
 def test_paste_and_archive_flow_through_typed_commands() -> None:

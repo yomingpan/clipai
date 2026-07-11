@@ -1,26 +1,26 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from ClipAI.core.errors import CancelledError, ProviderAuthError, ProviderResponseError
 from ClipAI.core.models import LLMRequest, LLMResult, LLMUsage
 from ClipAI.core.state import CancellationToken
 from ClipAI.providers.http_transport import HttpResponse, HttpTransport, RequestsHttpTransport
-from ClipAI.providers.settings import OpenAISettings
+from ClipAI.providers.settings import OpenAISettings, ProviderCredential
 
 
 class OpenAIProvider:
     """Synchronous text adapter for the OpenAI Responses API."""
 
-    def __init__(self, settings: OpenAISettings, transport: HttpTransport | None = None) -> None:
+    def __init__(self, settings: OpenAISettings, credential: ProviderCredential, transport: HttpTransport | None = None) -> None:
         self._settings = settings
+        self._credential = credential
         self._transport = transport or RequestsHttpTransport()
 
     def complete(self, request: LLMRequest, cancellation: CancellationToken) -> LLMResult:
         if cancellation.is_cancelled:
             raise CancelledError("request cancelled")
-        api_key = os.getenv(self._settings.api_key_env)
+        api_key = self._credential.value
         if not api_key:
             raise ProviderAuthError(f"missing API key in {self._settings.api_key_env}")
         response = self._transport.post(
@@ -88,4 +88,3 @@ def _raise_for_status(response: HttpResponse) -> None:
 
 def _optional_int(value: Any) -> int | None:
     return value if isinstance(value, int) else None
-

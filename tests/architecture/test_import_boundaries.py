@@ -41,3 +41,13 @@ def test_no_global_event_bus_or_legacy_modules() -> None:
     assert not Path("ClipAI/services/vertical_slice.py").exists()
     assert not Path("ClipAI/providers/factory.py").exists()
 
+
+def test_only_composition_root_reads_environment_secrets() -> None:
+    violations = []
+    for path in Path("ClipAI").rglob("*.py"):
+        if path == Path("ClipAI/app/container.py"):
+            continue
+        source = path.read_text(encoding="utf-8")
+        if "os.getenv(" in source or "os.environ" in source:
+            violations.append(str(path))
+    assert violations == []

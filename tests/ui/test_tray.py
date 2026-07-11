@@ -15,9 +15,16 @@ def test_tray_memory_indicator_changes_rendered_pixels() -> None:
     assert idle.tobytes() != memory.tobytes()
 
 
-def test_tray_stop_cancels_pending_reset() -> None:
+def test_tray_status_is_a_dumb_projection_without_reset_timer() -> None:
     tray = TrayController(lambda: None)
     tray.set_status("success")
-    assert tray._reset_timer is not None
+    assert tray._status == "success"
     tray.stop()
-    assert tray._reset_timer is None
+
+
+def test_tray_keeps_diagnostics_callback_separate_from_export_work() -> None:
+    events: list[str] = []
+    tray = TrayController(lambda: None, lambda: events.append("export"))
+    assert tray._on_export_diagnostics is not None
+    tray._on_export_diagnostics()
+    assert events == ["export"]
