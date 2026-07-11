@@ -12,7 +12,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     bundle = load_config_bundle()
 
     assert bundle.providers.active == "gemini"
-    assert bundle.providers.gemini.model == "gemma-4-31b-it"
+    assert bundle.providers.gemini.model == "gemini-3.1-flash-lite"
     assert bundle.runtime.max_workers == 2
     assert bundle.app.modifier_mode == "ctrl_alt"
     action = bundle.actions.get("english_companion")
