@@ -424,3 +424,20 @@ def test_copy_and_archive_feedback_use_green_check_icon() -> None:
 def test_pin_icons_use_stable_icon_font_glyphs() -> None:
     assert PIN_ICON == "\uE718"
     assert UNPIN_ICON == "\uE77A"
+
+
+def test_source_preview_stays_on_one_line_and_ellipsizes_over_limit() -> None:
+    from ClipAI.ui.base_dialog import SOURCE_PREVIEW_MAX_CHARS, ellipsize_source_preview
+
+    text = "Clipboard: " + "a" * SOURCE_PREVIEW_MAX_CHARS
+    preview = ellipsize_source_preview(text)
+    assert len(preview) == SOURCE_PREVIEW_MAX_CHARS
+    assert preview.endswith("...")
+    assert "\n" not in preview
+
+
+def test_source_preview_at_limit_is_not_ellipsized() -> None:
+    from ClipAI.ui.base_dialog import SOURCE_PREVIEW_MAX_CHARS, ellipsize_source_preview
+
+    text = "a" * SOURCE_PREVIEW_MAX_CHARS
+    assert ellipsize_source_preview(text) == text

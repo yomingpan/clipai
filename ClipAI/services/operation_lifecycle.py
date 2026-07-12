@@ -74,7 +74,7 @@ class OperationLifecycleCoordinator:
     def start(self, operation_id: str, kind: OperationKind) -> OperationHandle:
         if not operation_id.strip():
             raise ValueError("operation_id must not be empty")
-        if kind not in ("llm", "tts", "copy", "archive"):
+        if kind not in ("llm", "tts", "copy", "paste", "archive"):
             raise ValueError(f"Unsupported operation kind: {kind}")
         with self._lock:
             if operation_id in self._active:

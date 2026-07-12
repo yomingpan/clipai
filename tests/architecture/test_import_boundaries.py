@@ -51,3 +51,25 @@ def test_only_composition_root_reads_environment_secrets() -> None:
         if "os.getenv(" in source or "os.environ" in source:
             violations.append(str(path))
     assert violations == []
+
+
+def test_tracked_sources_do_not_contain_merge_conflict_markers() -> None:
+    markers = ("<<<<<<< ", "=======", ">>>>>>> ")
+    violations: list[str] = []
+    roots = (Path("ClipAI"), Path("tests"), Path("config"), Path("docs"), Path(".github"))
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in {".py", ".yaml", ".yml", ".md"}:
+                continue
+            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if any(line.startswith(marker) for marker in markers):
+                    violations.append(f"{path}:{line_number}")
+    assert violations == []
+
+
+def test_runtime_does_not_probe_optional_capabilities() -> None:
+    source = Path("ClipAI/app/runtime.py").read_text(encoding="utf-8")
+    assert "hasattr(" not in source
+    assert "getattr(" not in source

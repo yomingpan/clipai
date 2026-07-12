@@ -12,3 +12,6 @@ class ShortcutIntentCoordinator:
 
     def resolve(self, trigger: ShortcutTriggered) -> AppCommand:
         return self._shortcuts.resolve(trigger.shortcut_id, trigger.press_type)
+
+    def cancel(self) -> None:
+        pass

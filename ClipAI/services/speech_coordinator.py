@@ -24,6 +24,7 @@ class SpeechVoiceSelector:
 @dataclass(frozen=True)
 class SpeechJob:
     operation_id: str
+    workflow_id: str
     run: Callable[[], None]
 
 
@@ -45,22 +46,51 @@ class SpeechCoordinator:
         self._operation_tracker = operation_tracker
         self._speech_text = speech_text or SpeechTextPreprocessor()
         self._lock = threading.RLock()
-        self._current: tuple[CancellationToken, OperationHandle | None] | None = None
+        self._current: tuple[str, str, CancellationToken, OperationHandle | None] | None = None
 
     def create_job(self, *, clipboard_only: bool) -> SpeechJob:
-        self.cancel_current()
         source = "clipboard" if clipboard_only else "selection"
         operation_id = f"tts:{source}:{uuid.uuid4().hex}"
-        token = CancellationToken()
-        operation = self._operation_tracker.start(operation_id, "tts") if self._operation_tracker else None
+        return self._create_job(
+            operation_id=operation_id,
+            workflow_id="global",
+            read_text=lambda: self._read_text(clipboard_only=clipboard_only),
+            track=False,
+        )
+
+    def create_text_job(self, *, operation_id: str, workflow_id: str, text: str) -> SpeechJob:
+        return self._create_job(operation_id=operation_id, workflow_id=workflow_id, read_text=lambda: text, track=False)
+
+    def speak_result(self, text: str, workflow_id: str, cancellation: CancellationToken) -> None:
+        operation_id = f"tts:sequence:{uuid.uuid4().hex}"
+        self._create_job(
+            operation_id=operation_id,
+            workflow_id=workflow_id,
+            read_text=lambda: text,
+            track=True,
+            token=cancellation,
+        ).run()
+
+    def _create_job(
+        self,
+        *,
+        operation_id: str,
+        workflow_id: str,
+        read_text: Callable[[], str],
+        track: bool,
+        token: CancellationToken | None = None,
+    ) -> SpeechJob:
+        self.cancel_current()
+        token = token or CancellationToken()
+        operation = self._operation_tracker.start(operation_id, "tts") if track and self._operation_tracker else None
         with self._lock:
-            self._current = (token, operation)
+            self._current = (operation_id, workflow_id, token, operation)
 
         def run() -> None:
             try:
                 if token.is_cancelled:
                     return
-                text = self._read_text(clipboard_only=clipboard_only)
+                text = read_text()
                 prepared = self._speech_text.prepare(text)
                 if prepared and not token.is_cancelled:
                     request = SpeechRequest(prepared, self._voice_selector.select(prepared), token)
@@ -75,20 +105,54 @@ class SpeechCoordinator:
                 raise
             finally:
                 with self._lock:
-                    if self._current is not None and self._current[0] is token:
+                    if self._current is not None and self._current[2] is token:
                         self._current = None
 
-        return SpeechJob(operation_id, run)
+        return SpeechJob(operation_id, workflow_id, run)
+
+    def is_active_for(self, workflow_id: str) -> bool:
+        with self._lock:
+            return self._current is not None and self._current[1] == workflow_id
+
+    def operation_for(self, workflow_id: str) -> str | None:
+        with self._lock:
+            return self._current[0] if self._current is not None and self._current[1] == workflow_id else None
+
+    @property
+    def current_identity(self) -> tuple[str, str] | None:
+        with self._lock:
+            return (self._current[0], self._current[1]) if self._current is not None else None
+
+    def cancel_operation(self, operation_id: str) -> bool:
+        with self._lock:
+            if self._current is None or self._current[0] != operation_id:
+                return False
+            current = self._current
+            self._current = None
+        self._cancel_owned(current)
+        return True
+
+    def cancel_workflow(self, workflow_id: str) -> bool:
+        with self._lock:
+            if self._current is None or self._current[1] != workflow_id:
+                return False
+            current = self._current
+            self._current = None
+        self._cancel_owned(current)
+        return True
 
     def cancel_current(self) -> None:
         with self._lock:
             current = self._current
             self._current = None
         if current is not None:
-            token, operation = current
-            token.cancel()
-            if operation is not None:
-                operation.cancel()
+            self._cancel_owned(current)
+
+    def _cancel_owned(self, current: tuple[str, str, CancellationToken, OperationHandle | None]) -> None:
+        _operation_id, _workflow_id, token, operation = current
+        token.cancel()
+        if operation is not None:
+            operation.cancel()
         self._speech.stop()
 
     def _read_text(self, *, clipboard_only: bool) -> str:

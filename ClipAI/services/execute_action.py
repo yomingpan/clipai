@@ -80,6 +80,8 @@ class ActionExecutor:
             self._result_router.route(
                 invocation.result_route,
                 processed,
+                workflow_id=invocation.workflow_id or invocation.invocation_id,
+                cancellation=token,
                 popup_sink=lambda routed: workflow.complete(
                     invocation,
                     action,
@@ -136,6 +138,8 @@ class ActionExecutor:
             self._result_router.route(
                 invocation.result_route,
                 processed,
+                workflow_id=invocation.workflow_id or invocation.invocation_id,
+                cancellation=token,
                 popup_sink=lambda routed: workflow.complete(
                     invocation,
                     action,

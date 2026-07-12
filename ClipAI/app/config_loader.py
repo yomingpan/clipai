@@ -4,10 +4,11 @@ from pathlib import Path
 from typing import Any, TypeVar, cast
 
 import yaml
+import warnings
 
 from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings, VoiceOpenAISettings
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.models import ActionDefinition, ActionVariant, InputMode, InputPolicy, OutputMode, OutputProfile, PressType, ShortcutCommandKind, ShortcutDefinition
+from ClipAI.core.models import ActionDefinition, ActionVariant, ExternalFallback, InputMode, OutputMode, OutputProfile, PressType, ShortcutCommandKind, ShortcutDefinition
 from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.output_profiles import OutputProfileCatalog
@@ -16,7 +17,7 @@ from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 
 T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
-ACTIONS_SCHEMA_VERSION = 3
+ACTIONS_SCHEMA_VERSION = 4
 
 
 def load_config_bundle(
@@ -186,7 +187,7 @@ def load_action_catalog(path: str | Path, *, output_profiles: OutputProfileCatal
 def _parse_action(value: Any, index: int) -> ActionDefinition:
     path = f"actions.actions[{index}]"
     data = _mapping(value, path)
-    allowed = {"id", "name", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "input_policy", "output_mode", "temperature", "output_profile"}
+    allowed = {"id", "name", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "input_policy", "external_fallback", "output_mode", "temperature", "output_profile"}
     _reject_unknown(data, allowed, path)
     variants: dict[PressType, ActionVariant] = {}
     raw_variants = _mapping(data.get("press_variants"), f"{path}.press_variants", allow_none=True)
@@ -204,6 +205,20 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
             output_profile=_string(variant.get("output_profile"), f"{variant_path}.output_profile", default="") or None,
         )
     temperature = data.get("temperature")
+    legacy_policy = data.get("input_policy")
+    if legacy_policy is not None:
+        _choice(legacy_policy, f"{path}.input_policy", {"external_text", "contextual_text"}, "external_text")
+        warnings.warn(
+            f"{path}.input_policy is deprecated; use external_fallback",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    external_fallback = _choice(
+        data.get("external_fallback"),
+        f"{path}.external_fallback",
+        {"selection_or_clipboard", "clipboard"},
+        "clipboard" if data.get("input_mode") == "clipboard" else "selection_or_clipboard",
+    )
     return ActionDefinition(
         id=_string(data.get("id"), f"{path}.id"),
         name=_string(data.get("name"), f"{path}.name"),
@@ -215,7 +230,7 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         output_mode=cast(OutputMode, _choice(data.get("output_mode"), f"{path}.output_mode", {"popup"}, "popup")),
         temperature=None if temperature is None else _number(temperature, f"{path}.temperature"),
         output_profile=_string(data.get("output_profile"), f"{path}.output_profile", default="plain_text"),
-        input_policy=cast(InputPolicy, _choice(data.get("input_policy"), f"{path}.input_policy", {"external_text", "contextual_text"}, "external_text")),
+        external_fallback=cast(ExternalFallback, external_fallback),
     )
 
 

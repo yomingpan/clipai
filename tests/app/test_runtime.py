@@ -14,6 +14,7 @@ class FakeView:
         self.sink = None
         self.stopped = False
         self.context: ActiveWorkflowContext | None = None
+        self.output_results = []
 
     def set_command_sink(self, sink) -> None:
         self.sink = sink
@@ -29,6 +30,9 @@ class FakeView:
 
     def active_workflow_context(self) -> ActiveWorkflowContext | None:
         return self.context
+
+    def present_output_operation(self, result) -> None:
+        self.output_results.append(result)
 
 
 class FakeSupervisor:
@@ -82,9 +86,6 @@ class FakeOutputs:
 
     def speak(self, text: str) -> None:
         self.spoken.append(text)
-
-    def stop_speech(self) -> None:
-        self.stops += 1
 
     def paste(self, text: str) -> None:
         self.pasted.append(text)
@@ -163,6 +164,7 @@ class Notifier:
 
 class SpeechJob:
     operation_id = "tts:clipboard:unique"
+    workflow_id = "global"
 
     def __init__(self, calls: list[str]) -> None:
         self.calls = calls
@@ -184,13 +186,60 @@ class GlobalSpeech:
     def cancel_current(self) -> None:
         self.cancelled += 1
 
+    @property
+    def current_identity(self):
+        return None
+
+
+class PopupSpeech:
+    def __init__(self, outputs: FakeOutputs) -> None:
+        self.outputs = outputs
+        self.current = None
+
+    @property
+    def current_identity(self):
+        return self.current
+
+    def operation_for(self, workflow_id):
+        return self.current[0] if self.current and self.current[1] == workflow_id else None
+
+    def create_text_job(self, *, operation_id, workflow_id, text):
+        self.current = (operation_id, workflow_id)
+        owner = self
+        class Job:
+            def run(self):
+                owner.outputs.spoken.append(text)
+                if owner.current == (operation_id, workflow_id):
+                    owner.current = None
+        return Job()
+
+    def create_job(self, *, clipboard_only):
+        del clipboard_only
+        return SpeechJob([])
+
+    def cancel_operation(self, operation_id):
+        if self.current is None or self.current[0] != operation_id:
+            return False
+        self.current = None
+        self.outputs.stops += 1
+        return True
+
+    def cancel_workflow(self, workflow_id):
+        operation_id = self.operation_for(workflow_id)
+        return self.cancel_operation(operation_id) if operation_id else False
+
+    def cancel_current(self):
+        if self.current:
+            self.cancel_operation(self.current[0])
+
 
 def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None):
     action = ActionDefinition("a", "Action", "system", "{input}", {})
-    shorten = ActionDefinition("shorten", "Shorten", "system", "{input}", {}, input_policy="contextual_text")
+    shorten = ActionDefinition("shorten", "Shorten", "system", "{input}", {})
     view = FakeView()
     supervisor = FakeSupervisor()
     outputs = FakeOutputs()
+    speech_coordinator = speech_coordinator or PopupSpeech(outputs)
     listener = Listener()
     runtime = AppRuntime(
         actions=ActionCatalog([action, shorten]),
@@ -210,6 +259,8 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         diagnostics_exporter=diagnostics_exporter,
         notifier=notifier,
         speech_coordinator=speech_coordinator,
+        workflow_context_reader=view,
+        output_operation_presenter=view,
     )
     return runtime, view, supervisor, outputs, listener
 
@@ -274,6 +325,35 @@ def test_contextual_action_without_popup_context_creates_external_workflow() -> 
     assert controller.snapshot.active_invocation_id is not None
 
 
+def test_speech_sequence_is_headless_and_prefers_popup_selection() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    popup_id = view.snapshots[-1].session_id
+    controller = runtime._workflows[popup_id]
+    step = WorkflowStep("step-1", "a", "Action", "input", "full popup result", "plain_text")
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        content=step.result_text,
+        steps=(step,),
+        displayed_step_index=0,
+        active_invocation_id=None,
+    )
+    view.context = ActiveWorkflowContext(popup_id, step.step_id, step.result_text, "selected popup text")
+    rendered_before = len(view.snapshots)
+
+    runtime.enqueue(StartAction("a", "short", "speech"))
+    runtime.drain_commands()
+    speech_id = runtime._sequence_workflow_id
+    assert speech_id is not None
+    supervisor.work[runtime._workflows[speech_id].snapshot.active_invocation_id]()
+
+    invocation = runtime._execute_action.invocations[-1]
+    assert invocation.result_route == "speech"
+    assert invocation.input_target.document.text == "selected popup text"
+    assert len(view.snapshots) == rendered_before
+
+
 def test_latest_start_cancels_previous_unpinned_session() -> None:
     runtime, view, supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
@@ -309,9 +389,10 @@ def test_copy_and_close_are_commands() -> None:
     controller = runtime._workflows[session_id]
     active_invocation = controller.snapshot.active_invocation_id
     controller._snapshot = controller.snapshot.evolve(content="clean result")
-    runtime.enqueue(CopyResult(session_id))
+    runtime.enqueue(CopyResult(session_id, operation_id="copy-op"))
     runtime.enqueue(CloseSession(session_id))
     runtime.drain_commands()
+    supervisor.work["copy-op"]()
     assert outputs.copied == ["clean result"]
     assert active_invocation in supervisor.cancelled
     assert session_id not in runtime._workflows
@@ -323,8 +404,9 @@ def test_copy_prefers_selected_command_text() -> None:
     runtime.drain_commands()
     session_id = view.snapshots[-1].session_id
     runtime._workflows[session_id]._snapshot = runtime._workflows[session_id].snapshot.evolve(content="full result")
-    runtime.enqueue(CopyResult(session_id, " selected "))
+    runtime.enqueue(CopyResult(session_id, " selected ", "copy-op"))
     runtime.drain_commands()
+    _supervisor.work["copy-op"]()
     assert outputs.copied == ["selected"]
 
 
@@ -355,7 +437,7 @@ def test_speech_runs_as_supervised_output_and_can_stop() -> None:
     runtime.enqueue(ToggleSpeech(session_id))
     runtime.drain_commands()
     assert controller.snapshot.speaking is True
-    operation_id = runtime._popup_speech_ids[session_id]
+    operation_id = runtime._speech_coordinator.operation_for(session_id)
     work = supervisor.work[operation_id]
     work()
     assert outputs.spoken == ["speak me"]
@@ -370,7 +452,7 @@ def test_speech_prefers_selected_command_text() -> None:
     runtime._workflows[session_id]._snapshot = runtime._workflows[session_id].snapshot.evolve(content="full")
     runtime.enqueue(ToggleSpeech(session_id, "selected"))
     runtime.drain_commands()
-    supervisor.work[runtime._popup_speech_ids[session_id]]()
+    supervisor.work[runtime._speech_coordinator.operation_for(session_id)]()
     assert outputs.spoken == ["selected"]
 
 
@@ -383,9 +465,34 @@ def test_speech_reports_one_external_api_lifecycle() -> None:
     runtime._workflows[session_id]._snapshot = runtime._workflows[session_id].snapshot.evolve(content="speak")
     runtime.enqueue(ToggleSpeech(session_id))
     runtime.drain_commands()
-    operation_id = runtime._popup_speech_ids[session_id]
+    operation_id = runtime._speech_coordinator.operation_for(session_id)
     supervisor.work[operation_id]()
     assert operations.events == [("start", f"tts:{operation_id}", "tts"), ("success", f"tts:{operation_id}")]
+
+
+def test_closing_old_popup_cannot_stop_newer_popup_speech() -> None:
+    runtime, view, _supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    first_id = view.snapshots[-1].session_id
+    first = runtime._workflows[first_id]
+    first._snapshot = first.snapshot.evolve(status=SessionStatus.COMPLETED, content="first")
+    runtime.enqueue(TogglePin(first_id))
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    second_id = view.snapshots[-1].session_id
+    second = runtime._workflows[second_id]
+    second._snapshot = second.snapshot.evolve(status=SessionStatus.COMPLETED, content="second")
+
+    runtime.enqueue(ToggleSpeech(first_id, operation_id="speech-a"))
+    runtime.enqueue(ToggleSpeech(second_id, operation_id="speech-b"))
+    runtime.drain_commands()
+    stops_after_replacement = outputs.stops
+    runtime.enqueue(CloseSession(first_id))
+    runtime.drain_commands()
+
+    assert runtime._speech_coordinator.operation_for(second_id) == "speech-b"
+    assert outputs.stops == stops_after_replacement
 
 
 def test_diagnostics_export_is_typed_supervised_work_with_feedback() -> None:
@@ -422,11 +529,14 @@ def test_paste_and_archive_flow_through_typed_commands() -> None:
     session_id = view.snapshots[-1].session_id
     controller = runtime._workflows[session_id]
     controller._snapshot = controller.snapshot.evolve(content="use me")
-    runtime.enqueue(ArchiveResult(session_id))
+    runtime.enqueue(ArchiveResult(session_id, operation_id="archive-op"))
     runtime.drain_commands()
+    _supervisor.work["archive-op"]()
     assert outputs.archived == ["use me"]
-    runtime.enqueue(PasteResult(session_id, "selected"))
+    runtime.enqueue(PasteResult(session_id, "selected", "paste-op"))
+    runtime.drain_commands()
+    assert session_id in runtime._workflows
+    _supervisor.work["paste-op"]()
     runtime.drain_commands()
     assert session_id not in runtime._workflows
-    _supervisor.work[f"paste:{session_id}"]()
     assert outputs.pasted == ["selected"]

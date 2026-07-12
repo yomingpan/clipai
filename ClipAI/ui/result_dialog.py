@@ -9,7 +9,7 @@ import uuid
 import customtkinter as ctk
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext, OutputActionAcknowledgment
+from ClipAI.core.models import ActiveWorkflowContext, OutputOperationResult
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
@@ -61,6 +61,7 @@ class ResultDialogPresenter:
         self._root = ctk.CTk()
         self._root.withdraw()
         self._updates: queue.Queue[SessionSnapshot] = queue.Queue()
+        self._output_updates: queue.Queue[OutputOperationResult] = queue.Queue()
         self._views: dict[str, _SessionView] = {}
         self._command_sink: Callable[[object], None] = lambda _command: None
         self._stopping = False
@@ -90,16 +91,32 @@ class ResultDialogPresenter:
     def render(self, snapshot: SessionSnapshot) -> None:
         self._updates.put(snapshot)
 
-    def acknowledge_output(self, acknowledgment: OutputActionAcknowledgment) -> None:
-        view = self._views.get(acknowledgment.session_id)
-        if view is None or view.output_operations.get(acknowledgment.action) != acknowledgment.operation_id:
+    def present_output_operation(self, result: OutputOperationResult) -> None:
+        self._output_updates.put(result)
+
+    def _apply_output_operation(self, result: OutputOperationResult) -> None:
+        view = self._views.get(result.workflow_id)
+        if view is None:
             return
-        if acknowledgment.succeeded:
-            view.surface.pulse_standard_action(acknowledgment.action)
-            if acknowledgment.action == "archive" and not view.surface.overflow_expanded:
+        slot_id = "speaker" if result.kind == "speech" else result.kind
+        if result.state == "pending":
+            view.output_operations[result.kind] = result.operation_id
+            if result.kind in {"copy", "paste", "archive"}:
+                view.surface.set_standard_action_enabled(slot_id, False)
+            return
+        if view.output_operations.get(result.kind) != result.operation_id:
+            return
+        view.output_operations.pop(result.kind, None)
+        if result.kind in {"copy", "paste", "archive"}:
+            view.surface.set_standard_action_enabled(slot_id, True)
+        if result.state == "succeeded":
+            view.surface.pulse_standard_action(slot_id)
+            if result.kind == "archive" and not view.surface.overflow_expanded:
                 view.surface.show_action_message("已封存", 1000)
-        else:
-            view.surface.pulse_standard_action_error(acknowledgment.action)
+        elif result.state == "failed":
+            view.surface.pulse_standard_action_error(slot_id)
+            if result.error is not None:
+                view.surface.show_action_message(result.error.message, 1500)
 
     def run(self, command_pump: Callable[[], None]) -> None:
         def tick() -> None:
@@ -149,6 +166,11 @@ class ResultDialogPresenter:
             pass
 
     def _drain_updates(self) -> None:
+        while True:
+            try:
+                self._apply_output_operation(self._output_updates.get_nowait())
+            except queue.Empty:
+                break
         while True:
             try:
                 snapshot = self._updates.get_nowait()
@@ -250,7 +272,8 @@ class ResultDialogPresenter:
         view = self._views.get(session_id)
         if view is None:
             return
-        self._send_text_command(session_id, ToggleSpeech)
+        text = view.surface.selected_text()
+        self._command_sink(ToggleSpeech(session_id, text, uuid.uuid4().hex))
 
     def _archive(self, session_id: str) -> None:
         view = self._views.get(session_id)
@@ -264,10 +287,7 @@ class ResultDialogPresenter:
         view = self._views.get(session_id)
         if view is None:
             return
-        text = view.surface.selected_text()
-        view.surface.set_standard_action_enabled("paste", False)
-        view.dialog.root.withdraw()
-        self._command_sink(PasteResult(session_id, text))
+        self._command_sink(PasteResult(session_id, view.surface.selected_text(), uuid.uuid4().hex))
 
     def _toggle_pin(self, session_id: str) -> None:
         view = self._views.get(session_id)
