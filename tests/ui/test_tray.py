@@ -6,6 +6,8 @@ from ClipAI.ui.tray import STATUS_COLORS, TrayController, create_tray_image
 
 class MenuItem:
     def __init__(self, text, action, **kwargs) -> None:
+        if callable(action) and hasattr(action, "__code__") and action.__code__.co_argcount > 2:
+            raise ValueError(action)
         self.text = text
         self.action = action
         self.checked = kwargs.get("checked")
@@ -62,6 +64,7 @@ def test_tray_model_menu_projects_only_available_models_and_checks_active() -> N
     assert [item.text for item in root.action.items] == ["small", "large"]
     assert root.action.items[0].checked(None) is True
     assert root.action.items[1].checked(None) is False
+    assert all(item.action.__code__.co_argcount == 2 for item in root.action.items)
 
 
 def test_tray_model_click_enters_pending_and_emits_typed_values_once() -> None:

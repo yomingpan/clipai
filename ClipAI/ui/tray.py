@@ -117,13 +117,19 @@ class TrayController:
         items = tuple(
             pystray.MenuItem(
                 model,
-                lambda _icon, _item, chosen=model: self._select_model(chosen),
+                self._model_action(model),
                 checked=lambda _item, chosen=model: self._model_selection is not None and self._model_selection.selected_model == chosen,
                 enabled=lambda _item: self._model_selection is not None and self._model_selection.pending_model is None,
             )
             for model in selection.available_models
         )
         return pystray.MenuItem(label, pystray.Menu(*items))
+
+    def _model_action(self, model: str):
+        def select(_icon, _item) -> None:
+            self._select_model(model)
+
+        return select
 
     def _select_model(self, model: str) -> None:
         selection = self._model_selection
