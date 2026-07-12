@@ -78,11 +78,13 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         else None
     )
     selection_reader = SystemSelectionReader(clipboard)
+    voice_selector = SpeechVoiceSelector(bundle.tts.english_voice)
     output_actions = OutputActions(
         clipboard=clipboard,
         archive=JsonlArchiveStore(),
         speech=speech,
         keyboard=SystemKeyboardOutput(),
+        voice_selector=voice_selector,
     )
 
     def speak_result(text: str) -> None:
@@ -134,7 +136,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
                 clipboard=clipboard,
                 selection_reader=selection_reader,
                 speech=speech,
-                voice_selector=SpeechVoiceSelector(bundle.tts.english_voice),
+                voice_selector=voice_selector,
                 operation_tracker=operation_tracker,
             )
             if speech is not None

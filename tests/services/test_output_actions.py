@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ClipAI.services.output_actions import OutputActions
+from ClipAI.services.speech_coordinator import SpeechVoiceSelector
 from ClipAI.services.speech_text import SpeechTextPreprocessor
 
 
@@ -30,6 +31,17 @@ class Keyboard:
             raise RuntimeError("paste failed")
 
 
+class Speech:
+    def __init__(self) -> None:
+        self.requests = []
+
+    def speak(self, request) -> None:
+        self.requests.append(request)
+
+    def stop(self) -> None:
+        pass
+
+
 def test_paste_restores_clipboard_after_focus_delay() -> None:
     clipboard = Clipboard("original")
     keyboard = Keyboard()
@@ -52,3 +64,23 @@ def test_paste_restores_clipboard_when_keyboard_fails() -> None:
 def test_speech_text_removes_markdown_noise_but_preserves_meaning() -> None:
     text = "# **Title**\n* Use C++ at 12.5%.\n[OpenAI](https://openai.com) don't stop.\n```py\nprint('*')\n```"
     assert SpeechTextPreprocessor().prepare(text) == "Title\nUse C++ at 12.5%.\nOpenAI don't stop."
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_voice"),
+    [
+        ("Hello world", "en-GB-TestVoice"),
+        ("\u4f60\u597d", None),
+    ],
+)
+def test_popup_speech_uses_shared_voice_selector(text: str, expected_voice: str | None) -> None:
+    speech = Speech()
+    actions = OutputActions(
+        clipboard=Clipboard(""),
+        speech=speech,
+        voice_selector=SpeechVoiceSelector("en-GB-TestVoice"),
+    )
+
+    actions.speak(text)
+
+    assert speech.requests[0].voice_override == expected_voice

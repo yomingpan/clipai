@@ -6,6 +6,7 @@ from collections.abc import Callable
 from ClipAI.core.ports import ArchiveStore, ClipboardStore, KeyboardOutput, SpeechOutput
 from ClipAI.core.models import SpeechRequest
 from ClipAI.core.state import CancellationToken
+from ClipAI.services.speech_coordinator import SpeechVoiceSelector
 from ClipAI.services.speech_text import SpeechTextPreprocessor
 
 
@@ -20,6 +21,7 @@ class OutputActions:
         paste_restore_delay_sec: float = 0.25,
         wait: Callable[[float], None] = time.sleep,
         speech_text: SpeechTextPreprocessor | None = None,
+        voice_selector: SpeechVoiceSelector | None = None,
     ) -> None:
         self._clipboard = clipboard
         self._archive = archive
@@ -28,6 +30,7 @@ class OutputActions:
         self._paste_restore_delay_sec = paste_restore_delay_sec
         self._wait = wait
         self._speech_text = speech_text or SpeechTextPreprocessor()
+        self._voice_selector = voice_selector
 
     def copy(self, text: str) -> None:
         self._clipboard.write_text(text)
@@ -61,7 +64,8 @@ class OutputActions:
             raise RuntimeError("speech output is not configured")
         prepared = self._speech_text.prepare(text)
         if prepared:
-            self._speech.speak(SpeechRequest(prepared, None, CancellationToken()))
+            voice_override = self._voice_selector.select(prepared) if self._voice_selector is not None else None
+            self._speech.speak(SpeechRequest(prepared, voice_override, CancellationToken()))
 
     @property
     def can_speak(self) -> bool:
