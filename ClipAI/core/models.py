@@ -11,14 +11,15 @@ MessageRole = Literal["system", "user", "assistant"]
 ImageSource = Literal["clipboard"]
 InputMode = Literal["clipboard", "selection_or_clipboard"]
 OutputMode = Literal["popup"]
-InputPolicy = Literal["external_text", "contextual_text"]
+ExternalFallback = Literal["selection_or_clipboard", "clipboard"]
 ResultRoute = Literal["popup", "speech"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
-OperationKind = Literal["llm", "tts", "copy", "archive"]
+OperationKind = Literal["llm", "tts", "copy", "paste", "archive"]
 PresentationBlockKind = Literal["paragraph", "heading", "unordered_item", "ordered_item"]
 InlineStyle = Literal["plain", "bold", "italic"]
 ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
-OutputActionKind = Literal["copy", "archive"]
+OutputActionKind = Literal["copy", "paste", "archive", "speech"]
+OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
 
 
 @dataclass(frozen=True)
@@ -62,12 +63,20 @@ class UserFacingError:
 
 
 @dataclass(frozen=True)
-class OutputActionAcknowledgment:
-    session_id: str
+class OutputOperationIntent:
     operation_id: str
-    action: OutputActionKind
-    succeeded: bool
-    error: str = ""
+    workflow_id: str
+    kind: OutputActionKind
+    text: str
+
+
+@dataclass(frozen=True)
+class OutputOperationResult:
+    operation_id: str
+    workflow_id: str
+    kind: OutputActionKind
+    state: OutputOperationState
+    error: UserFacingError | None = None
 
 
 @dataclass(frozen=True)
@@ -99,7 +108,7 @@ class ActionDefinition:
     output_mode: OutputMode = "popup"
     temperature: float | None = None
     output_profile: str = "plain_text"
-    input_policy: InputPolicy = "external_text"
+    external_fallback: ExternalFallback = "selection_or_clipboard"
 
 
 @dataclass(frozen=True)
@@ -128,7 +137,7 @@ class ResolvedAction:
     output_mode: OutputMode
     temperature: float | None
     output_profile: str = "plain_text"
-    input_policy: InputPolicy = "external_text"
+    external_fallback: ExternalFallback = "selection_or_clipboard"
 
 
 @dataclass(frozen=True)

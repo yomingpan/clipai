@@ -29,7 +29,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "never substitute, infer, or invent" in action.system_prompt
     assert "記憶：" in action.prompt
     assert bundle.schema_versions.app == 1
-    assert bundle.schema_versions.actions == 3
+    assert bundle.schema_versions.actions == 4
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
@@ -57,7 +57,7 @@ def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input()
         assert shortcut.action_id == shortcut_id
         action = bundle.actions.get(shortcut.action_id)
         assert action.input_mode == "selection_or_clipboard"
-        assert action.input_policy == "external_text"
+        assert action.external_fallback == "selection_or_clipboard"
         assert "image" in action.system_prompt.lower() or "圖片" in action.system_prompt
 
 
@@ -167,21 +167,43 @@ def test_future_catalog_schema_version_is_rejected(tmp_path: Path, filename: str
 
 def test_future_actions_schema_version_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "actions.yaml"
-    path.write_text("schema_version: 4\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 4"):
+    path.write_text("schema_version: 5\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 5"):
         load_action_catalog(path)
 
 
-def test_action_input_policy_is_typed_and_shorten_is_contextual() -> None:
+def test_action_external_fallback_is_typed() -> None:
     catalog = load_action_catalog("config/actions.yaml")
-    assert catalog.get("english_companion").input_policy == "external_text"
-    assert catalog.get("shorten_content").input_policy == "contextual_text"
+    assert catalog.get("english_companion").external_fallback == "selection_or_clipboard"
+    assert catalog.get("shorten_content").external_fallback == "selection_or_clipboard"
     assert "preserve the original language of each part" in catalog.get("shorten_content").system_prompt
     assert "Never translate" in catalog.get("shorten_content").system_prompt
     assert "English input must produce English only" in catalog.get("shorten_content").system_prompt
     assert "structure absent from the input" in catalog.get("shorten_content").system_prompt
     assert "as briefly as possible" in catalog.resolve("shorten_content", "long").prompt
     assert "freely merge paragraphs and remove line breaks" in catalog.resolve("shorten_content", "long").prompt
+
+
+def test_legacy_input_policy_is_accepted_with_deprecation_warning(tmp_path: Path) -> None:
+    path = tmp_path / "actions.yaml"
+    path.write_text(
+        "schema_version: 3\nactions:\n  - id: old\n    name: Old\n    system_prompt: system\n    prompt: '{input}'\n    input_policy: contextual_text\n",
+        encoding="utf-8",
+    )
+    with pytest.warns(DeprecationWarning, match="external_fallback"):
+        action = load_action_catalog(path).get("old")
+    assert action.external_fallback == "selection_or_clipboard"
+
+
+def test_new_external_fallback_wins_when_legacy_field_is_also_present(tmp_path: Path) -> None:
+    path = tmp_path / "actions.yaml"
+    path.write_text(
+        "schema_version: 4\nactions:\n  - id: both\n    name: Both\n    system_prompt: system\n    prompt: '{input}'\n    input_policy: contextual_text\n    external_fallback: clipboard\n",
+        encoding="utf-8",
+    )
+    with pytest.warns(DeprecationWarning):
+        action = load_action_catalog(path).get("both")
+    assert action.external_fallback == "clipboard"
 
 
 @pytest.mark.parametrize(

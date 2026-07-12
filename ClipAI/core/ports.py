@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, ImageContent, LLMRequest, LLMResult, OperationKind, OutputActionAcknowledgment, SpeechRequest
+from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, ImageContent, LLMRequest, LLMResult, OperationKind, OutputOperationResult, SpeechRequest, UserFacingError
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -49,7 +49,10 @@ class ApplicationView(ResultPresenter, Protocol):
 
     def stop(self) -> None: ...
 
-    def acknowledge_output(self, acknowledgment: OutputActionAcknowledgment) -> None: ...
+
+
+class OutputOperationPresenter(Protocol):
+    def present_output_operation(self, result: OutputOperationResult) -> None: ...
 
 
 class ActiveWorkflowContextReader(Protocol):
@@ -87,6 +90,15 @@ class OperationHandle(Protocol):
 class OperationTracker(Protocol):
     def start(self, operation_id: str, kind: OperationKind) -> OperationHandle: ...
 
+    def report_waiting(self) -> None: ...
+
+    def report_error(self, message: str, suggestion: str = "") -> None: ...
+
+    @property
+    def last_error(self) -> UserFacingError | None: ...
+
+    def stop(self) -> None: ...
+
 
 class UserNotifier(Protocol):
     def notify(self, title: str, message: str) -> None: ...
@@ -98,3 +110,11 @@ class DiagnosticsExporter(Protocol):
 
 class DisplayMetricsReader(Protocol):
     def current(self) -> DisplayMetrics: ...
+
+
+class Stoppable(Protocol):
+    def stop(self) -> None: ...
+
+
+class RuntimeComponent(Stoppable, Protocol):
+    def start(self) -> None: ...

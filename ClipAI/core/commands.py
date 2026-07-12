@@ -56,6 +56,7 @@ class ShutdownApplication:
 class ToggleSpeech:
     session_id: str
     text: str | None = None
+    operation_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ class NavigateWorkflowBack:
 class PasteResult:
     session_id: str
     text: str | None = None
+    operation_id: str = ""
 
 
 @dataclass(frozen=True)

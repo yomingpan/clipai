@@ -10,10 +10,12 @@ Popup 是可連續處理的 workflow surface，不只是單次 action 的輸出�
 
 每個 invocation 擁有獨立 cancellation token。Workflow 只接受目前 active invocation ID 的 progress、success 或 failure；被取代的 worker 晚到時不得更新 popup或回報成功。
 
-## Input Policy
+## Input Resolution
 
-- `external_text`：selection-first、clipboard fallback，不使用 popup result。
-- `contextual_text`：最後互動 popup 的非空 selection 優先，否則使用 displayed successful step；沒有有效 popup context 時 fallback 至 external text。
+- 所有 text-capable action 固定優先使用最後互動 popup 的非空 selection。
+- 沒有 selection 時使用 displayed successful step 的 canonical content。
+- 沒有有效 popup context 時才套用 action 的 `external_fallback`：`selection_or_clipboard` 或 `clipboard`。
+- 舊 `input_policy` 只保留一個 release 的 config-loader 相容期，不進入 domain model。
 
 UI 透過 read-only `ActiveWorkflowContext` port 提供 workflow、step、content 與 selection。Services 不讀 Tk widget，platform hotkey listener 不理解 popup context。
 

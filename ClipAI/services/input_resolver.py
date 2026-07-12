@@ -15,7 +15,7 @@ class InputResolver:
             selected = self._selection.read_text().strip()
             if selected:
                 return InputDocument(text=selected, source="selection")
-        image = self._clipboard.read_image() if hasattr(self._clipboard, "read_image") else None
+        image = self._clipboard.read_image()
         if image is not None:
             return InputDocument(text="", source="clipboard", image=image)
         clipboard_text = self._clipboard.read_text().strip()

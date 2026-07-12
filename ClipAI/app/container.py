@@ -79,22 +79,22 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
     selection_reader = SystemSelectionReader(clipboard)
     voice_selector = SpeechVoiceSelector(bundle.tts.english_voice)
+    speech_coordinator = (
+        SpeechCoordinator(
+            clipboard=clipboard,
+            selection_reader=selection_reader,
+            speech=speech,
+            voice_selector=voice_selector,
+            operation_tracker=operation_tracker,
+        )
+        if speech is not None
+        else None
+    )
     output_actions = OutputActions(
         clipboard=clipboard,
         archive=JsonlArchiveStore(),
-        speech=speech,
         keyboard=SystemKeyboardOutput(),
-        voice_selector=voice_selector,
     )
-
-    def speak_result(text: str) -> None:
-        operation = operation_tracker.start(f"tts:sequence:{os.urandom(8).hex()}", "tts")
-        try:
-            output_actions.speak(text)
-        except BaseException:
-            operation.fail()
-            raise
-        operation.succeed()
 
     execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
@@ -107,7 +107,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         available_actions=("copy", "paste", "archive", "follow_up", "speaker") if speech is not None else ("copy", "paste", "archive", "follow_up"),
         operation_tracker=operation_tracker,
         readiness_issues=readiness_issues,
-        result_router=ResultRouter(speak_result if speech is not None else None),
+        result_router=ResultRouter(speech_coordinator),
     )
 
     def register(action_map: dict[str, dict[str, str]], callback: Callable[[str, str], None]) -> object:
@@ -131,17 +131,9 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         operation_tracker=operation_tracker,
         diagnostics_exporter=diagnostics_exporter,
         notifier=notifier,
-        speech_coordinator=(
-            SpeechCoordinator(
-                clipboard=clipboard,
-                selection_reader=selection_reader,
-                speech=speech,
-                voice_selector=voice_selector,
-                operation_tracker=operation_tracker,
-            )
-            if speech is not None
-            else None
-        ),
+        speech_coordinator=speech_coordinator,
+        workflow_context_reader=view,
+        output_operation_presenter=view,
     )
     runtime_holder.append(runtime)
     return runtime

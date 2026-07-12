@@ -13,7 +13,11 @@ def test_popup_route_uses_popup_sink() -> None:
 def test_speech_route_uses_injected_sink_without_popup() -> None:
     spoken = []
     popup = []
-    ResultRouter(spoken.append).route("speech", ProcessedResult("text"), popup_sink=popup.append)
+    class Sink:
+        def speak_result(self, text: str, workflow_id: str, cancellation) -> None:
+            del workflow_id, cancellation
+            spoken.append(text)
+    ResultRouter(Sink()).route("speech", ProcessedResult("text"), popup_sink=popup.append)
     assert spoken == ["text"]
     assert popup == []
 

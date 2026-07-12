@@ -67,3 +67,9 @@ def test_tracked_sources_do_not_contain_merge_conflict_markers() -> None:
                 if any(line.startswith(marker) for marker in markers):
                     violations.append(f"{path}:{line_number}")
     assert violations == []
+
+
+def test_runtime_does_not_probe_optional_capabilities() -> None:
+    source = Path("ClipAI/app/runtime.py").read_text(encoding="utf-8")
+    assert "hasattr(" not in source
+    assert "getattr(" not in source

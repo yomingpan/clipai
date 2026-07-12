@@ -20,6 +20,9 @@ class FakeClipboard:
     def read_text(self) -> str:
         return self.text
 
+    def read_image(self):
+        return None
+
     def write_text(self, text: str) -> None:
         self.writes.append(text)
 

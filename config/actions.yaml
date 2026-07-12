@@ -1,11 +1,11 @@
-schema_version: 3
+schema_version: 4
 
 actions:
   - id: translate_to_traditional_chinese
     name: 翻譯成繁體中文
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.1
     output_profile: plain_text
@@ -20,7 +20,7 @@ actions:
     name: Translate to English
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.1
     output_profile: plain_text
@@ -35,7 +35,7 @@ actions:
     name: 為想法命名
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.3
     output_profile: plain_text
@@ -58,7 +58,7 @@ actions:
     name: 照亮不變的本質
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.25
     output_profile: plain_text
@@ -76,7 +76,7 @@ actions:
     name: 麥肯錫金字塔：形成立場
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.2
     output_profile: plain_text
@@ -103,7 +103,7 @@ actions:
     name: 用朋友的方式說明
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.25
     output_profile: plain_text
@@ -118,7 +118,7 @@ actions:
     name: 文章架構與重要觀點
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.15
     output_profile: plain_text
@@ -140,7 +140,7 @@ actions:
     name: English Companion
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.2
     output_profile: english_learning_compact
@@ -181,7 +181,7 @@ actions:
     name: 提出一個值得思考的問題
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.3
     output_profile: plain_text
@@ -203,7 +203,7 @@ actions:
     name: 批判性思考：提升問題層次
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.3
     output_profile: plain_text
@@ -231,7 +231,7 @@ actions:
     name: 抽取核心關鍵字
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: external_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.15
     output_profile: plain_text
@@ -253,7 +253,7 @@ actions:
     name: Shorten Content
     stream: false
     input_mode: selection_or_clipboard
-    input_policy: contextual_text
+    external_fallback: selection_or_clipboard
     output_mode: popup
     temperature: 0.1
     output_profile: plain_text

@@ -77,7 +77,7 @@ def test_selection_first_and_configured_english_voice() -> None:
     assert clipboard.calls == 0
     assert speech.requests[0].text == "selected"
     assert speech.requests[0].voice_override == "en-GB-TestVoice"
-    assert tracker.calls[0][2].outcomes == ["success"]
+    assert tracker.calls == []
 
 
 def test_clipboard_only_does_not_read_selection_and_cjk_uses_default_voice() -> None:
@@ -92,7 +92,7 @@ def test_empty_preprocessed_text_is_successful_noop() -> None:
     coordinator, _clipboard, _selection, speech, tracker = make_coordinator(clipboard="```py\npass\n```", selection="")
     coordinator.create_job(clipboard_only=False).run()
     assert speech.requests == []
-    assert tracker.calls[0][2].outcomes == ["success"]
+    assert tracker.calls == []
 
 
 def test_new_job_cancels_old_job_without_old_completion_overwriting_new() -> None:
@@ -102,8 +102,7 @@ def test_new_job_cancels_old_job_without_old_completion_overwriting_new() -> Non
     old_job.run()
     new_job.run()
     assert old_job.operation_id != new_job.operation_id
-    assert tracker.calls[0][2].outcomes == ["cancel"]
-    assert tracker.calls[1][2].outcomes == ["success"]
+    assert tracker.calls == []
 
 
 def test_each_trigger_reads_the_current_selection_again() -> None:
@@ -120,4 +119,13 @@ def test_speech_error_marks_operation_failed() -> None:
     job = coordinator.create_job(clipboard_only=False)
     with pytest.raises(RuntimeError, match="tts failed"):
         job.run()
-    assert tracker.calls[0][2].outcomes == ["error"]
+    assert tracker.calls == []
+
+
+def test_cancel_by_old_operation_id_does_not_stop_new_speech() -> None:
+    coordinator, _clipboard, _selection, speech, _tracker = make_coordinator()
+    old = coordinator.create_text_job(operation_id="old", workflow_id="a", text="old")
+    new = coordinator.create_text_job(operation_id="new", workflow_id="b", text="new")
+    assert coordinator.cancel_operation(old.operation_id) is False
+    assert coordinator.operation_for("b") == new.operation_id
+    assert speech.stops == 1
