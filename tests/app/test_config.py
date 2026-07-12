@@ -38,6 +38,29 @@ def test_long_press_uses_variant_prompt() -> None:
     assert resolved.output_profile == "english_improvement"
 
 
+def test_action_input_mode_defaults_to_selection_or_clipboard(tmp_path: Path) -> None:
+    path = tmp_path / "actions.yaml"
+    path.write_text(
+        """schema_version: 3
+actions:
+  - id: default_input
+    name: Default Input
+    system_prompt: system
+    prompt: "{input}"
+  - id: clipboard_only
+    name: Clipboard Only
+    system_prompt: system
+    prompt: "{input}"
+    input_mode: clipboard
+""",
+        encoding="utf-8",
+    )
+
+    catalog = load_action_catalog(path)
+    assert catalog.resolve("default_input", "short").input_mode == "selection_or_clipboard"
+    assert catalog.resolve("clipboard_only", "short").input_mode == "clipboard"
+
+
 def test_unknown_config_field_reports_full_path(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text(

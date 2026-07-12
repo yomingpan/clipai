@@ -32,9 +32,19 @@ def request():
     return PromptBuilder().build(action(), "", image=image, model="m", default_temperature=0.2)
 
 
-def test_clipboard_image_wins_over_selection_and_text():
+def test_selection_wins_over_clipboard_image_and_text():
     image = ImageContent(b"png", "image/png")
     document = InputResolver(Clipboard(image), Selection()).resolve("selection_or_clipboard")
+    assert document.image is None
+    assert document.text == "selected"
+    assert document.source == "selection"
+
+
+def test_clipboard_image_wins_over_clipboard_text_without_selection():
+    image = ImageContent(b"png", "image/png")
+    selection = Selection()
+    selection.read_text = lambda: ""
+    document = InputResolver(Clipboard(image), selection).resolve("selection_or_clipboard")
     assert document.image == image
     assert document.text == ""
 

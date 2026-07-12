@@ -26,6 +26,7 @@ Before changing this repository, read:
 3. Cancellation, cleanup, clipboard restoration, and late completion are scoped to the operation identity that created them. An older operation must never cancel, overwrite, restore into, or report completion for a newer operation.
 4. Every popup workflow has exactly one authoritative state owner. Currently this is `WorkflowController`; widgets, workers, and adapters may project or report state but must not independently own workflow state.
 5. Operation-specific state such as speaking, copying, archiving, or provider activity must reflect the real operation lifecycle. Do not derive it from general popup visibility or workflow revisions.
+6. For every text-capable Action, prefer text explicitly selected at the instant the user triggers the Action; when no valid selection can be captured, fall back to the clipboard. Selection capture must not permanently change the user's previous clipboard content.
 
 ## Dependency boundaries
 

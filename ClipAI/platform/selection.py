@@ -5,7 +5,7 @@ import time
 import threading
 import uuid
 
-from ClipAI.core.ports import ClipboardReader, ClipboardWriter
+from ClipAI.core.ports import ClipboardTransactionStore
 
 
 class SystemSelectionReader:
@@ -13,7 +13,7 @@ class SystemSelectionReader:
 
     def __init__(
         self,
-        clipboard: ClipboardReader | ClipboardWriter,
+        clipboard: ClipboardTransactionStore,
         *,
         copy_selection: Callable[[], None] | None = None,
         timeout_sec: float = 0.35,
@@ -30,25 +30,34 @@ class SystemSelectionReader:
             return self._capture_text()
 
     def _capture_text(self) -> str:
-        original = self._clipboard.read_text()
+        original = self._clipboard.snapshot()
         marker = f"__CLIPAI_SELECTION_{uuid.uuid4().hex}__"
+        owned_sequence: int | None = None
         try:
             self._clipboard.write_text(marker)
+            owned_sequence = self._clipboard.sequence_number()
             self._copy_selection()
             deadline = time.monotonic() + self._timeout_sec
             while time.monotonic() < deadline:
                 value = self._clipboard.read_text()
                 if value != marker:
-                    return value.strip()
+                    candidate_sequence = self._clipboard.sequence_number()
+                    confirmed_value = self._clipboard.read_text()
+                    if confirmed_value == value and self._clipboard.sequence_number() == candidate_sequence:
+                        owned_sequence = candidate_sequence
+                        return value.strip()
+                    owned_sequence = None
+                    return ""
                 time.sleep(self._poll_sec)
             return ""
         except Exception:
             return ""
         finally:
-            try:
-                self._clipboard.write_text(original)
-            except Exception:
-                pass
+            if owned_sequence is not None:
+                try:
+                    self._clipboard.restore_if_unchanged(original, owned_sequence)
+                except Exception:
+                    pass
 
 
 class NoopSelectionReader:
