@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from ClipAI.core.commands import ArchiveResult, CopyResult, PasteResult, TogglePin, ToggleSpeech
 from ClipAI.core.models import OutputActionAcknowledgment
-from ClipAI.ui.result_dialog import PopupFocusLifecycle, ResultDialogPresenter, _SessionView
+from ClipAI.core.state import SessionSnapshot, SessionStatus
+from ClipAI.ui.result_dialog import PopupFocusLifecycle, ResultDialogPresenter, _SessionView, _content_render_key
 
 
 class Root:
@@ -128,3 +129,15 @@ def test_focus_lifecycle_closes_only_for_unpinned_outside_focus() -> None:
     assert lifecycle.finish_outside_check(pinned=True, focused_inside=False) is False
     assert lifecycle.request_outside_check() is True
     assert lifecycle.finish_outside_check(pinned=False, focused_inside=False) is True
+
+
+def test_content_key_ignores_speaking_and_pin_snapshot_changes() -> None:
+    snapshot = SessionSnapshot("s1", 0, SessionStatus.COMPLETED, "a", "A", "model", content="long content")
+    changed_ui_state = snapshot.evolve(speaking=True, pinned=True)
+    assert _content_render_key(changed_ui_state) == _content_render_key(snapshot)
+
+
+def test_content_key_changes_for_new_content() -> None:
+    snapshot = SessionSnapshot("s1", 0, SessionStatus.COMPLETED, "a", "A", "model", content="first")
+    changed_content = snapshot.evolve(content="second")
+    assert _content_render_key(changed_content) != _content_render_key(snapshot)

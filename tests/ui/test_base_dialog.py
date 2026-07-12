@@ -9,6 +9,7 @@ from ClipAI.ui.base_dialog import (
     CHECK_ICON,
     COPY_ICON,
     PASTE_ICON,
+    PRESENTATION_TAG_FONTS,
     PRESENTATION_TAG_STYLES,
     PIN_ICON,
     UNPIN_ICON,
@@ -21,11 +22,14 @@ from ClipAI.ui.base_dialog import (
     SPEAKER_ACTIVE_HOVER_COLOR,
     STANDARD_RESULT_ACTIONS,
     STOP_ICON,
+    TC_FONT_FAMILY,
     StandardResultActions,
     SurfaceFlashController,
     SurfaceStateColors,
     hide_window_from_task_switcher,
     rgb_to_hex,
+    configure_presentation_typography,
+    configure_tooltip_layer,
 )
 
 
@@ -287,6 +291,58 @@ def test_primary_and_overflow_action_placement_is_stable() -> None:
 
 def test_presentation_tags_avoid_customtkinter_forbidden_font_option() -> None:
     assert all("font" not in style for style in PRESENTATION_TAG_STYLES.values())
+
+
+def test_presentation_typography_creates_clear_heading_and_inline_hierarchy() -> None:
+    assert PRESENTATION_TAG_FONTS["heading_1"][1] > PRESENTATION_TAG_FONTS["heading_2"][1]
+    assert PRESENTATION_TAG_FONTS["heading_2"][1] > PRESENTATION_TAG_FONTS["heading_3"][1]
+    assert PRESENTATION_TAG_FONTS["heading_1"][2] == "bold"
+    assert PRESENTATION_TAG_FONTS["bold"][2] == "bold"
+    assert PRESENTATION_TAG_FONTS["italic"][2] == "italic"
+    assert PRESENTATION_TAG_STYLES["heading_1"]["foreground"] != PRESENTATION_TAG_STYLES["italic"]["foreground"]
+
+
+def test_presentation_typography_is_applied_at_tk_adapter_seam() -> None:
+    class TkText:
+        def __init__(self) -> None:
+            self.configured = {}
+
+        def tag_configure(self, tag, **options):
+            self.configured[tag] = options
+
+    tk_text = TkText()
+    textbox = type("Textbox", (), {"_textbox": tk_text})()
+
+    assert configure_presentation_typography(textbox) is True
+    assert tk_text.configured["heading_1"]["font"] == (TC_FONT_FAMILY, 15, "bold")
+    assert tk_text.configured["bold"]["font"][-1] == "bold"
+    assert tk_text.configured["italic"]["font"][-1] == "italic"
+
+
+def test_presentation_typography_safely_degrades_without_tk_text_widget() -> None:
+    assert configure_presentation_typography(object()) is False
+
+
+def test_tooltip_layer_is_transient_and_above_popup() -> None:
+    calls: list[tuple] = []
+
+    class Window:
+        def wm_transient(self, owner):
+            calls.append(("transient", owner))
+
+        def attributes(self, *args):
+            calls.append(("attributes", *args))
+
+        def lift(self, owner):
+            calls.append(("lift", owner))
+
+    owner = object()
+    configure_tooltip_layer(Window(), owner)
+    assert calls == [
+        ("transient", owner),
+        ("attributes", "-topmost", True),
+        ("lift", owner),
+    ]
 
 
 def test_standard_result_action_idle_style_is_uniform() -> None:

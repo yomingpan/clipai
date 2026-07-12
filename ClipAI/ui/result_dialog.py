@@ -27,6 +27,7 @@ class _SessionView:
     focus_lifecycle: PopupFocusLifecycle | None = None
     flashed_completion_keys: set[str] = field(default_factory=set)
     output_operations: dict[str, str] = field(default_factory=dict)
+    rendered_content_key: tuple[object, ...] | None = None
 
 
 @dataclass
@@ -192,28 +193,35 @@ class ResultDialogPresenter:
             if snapshot.can_navigate_back
             else None
         )
+        content_key = _content_render_key(snapshot)
+        content_changed = content_key != view.rendered_content_key
         if snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
-            if snapshot.content:
-                view.surface.set_content_chunks([(snapshot.content, "body")])
-                view.surface.set_source_preview(f"Failed: {snapshot.error}")
-            else:
-                view.surface.set_content_chunks([(snapshot.error, "body")])
+            if content_changed:
+                if snapshot.content:
+                    view.surface.set_content_chunks([(snapshot.content, "body")])
+                    view.surface.set_source_preview(f"Failed: {snapshot.error}")
+                else:
+                    view.surface.set_content_chunks([(snapshot.error, "body")])
         elif snapshot.status == SessionStatus.COMPLETED:
             completion_key = view.step_id or snapshot.content
             if completion_key and completion_key not in view.flashed_completion_keys:
                 view.flashed_completion_keys.add(completion_key)
                 view.dialog.flash("success")
-            if snapshot.presentation is not None:
-                view.surface.set_presentation_document(snapshot.presentation)
-            else:
-                view.surface.set_content_chunks([(snapshot.content, "body")])
+            if content_changed:
+                if snapshot.presentation is not None:
+                    view.surface.set_presentation_document(snapshot.presentation)
+                else:
+                    view.surface.set_content_chunks([(snapshot.content, "body")])
         else:
-            if snapshot.content:
-                view.surface.set_content_chunks([(snapshot.content, "body")])
-                view.surface.set_source_preview(snapshot.status_text)
-            else:
-                view.surface.set_loading(snapshot.status_text)
+            if content_changed:
+                if snapshot.content:
+                    view.surface.set_content_chunks([(snapshot.content, "body")])
+                    view.surface.set_source_preview(snapshot.status_text)
+                else:
+                    view.surface.set_loading(snapshot.status_text)
+        if content_changed:
+            view.rendered_content_key = content_key
         view.surface.configure_standard_actions(
             on_speak=(lambda sid=snapshot.session_id: self._toggle_speech(sid)) if "speaker" in snapshot.available_actions else None,
             on_copy=(lambda sid=snapshot.session_id: self._copy(sid)) if "copy" in snapshot.available_actions else None,
@@ -294,8 +302,8 @@ class ResultDialogPresenter:
         bounds = self._layout_policy.calculate(metrics) if metrics is not None else None
         dialog = BaseDialog(
             title="ClipAI",
-            width=bounds.width if bounds else 350,
-            height=bounds.height if bounds else 230,
+            width=bounds.width if bounds else 400,
+            height=bounds.height if bounds else 320,
             position="cursor",
             background_color="#111111",
             surface_color="#2B2B2B",
@@ -367,3 +375,12 @@ class ResultDialogPresenter:
                     self._command_sink(CloseSession(session_id))
 
         self._root.after(100, check)
+
+
+def _content_render_key(snapshot: SessionSnapshot) -> tuple[object, ...]:
+    """Only content-affecting state may replace the textbox and reset its scroll."""
+    if snapshot.status == SessionStatus.FAILED:
+        return (snapshot.status, snapshot.content, snapshot.error)
+    if snapshot.status == SessionStatus.COMPLETED:
+        return (snapshot.status, snapshot.content, snapshot.presentation)
+    return (snapshot.status, snapshot.content, snapshot.status_text, snapshot.presentation)
