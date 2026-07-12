@@ -1,5 +1,24 @@
 # ClipAI Next-gen Backlog
 
+## Completed 2026-07-12: Context Actions, Selection Priority, And Popup Readability
+
+Status: implemented across the latest five commits; `07a1bad` is the merge of the popup UI work in `6b40aee`, and `8cc8b13` is the preceding backlog update.
+
+- Context action configuration is restored and covered by config tests:
+  - `Ctrl+Alt+1` through `Ctrl+Alt+0`, plus `Ctrl+Alt+E`, now map to eleven typed actions for translation, idea naming, essence analysis, pyramid structuring, friendly explanation, article structure, English learning, reflective questioning, critical thinking, and keyword extraction.
+  - Every context action uses selection-or-clipboard input, supports the existing multimodal path, and declares its prompt, output profile, and popup destination in configuration rather than runtime action-ID branches.
+  - English Companion now teaches one practical expression through Word or Phrase, Meaning, Context, and Example sections, with a synonym section only when useful.
+- Action input priority now reflects the user's explicit selection at trigger time:
+  - Valid selected text takes precedence over a clipboard image or clipboard text.
+  - Without a valid selection, a clipboard image takes precedence over clipboard text.
+  - Selection capture preserves both clipboard text and image and restores them only when the clipboard sequence still belongs to that capture, preventing an older operation from overwriting newer clipboard changes.
+- Popup reading and interaction details are improved:
+  - The reading-first baseline is now `400 × 320` logical units with more distinct heading typography, spacing, and color hierarchy.
+  - Tooltip windows remain above the always-on-top popup without taking focus.
+  - Snapshot changes that do not affect content no longer rewrite the textbox or reset the user's scroll position.
+
+Commits: `bfea2c9`, `07a1bad` (merge of `6b40aee`), `16daa94`, `8cc8b13`.
+
 ## Completed 2026-07-12: Shortcut Composition, Multimodal Clipboard, And Output Acknowledgment
 
 Status: implemented and manually accepted on branch `codex/shortcut-screenshot-ack`.
@@ -11,7 +30,7 @@ Status: implemented and manually accepted on branch `codex/shortcut-screenshot-a
   - Sequence failures remain visible on the tray; `Show Last Error` replays the reason and recommendation through a Windows notification.
 - Multimodal clipboard input is complete with revised scope:
   - ClipAI does not implement region or full-screen capture; users continue using their preferred screenshot tool.
-  - A readable clipboard image takes precedence over selection and clipboard text; text behavior is unchanged when no image exists.
+  - Text explicitly selected when the action is triggered takes precedence; when selection is unavailable, a readable clipboard image takes precedence over clipboard text.
   - OpenAI, Gemini, and Anthropic adapters serialize the shared typed image contract into native multimodal payloads.
   - Invalid, oversized, or model-incompatible images fail safely without text fallback, automatic model switching, or image data in diagnostics.
 - Copy and Archive confirmed-success feedback is complete:
@@ -40,7 +59,7 @@ Commits: `69637e6`, `fe7eebe`, `c1be04c`, `696dc15`.
 - 建立 typed immutable Markdown presentation model，支援 heading、list、bold、italic、paragraph 與 safe plain-text fallback；canonical content 不受 UI styling 污染。
 - Global output prompt 統一限制最多四個核心區塊，result diagnostics 會偵測超量 heading、nested list 與缺少 required markers。
 - Popup actions 預設顯示 Speak、Copy、Follow-up；Paste、Archive 收納至 overflow，Back 僅在 workflow history 可返回時顯示。
-- Popup 採固定 `350 × 230` logical units，內容量不再改變視窗比例，長內容由 scrolling 承擔。
+- Popup 採固定 `400 × 320` logical units，內容量不再改變視窗比例，長內容由 scrolling 承擔。
 - DPI-aware geometry 使用 injectable display metrics 與 monitor work area；CustomTkinter window scaling 與 raw Tk canvas scaling 分開處理，避免二次縮放或內容區裁切。
 - Completion border 只對新的 workflow step 閃綠一次並回到 ready 色；一般 snapshot revision 不會重啟或延長 success state。
 - English Companion 的 word、meaning、example、synonym 保留原始換行，避免 compact output 被合併成單行。
@@ -48,7 +67,7 @@ Commits: `69637e6`, `fe7eebe`, `c1be04c`, `696dc15`.
 目前驗證：
 
 - Compile、targeted、architecture 與完整 unit suite 通過；完整 suite 為 `176 passed`。
-- 舒適尺寸基準：27 吋 2560×1440 @125% 約 `438 × 288` physical pixels；13 吋 2880×1920 @200% 約 `700 × 460` physical pixels。
+- 舒適尺寸基準已調整為 `400 × 320` logical units；各縮放比例的 physical size 與多螢幕體驗仍待 manual matrix 驗證。
 - 尚待人工完成 Windows 100%、125%、150%、175%、200% scaling、多螢幕、首次 click-outside 與快速連續 selection/TTS smoke matrix。
 
 ### Bug: Ctrl+Alt+Q Repeated Selection Speech
@@ -653,4 +672,5 @@ Synonym: starter, hors d'oeuvre
 - Shortcut/action separation：`ShortcutCatalog`、typed command dispatch 與 actions schema migration。
 - Composable popup workflow foundation：immutable invocation、independent cancellation、late-result guard 與 successful-step history。
 - `Ctrl+Alt+X` contextual shorten workflow：short/long variant、popup selection-first、same-popup chaining 與 Back navigation。
+- Context action catalog：`Ctrl+Alt+1`～`Ctrl+Alt+0` 與 `Ctrl+Alt+E` 的 typed shortcut/action mapping、multimodal-compatible prompts 與 config coverage。
 - Unit/architecture regression suite covering current workflow contracts。
