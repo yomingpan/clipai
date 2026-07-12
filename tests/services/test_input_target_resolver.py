@@ -20,12 +20,9 @@ def test_external_policy_still_prefers_popup_context() -> None:
     target = InputTargetResolver().resolve("external_text", context)
     assert target.kind == "workflow_result"
     assert target.document.text == "selected"
-<<<<<<< HEAD
-=======
 
 
 def test_external_policy_falls_back_to_full_popup_result() -> None:
     context = ActiveWorkflowContext("w", "s", "full result", None)
     target = InputTargetResolver().resolve("external_text", context)
     assert target.document.text == "full result"
->>>>>>> ui-optimization
