@@ -88,6 +88,20 @@ def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:
     assert isinstance(events[0], ToggleSpeech) and events[0].text == "selected" and events[0].operation_id
 
 
+def test_speech_operation_projects_to_speaker_slot() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "pending"))
+    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "succeeded"))
+    assert "speaker:pulse:1000" in events
+
+
+def test_speech_failure_projects_to_speaker_slot() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "pending"))
+    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "failed"))
+    assert "speaker:error:1000" in events
+
+
 def test_paste_emits_identified_command_and_waits_for_pending_projection() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._paste("s1")

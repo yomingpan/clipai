@@ -98,22 +98,23 @@ class ResultDialogPresenter:
         view = self._views.get(result.workflow_id)
         if view is None:
             return
+        slot_id = "speaker" if result.kind == "speech" else result.kind
         if result.state == "pending":
             view.output_operations[result.kind] = result.operation_id
             if result.kind in {"copy", "paste", "archive"}:
-                view.surface.set_standard_action_enabled(result.kind, False)
+                view.surface.set_standard_action_enabled(slot_id, False)
             return
         if view.output_operations.get(result.kind) != result.operation_id:
             return
         view.output_operations.pop(result.kind, None)
         if result.kind in {"copy", "paste", "archive"}:
-            view.surface.set_standard_action_enabled(result.kind, True)
+            view.surface.set_standard_action_enabled(slot_id, True)
         if result.state == "succeeded":
-            view.surface.pulse_standard_action(result.kind)
+            view.surface.pulse_standard_action(slot_id)
             if result.kind == "archive" and not view.surface.overflow_expanded:
                 view.surface.show_action_message("已封存", 1000)
         elif result.state == "failed":
-            view.surface.pulse_standard_action_error(result.kind)
+            view.surface.pulse_standard_action_error(slot_id)
             if result.error is not None:
                 view.surface.show_action_message(result.error.message, 1500)
 
