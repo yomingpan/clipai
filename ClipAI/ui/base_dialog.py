@@ -259,7 +259,7 @@ class BaseDialog:
                 background_color=background_color,
                 surface_color=surface_color,
                 radius=round(corner_radius * self._window_scale),
-                inset=max(1, physical_inset // 2),
+                inset=max(1, physical_inset//3),
             )
             idle_color = border_color or self._state_colors.hex("idle")
             self._painter.draw(idle_color)
