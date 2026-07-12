@@ -7,7 +7,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from ClipAI.core.models import ApplicationStatus
+from ClipAI.core.models import ApplicationStatus, ModelSelectionState
 
 logger = logging.getLogger("clipai.tray")
 
@@ -58,10 +58,20 @@ def create_tray_image(status: ApplicationStatus = "idle", *, memory_active: bool
 
 
 class TrayController:
-    def __init__(self, on_exit: Callable[[], None], on_export_diagnostics: Callable[[], None] | None = None, on_show_last_error: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        on_exit: Callable[[], None],
+        on_export_diagnostics: Callable[[], None] | None = None,
+        on_show_last_error: Callable[[], None] | None = None,
+        *,
+        model_selection: ModelSelectionState | None = None,
+        on_select_model: Callable[[str, str], None] | None = None,
+    ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
         self._on_show_last_error = on_show_last_error
+        self._model_selection = model_selection
+        self._on_select_model = on_select_model
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -76,6 +86,9 @@ class TrayController:
             self._on_exit()
 
         menu_items = []
+        model_menu = self._build_model_menu(pystray)
+        if model_menu is not None:
+            menu_items.extend((model_menu, pystray.Menu.SEPARATOR))
         if self._on_show_last_error is not None:
             menu_items.extend((pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()), pystray.Menu.SEPARATOR))
         if self._on_export_diagnostics is not None:
@@ -95,6 +108,38 @@ class TrayController:
         )
         self._thread = threading.Thread(target=self._run, daemon=True, name="ClipAITray")
         self._thread.start()
+
+    def _build_model_menu(self, pystray):
+        selection = self._model_selection
+        if selection is None or self._on_select_model is None:
+            return None
+        label = f"Model ({selection.pending_model})..." if selection.pending_model else f"Model: {selection.selected_model}"
+        items = tuple(
+            pystray.MenuItem(
+                model,
+                lambda _icon, _item, chosen=model: self._select_model(chosen),
+                checked=lambda _item, chosen=model: self._model_selection is not None and self._model_selection.selected_model == chosen,
+                enabled=lambda _item: self._model_selection is not None and self._model_selection.pending_model is None,
+            )
+            for model in selection.available_models
+        )
+        return pystray.MenuItem(label, pystray.Menu(*items))
+
+    def _select_model(self, model: str) -> None:
+        selection = self._model_selection
+        if selection is None or self._on_select_model is None or selection.pending_model is not None or model == selection.selected_model:
+            return
+        self._model_selection = ModelSelectionState(selection.provider, selection.available_models, selection.selected_model, model)
+        self._refresh_menu()
+        self._on_select_model(selection.provider, model)
+
+    def set_model_selection(self, selection: ModelSelectionState) -> None:
+        self._model_selection = selection
+        self._refresh_menu()
+
+    def _refresh_menu(self) -> None:
+        if self._icon is not None:
+            self._icon.update_menu()
 
     def _run(self) -> None:
         try:

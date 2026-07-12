@@ -23,6 +23,14 @@ OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
 
 
 @dataclass(frozen=True)
+class ModelSelectionState:
+    provider: str
+    available_models: tuple[str, ...]
+    selected_model: str
+    pending_model: str | None = None
+
+
+@dataclass(frozen=True)
 class TextContent:
     text: str
 

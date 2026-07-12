@@ -1,6 +1,27 @@
 from __future__ import annotations
 
+from ClipAI.core.models import ModelSelectionState
 from ClipAI.ui.tray import STATUS_COLORS, TrayController, create_tray_image
+
+
+class MenuItem:
+    def __init__(self, text, action, **kwargs) -> None:
+        self.text = text
+        self.action = action
+        self.checked = kwargs.get("checked")
+        self.enabled = kwargs.get("enabled")
+
+
+class Menu:
+    SEPARATOR = object()
+
+    def __init__(self, *items) -> None:
+        self.items = items
+
+
+class Pystray:
+    Menu = Menu
+    MenuItem = MenuItem
 
 
 def test_tray_image_uses_requested_size_and_status_palette() -> None:
@@ -28,3 +49,44 @@ def test_tray_keeps_diagnostics_callback_separate_from_export_work() -> None:
     assert tray._on_export_diagnostics is not None
     tray._on_export_diagnostics()
     assert events == ["export"]
+
+
+def test_tray_model_menu_projects_only_available_models_and_checks_active() -> None:
+    tray = TrayController(
+        lambda: None,
+        model_selection=ModelSelectionState("openai", ("small", "large"), "small"),
+        on_select_model=lambda _provider, _model: None,
+    )
+    root = tray._build_model_menu(Pystray)
+    assert root.text == "Model: small"
+    assert [item.text for item in root.action.items] == ["small", "large"]
+    assert root.action.items[0].checked(None) is True
+    assert root.action.items[1].checked(None) is False
+
+
+def test_tray_model_click_enters_pending_and_emits_typed_values_once() -> None:
+    events: list[tuple[str, str]] = []
+    tray = TrayController(
+        lambda: None,
+        model_selection=ModelSelectionState("openai", ("small", "large"), "small"),
+        on_select_model=lambda provider, model: events.append((provider, model)),
+    )
+    root = tray._build_model_menu(Pystray)
+    root.action.items[1].action(None, None)
+    root.action.items[0].action(None, None)
+    pending = tray._build_model_menu(Pystray)
+    assert events == [("openai", "large")]
+    assert pending.text == "Model (large)..."
+    assert all(item.enabled(None) is False for item in pending.action.items)
+
+
+def test_tray_accepts_authoritative_model_projection_after_pending() -> None:
+    tray = TrayController(
+        lambda: None,
+        model_selection=ModelSelectionState("openai", ("small", "large"), "small", "large"),
+        on_select_model=lambda _provider, _model: None,
+    )
+    tray.set_model_selection(ModelSelectionState("openai", ("small", "large"), "large"))
+    root = tray._build_model_menu(Pystray)
+    assert root.text == "Model: large"
+    assert root.action.items[1].checked(None) is True
