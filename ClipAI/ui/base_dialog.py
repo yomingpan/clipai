@@ -45,14 +45,35 @@ PIN_ICON = "\uE718"
 UNPIN_ICON = "\uE77A"
 
 PRESENTATION_TAG_STYLES: dict[str, dict[str, object]] = {
-    "heading_1": {"foreground": "#FFFFFF", "spacing1": 6, "spacing3": 3},
-    "heading_2": {"foreground": "#F0F5FA", "spacing1": 5, "spacing3": 2},
-    "heading_3": {"foreground": "#E5EDF5", "spacing1": 4, "spacing3": 2},
+    "heading_1": {"foreground": "#8EC5FF", "spacing1": 10, "spacing3": 6},
+    "heading_2": {"foreground": "#A9D4FF", "spacing1": 9, "spacing3": 5},
+    "heading_3": {"foreground": "#C5E2FF", "spacing1": 8, "spacing3": 4},
     "bold": {"foreground": "#FFFFFF"},
-    "italic": {"foreground": "#B8C7D9"},
-    "paragraph": {"spacing3": 7},
-    "list": {"lmargin1": 12, "lmargin2": 26, "spacing3": 3},
+    "italic": {"foreground": "#AFC0D2"},
+    "paragraph": {"spacing3": 10},
+    "list": {"lmargin1": 14, "lmargin2": 30, "spacing1": 1, "spacing3": 4},
 }
+
+PRESENTATION_TAG_FONTS: dict[str, tuple[str, int, str]] = {
+    "heading_1": (TC_FONT_FAMILY, 15, "bold"),
+    "heading_2": (TC_FONT_FAMILY, 14, "bold"),
+    "heading_3": (TC_FONT_FAMILY, 13, "bold"),
+    "bold": (TC_FONT_FAMILY, 12, "bold"),
+    "italic": (TC_FONT_FAMILY, 12, "italic"),
+}
+
+
+def configure_presentation_typography(textbox: object) -> bool:
+    """Apply font variants at the concrete Tk adapter seam."""
+    tk_text = getattr(textbox, "_textbox", None)
+    if tk_text is None or not hasattr(tk_text, "tag_configure"):
+        return False
+    try:
+        for tag, font in PRESENTATION_TAG_FONTS.items():
+            tk_text.tag_configure(tag, font=font)
+    except (tk.TclError, ValueError):
+        return False
+    return True
 
 
 def rgb_to_hex(color: RGB) -> str:
@@ -414,6 +435,7 @@ class _Tooltip:
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + 8
         self._window = tk.Toplevel(self.widget)
         self._window.wm_overrideredirect(True)
+        configure_tooltip_layer(self._window, self.widget.winfo_toplevel())
         self._window.wm_geometry(f"+{x}+{y}")
         label = tk.Label(
             self._window,
@@ -444,6 +466,16 @@ class _Tooltip:
         if self._job is not None:
             self.lifecycle.cancel(self._job)
             self._job = None
+
+
+def configure_tooltip_layer(window: object, owner: object) -> None:
+    """Keep tooltips above the always-on-top popup without taking focus."""
+    try:
+        window.wm_transient(owner)  # type: ignore[attr-defined]
+        window.attributes("-topmost", True)  # type: ignore[attr-defined]
+        window.lift(owner)  # type: ignore[attr-defined]
+    except (tk.TclError, AttributeError):
+        pass
 
 
 @dataclass(frozen=True)
@@ -664,11 +696,11 @@ class BaseResultSurface:
             text="",
             anchor="w",
             justify="left",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=8),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
             text_color=ANALYZING_COLOR,
             wraplength=390,
         )
-        self.source_label.grid(row=3, column=0, sticky="ew", padx=12, pady=(2, 3))
+        self.source_label.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 0))
 
         self.content_text = ctk.CTkTextbox(
             self.root,
@@ -690,6 +722,7 @@ class BaseResultSurface:
         self.content_text.tag_config("loading", foreground=ANALYZING_COLOR)
         for tag, style in PRESENTATION_TAG_STYLES.items():
             self.content_text.tag_config(tag, **style)
+        configure_presentation_typography(self.content_text)
 
         self.follow_row = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.follow_row.grid_columnconfigure(0, weight=1)
