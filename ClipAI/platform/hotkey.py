@@ -133,6 +133,7 @@ class _HotkeyDispatcher:
         self._diagnostics_enabled = diagnostics_enabled
         self._pressed: set[str] = set()
         self._active: dict[str, _HotkeyState] = {}
+        self._pending_release: dict[str, HotkeyEventType] = {}
         self._lock = threading.RLock()
 
     def _fire(self, action_id: str, press_type: HotkeyEventType) -> None:
@@ -145,7 +146,6 @@ class _HotkeyDispatcher:
             if state is None:
                 return
             state.long_fired = True
-        self._fire(action_id, "long")
 
     def on_press(self, key) -> None:
         token = _normalize_key(key)
@@ -215,9 +215,19 @@ class _HotkeyDispatcher:
                         token,
                         sorted(self._pressed),
                     )
-                    callbacks.append(lambda aid=action_id: self._fire(aid, "short"))
+                    self._pending_release[action_id] = "short"
                 else:
-                    callbacks.append(lambda aid=action_id: self._fire(aid, "long_release"))
+                    self._pending_release[action_id] = "long_release"
+
+            for action_id, tokens in self._hotkeys:
+                press_type = self._pending_release.get(action_id)
+                if press_type is None or not tokens.isdisjoint(self._pressed):
+                    continue
+                self._pending_release.pop(action_id, None)
+                if press_type == "long_release":
+                    callbacks.append(lambda aid=action_id: (self._fire(aid, "long"), self._fire(aid, "long_release")))
+                else:
+                    callbacks.append(lambda aid=action_id: self._fire(aid, "short"))
 
         for callback in callbacks:
             callback()

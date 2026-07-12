@@ -95,7 +95,7 @@ class ActionDefinition:
     prompt: str
     press_variants: dict[PressType, ActionVariant]
     stream: bool = False
-    input_mode: InputMode = "clipboard"
+    input_mode: InputMode = "selection_or_clipboard"
     output_mode: OutputMode = "popup"
     temperature: float | None = None
     output_profile: str = "plain_text"
@@ -183,6 +183,12 @@ class InputDocument:
     source: Literal["selection", "clipboard", "workflow_result", "voice_transcript", "screenshot"]
     workflow_id: str | None = None
     step_id: str | None = None
+    image: ImageContent | None = None
+
+
+@dataclass(frozen=True)
+class ClipboardSnapshot:
+    text: str
     image: ImageContent | None = None
 
 

@@ -55,7 +55,9 @@ def test_short_press_triggers_action_once() -> None:
     dispatcher.on_press(FakeKey(name="alt_l"))
     dispatcher.on_press(FakeKey(char="8"))
     dispatcher.on_release(FakeKey(char="8"))
+    assert events == []
     dispatcher.on_release(FakeKey(name="alt_l"))
+    assert events == []
     dispatcher.on_release(FakeKey(name="ctrl_l"))
 
     assert events == [("explain_word", "short")]
@@ -76,6 +78,7 @@ def test_long_press_triggers_long_without_release_short() -> None:
     dispatcher.on_press(FakeKey(name="alt_l"))
     dispatcher.on_press(FakeKey(char="8"))
     FakeTimer.timers[0].fire()
+    assert events == []
     dispatcher.on_release(FakeKey(char="8"))
     dispatcher.on_release(FakeKey(name="alt_l"))
     dispatcher.on_release(FakeKey(name="ctrl_l"))

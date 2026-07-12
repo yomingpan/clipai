@@ -23,7 +23,12 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert action.stream is False
     assert action.temperature == 0.2
     assert action.output_profile == "english_learning_compact"
-    assert bundle.output_profiles.get(action.output_profile).required_markers == ("Synonym:",)
+    assert bundle.output_profiles.get(action.output_profile).required_markers == (
+        "## Word or Phrase",
+        "## Meaning",
+        "## Context",
+        "## Example",
+    )
     assert bundle.schema_versions.app == 1
     assert bundle.schema_versions.actions == 3
     assert bundle.schema_versions.output_profiles == 1
@@ -31,11 +36,60 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
 
 
+def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input() -> None:
+    bundle = load_config_bundle()
+    expected = {
+        "translate_to_traditional_chinese": "ctrl+alt+1",
+        "translate_to_english": "ctrl+alt+2",
+        "name_idea": "ctrl+alt+3",
+        "illuminate_essence": "ctrl+alt+4",
+        "pyramid_position": "ctrl+alt+5",
+        "explain_like_friend": "ctrl+alt+6",
+        "article_structure": "ctrl+alt+7",
+        "english_companion": "ctrl+alt+8",
+        "reflective_question": "ctrl+alt+9",
+        "critical_thinking": "ctrl+alt+0",
+        "extract_keywords": "ctrl+alt+e",
+    }
+
+    for shortcut_id, hotkey in expected.items():
+        shortcut = bundle.shortcuts.definition(shortcut_id)
+        assert shortcut.hotkey == hotkey
+        assert shortcut.action_id == shortcut_id
+        action = bundle.actions.get(shortcut.action_id)
+        assert action.input_mode == "selection_or_clipboard"
+        assert action.input_policy == "external_text"
+        assert "image" in action.system_prompt.lower() or "圖片" in action.system_prompt
+
+
 def test_long_press_uses_variant_prompt() -> None:
     resolved = load_action_catalog("config/actions.yaml").resolve("english_companion", "long")
     assert resolved.name == "英文改善建議"
     assert "Improve the following English" in resolved.prompt
     assert resolved.output_profile == "english_improvement"
+
+
+def test_action_input_mode_defaults_to_selection_or_clipboard(tmp_path: Path) -> None:
+    path = tmp_path / "actions.yaml"
+    path.write_text(
+        """schema_version: 3
+actions:
+  - id: default_input
+    name: Default Input
+    system_prompt: system
+    prompt: "{input}"
+  - id: clipboard_only
+    name: Clipboard Only
+    system_prompt: system
+    prompt: "{input}"
+    input_mode: clipboard
+""",
+        encoding="utf-8",
+    )
+
+    catalog = load_action_catalog(path)
+    assert catalog.resolve("default_input", "short").input_mode == "selection_or_clipboard"
+    assert catalog.resolve("clipboard_only", "short").input_mode == "clipboard"
 
 
 def test_unknown_config_field_reports_full_path(tmp_path: Path) -> None:

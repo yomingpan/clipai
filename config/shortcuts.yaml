@@ -1,10 +1,60 @@
 schema_version: 1
 
 shortcuts:
+  - id: translate_to_traditional_chinese
+    hotkey: ctrl+alt+1
+    command: start_action
+    action_id: translate_to_traditional_chinese
+
+  - id: translate_to_english
+    hotkey: ctrl+alt+2
+    command: start_action
+    action_id: translate_to_english
+
+  - id: name_idea
+    hotkey: ctrl+alt+3
+    command: start_action
+    action_id: name_idea
+
+  - id: illuminate_essence
+    hotkey: ctrl+alt+4
+    command: start_action
+    action_id: illuminate_essence
+
+  - id: pyramid_position
+    hotkey: ctrl+alt+5
+    command: start_action
+    action_id: pyramid_position
+
+  - id: explain_like_friend
+    hotkey: ctrl+alt+6
+    command: start_action
+    action_id: explain_like_friend
+
+  - id: article_structure
+    hotkey: ctrl+alt+7
+    command: start_action
+    action_id: article_structure
+
   - id: english_companion
     hotkey: ctrl+alt+8
     command: start_action
     action_id: english_companion
+
+  - id: reflective_question
+    hotkey: ctrl+alt+9
+    command: start_action
+    action_id: reflective_question
+
+  - id: critical_thinking
+    hotkey: ctrl+alt+0
+    command: start_action
+    action_id: critical_thinking
+
+  - id: extract_keywords
+    hotkey: ctrl+alt+e
+    command: start_action
+    action_id: extract_keywords
 
   - id: speak_selection_or_clipboard
     hotkey: ctrl+alt+q

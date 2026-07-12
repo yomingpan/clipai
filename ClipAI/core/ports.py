@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, ImageContent, LLMRequest, LLMResult, OperationKind, OutputActionAcknowledgment, SpeechRequest
+from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, ImageContent, LLMRequest, LLMResult, OperationKind, OutputActionAcknowledgment, SpeechRequest
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -24,6 +24,14 @@ class ClipboardWriter(Protocol):
 
 class ClipboardStore(ClipboardReader, ClipboardWriter, Protocol):
     pass
+
+
+class ClipboardTransactionStore(ClipboardStore, Protocol):
+    def snapshot(self) -> ClipboardSnapshot: ...
+
+    def sequence_number(self) -> int: ...
+
+    def restore_if_unchanged(self, snapshot: ClipboardSnapshot, expected_sequence: int) -> bool: ...
 
 
 class SelectionReader(Protocol):
