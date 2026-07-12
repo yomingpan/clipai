@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.commands import ArchiveResult, CopyResult, PasteResult, TogglePin, ToggleSpeech
-from ClipAI.ui.result_dialog import ResultDialogPresenter, _SessionView
+from ClipAI.ui.result_dialog import PopupFocusLifecycle, ResultDialogPresenter, _SessionView
 
 
 class Root:
@@ -93,3 +93,24 @@ def test_active_workflow_context_projects_selection_and_displayed_step() -> None
     assert context.step_id == "step-1"
     assert context.content == "full result"
     assert context.selected_text == "selected"
+
+
+def test_focus_lifecycle_ignores_focus_out_until_registered_shown_and_focused() -> None:
+    lifecycle = PopupFocusLifecycle()
+    assert lifecycle.request_outside_check() is False
+    lifecycle.registered = True
+    lifecycle.shown = True
+    assert lifecycle.request_outside_check() is False
+    lifecycle.initial_focus_established = True
+    assert lifecycle.request_outside_check() is True
+    assert lifecycle.request_outside_check() is False
+
+
+def test_focus_lifecycle_closes_only_for_unpinned_outside_focus() -> None:
+    lifecycle = PopupFocusLifecycle(True, True, True)
+    assert lifecycle.request_outside_check() is True
+    assert lifecycle.finish_outside_check(pinned=False, focused_inside=True) is False
+    assert lifecycle.request_outside_check() is True
+    assert lifecycle.finish_outside_check(pinned=True, focused_inside=False) is False
+    assert lifecycle.request_outside_check() is True
+    assert lifecycle.finish_outside_check(pinned=False, focused_inside=False) is True

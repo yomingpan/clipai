@@ -21,6 +21,31 @@ class _SessionView:
     speaking: bool = False
     content: str = ""
     step_id: str | None = None
+    focus_lifecycle: PopupFocusLifecycle | None = None
+
+
+@dataclass
+class PopupFocusLifecycle:
+    """Gate toolkit focus events until a popup is registered and shown."""
+
+    registered: bool = False
+    shown: bool = False
+    initial_focus_established: bool = False
+    outside_check_pending: bool = False
+
+    @property
+    def ready(self) -> bool:
+        return self.registered and self.shown and self.initial_focus_established
+
+    def request_outside_check(self) -> bool:
+        if not self.ready or self.outside_check_pending:
+            return False
+        self.outside_check_pending = True
+        return True
+
+    def finish_outside_check(self, *, pinned: bool, focused_inside: bool) -> bool:
+        self.outside_check_pending = False
+        return self.ready and not pinned and not focused_inside
 
 
 class ResultDialogPresenter:
@@ -127,6 +152,7 @@ class ResultDialogPresenter:
         if view is None:
             view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
+            self._register_view(snapshot.session_id, view)
         view.revision = snapshot.revision
         if created or self._active_workflow_id is None:
             self._active_workflow_id = snapshot.session_id
@@ -251,25 +277,49 @@ class ResultDialogPresenter:
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
+        return _SessionView(dialog=dialog, surface=surface, focus_lifecycle=PopupFocusLifecycle())
+
+    def _register_view(self, session_id: str, view: _SessionView) -> None:
+        lifecycle = view.focus_lifecycle or PopupFocusLifecycle()
+        view.focus_lifecycle = lifecycle
+        lifecycle.registered = True
+        dialog = view.dialog
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
         dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._activate(sid), add="+")
         dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
-        return _SessionView(dialog=dialog, surface=surface)
+        lifecycle.shown = True
+
+        def establish_initial_focus() -> None:
+            if session_id not in self._views:
+                return
+            dialog.lifecycle.focus()
+            lifecycle.initial_focus_established = True
+
+        dialog.lifecycle.schedule(0, establish_initial_focus)
 
     def _activate(self, session_id: str) -> None:
         self._active_workflow_id = session_id
         self._command_sink(ActivateWorkflow(session_id))
 
     def _close_if_outside(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None:
+            return
+        lifecycle = view.focus_lifecycle
+        if lifecycle is None or not lifecycle.request_outside_check():
+            return
+
         def check() -> None:
             view = self._views.get(session_id)
-            if view is None or view.dialog.pinned:
+            if view is None:
                 return
             try:
                 focused = view.dialog.root.focus_get()
-                if focused is None or focused.winfo_toplevel() is not view.dialog.root:
+                focused_inside = focused is not None and focused.winfo_toplevel() is view.dialog.root
+                if lifecycle.finish_outside_check(pinned=view.dialog.pinned, focused_inside=focused_inside):
                     self._command_sink(CloseSession(session_id))
             except tk.TclError:
-                self._command_sink(CloseSession(session_id))
+                if lifecycle.finish_outside_check(pinned=view.dialog.pinned, focused_inside=False):
+                    self._command_sink(CloseSession(session_id))
 
         self._root.after(100, check)
