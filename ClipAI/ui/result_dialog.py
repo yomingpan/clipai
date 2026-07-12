@@ -183,7 +183,10 @@ class ResultDialogPresenter:
                 view.surface.set_content_chunks([(snapshot.error, "body")])
         elif snapshot.status == SessionStatus.COMPLETED:
             view.dialog.flash("success")
-            view.surface.set_content_chunks([(snapshot.content, "body")])
+            if snapshot.presentation is not None:
+                view.surface.set_presentation_document(snapshot.presentation)
+            else:
+                view.surface.set_content_chunks([(snapshot.content, "body")])
         else:
             if snapshot.content:
                 view.surface.set_content_chunks([(snapshot.content, "body")])

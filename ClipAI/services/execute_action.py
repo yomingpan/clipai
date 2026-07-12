@@ -85,6 +85,7 @@ class ActionExecutor:
                     document,
                     routed.text,
                     self._available_actions,
+                    routed.document,
                 ),
             )
         except CancelledError:
@@ -138,6 +139,7 @@ class ActionExecutor:
                     document,
                     routed.text,
                     self._available_actions,
+                    routed.document,
                 ),
             )
         except CancelledError:

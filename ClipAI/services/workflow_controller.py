@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 
-from ClipAI.core.models import ActionInvocation, InputDocument, ResolvedAction, WorkflowStep
+from ClipAI.core.models import ActionInvocation, InputDocument, PresentationDocument, ResolvedAction, WorkflowStep
 from ClipAI.core.ports import ResultPresenter
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 
@@ -63,6 +63,7 @@ class WorkflowController:
         document: InputDocument,
         result_text: str,
         available_actions: tuple[str, ...],
+        presentation: PresentationDocument | None = None,
     ) -> SessionSnapshot | None:
         with self._lock:
             if self._snapshot.active_invocation_id != invocation.invocation_id or self._active_token.is_cancelled:
@@ -77,6 +78,7 @@ class WorkflowController:
                 output_profile=action.output_profile,
                 parent_step_id=invocation.parent_step_id,
                 press_type=invocation.press_type,
+                presentation=presentation,
             )
             steps = (*kept, step)
             self._snapshot = self._snapshot.evolve(
@@ -90,6 +92,7 @@ class WorkflowController:
                 displayed_step_index=len(steps) - 1,
                 active_invocation_id=None,
                 can_navigate_back=len(steps) > 1,
+                presentation=presentation,
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
@@ -132,6 +135,7 @@ class WorkflowController:
                 error="",
                 displayed_step_index=index,
                 can_navigate_back=index > 0,
+                presentation=step.presentation,
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)

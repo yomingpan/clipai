@@ -6,7 +6,7 @@ import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ClipAI.core.models import WorkflowStep
+    from ClipAI.core.models import PresentationDocument, WorkflowStep
 
 
 class SessionStatus(str, Enum):
@@ -73,6 +73,7 @@ class SessionSnapshot:
     displayed_step_index: int = -1
     active_invocation_id: str | None = None
     can_navigate_back: bool = False
+    presentation: PresentationDocument | None = None
 
     def evolve(self, **changes: object) -> SessionSnapshot:
         return replace(self, revision=self.revision + 1, **changes)

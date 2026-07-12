@@ -6,6 +6,8 @@ from typing import Callable, Literal, Mapping
 
 import customtkinter as ctk
 
+from ClipAI.core.models import PresentationDocument
+
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
 DialogState = Literal["idle", "success", "error", "warning"]
@@ -599,6 +601,13 @@ class BaseResultSurface:
         self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
         self.content_text.tag_config("body", foreground=CONTENT_COLOR)
         self.content_text.tag_config("loading", foreground=ANALYZING_COLOR)
+        self.content_text.tag_config("heading_1", font=(TC_FONT_FAMILY, 16, "bold"), spacing1=6, spacing3=3)
+        self.content_text.tag_config("heading_2", font=(TC_FONT_FAMILY, 14, "bold"), spacing1=5, spacing3=2)
+        self.content_text.tag_config("heading_3", font=(TC_FONT_FAMILY, 12, "bold"), spacing1=4, spacing3=2)
+        self.content_text.tag_config("bold", font=(TC_FONT_FAMILY, 12, "bold"))
+        self.content_text.tag_config("italic", font=(TC_FONT_FAMILY, 12, "italic"))
+        self.content_text.tag_config("paragraph", spacing3=7)
+        self.content_text.tag_config("list", lmargin1=12, lmargin2=26, spacing3=3)
 
         self.follow_row = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.follow_row.grid_columnconfigure(0, weight=1)
@@ -713,6 +722,30 @@ class BaseResultSurface:
         self.content_text.delete("1.0", "end")
         for text, tag in chunks:
             self.content_text.insert("end", text, tag)
+        self.content_text.configure(state="disabled")
+
+    def set_presentation_document(self, document: PresentationDocument) -> None:
+        self.content_text.configure(state="normal")
+        self.content_text.delete("1.0", "end")
+        try:
+            for block in document.blocks:
+                block_tag = "paragraph"
+                prefix = ""
+                if block.kind == "heading":
+                    block_tag = f"heading_{min(max(block.level, 1), 3)}"
+                elif block.kind == "unordered_item":
+                    block_tag, prefix = "list", "• "
+                elif block.kind == "ordered_item":
+                    block_tag, prefix = "list", f"{block.ordinal or 1}. "
+                if prefix:
+                    self.content_text.insert("end", prefix, block_tag)
+                for span in block.spans:
+                    tags = (block_tag,) if span.style == "plain" else (block_tag, span.style)
+                    self.content_text.insert("end", span.text, tags)
+                self.content_text.insert("end", "\n", block_tag)
+        except (tk.TclError, ValueError):
+            self.content_text.delete("1.0", "end")
+            self.content_text.insert("end", document.fallback_text, "body")
         self.content_text.configure(state="disabled")
 
     def selected_text(self) -> str | None:

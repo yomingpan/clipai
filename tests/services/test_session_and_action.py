@@ -263,3 +263,12 @@ def test_result_processor_warns_but_preserves_text_when_profile_marker_is_missin
     result = processor.process("Useful readable result", "compact")
     assert result.text == "Useful readable result"
     assert "missing markers: Synonym:" in caplog.text
+
+
+def test_result_processor_warns_for_too_many_sections_and_nested_lists(caplog) -> None:
+    text = "\n".join([f"# Section {index}" for index in range(5)]) + "\n  - nested"
+    processed = ResultProcessor().process(text)
+    assert processed.text == text
+    assert processed.document is not None
+    assert "exceeds four top-level sections" in caplog.text
+    assert "unsupported nested list structure" in caplog.text

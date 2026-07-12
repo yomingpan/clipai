@@ -13,6 +13,8 @@ InputPolicy = Literal["external_text", "contextual_text"]
 ResultRoute = Literal["popup", "speech"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
 OperationKind = Literal["llm", "tts"]
+PresentationBlockKind = Literal["paragraph", "heading", "unordered_item", "ordered_item"]
+InlineStyle = Literal["plain", "bold", "italic"]
 ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
 
 
@@ -123,6 +125,7 @@ class WorkflowStep:
     output_profile: str
     parent_step_id: str | None = None
     press_type: PressType = "short"
+    presentation: PresentationDocument | None = None
 
 
 @dataclass(frozen=True)
@@ -154,6 +157,27 @@ class ProcessedResult:
     text: str
     output_profile: str = "plain_text"
     presentation: str = "plain_text"
+    document: PresentationDocument | None = None
+
+
+@dataclass(frozen=True)
+class InlineSpan:
+    text: str
+    style: InlineStyle = "plain"
+
+
+@dataclass(frozen=True)
+class PresentationBlock:
+    kind: PresentationBlockKind
+    spans: tuple[InlineSpan, ...]
+    level: int = 0
+    ordinal: int | None = None
+
+
+@dataclass(frozen=True)
+class PresentationDocument:
+    blocks: tuple[PresentationBlock, ...]
+    fallback_text: str
 
 
 @dataclass(frozen=True)

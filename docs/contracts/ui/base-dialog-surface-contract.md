@@ -41,6 +41,7 @@ Base dialog surface 規範的是外殼與 lifecycle 接縫，不規範每個具�
 具體 dialog 或 presenter 負責：
 
 - 填入內容區塊。
+- Render services 提供的 typed presentation document；不得在 widget handler 中零散解析 Markdown。
 - 更新資料內容。
 - 綁定按鈕 command。
 - 決定要不要顯示某個 optional action。
