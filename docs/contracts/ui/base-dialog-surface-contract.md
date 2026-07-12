@@ -116,6 +116,10 @@ Optional slots：
 - `deep`
 - `refine`
 
+Result popup 預設只顯示 `speaker`、`copy`、`follow_up`；`paste` 與 `archive` 放入右側 overflow disclosure。Back 只在 workflow history 可返回時顯示。
+
+Popup geometry 由 injectable display metrics 與集中式 logical layout policy 計算；UI 不得散落 DPI、monitor work area 或 action-specific pixel branch。
+
 Slot command 綁定規則：
 
 - Base dialog surface 可以建立 slot、設定樣式、tooltip、enabled/disabled state 與 success/error pulse。

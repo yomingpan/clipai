@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import queue
 import tkinter as tk
 
@@ -9,8 +9,10 @@ import customtkinter as ctk
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActiveWorkflowContext
+from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
+from ClipAI.ui.popup_layout import PopupLayoutPolicy
 
 
 @dataclass
@@ -22,6 +24,7 @@ class _SessionView:
     content: str = ""
     step_id: str | None = None
     focus_lifecycle: PopupFocusLifecycle | None = None
+    flashed_completion_keys: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -51,7 +54,7 @@ class PopupFocusLifecycle:
 class ResultDialogPresenter:
     """One persistent Tk root that renders any number of session Toplevels."""
 
-    def __init__(self) -> None:
+    def __init__(self, display_metrics: DisplayMetricsReader | None = None, layout_policy: PopupLayoutPolicy | None = None) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
         self._updates: queue.Queue[SessionSnapshot] = queue.Queue()
@@ -61,6 +64,8 @@ class ResultDialogPresenter:
         self._destroyed = False
         self._tick_job: str | None = None
         self._active_workflow_id: str | None = None
+        self._display_metrics = display_metrics
+        self._layout_policy = layout_policy or PopupLayoutPolicy()
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
@@ -182,7 +187,10 @@ class ResultDialogPresenter:
             else:
                 view.surface.set_content_chunks([(snapshot.error, "body")])
         elif snapshot.status == SessionStatus.COMPLETED:
-            view.dialog.flash("success")
+            completion_key = view.step_id or snapshot.content
+            if completion_key and completion_key not in view.flashed_completion_keys:
+                view.flashed_completion_keys.add(completion_key)
+                view.dialog.flash("success")
             if snapshot.presentation is not None:
                 view.surface.set_presentation_document(snapshot.presentation)
             else:
@@ -266,10 +274,12 @@ class ResultDialogPresenter:
         view.surface.follow_entry.bind("<Return>", lambda _event: send(), add="+")
 
     def _create_view(self, session_id: str) -> _SessionView:
+        metrics = self._display_metrics.current() if self._display_metrics is not None else None
+        bounds = self._layout_policy.calculate(metrics) if metrics is not None else None
         dialog = BaseDialog(
             title="ClipAI",
-            width=460,
-            height=300,
+            width=bounds.width if bounds else 350,
+            height=bounds.height if bounds else 230,
             position="cursor",
             background_color="#111111",
             surface_color="#2B2B2B",
@@ -277,6 +287,10 @@ class ResultDialogPresenter:
             transparent_background=True,
             surface_inset=8,
             master=self._root,
+            x=bounds.x if bounds else None,
+            y=bounds.y if bounds else None,
+            minimum_width=340,
+            minimum_height=220,
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
@@ -320,9 +334,11 @@ class ResultDialogPresenter:
                 focused = view.dialog.root.focus_get()
                 focused_inside = focused is not None and focused.winfo_toplevel() is view.dialog.root
                 if lifecycle.finish_outside_check(pinned=view.dialog.pinned, focused_inside=focused_inside):
+                    view.surface.collapse_overflow()
                     self._command_sink(CloseSession(session_id))
             except tk.TclError:
                 if lifecycle.finish_outside_check(pinned=view.dialog.pinned, focused_inside=False):
+                    view.surface.collapse_overflow()
                     self._command_sink(CloseSession(session_id))
 
         self._root.after(100, check)

@@ -4,6 +4,27 @@
 
 今天確認的核心方向：Popup 的首要任務是讓使用者快速理解內容。內容結構、視窗尺寸、文字呈現與按鈕數量都必須降低認知負荷；功能不能只是存在，也必須在真正需要時才出現。
 
+### Implementation Status (2026-07-12)
+
+已完成：
+
+- `Ctrl+Alt+Q` 每次觸發建立獨立 speech/capture identity，序列化 selection capture 與 clipboard restore，舊 operation 不得污染新 operation。
+- Popup lifecycle、provider completion、Back、pin 與 focus 不會推導 speech intent；只有 typed speech commands 可啟動 TTS。
+- 首次 popup 在 view registration 後建立 focus lifecycle；click-outside 只送出 typed close command，pin 與內部互動保持有效。
+- 建立 typed immutable Markdown presentation model，支援 heading、list、bold、italic、paragraph 與 safe plain-text fallback；canonical content 不受 UI styling 污染。
+- Global output prompt 統一限制最多四個核心區塊，result diagnostics 會偵測超量 heading、nested list 與缺少 required markers。
+- Popup actions 預設顯示 Speak、Copy、Follow-up；Paste、Archive 收納至 overflow，Back 僅在 workflow history 可返回時顯示。
+- Popup 採固定 `350 × 230` logical units，內容量不再改變視窗比例，長內容由 scrolling 承擔。
+- DPI-aware geometry 使用 injectable display metrics 與 monitor work area；CustomTkinter window scaling 與 raw Tk canvas scaling 分開處理，避免二次縮放或內容區裁切。
+- Completion border 只對新的 workflow step 閃綠一次並回到 ready 色；一般 snapshot revision 不會重啟或延長 success state。
+- English Companion 的 word、meaning、example、synonym 保留原始換行，避免 compact output 被合併成單行。
+
+目前驗證：
+
+- Compile、targeted、architecture 與完整 unit suite 通過；完整 suite 為 `176 passed`。
+- 舒適尺寸基準：27 吋 2560×1440 @125% 約 `438 × 288` physical pixels；13 吋 2880×1920 @200% 約 `700 × 460` physical pixels。
+- 尚待人工完成 Windows 100%、125%、150%、175%、200% scaling、多螢幕、首次 click-outside 與快速連續 selection/TTS smoke matrix。
+
 ### Bug: Ctrl+Alt+Q Repeated Selection Speech
 
 問題：

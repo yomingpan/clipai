@@ -43,6 +43,16 @@ CHECK_ICON = "\uE73E"
 PIN_ICON = "\uE718"
 UNPIN_ICON = "\uE77A"
 
+PRESENTATION_TAG_STYLES: dict[str, dict[str, object]] = {
+    "heading_1": {"foreground": "#FFFFFF", "spacing1": 6, "spacing3": 3},
+    "heading_2": {"foreground": "#F0F5FA", "spacing1": 5, "spacing3": 2},
+    "heading_3": {"foreground": "#E5EDF5", "spacing1": 4, "spacing3": 2},
+    "bold": {"foreground": "#FFFFFF"},
+    "italic": {"foreground": "#B8C7D9"},
+    "paragraph": {"spacing3": 7},
+    "list": {"lmargin1": 12, "lmargin2": 26, "spacing3": 3},
+}
+
 
 def rgb_to_hex(color: RGB) -> str:
     if len(color) != 3:
@@ -96,6 +106,10 @@ class SurfaceFlashController:
         self._cancel_pending_reset()
         self.state = state
         self._apply_color(self._colors.hex(state))
+
+    def redraw(self) -> None:
+        """Repaint the current state without changing its pending lifecycle."""
+        self._apply_color(self._colors.hex(self.state))
 
     def flash(self, state: DialogState) -> None:
         if state == "idle":
@@ -156,6 +170,10 @@ class RoundedSurfacePainter:
         )
         self._canvas.tag_lower("surface")
 
+    def resize(self, width: int, height: int) -> None:
+        self._width = width
+        self._height = height
+
     def _draw_round_rect(self, x1: int, y1: int, x2: int, y2: int, radius: int, color: str) -> None:
         options = {"fill": color, "outline": color, "tags": "surface"}
         self._canvas.create_rectangle(x1 + radius, y1, x2 - radius, y2, **options)
@@ -185,6 +203,10 @@ class BaseDialog:
         track_dialog_state: bool = True,
         master: tk.Misc | None = None,
         topmost: bool = True,
+        x: int | None = None,
+        y: int | None = None,
+        minimum_width: int | None = None,
+        minimum_height: int | None = None,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
@@ -195,12 +217,17 @@ class BaseDialog:
         self._drag_offset_x = 0
         self._drag_offset_y = 0
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
+        self._surface_inset = surface_inset
 
         try:
             self.root = ctk.CTkToplevel(master) if master is not None else ctk.CTk()
+            self._window_scale = self.root._get_window_scaling()
+            physical_width = round(width * self._window_scale)
+            physical_height = round(height * self._window_scale)
+            physical_inset = round(surface_inset * self._window_scale)
             self.root.title(title)
             self.root.geometry(f"{width}x{height}")
-            self.root.minsize(min(width, 320), min(height, 180))
+            self.root.minsize(minimum_width or min(width, 320), minimum_height or min(height, 180))
             self.root.configure(fg_color=background_color)
             if frameless:
                 self.root.overrideredirect(True)
@@ -211,12 +238,15 @@ class BaseDialog:
                     pass
             if topmost:
                 self.root.attributes("-topmost", True)
-            self._position_window(width, height, position)
+            if x is not None and y is not None:
+                self.root.geometry(f"{width}x{height}+{x}+{y}")
+            else:
+                self._position_window(width, height, position)
 
             self.canvas = tk.Canvas(
                 self.root,
-                width=width,
-                height=height,
+                width=physical_width,
+                height=physical_height,
                 bg=background_color,
                 highlightthickness=0,
                 bd=0,
@@ -224,24 +254,24 @@ class BaseDialog:
             self.canvas.pack(fill="both", expand=True)
             self._painter = RoundedSurfacePainter(
                 self.canvas,
-                width=width,
-                height=height,
+                width=physical_width,
+                height=physical_height,
                 background_color=background_color,
                 surface_color=surface_color,
-                radius=corner_radius,
-                inset=surface_inset // 2,
+                radius=round(corner_radius * self._window_scale),
+                inset=max(1, physical_inset // 2),
             )
             idle_color = border_color or self._state_colors.hex("idle")
             self._painter.draw(idle_color)
 
             self.surface = tk.Frame(self.canvas, bg=surface_color, bd=0, highlightthickness=0)
-            self.canvas.create_window(
-                surface_inset,
-                surface_inset,
+            self._surface_window = self.canvas.create_window(
+                physical_inset,
+                physical_inset,
                 anchor="nw",
                 window=self.surface,
-                width=width - surface_inset * 2,
-                height=height - surface_inset * 2,
+                width=physical_width - physical_inset * 2,
+                height=physical_height - physical_inset * 2,
             )
             self.main_frame = self.surface
 
@@ -290,6 +320,25 @@ class BaseDialog:
 
     def calculate_drag_position(self, x_root: int, y_root: int) -> tuple[int, int]:
         return x_root - self._drag_offset_x, y_root - self._drag_offset_y
+
+    def resize(self, width: int, height: int, *, x: int | None = None, y: int | None = None) -> None:
+        if width == self.width and height == self.height and x is None and y is None:
+            return
+        self.width, self.height = width, height
+        target_x = self.root.winfo_x() if x is None else x
+        target_y = self.root.winfo_y() if y is None else y
+        self.root.geometry(f"{width}x{height}+{target_x}+{target_y}")
+        physical_width = round(width * self._window_scale)
+        physical_height = round(height * self._window_scale)
+        physical_inset = round(self._surface_inset * self._window_scale)
+        self.canvas.configure(width=physical_width, height=physical_height)
+        self._painter.resize(physical_width, physical_height)
+        self.canvas.itemconfigure(
+            self._surface_window,
+            width=physical_width - physical_inset * 2,
+            height=physical_height - physical_inset * 2,
+        )
+        self._flash_controller.redraw()
 
     def _position_window(self, width: int, height: int, position: str) -> None:
         self.root.update_idletasks()
@@ -434,6 +483,7 @@ class StandardResultActions:
                 None,
                 width=24,
                 tooltip=spec.tooltip,
+                overflow=spec.slot_id in {"paste", "archive"},
             )
             for spec in STANDARD_RESULT_ACTIONS
         }
@@ -506,10 +556,11 @@ class BaseResultSurface:
         self.dialog = dialog
         self.root = dialog.surface
         self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_rowconfigure(3, weight=1)
+        self.root.grid_rowconfigure(4, weight=1)
         self._action_buttons: dict[str, ctk.CTkButton] = {}
         self._action_tooltips: dict[str, _Tooltip] = {}
         self.follow_up_visible = False
+        self.overflow_expanded = False
         self._build()
 
     def _build(self) -> None:
@@ -567,10 +618,13 @@ class BaseResultSurface:
         self.dialog.enable_drag(self.header, title_area, self.title_label, self.model_label)
 
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
-        self.actions.grid(row=1, column=0, sticky="w", padx=9, pady=(0, 0))
+        self.actions.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 0))
+        self.overflow_actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self._back_button = self.add_action_slot("back", "←", None, width=24, tooltip="Previous result")
-        self._back_button.configure(state="disabled")
+        self._back_button.pack_forget()
         self.standard_actions = StandardResultActions(self)
+        self._overflow_button = self.add_action_slot("overflow", "▶", self.toggle_overflow, width=24, tooltip="More actions")
+        self._overflow_button.pack_configure(side="right", padx=(12, 0))
 
         self.source_label = ctk.CTkLabel(
             self.root,
@@ -581,7 +635,7 @@ class BaseResultSurface:
             text_color=ANALYZING_COLOR,
             wraplength=390,
         )
-        self.source_label.grid(row=2, column=0, sticky="ew", padx=9, pady=(0, 2))
+        self.source_label.grid(row=3, column=0, sticky="ew", padx=12, pady=(2, 3))
 
         self.content_text = ctk.CTkTextbox(
             self.root,
@@ -597,17 +651,12 @@ class BaseResultSurface:
             height=170,
             pady=0,
         )
-        self.content_text.grid(row=3, column=0, sticky="nsew", padx=9, pady=(0, 9))
+        self.content_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 12))
         self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
         self.content_text.tag_config("body", foreground=CONTENT_COLOR)
         self.content_text.tag_config("loading", foreground=ANALYZING_COLOR)
-        self.content_text.tag_config("heading_1", font=(TC_FONT_FAMILY, 16, "bold"), spacing1=6, spacing3=3)
-        self.content_text.tag_config("heading_2", font=(TC_FONT_FAMILY, 14, "bold"), spacing1=5, spacing3=2)
-        self.content_text.tag_config("heading_3", font=(TC_FONT_FAMILY, 12, "bold"), spacing1=4, spacing3=2)
-        self.content_text.tag_config("bold", font=(TC_FONT_FAMILY, 12, "bold"))
-        self.content_text.tag_config("italic", font=(TC_FONT_FAMILY, 12, "italic"))
-        self.content_text.tag_config("paragraph", spacing3=7)
-        self.content_text.tag_config("list", lmargin1=12, lmargin2=26, spacing3=3)
+        for tag, style in PRESENTATION_TAG_STYLES.items():
+            self.content_text.tag_config(tag, **style)
 
         self.follow_row = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.follow_row.grid_columnconfigure(0, weight=1)
@@ -662,6 +711,10 @@ class BaseResultSurface:
 
     def configure_back_action(self, command: Callable[[], None] | None) -> None:
         self._back_button.configure(command=command, state="normal" if command is not None else "disabled")
+        if command is None:
+            self._back_button.pack_forget()
+        elif not self._back_button.winfo_manager():
+            self._back_button.pack(side="left", padx=(0, 5), before=self.standard_actions._buttons["speaker"])
 
     def set_speaker_active(self, active: bool) -> None:
         self.standard_actions.set_speaker_active(active)
@@ -684,9 +737,10 @@ class BaseResultSurface:
         width: int,
         tooltip: str | None = None,
         text_color: str = CONTENT_COLOR,
+        overflow: bool = False,
     ) -> ctk.CTkButton:
         button = ctk.CTkButton(
-            self.actions,
+            self.overflow_actions if overflow else self.actions,
             text=label,
             width=width,
             height=22,
@@ -702,6 +756,20 @@ class BaseResultSurface:
             self._action_tooltips[slot_id] = _Tooltip(button, tooltip, self.dialog.lifecycle)
         self._action_buttons[slot_id] = button
         return button
+
+    def toggle_overflow(self) -> bool:
+        self.overflow_expanded = not self.overflow_expanded
+        if self.overflow_expanded:
+            self.overflow_actions.grid(row=2, column=0, sticky="w", padx=12, pady=(2, 2))
+        else:
+            self.overflow_actions.grid_forget()
+        self._overflow_button.configure(text="▼" if self.overflow_expanded else "▶")
+        self.set_action_tooltip("overflow", "Hide extra actions" if self.overflow_expanded else "More actions")
+        return self.overflow_expanded
+
+    def collapse_overflow(self) -> None:
+        if self.overflow_expanded:
+            self.toggle_overflow()
 
     def set_action_tooltip(self, slot_id: str, text: str) -> None:
         tooltip = self._action_tooltips.get(slot_id)
@@ -772,7 +840,7 @@ class BaseResultSurface:
 
     def show_follow_up(self, initial_text: str = "") -> None:
         if not self.follow_up_visible:
-            self.follow_row.grid(row=4, column=0, sticky="ew", padx=10, pady=(0, 10))
+            self.follow_row.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 12))
             self.follow_up_visible = True
         if initial_text:
             self.follow_entry.delete(0, "end")

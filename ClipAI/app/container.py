@@ -14,6 +14,7 @@ from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.hotkey import register_hotkeys_with_long_press
 from ClipAI.platform.selection import SystemSelectionReader
 from ClipAI.platform.filesystem import JsonlArchiveStore
+from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.platform.notification import SystemNotifier
@@ -47,7 +48,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         lambda: runtime_holder[0].enqueue(ExportDiagnostics()),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
-    view = ResultDialogPresenter()
+    view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
     notifier = SystemNotifier()
     diagnostics_exporter = SafeDiagnosticsExporter(
         metadata={

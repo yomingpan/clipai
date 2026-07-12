@@ -19,7 +19,7 @@ class MarkdownPresentationParser:
 
         def flush_paragraph() -> None:
             if paragraph:
-                blocks.append(PresentationBlock("paragraph", self._inline(" ".join(paragraph))))
+                blocks.append(PresentationBlock("paragraph", self._inline("\n".join(paragraph))))
                 paragraph.clear()
 
         for raw_line in text.splitlines():

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, LLMRequest, LLMResult, OperationKind, SpeechRequest
+from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, LLMRequest, LLMResult, OperationKind, SpeechRequest
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -82,3 +82,7 @@ class UserNotifier(Protocol):
 
 class DiagnosticsExporter(Protocol):
     def export(self) -> Path: ...
+
+
+class DisplayMetricsReader(Protocol):
+    def current(self) -> DisplayMetrics: ...

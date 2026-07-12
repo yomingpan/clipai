@@ -20,3 +20,9 @@ def test_unsupported_indented_syntax_remains_readable_plain_text() -> None:
     document = MarkdownPresentationParser().parse("Paragraph\n    unsupported nested content")
     assert document.fallback_text == "Paragraph\n    unsupported nested content"
     assert "unsupported nested content" in document.blocks[0].spans[0].text
+
+
+def test_compact_learning_lines_remain_on_separate_lines() -> None:
+    text = "appetizer\n餐前小點\nLet's order appetizers.\nSynonym: starter"
+    document = MarkdownPresentationParser().parse(text)
+    assert document.blocks[0].spans[0].text == text
