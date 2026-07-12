@@ -53,11 +53,13 @@ class ShortcutSequenceCoordinator:
             self.cancel()
             self._on_cancel_active()
             self._armed_shortcut = trigger.shortcut_id
+            self._waiting = True
             self._on_waiting()
+            self._start_timeout()
             return None
         if is_composer and trigger.press_type == "long_release" and self._armed_shortcut == trigger.shortcut_id:
-            self._waiting = True
-            self._start_timeout()
+            # The sequence was already armed when the long-press threshold was
+            # reached. Releasing Q must not change or restart that lifecycle.
             return None
         if trigger.press_type == "long_release":
             return None

@@ -274,6 +274,35 @@ def test_contextual_action_without_popup_context_creates_external_workflow() -> 
     assert controller.snapshot.active_invocation_id is not None
 
 
+def test_speech_sequence_is_headless_and_prefers_popup_selection() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    popup_id = view.snapshots[-1].session_id
+    controller = runtime._workflows[popup_id]
+    step = WorkflowStep("step-1", "a", "Action", "input", "full popup result", "plain_text")
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        content=step.result_text,
+        steps=(step,),
+        displayed_step_index=0,
+        active_invocation_id=None,
+    )
+    view.context = ActiveWorkflowContext(popup_id, step.step_id, step.result_text, "selected popup text")
+    rendered_before = len(view.snapshots)
+
+    runtime.enqueue(StartAction("a", "short", "speech"))
+    runtime.drain_commands()
+    speech_id = runtime._sequence_workflow_id
+    assert speech_id is not None
+    supervisor.work[runtime._workflows[speech_id].snapshot.active_invocation_id]()
+
+    invocation = runtime._execute_action.invocations[-1]
+    assert invocation.result_route == "speech"
+    assert invocation.input_target.document.text == "selected popup text"
+    assert len(view.snapshots) == rendered_before
+
+
 def test_latest_start_cancels_previous_unpinned_session() -> None:
     runtime, view, supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))

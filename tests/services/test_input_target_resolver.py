@@ -15,8 +15,8 @@ def test_contextual_input_falls_back_to_full_result() -> None:
     assert target.document.text == "full result"
 
 
-def test_external_policy_ignores_popup_context() -> None:
+def test_external_policy_still_prefers_popup_context() -> None:
     context = ActiveWorkflowContext("w", "s", "full result", "selected")
     target = InputTargetResolver().resolve("external_text", context)
-    assert target.kind == "external_text"
-    assert target.document is None
+    assert target.kind == "workflow_result"
+    assert target.document.text == "selected"

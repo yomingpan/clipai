@@ -29,12 +29,12 @@ def make_sequence(events):
     return coordinator, timers
 
 
-def test_long_composer_release_then_action_routes_to_speech():
+def test_held_long_composer_then_action_routes_to_speech_before_release():
     events = []
     coordinator, _ = make_sequence(events)
     assert coordinator.resolve(ShortcutTriggered("speech", "long")) is None
-    assert coordinator.resolve(ShortcutTriggered("speech", "long_release")) is None
     assert coordinator.resolve(ShortcutTriggered("action", "short")) == StartAction("english", "short", "speech")
+    assert coordinator.resolve(ShortcutTriggered("speech", "long_release")) is None
     assert events == ["cancel-active", "waiting"]
 
 
@@ -42,7 +42,6 @@ def test_timeout_reports_error_and_cancel_is_quiet():
     events = []
     coordinator, timers = make_sequence(events)
     coordinator.resolve(ShortcutTriggered("speech", "long"))
-    coordinator.resolve(ShortcutTriggered("speech", "long_release"))
     timers[-1].callback()
     assert events[-1] == "Shortcut sequence timed out."
     coordinator.resolve(ShortcutTriggered("", "cancel"))
@@ -53,7 +52,6 @@ def test_invalid_second_key_reports_immediately():
     events = []
     coordinator, timers = make_sequence(events)
     coordinator.resolve(ShortcutTriggered("speech", "long"))
-    coordinator.resolve(ShortcutTriggered("speech", "long_release"))
     coordinator.resolve(ShortcutTriggered("", "invalid"))
     assert events[-1] == "Invalid shortcut sequence."
     assert timers[-1].cancelled is True

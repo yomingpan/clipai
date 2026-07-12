@@ -146,6 +146,10 @@ class _HotkeyDispatcher:
             if state is None:
                 return
             state.long_fired = True
+            # Long press is a complete typed intent as soon as its threshold is
+            # reached. Waiting for every modifier to be released reverses the
+            # order of held-key shortcut sequences (Q, then an action key).
+            self._fire(action_id, "long")
 
     def on_press(self, key) -> None:
         token = _normalize_key(key)
@@ -225,7 +229,7 @@ class _HotkeyDispatcher:
                     continue
                 self._pending_release.pop(action_id, None)
                 if press_type == "long_release":
-                    callbacks.append(lambda aid=action_id: (self._fire(aid, "long"), self._fire(aid, "long_release")))
+                    callbacks.append(lambda aid=action_id: self._fire(aid, "long_release"))
                 else:
                     callbacks.append(lambda aid=action_id: self._fire(aid, "short"))
 

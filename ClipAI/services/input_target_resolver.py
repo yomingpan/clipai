@@ -9,7 +9,9 @@ class InputTargetResolver:
         policy: InputPolicy,
         context: ActiveWorkflowContext | None,
     ) -> InputTarget:
-        if policy != "contextual_text" or context is None:
+        # An open popup is the authoritative input surface for every action.
+        # Its selection/full content wins before OS selection or clipboard.
+        if context is None:
             return InputTarget("external_text")
         text = context.selected_text.strip() if context.selected_text and context.selected_text.strip() else context.content.strip()
         if not text:

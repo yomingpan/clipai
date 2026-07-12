@@ -288,6 +288,10 @@ class AppRuntime:
 
     def _start_sequence_action(self, action, command: StartAction) -> None:
         self._cancel_sequence()
+        context = self._workflow_context_reader.active_workflow_context() if self._workflow_context_reader is not None else None
+        if context is not None and context.workflow_id not in self._workflows:
+            context = None
+        target = self._input_targets.resolve(action.input_policy, context)
         workflow_id = uuid.uuid4().hex
         controller = WorkflowController(
             SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._model),
@@ -297,7 +301,7 @@ class AppRuntime:
             invocation_id=uuid.uuid4().hex,
             action_id=action.id,
             press_type=command.press_type,
-            input_target=InputTarget("external_text"),
+            input_target=target,
             result_route="speech",
             workflow_id=workflow_id,
         )
