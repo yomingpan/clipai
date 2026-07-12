@@ -6,13 +6,15 @@ profiles:
     presentation: plain_text
 
   - id: english_learning_compact
-    presentation: english_learning
+    presentation: markdown_sections
     required_markers:
-      - "Synonym:"
+      - "## Word or Phrase"
+      - "## Meaning"
+      - "## Context"
+      - "## Example"
     instruction: |
-      Return exactly four concise lines: one core word or phrase, one natural Traditional Chinese meaning,
-      one short high-frequency English example, and `Synonym:` followed by 1-3 close alternatives or `None`.
-      Do not add headings, commentary, or extra sections.
+      Use exactly these four concise Markdown sections in order: Word or Phrase, Meaning, Context, and Example.
+      Add `## Synonym or Similar Expression` only when it provides a useful distinction. Teach one practical expression only.
 
   - id: english_improvement
     presentation: markdown_sections

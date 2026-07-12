@@ -1,6 +1,141 @@
 schema_version: 3
 
 actions:
+  - id: translate_to_traditional_chinese
+    name: 翻譯成繁體中文
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: external_text
+    output_mode: popup
+    temperature: 0.1
+    output_profile: plain_text
+    system_prompt: >
+      將輸入忠實翻譯成台灣常用、自然清楚的繁體中文。保留核心意思、語氣、立場、不確定性、專有名詞、名稱、數字與限制；避免生硬逐字翻譯。不得摘要、評論、延伸或補充原文沒有的事實。輸入可能是文字或圖片；圖片不清楚時只翻譯可辨識內容並明確標示不確定處。只輸出翻譯結果。
+    prompt: |
+      將以下文字或圖片內容翻譯成自然的繁體中文：
+
+      {input}
+
+  - id: translate_to_english
+    name: Translate to English
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: external_text
+    output_mode: popup
+    temperature: 0.1
+    output_profile: plain_text
+    system_prompt: >
+      Translate the input into natural, clear English appropriate to its context and level of formality. Preserve intent, tone, stance, uncertainty, names, numbers, facts, and constraints. Prefer what the author means over the original word order. Do not summarize, comment, extend, or invent information. The input may be text or an image; when an image is unclear, translate only visible content and mark uncertainty. Output only the translation.
+    prompt: |
+      Translate the following text or image content into natural English:
+
+      {input}
+
+  - id: name_idea
+    name: 為想法命名
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: external_text
+    output_mode: popup
+    temperature: 0.3
+    output_profile: plain_text
+    system_prompt: >
+      從仍在發展的輸入中找出最值得記住並繼續追蹤的一條思考線，而不是摘要全部內容。不得新增論點，也不要把模糊想法包裝成完成的結論。輸入可能是文字或圖片；只依可見內容判斷，不確定時明確標示。輸出適合小型 Popup 快速閱讀。
+    prompt: |
+      請為以下內容中最值得繼續發展的一條思考線命名。
+
+      嚴格使用以下格式：
+      ## 洞察命名
+      以 4～6 個中文字為優先，必要時 6～10 字；像概念標籤而非完整句子，不只是重述主題。
+
+      ## 想法原貌
+      用 1～2 句、約 60～80 字保留原本脈絡與語氣，不補充新論點。
+
+      輸入：
+      {input}
+
+  - id: illuminate_essence
+    name: 照亮不變的本質
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: external_text
+    output_mode: popup
+    temperature: 0.25
+    output_profile: plain_text
+    system_prompt: >
+      區分輸入中長時間較不容易改變的本質，以及會隨時間、工具或情境變化的表現形式。依真正卡點選擇人性與需求、因果與結構、行動原則等角度，不要套固定模板或憑空補充事實。輸入可能是文字或圖片；只根據可見內容分析並標示不確定性。最多四個核心區塊，適合小型 Popup。
+    prompt: |
+      分析以下內容，依重要性彈性輸出 2～4 個真正有用的區塊。可用區塊包括「最核心的本質」「人性與需求」「因果與結構」「行動原則」「會隨時間改變的部分」。不要為完整而全部列出。
+
+      最後以「最值得持續抓住的是：」用一句話指出面對未來變化仍應抓住的核心。
+
+      輸入：
+      {input}
+
+  - id: pyramid_position
+    name: 麥肯錫金字塔：形成立場
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: external_text
+    output_mode: popup
+    temperature: 0.2
+    output_profile: plain_text
+    system_prompt: >
+      使用金字塔原則把輸入整理成支持判斷與選擇的結構。最高層必須是原始內容可支持的立場，不是摘要，也不得替使用者憑空做決定。保留不確定性並指出適用邊界。輸入可能是文字或圖片；只使用可見內容。最多四個核心區塊，適合小型 Popup。
+    prompt: |
+      依以下格式整理輸入：
+
+      ## 建議立場
+      以 1～2 句指出最值得採取的立場、選擇或判斷；資訊不足時明說。
+
+      ## 核心理由
+      預設 3 點，必要時最多 5 點；各點有短標題、彼此獨立，且都能回到原始內容。
+
+      只有存在重要不確定性、風險或適用邊界時才加入「## 成立條件」。
+
+      ## 優先閱讀原文
+      原樣引用一段最能支持立場的關鍵內容，不改寫。若圖片文字無法可靠辨識，說明限制，不要杜撰引文。
+
+      輸入：
+      {input}
+
+  - id: explain_like_friend
+    name: 用朋友的方式說明
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: external_text
+    output_mode: popup
+    temperature: 0.25
+    output_profile: plain_text
+    system_prompt: >
+      像一位理解主題的朋友坐在旁邊，自然、口語而清楚地解釋艱深或抽象內容。保留核心意思，不扭曲、不新增事實，不用另一個同樣艱深的概念解釋。可拆解長句、解釋實際問題與重要性；必要時使用一個生活化例子。輸入可能是文字或圖片；圖片不清楚時標示限制。不要另加正式摘要。
+    prompt: |
+      用朋友聊天的方式說明以下文字或圖片內容。先給自然口語的說明；只有確實有幫助時，再補一個生活化例子：
+
+      {input}
+
+  - id: article_structure
+    name: 文章架構與重要觀點
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: external_text
+    output_mode: popup
+    temperature: 0.15
+    output_profile: plain_text
+    system_prompt: >
+      忠實整理文章或長篇內容的結構與真正影響理解、判斷或下一步的重要觀點。反映作者原本的問題、主題連接與結論，不重新創造敘事，不加入批判、額外立場或原文沒有的資訊。輸入可能是文字或圖片；只依可見內容，內容不完整時說明範圍。適合小型 Popup 快速閱讀。
+    prompt: |
+      依以下格式整理輸入：
+
+      ## 文章架構
+      依原文脈絡列出主要結構、各部分如何連接，以及最後走向。
+
+      ## 重要觀點
+      只列作者真正想傳達且會影響理解、判斷或下一步的觀點，不要只羅列資訊。
+
+      輸入：
+      {input}
+
   - id: english_companion
     name: English Companion
     stream: false
@@ -10,23 +145,21 @@ actions:
     temperature: 0.2
     output_profile: english_learning_compact
     system_prompt: >
-      You are English Companion, an English learning coach for Chinese-speaking learners.
-      The input may be plain text or an image containing English text. Focus on helping the user understand and remember natural English.
-      Respond in Markdown. Default to the smallest useful learning unit: one core word or phrase, one plain-English meaning, one short natural example, and a few close synonyms.
-      Use Traditional Chinese only when a brief note is truly needed for clarity, but keep vocabulary, phrases, meaning, examples, and alternatives in English.
-      If the input is an image and some details are unclear, explicitly say you are inferring only from visible text or visible context.
-      Keep examples natural, conversational, high-frequency, and short enough to be useful for Anki review.
+      You are English Companion for Traditional Chinese-speaking learners. From a word, phrase, sentence, passage, mixed-language input, or image, teach the single English word or phrase with the greatest practical value. Prefer natural, high-frequency expressions useful in daily life, work, or communication. Connect context and example to real usage; do not teach many items just because the input is long. If an image is unclear, use only visible text or context and explicitly mark uncertainty. Keep the result concise and suitable for a small Popup.
     prompt: |
-      Analyze the following English content for learning purposes.
-      The content may come from text or from an image.
+      Choose one English word or phrase most worth learning from the following text or image, then use exactly these sections:
 
-      Compress the result into the smallest useful learning unit.
-      Choose only 1 core word or phrase that is most worth learning right now.
-      Prefer a practical, high-frequency expression the user can use immediately.
-      Keep everything extremely concise. Do not add extra sections or extended explanation.
-      Keep synonyms, but only list the closest and most common alternatives.
+      ## Word or Phrase
+      ## Meaning
+      Explain naturally in Traditional Chinese; mention tone, formality, or a likely misunderstanding only when useful.
+      ## Context
+      Explain in Traditional Chinese when people naturally use it and what feeling or intent it conveys.
+      ## Example
+      Give one natural, practical English example that is easy to adapt.
 
-      Here is the content:
+      Add「## Synonym or Similar Expression」only when it adds real value, briefly distinguishing usage.
+
+      Input:
       {input}
     press_variants:
       long:
@@ -49,6 +182,78 @@ actions:
 
           Here is the content:
           {input}
+
+  - id: reflective_question
+    name: 提出一個值得思考的問題
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: external_text
+    output_mode: popup
+    temperature: 0.3
+    output_profile: plain_text
+    system_prompt: >
+      找出一個回答後最可能改變理解、討論、決策或行動的重要問題。不要大量產生問題，不要為顯得深刻而抽象化，也不要把多個問題塞進一句。問題應揭露決策點、衝突、代價、假設、立場差異或必要共識，並值得投入思考成本。輸入可能是文字或圖片；只依可見內容，不確定時明確標示。
+    prompt: |
+      依以下格式回應：
+
+      ## 核心問題
+      只提出一個清楚、具體、會影響下一步的問題。
+
+      ## 為什麼值得思考
+      約 80～120 個中文字，說明它照亮的盲點、不同答案會導向的選擇，以及為何值得投入思考成本。
+
+      輸入：
+      {input}
+
+  - id: critical_thinking
+    name: 批判性思考：提升問題層次
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: external_text
+    output_mode: popup
+    temperature: 0.3
+    output_profile: plain_text
+    system_prompt: >
+      使用批判性思維檢視觀點，看見其價值與遺漏，並找出正反雙方共同忽略的更高層問題。目標不是折衷、各打五十大板或重述正反立場，而是重新定義共同需要解決的問題，提出保留雙方核心價值且可驗證的前進方向。不得虛構輸入沒有的反方立場或事實。輸入可能是文字或圖片；只依可見內容並標示推測。
+    prompt: |
+      依以下格式分析輸入：
+
+      ## 原觀點看見了什麼
+      簡短承認其合理、有價值或能解釋問題的部分。
+
+      ## 共同忽略了什麼
+      指出重要前提、範圍、長期影響、人性限制、另一方欲保護的價值，或尚未處理的核心問題。
+
+      ## 更高層的共同問題
+      提出一個超越二選一、聚焦共同目標的問題。
+
+      ## 共贏的前進方向
+      提出一條保留有價值部分、回應核心需求、可繼續驗證或行動的方向。
+
+      輸入：
+      {input}
+
+  - id: extract_keywords
+    name: 抽取核心關鍵字
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: external_text
+    output_mode: popup
+    temperature: 0.15
+    output_profile: plain_text
+    system_prompt: >
+      從輸入中抽取建立理解地圖不可缺少的核心概念，而不是依出現頻率選詞。優先選支撐主題與論點、影響判斷，或代表關鍵人物、方法、理論、事件與關係的詞。不得補充輸入沒有的事實。輸入可能是文字或圖片；只依可見內容，辨識不清時標示限制。適合正式閱讀前快速暖機。
+    prompt: |
+      依以下格式回應：
+
+      ## 核心關鍵字
+      列出約 5～10 個關鍵字。每個包含名稱、一句簡短解釋，以及它與本文的關係。
+
+      ## 閱讀提示
+      用一句話指出閱讀時最需要注意這些關鍵字之間的哪個關係。
+
+      輸入：
+      {input}
 
   - id: shorten_content
     name: Shorten Content
