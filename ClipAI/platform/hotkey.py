@@ -5,7 +5,7 @@ import threading
 from dataclasses import dataclass
 from typing import Callable
 
-from ClipAI.core.models import PressType
+from ClipAI.core.models import HotkeyEventType
 
 logger = logging.getLogger("clipai.hotkey")
 
@@ -120,7 +120,7 @@ class _HotkeyDispatcher:
     def __init__(
         self,
         hotkeys: list[tuple[str, set[str]]],
-        on_trigger: Callable[[str, PressType], None],
+        on_trigger: Callable[[str, HotkeyEventType], None],
         *,
         long_press_sec: float = LONG_PRESS_SEC,
         timer_factory: Callable[..., threading.Timer] = threading.Timer,
@@ -135,7 +135,7 @@ class _HotkeyDispatcher:
         self._active: dict[str, _HotkeyState] = {}
         self._lock = threading.RLock()
 
-    def _fire(self, action_id: str, press_type: PressType) -> None:
+    def _fire(self, action_id: str, press_type: HotkeyEventType) -> None:
         logger.info("[clipai] Hotkey triggered: action_id=%s press_type=%s", action_id, press_type)
         self._on_trigger(action_id, press_type)
 
@@ -155,13 +155,20 @@ class _HotkeyDispatcher:
             return
 
         with self._lock:
+            if token == "esc":
+                self._fire("", "cancel")
+                return
+            if token in self._pressed:
+                return
             self._pressed.add(token)
+            matched = False
             if self._diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
                 logger.debug("[clipai] Key press token=%s raw=(%s) pressed=%s", token, _describe_key(key), sorted(self._pressed))
             for action_id, tokens in self._hotkeys:
                 if action_id in self._active:
                     continue
                 if tokens.issubset(self._pressed):
+                    matched = True
                     logger.debug(
                         "[clipai] Hotkey matched on press: action=%s tokens=%s pressed=%s",
                         action_id,
@@ -173,6 +180,8 @@ class _HotkeyDispatcher:
                     state.timer.daemon = True
                     state.timer.start()
                     self._active[action_id] = state
+            if not matched and token not in {"ctrl", "alt", "shift"}:
+                self._fire("", "invalid")
 
     def on_release(self, key) -> None:
         token = _normalize_key(key)
@@ -207,6 +216,8 @@ class _HotkeyDispatcher:
                         sorted(self._pressed),
                     )
                     callbacks.append(lambda aid=action_id: self._fire(aid, "short"))
+                else:
+                    callbacks.append(lambda aid=action_id: self._fire(aid, "long_release"))
 
         for callback in callbacks:
             callback()
@@ -214,7 +225,7 @@ class _HotkeyDispatcher:
 
 def create_hotkey_dispatcher(
     action_map: dict[str, dict],
-    on_trigger: Callable[[str, PressType], None],
+    on_trigger: Callable[[str, HotkeyEventType], None],
     *,
     modifier_mode: str = "alt_shift",
     long_press_sec: float = LONG_PRESS_SEC,
@@ -232,7 +243,7 @@ def create_hotkey_dispatcher(
 
 def register_hotkeys_with_long_press(
     action_map: dict[str, dict],
-    on_trigger: Callable[[str, PressType], None],
+    on_trigger: Callable[[str, HotkeyEventType], None],
     *,
     modifier_mode: str = "alt_shift",
     long_press_sec: float = LONG_PRESS_SEC,

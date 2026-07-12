@@ -4,7 +4,7 @@ from collections.abc import Callable
 import threading
 from typing import Protocol
 
-from ClipAI.core.models import ApplicationStatus, OperationKind
+from ClipAI.core.models import ApplicationStatus, OperationKind, UserFacingError
 from ClipAI.core.ports import OperationHandle, StatusIndicator
 
 
@@ -67,19 +67,21 @@ class OperationLifecycleCoordinator:
         self._reset_call: CancellableCall | None = None
         self._transient_status: ApplicationStatus | None = None
         self._generation = 0
+        self._last_error: UserFacingError | None = None
         self._lock = threading.RLock()
         self._indicator.set_status(self._baseline_status())
 
     def start(self, operation_id: str, kind: OperationKind) -> OperationHandle:
         if not operation_id.strip():
             raise ValueError("operation_id must not be empty")
-        if kind not in ("llm", "tts"):
+        if kind not in ("llm", "tts", "copy", "archive"):
             raise ValueError(f"Unsupported operation kind: {kind}")
         with self._lock:
             if operation_id in self._active:
                 raise ValueError(f"Operation is already active: {operation_id}")
             if self._transient_status == "success":
                 self._cancel_reset_locked()
+            self._last_error = None
             handle = _TrackedOperation(self, operation_id)
             self._active[operation_id] = (kind, handle)
             if self._transient_status != "error":
@@ -98,14 +100,32 @@ class OperationLifecycleCoordinator:
             self._active.clear()
             self._indicator.set_status(self._baseline_status())
 
+    @property
+    def last_error(self) -> UserFacingError | None:
+        return self._last_error
+
+    def report_waiting(self) -> None:
+        with self._lock:
+            if self._transient_status != "error":
+                self._indicator.set_status("processing")
+
+    def report_error(self, message: str, suggestion: str = "") -> None:
+        with self._lock:
+            self._cancel_reset_locked()
+            self._last_error = UserFacingError(message, suggestion)
+            self._transient_status = "error"
+            self._indicator.set_status("error")
+
     def _finish(self, operation_id: str, handle: _TrackedOperation, outcome: str) -> None:
         with self._lock:
             current = self._active.get(operation_id)
             if current is None or current[1] is not handle:
                 return
             del self._active[operation_id]
-            if self._transient_status == "error" and outcome != "error":
+            if self._transient_status == "error" and outcome == "cancel":
                 return
+            if outcome == "success":
+                self._last_error = None
             self._cancel_reset_locked()
 
             if outcome == "cancel":
@@ -116,7 +136,12 @@ class OperationLifecycleCoordinator:
                 return
 
             status: ApplicationStatus = "success" if outcome == "success" else "error"
-            duration = self._success_duration if outcome == "success" else self._error_duration
+            if outcome == "error":
+                self._last_error = self._last_error or UserFacingError("An operation failed.")
+                self._transient_status = "error"
+                self._indicator.set_status("error")
+                return
+            duration = self._success_duration
             self._transient_status = status
             self._indicator.set_status(status)
             self._schedule_reset_locked(duration)

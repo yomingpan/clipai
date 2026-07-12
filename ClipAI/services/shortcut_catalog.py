@@ -17,11 +17,14 @@ class ShortcutCatalog:
         }
 
     def resolve(self, shortcut_id: str, press_type: PressType) -> AppCommand:
-        try:
-            shortcut = self._shortcuts[shortcut_id]
-        except KeyError as exc:
-            raise ValueError(f"unknown shortcut: {shortcut_id}") from exc
+        shortcut = self.definition(shortcut_id)
         if shortcut.command == "start_action":
             assert shortcut.action_id is not None
             return StartAction(shortcut.action_id, press_type)
         return SpeakSelectionOrClipboard()
+
+    def definition(self, shortcut_id: str) -> ShortcutDefinition:
+        try:
+            return self._shortcuts[shortcut_id]
+        except KeyError as exc:
+            raise ValueError(f"unknown shortcut: {shortcut_id}") from exc

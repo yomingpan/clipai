@@ -58,9 +58,10 @@ def create_tray_image(status: ApplicationStatus = "idle", *, memory_active: bool
 
 
 class TrayController:
-    def __init__(self, on_exit: Callable[[], None], on_export_diagnostics: Callable[[], None] | None = None) -> None:
+    def __init__(self, on_exit: Callable[[], None], on_export_diagnostics: Callable[[], None] | None = None, on_show_last_error: Callable[[], None] | None = None) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
+        self._on_show_last_error = on_show_last_error
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -75,6 +76,8 @@ class TrayController:
             self._on_exit()
 
         menu_items = []
+        if self._on_show_last_error is not None:
+            menu_items.extend((pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()), pystray.Menu.SEPARATOR))
         if self._on_export_diagnostics is not None:
             menu_items.extend(
                 (

@@ -80,4 +80,4 @@ def test_long_press_triggers_long_without_release_short() -> None:
     dispatcher.on_release(FakeKey(name="alt_l"))
     dispatcher.on_release(FakeKey(name="ctrl_l"))
 
-    assert events == [("explain_word", "long")]
+    assert events == [("explain_word", "long"), ("explain_word", "long_release")]
