@@ -50,6 +50,9 @@ def test_composition_root_resolves_only_the_active_provider_secret(monkeypatch) 
 def test_composition_root_prefers_dotenv_model_value(monkeypatch, active, env_name, model) -> None:
     bundle = load_config_bundle()
     bundle = replace(bundle, providers=replace(bundle.providers, active=active))
+    settings = bundle.providers.active_settings()
+    assert settings is not None
+    bundle = replace(bundle, providers=replace(bundle.providers, **{active: replace(settings, available_models=(*settings.available_models, model))}))
     monkeypatch.setenv(env_name, model)
     assert _resolve_active_model(bundle) == model
     assert _build_provider(bundle)[1] == model
@@ -59,3 +62,12 @@ def test_composition_root_uses_yaml_model_without_environment_override(monkeypat
     bundle = load_config_bundle()
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
     assert _resolve_active_model(bundle) == bundle.providers.gemini.model
+
+
+def test_composition_root_rejects_dotenv_model_outside_catalog(monkeypatch) -> None:
+    from ClipAI.core.errors import ConfigError
+
+    bundle = load_config_bundle()
+    monkeypatch.setenv("GEMINI_MODEL", "unknown-model")
+    with pytest.raises(ConfigError, match="GEMINI_MODEL must be one of"):
+        _resolve_active_model(bundle)

@@ -5,6 +5,7 @@ from importlib.metadata import PackageNotFoundError, version
 import os
 
 from ClipAI.app.config_schema import ConfigBundle
+from ClipAI.core.errors import ConfigError
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
 from ClipAI.core.commands import ExportDiagnostics, ShutdownApplication
@@ -168,7 +169,11 @@ def _resolve_active_model(bundle: ConfigBundle) -> str:
     if settings is None:
         return "fake-model"
     env_name = f"{bundle.providers.active.upper()}_MODEL"
-    return (os.getenv(env_name) or settings.model).strip()
+    model = (os.getenv(env_name) or settings.model).strip()
+    available_models = settings.available_models or (settings.model,)
+    if model not in available_models:
+        raise ConfigError(f"{env_name} must be one of: {', '.join(available_models)}")
+    return model
 
 
 def _application_version() -> str:

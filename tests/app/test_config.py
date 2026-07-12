@@ -15,6 +15,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
 
     assert bundle.providers.active == "gemini"
     assert bundle.providers.gemini.model == "gemini-3.1-flash-lite"
+    assert bundle.providers.gemini.available_models == ("gemini-3.1-flash-lite", "gemini-2.5-flash")
     assert bundle.runtime.max_workers == 2
     assert bundle.app.modifier_mode == "ctrl_alt"
     action = bundle.actions.get("english_companion")
@@ -126,6 +127,34 @@ runtime:
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="max_workers"):
+        load_app_config(path)
+
+
+@pytest.mark.parametrize(
+    ("catalog", "message"),
+    [
+        ("[]", "at least one"),
+        ("[gpt-4.1-mini, gpt-4.1-mini]", "duplicate model"),
+        ("[gpt-4.1]", "include configured model"),
+        ("[gpt-4.1-mini, '']", "non-empty string"),
+    ],
+)
+def test_provider_model_catalog_is_validated(tmp_path: Path, catalog: str, message: str) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        f"""
+app: {{}}
+provider:
+  active: openai
+  gemini: {{}}
+  openai:
+    model: gpt-4.1-mini
+    available_models: {catalog}
+  anthropic: {{}}
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match=message):
         load_app_config(path)
 
 
