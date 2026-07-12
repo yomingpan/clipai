@@ -23,12 +23,11 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert action.stream is False
     assert action.temperature == 0.2
     assert action.output_profile == "english_learning_compact"
-    assert bundle.output_profiles.get(action.output_profile).required_markers == (
-        "## Word or Phrase",
-        "## Meaning",
-        "## Context",
-        "## Example",
-    )
+    assert bundle.output_profiles.get(action.output_profile).required_markers == ()
+    assert bundle.output_profiles.get(action.output_profile).presentation == "plain_text"
+    assert "appears literally in the input" in action.system_prompt
+    assert "never substitute, infer, or invent" in action.system_prompt
+    assert "記憶：" in action.prompt
     assert bundle.schema_versions.app == 1
     assert bundle.schema_versions.actions == 3
     assert bundle.schema_versions.output_profiles == 1
@@ -177,7 +176,12 @@ def test_action_input_policy_is_typed_and_shorten_is_contextual() -> None:
     catalog = load_action_catalog("config/actions.yaml")
     assert catalog.get("english_companion").input_policy == "external_text"
     assert catalog.get("shorten_content").input_policy == "contextual_text"
+    assert "preserve the original language of each part" in catalog.get("shorten_content").system_prompt
+    assert "Never translate" in catalog.get("shorten_content").system_prompt
+    assert "English input must produce English only" in catalog.get("shorten_content").system_prompt
+    assert "structure absent from the input" in catalog.get("shorten_content").system_prompt
     assert "as briefly as possible" in catalog.resolve("shorten_content", "long").prompt
+    assert "freely merge paragraphs and remove line breaks" in catalog.resolve("shorten_content", "long").prompt
 
 
 @pytest.mark.parametrize(

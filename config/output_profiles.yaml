@@ -6,15 +6,12 @@ profiles:
     presentation: plain_text
 
   - id: english_learning_compact
-    presentation: markdown_sections
-    required_markers:
-      - "## Word or Phrase"
-      - "## Meaning"
-      - "## Context"
-      - "## Example"
+    presentation: plain_text
     instruction: |
-      Use exactly these four concise Markdown sections in order: Word or Phrase, Meaning, Context, and Example.
-      Add `## Synonym or Similar Expression` only when it provides a useful distinction. Teach one practical expression only.
+      Teach exactly one expression that appears literally in the input. Never substitute, infer, or invent an expression not present in the input.
+      Put it first, then give at most two short Traditional Chinese sentences combining meaning and natural usage, followed by one practical English example.
+      Add `同義：` with 1-3 useful close alternatives only when genuinely helpful. End with `記憶：` and one concrete, short mnemonic or association.
+      Keep the entire answer compact. Do not use Markdown headings or extra sections.
 
   - id: english_improvement
     presentation: markdown_sections
