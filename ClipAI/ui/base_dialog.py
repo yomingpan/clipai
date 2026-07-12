@@ -13,6 +13,17 @@ from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
 DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
+SOURCE_PREVIEW_MAX_CHARS = 64
+
+
+def ellipsize_source_preview(text: str, limit: int = SOURCE_PREVIEW_MAX_CHARS) -> str:
+    """Project source context onto one compact line without changing canonical content."""
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    if limit <= 3:
+        return "." * max(limit, 0)
+    return f"{compact[: limit - 3].rstrip()}..."
 RGB = tuple[int, int, int]
 
 DEFAULT_STATE_COLORS: dict[DialogState, RGB] = {
@@ -753,7 +764,7 @@ class BaseResultSurface:
         self.title_label.configure(text=title)
 
     def set_source_preview(self, text: str) -> None:
-        self.source_label.configure(text=text)
+        self.source_label.configure(text=ellipsize_source_preview(text))
 
     def set_model(self, model: str) -> None:
         self.model_label.configure(text=f"model: {model}")
