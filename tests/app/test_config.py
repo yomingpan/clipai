@@ -176,7 +176,12 @@ def test_action_input_policy_is_typed_and_shorten_is_contextual() -> None:
     catalog = load_action_catalog("config/actions.yaml")
     assert catalog.get("english_companion").input_policy == "external_text"
     assert catalog.get("shorten_content").input_policy == "contextual_text"
+    assert "preserve the original language of each part" in catalog.get("shorten_content").system_prompt
+    assert "Never translate" in catalog.get("shorten_content").system_prompt
+    assert "English input must produce English only" in catalog.get("shorten_content").system_prompt
+    assert "structure absent from the input" in catalog.get("shorten_content").system_prompt
     assert "as briefly as possible" in catalog.resolve("shorten_content", "long").prompt
+    assert "freely merge paragraphs and remove line breaks" in catalog.resolve("shorten_content", "long").prompt
 
 
 @pytest.mark.parametrize(

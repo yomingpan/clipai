@@ -258,19 +258,17 @@ actions:
     temperature: 0.1
     output_profile: plain_text
     system_prompt: >
-      Preserve the original meaning, facts, intent, tone, names, numbers, and constraints.
-      Remove repetition, filler, and low-information wording. Return only the rewritten content.
+      This is faithful compression, not translation or reformatting. Preserve the original meaning, facts, intent, tone, names, numbers, constraints, language, and format. Detect the source language before rewriting: English input must produce English only; Chinese input must produce Traditional Chinese only; mixed Chinese-English input must preserve the original language of each part and its approximate language balance. Never translate, normalize the language, add commentary, headings, labels, bullets, a summary, or any structure absent from the input. Preserve the input's prose, paragraph, and list style; shorten within that existing style only. Remove repetition, filler, and low-information wording. Return only the shortened content.
     prompt: |
-      Rewrite the following content at roughly 20% of its original length, preserving its meaning.
+      Compress the following content to roughly 20% of its original length. Keep its original language and formatting exactly in kind: prose stays prose, paragraphs stay paragraphs, and lists stay lists. Do not translate or add structure.
 
       {input}
     press_variants:
       long:
         name: Shorten to Minimum
         system_prompt: >
-          Preserve the indispensable meaning, facts, intent, names, numbers, and constraints.
-          Remove every nonessential word. Return only the shortest still-understandable rewrite.
+          This is maximum faithful compression, not translation. Preserve the indispensable meaning, facts, intent, names, numbers, constraints, and language. Detect the source language before rewriting: English input must produce English only; Chinese input must produce Traditional Chinese only; mixed Chinese-English input must preserve the original language of each part and its approximate language balance. Never translate, normalize the language, add commentary, headings, labels, bullets, or a summary. You may merge paragraphs, remove line breaks, and discard the input's original layout to make the result as compact as possible. Return only the shortest still-understandable rewrite.
         prompt: |
-          Rewrite the following content as briefly as possible without losing its core meaning.
+          Compress the following content as briefly as possible without losing its core meaning. Keep its original language, but freely merge paragraphs and remove line breaks; do not translate or add new structure.
 
           {input}
