@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.commands import ArchiveResult, CopyResult, PasteResult, TogglePin, ToggleSpeech
-from ClipAI.ui.result_dialog import ResultDialogPresenter, _SessionView
+from ClipAI.ui.result_dialog import PopupFocusLifecycle, ResultDialogPresenter, _SessionView
 
 
 class Root:
@@ -44,6 +44,7 @@ def presenter_with_selection(selected: str | None):
     presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
     presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events))}
     presenter._command_sink = lambda command: events.append(command)
+    presenter._active_workflow_id = "s1"
     return presenter, events
 
 
@@ -65,10 +66,10 @@ def test_copy_and_archive_show_feedback_before_emitting_command() -> None:
     ]
 
 
-def test_speaker_icon_changes_before_emitting_command() -> None:
+def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._toggle_speech("s1")
-    assert events == ["speaker:True", ToggleSpeech("s1", "selected")]
+    assert events == [ToggleSpeech("s1", "selected")]
 
 
 def test_paste_disables_and_hides_before_emitting_command() -> None:
@@ -81,3 +82,35 @@ def test_pin_updates_visual_state_before_emitting_command() -> None:
     presenter, events = presenter_with_selection(None)
     presenter._toggle_pin("s1")
     assert events == ["pin:toggled", TogglePin("s1")]
+
+
+def test_active_workflow_context_projects_selection_and_displayed_step() -> None:
+    presenter, _events = presenter_with_selection("selected")
+    presenter._views["s1"].content = "full result"
+    presenter._views["s1"].step_id = "step-1"
+    context = presenter.active_workflow_context()
+    assert context.workflow_id == "s1"
+    assert context.step_id == "step-1"
+    assert context.content == "full result"
+    assert context.selected_text == "selected"
+
+
+def test_focus_lifecycle_ignores_focus_out_until_registered_shown_and_focused() -> None:
+    lifecycle = PopupFocusLifecycle()
+    assert lifecycle.request_outside_check() is False
+    lifecycle.registered = True
+    lifecycle.shown = True
+    assert lifecycle.request_outside_check() is False
+    lifecycle.initial_focus_established = True
+    assert lifecycle.request_outside_check() is True
+    assert lifecycle.request_outside_check() is False
+
+
+def test_focus_lifecycle_closes_only_for_unpinned_outside_focus() -> None:
+    lifecycle = PopupFocusLifecycle(True, True, True)
+    assert lifecycle.request_outside_check() is True
+    assert lifecycle.finish_outside_check(pinned=False, focused_inside=True) is False
+    assert lifecycle.request_outside_check() is True
+    assert lifecycle.finish_outside_check(pinned=True, focused_inside=False) is False
+    assert lifecycle.request_outside_check() is True
+    assert lifecycle.finish_outside_check(pinned=False, focused_inside=False) is True

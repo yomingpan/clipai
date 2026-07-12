@@ -1,11 +1,11 @@
-schema_version: 1
+schema_version: 3
 
 actions:
   - id: english_companion
     name: English Companion
-    hotkey: ctrl+alt+8
     stream: false
     input_mode: selection_or_clipboard
+    input_policy: external_text
     output_mode: popup
     temperature: 0.2
     output_profile: english_learning_compact
@@ -48,4 +48,30 @@ actions:
           Provide one complete natural rewrite and 3-5 reusable patterns.
 
           Here is the content:
+          {input}
+
+  - id: shorten_content
+    name: Shorten Content
+    stream: false
+    input_mode: selection_or_clipboard
+    input_policy: contextual_text
+    output_mode: popup
+    temperature: 0.1
+    output_profile: plain_text
+    system_prompt: >
+      Preserve the original meaning, facts, intent, tone, names, numbers, and constraints.
+      Remove repetition, filler, and low-information wording. Return only the rewritten content.
+    prompt: |
+      Rewrite the following content at roughly 20% of its original length, preserving its meaning.
+
+      {input}
+    press_variants:
+      long:
+        name: Shorten to Minimum
+        system_prompt: >
+          Preserve the indispensable meaning, facts, intent, names, numbers, and constraints.
+          Remove every nonessential word. Return only the shortest still-understandable rewrite.
+        prompt: |
+          Rewrite the following content as briefly as possible without losing its core meaning.
+
           {input}

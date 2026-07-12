@@ -17,7 +17,7 @@ app:
 
     如果輸出會顯示在 popup：
     - 使用適合小視窗快速掃讀的 Markdown。
-    - 整份內容最多 3 個主區塊；英語學習類最多 4 個主區塊。
+    - 整份內容最多 4 個核心區塊；需要更少區塊時不要為湊格式增加低資訊標題。
     - 每個區塊最多 2-4 個 bullet。
     - 每個 bullet 盡量短，讓使用者 1-2 秒內能掃懂。
     - heading 必須短，不可使用低資訊密度標題。
@@ -52,6 +52,7 @@ runtime:
 tts:
   enabled: true
   voice: zh-TW-HsiaoChenNeural
+  english_voice: en-US-AndrewNeural
   rate: "+0%"
   volume: "+0%"
 

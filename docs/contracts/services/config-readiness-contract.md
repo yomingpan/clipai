@@ -1,6 +1,6 @@
 # Config And Readiness Contract
 
-- Every config catalog has `schema_version: 1`.
+- App, shortcuts, and output-profile catalogs currently use schema v1; actions use schema v3 for explicit `input_policy`. Each loader owns its supported version instead of relying on one global catalog version.
 - Missing version is legacy v0 and is migrated only in memory. User files are never rewritten implicitly.
 - Future schema versions are rejected with file and version information.
 - Only the composition root reads environment variables. Provider credentials are injected and their values never appear in repr, logs, or diagnostics.

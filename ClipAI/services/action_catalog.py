@@ -28,11 +28,8 @@ class ActionCatalog:
             output_mode=action.output_mode,
             temperature=action.temperature,
             output_profile=variant.output_profile if variant and variant.output_profile else action.output_profile,
+            input_policy=action.input_policy,
         )
 
-    def hotkey_action_map(self) -> dict[str, dict[str, str]]:
-        return {
-            action.id: {"hotkey": action.hotkey}
-            for action in self._actions.values()
-            if action.hotkey.strip()
-        }
+    def contains(self, action_id: str) -> bool:
+        return action_id in self._actions

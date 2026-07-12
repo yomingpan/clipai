@@ -4,6 +4,8 @@ import time
 from collections.abc import Callable
 
 from ClipAI.core.ports import ArchiveStore, ClipboardStore, KeyboardOutput, SpeechOutput
+from ClipAI.core.models import SpeechRequest
+from ClipAI.core.state import CancellationToken
 from ClipAI.services.speech_text import SpeechTextPreprocessor
 
 
@@ -59,7 +61,7 @@ class OutputActions:
             raise RuntimeError("speech output is not configured")
         prepared = self._speech_text.prepare(text)
         if prepared:
-            self._speech.speak(prepared)
+            self._speech.speak(SpeechRequest(prepared, None, CancellationToken()))
 
     @property
     def can_speak(self) -> bool:

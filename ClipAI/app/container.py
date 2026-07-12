@@ -14,6 +14,7 @@ from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.hotkey import register_hotkeys_with_long_press
 from ClipAI.platform.selection import SystemSelectionReader
 from ClipAI.platform.filesystem import JsonlArchiveStore
+from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.platform.notification import SystemNotifier
@@ -22,10 +23,11 @@ from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import ProviderCredential
-from ClipAI.services.execute_action import ExecuteAction
+from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
+from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.ui.result_dialog import ResultDialogPresenter
@@ -46,7 +48,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         lambda: runtime_holder[0].enqueue(ExportDiagnostics()),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
-    view = ResultDialogPresenter()
+    view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
     notifier = SystemNotifier()
     diagnostics_exporter = SafeDiagnosticsExporter(
         metadata={
@@ -54,6 +56,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             "schema_versions": {
                 "config": bundle.schema_versions.app,
                 "actions": bundle.schema_versions.actions,
+                "shortcuts": bundle.schema_versions.shortcuts,
                 "output_profiles": bundle.schema_versions.output_profiles,
             },
             "provider": bundle.providers.active,
@@ -72,8 +75,9 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         if bundle.tts.enabled and bundle.tts.voice
         else None
     )
-    execute_action = ExecuteAction(
-        input_resolver=InputResolver(clipboard, SystemSelectionReader(clipboard)),
+    selection_reader = SystemSelectionReader(clipboard)
+    execute_action = ActionExecutor(
+        input_resolver=InputResolver(clipboard, selection_reader),
         provider=provider,
         prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),
         result_processor=ResultProcessor(bundle.output_profiles),
@@ -95,6 +99,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
 
     runtime = AppRuntime(
         actions=bundle.actions,
+        shortcuts=bundle.shortcuts,
         execute_action=execute_action,
         output_actions=OutputActions(
             clipboard=clipboard,
@@ -110,6 +115,17 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         operation_tracker=operation_tracker,
         diagnostics_exporter=diagnostics_exporter,
         notifier=notifier,
+        speech_coordinator=(
+            SpeechCoordinator(
+                clipboard=clipboard,
+                selection_reader=selection_reader,
+                speech=speech,
+                voice_selector=SpeechVoiceSelector(bundle.tts.english_voice),
+                operation_tracker=operation_tracker,
+            )
+            if speech is not None
+            else None
+        ),
     )
     runtime_holder.append(runtime)
     return runtime

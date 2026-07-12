@@ -9,6 +9,7 @@ from ClipAI.ui.base_dialog import (
     CHECK_ICON,
     COPY_ICON,
     PASTE_ICON,
+    PRESENTATION_TAG_STYLES,
     PIN_ICON,
     UNPIN_ICON,
     ARCHIVE_ICON,
@@ -141,6 +142,24 @@ def test_new_flash_cancels_previous_pending_reset() -> None:
     assert applied[-1] == "#00B04F"
 
 
+def test_redraw_preserves_pending_success_reset() -> None:
+    applied: list[str] = []
+    scheduler = FakeScheduler()
+    controller = SurfaceFlashController(
+        colors=SurfaceStateColors(),
+        apply_color=applied.append,
+        schedule=scheduler.schedule,
+        cancel=scheduler.cancel,
+    )
+    controller.flash("success")
+    job_id = next(iter(scheduler.jobs))
+    controller.redraw()
+    assert job_id in scheduler.jobs
+    assert scheduler.cancelled == []
+    scheduler.fire(job_id)
+    assert controller.state == "idle"
+
+
 def test_set_idle_cancels_pending_reset_without_scheduling_another() -> None:
     scheduler = FakeScheduler()
     controller = SurfaceFlashController(
@@ -180,6 +199,23 @@ def test_rounded_surface_painter_redraws_tagged_surface_below_widgets() -> None:
     assert all(call[2]["tags"] == "surface" for call in shape_calls)
 
 
+def test_rounded_surface_painter_resize_updates_future_draw_bounds() -> None:
+    canvas = FakeCanvas()
+    painter = RoundedSurfacePainter(
+        canvas,
+        width=100,
+        height=60,
+        background_color="#EEEEEE",
+        surface_color="#FFFFFF",
+        radius=10,
+        inset=3,
+    )
+    painter.resize(200, 120)
+    painter.draw("#0077C8")
+    coordinates = [call[1] for call in canvas.calls if call[0] in {"rectangle", "oval"}]
+    assert any(200 in values or 197 in values for values in coordinates)
+
+
 def test_drag_position_calculation_uses_recorded_offsets() -> None:
     class DialogLike:
         _drag_offset_x = 12
@@ -206,6 +242,17 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         "Archive result",
         "Ask follow-up",
     ]
+
+
+def test_primary_and_overflow_action_placement_is_stable() -> None:
+    primary = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id not in {"paste", "archive"}]
+    overflow = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id in {"paste", "archive"}]
+    assert primary == ["speaker", "copy", "follow_up"]
+    assert overflow == ["paste", "archive"]
+
+
+def test_presentation_tags_avoid_customtkinter_forbidden_font_option() -> None:
+    assert all("font" not in style for style in PRESENTATION_TAG_STYLES.values())
 
 
 def test_standard_result_action_idle_style_is_uniform() -> None:

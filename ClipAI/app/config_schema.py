@@ -6,6 +6,7 @@ from typing import Literal
 from ClipAI.core.models import ReadinessIssue
 from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings, ProviderSettings
 from ClipAI.services.action_catalog import ActionCatalog
+from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.support.logging_setup import LoggingSettings
 
@@ -32,6 +33,7 @@ class TTSSettings:
     voice: str
     rate: str
     volume: str
+    english_voice: str = "en-US-AndrewNeural"
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,7 @@ class ConfigSchemaVersions:
     app: int
     actions: int
     output_profiles: int
+    shortcuts: int
 
 
 @dataclass(frozen=True)
@@ -82,6 +85,7 @@ class ConfigBundle:
     runtime: RuntimeSettings
     providers: ProviderCatalog
     actions: ActionCatalog
+    shortcuts: ShortcutCatalog
     tts: TTSSettings
     voice_input: VoiceInputSettings
     logging: LoggingSettings

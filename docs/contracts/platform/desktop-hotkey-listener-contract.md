@@ -2,7 +2,7 @@
 
 ## Intent
 
-Desktop hotkey listener 的核心意圖是讓使用者能快速啟動已定義的 action，同時穩定區分 short press 與 long press。
+Desktop hotkey listener 的核心意圖是讓使用者能快速啟動已定義的 shortcut，同時穩定區分 short press 與 long press。
 
 這個 contract 是人類意圖、架構邊界、使用者可見行為與測試案例之間的中介層。它的目標不是增加文件量，而是讓 AI coding context 可以穩定理解：`clipai/platform/hotkey.py` 只負責把真實 OS 鍵盤事件轉成可預測、可測試、可注入上層流程的 trigger。
 
@@ -14,12 +14,12 @@ Desktop hotkey listener 的核心意圖是讓使用者能快速啟動已定義�
 
 它可以做：
 
-- 讀取 action map 裡的 `id` 與 `hotkey` 欄位。
+- 讀取 shortcut map 裡的 `id` 與 `hotkey` 欄位。
 - 將 hotkey 字串 canonicalize 成可比對的 token set。
 - 監聽 OS key press / release events。
 - normalize top-row digits、numpad digits、letters 與 modifier keys。
 - 區分 short press 與 long press。
-- 透過 callback 回報 `action_id` 與 `press_type`。
+- 透過 callback 回報 `shortcut_id` 與 `press_type`。
 
 它不可以做：
 
@@ -35,11 +35,11 @@ Desktop hotkey listener 的核心意圖是讓使用者能快速啟動已定義�
 
 ## Definitions
 
-### Action
+### Shortcut
 
-在這份 contract 中，`action` 是 config 中已定義的 action definition，核心識別是 `id`。
+在這份 contract 中，`shortcut` 是 shortcuts config 中已定義的 binding，核心識別是 `id`。
 
-Hotkey listener 不「選擇」業務行為。它只在註冊時把某個 hotkey token set 綁定到 `action_id`，並在觸發時回報該 `action_id`。
+Hotkey listener 不「選擇」業務行為。它只在註冊時把某個 hotkey token set 綁定到 `shortcut_id`，並在觸發時回報該 `shortcut_id`；上層 `ShortcutCatalog` 才解析 typed command。
 
 ### Press Type
 
@@ -62,8 +62,8 @@ Long press 的實際產品行為由上層 runtime、services 或 action variant 
 
 ### Inputs
 
-- `action_map`：由上層傳入的 action definitions mapping。
-- `hotkey` string：每個 action definition 中的 hotkey 設定。
+- `shortcut_map`：由上層傳入的 shortcut definitions mapping。
+- `hotkey` string：每個 shortcut definition 中的 hotkey 設定。
 - OS key press / release events：由 desktop keyboard listener 提供。
 - `modifier_mode`：hotkey modifier prefix 的相容 canonicalization 設定。
 - `long_press_sec`：short / long press 的時間閾值。
@@ -73,12 +73,12 @@ Long press 的實際產品行為由上層 runtime、services 或 action variant 
 唯一業務輸出是：
 
 ```python
-on_trigger(action_id, press_type)
+on_trigger(shortcut_id, press_type)
 ```
 
 其中：
 
-- `action_id` 是 action definition 的 `id`。
+- `shortcut_id` 是 shortcut definition 的 `id`。
 - `press_type` 只能是 `short` 或 `long`。
 
 ## Behavior Guarantees
@@ -87,7 +87,7 @@ Hotkey listener 必須保證：
 
 - Short press 只觸發一次 `short`。
 - Long press 觸發 `long` 後，release 時不得再觸發 `short`。
-- 多個 action hotkey 彼此隔離，不得互相污染 active state。
+- 多個 shortcut hotkey 彼此隔離，不得互相污染 active state。
 - Modifier key 順序改變時仍能穩定比對。
 - Top-row digits、numpad digits 與 letters 必須穩定 normalize。
 - Shifted digit characters，例如 `!`、`@`、`#`，應回到對應 digit。
@@ -139,7 +139,7 @@ Hotkey listener 必須保證：
 - letters 使用 vk fallback normalize。
 - short press 只觸發 short。
 - long press 不在 release 時再觸發 short。
-- 多個 action hotkey 彼此隔離。
+- 多個 shortcut hotkey 彼此隔離。
 
 應補 unit / sims 測試：
 
@@ -159,7 +159,7 @@ Hotkey listener 必須保證：
 - 真實 listener 可註冊與釋放。
 - app stop 後 listener 被確實停止。
 - 快速連按同一 hotkey 不殘留狀態。
-- 快速切換兩個不同 action hotkey 不互相污染。
+- 快速切換兩個不同 shortcut hotkey 不互相污染。
 - 先按 modifier 再按 digit、先按 digit 再放 modifier，都不造成誤觸。
 - top-row digit 與 numpad digit 行為一致。
 - 長按超過 `500ms` 只觸發 long，不觸發 short。
@@ -170,7 +170,7 @@ Hotkey listener 必須保證：
 
 - 2026-06-07：建立 platform desktop hotkey listener contract。
 - Hotkey listener 的核心意圖是快速啟動 action，且穩定區分 short / long press。
-- Hotkey listener 只輸出 `action_id + press_type`。
+- Hotkey listener 只輸出 `shortcut_id + press_type`。
 - Short press 是一般執行。
 - Long press 是超過 `500ms` 的長按事件。
 - Long press 的產品語意由上層 runtime/services/action variant 決定。

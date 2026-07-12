@@ -14,10 +14,18 @@ Before changing this repository, read:
 
 ## Architecture-first rule
 
-1. Preserve architecture boundaries before adding feature-specific behavior. Put policy in core/services, orchestration in app, and toolkit or OS behavior in adapters.
+1. Preserve architecture boundaries before adding feature-specific behavior. Put domain contracts in `core`, testable use-case policy and workflow coordination in `services`, runtime dispatch and composition in `app`, and toolkit or OS behavior in adapters.
 2. If a requested feature needs a one-off dependency, bypass, global event, raw cross-layer dictionary, or provider-specific UI branch, stop and warn that it will constrain future architecture changes. Describe the coupling and propose a reusable contract or adapter boundary before implementation.
 3. Do not add an abstraction speculatively. Add one when it removes actual coupling, duplication, or state ambiguity in the current design.
 4. UI must not directly call clipboard, keyboard, TTS, archive, or provider implementations. Use typed commands and injected ports.
+
+## Intent and lifecycle rules
+
+1. Side effects require an explicit typed user intent. Speech, paste, archive, clipboard mutation, provider calls, and diagnostics export must not be inferred from popup creation, render, focus, activation, navigation, provider completion, or session revision.
+2. Session identity, provider invocation identity, output-operation identity, selection-capture identity, and view lifecycle are separate concepts. Do not substitute one identity or a session revision for another.
+3. Cancellation, cleanup, clipboard restoration, and late completion are scoped to the operation identity that created them. An older operation must never cancel, overwrite, restore into, or report completion for a newer operation.
+4. Every popup workflow has exactly one authoritative state owner. Currently this is `WorkflowController`; widgets, workers, and adapters may project or report state but must not independently own workflow state.
+5. Operation-specific state such as speaking, copying, archiving, or provider activity must reflect the real operation lifecycle. Do not derive it from general popup visibility or workflow revisions.
 
 ## Dependency boundaries
 
@@ -26,9 +34,17 @@ Before changing this repository, read:
 - `platform`, `providers`, and `ui` depend on `core` plus their adapter libraries.
 - Only `app` composes concrete services, platform adapters, providers, and UI.
 - Cross-thread UI input uses the typed command queue, not a global Event Bus.
-- A session has one `SessionController` as its state owner.
 - Provider workers never mutate Tkinter; UI changes happen on the UI thread.
 - Use typed immutable models between layers instead of raw dictionaries.
+- Reusable orchestration that can be tested without the concrete desktop runtime belongs in `services`; `app` owns composition, command dispatch, runtime lifecycle, and coordination across use cases.
+
+## Presentation and UI adapter boundaries
+
+1. Canonical result content is independent of widget styling. Copy, paste, archive, and speech must consume an explicit semantic content source, not reconstruct content from styled widgets.
+2. Parsing and presentation transformation produce a typed immutable presentation model at a testable presentation boundary. UI adapters render that model and must not implement scattered Markdown or format parsing.
+3. Unsupported presentation syntax must degrade to safe plain text without losing canonical content or crashing the popup.
+4. UI adapters may interpret toolkit lifecycle events such as focus, activation, deiconify, geometry, DPI, and click-outside detection. They emit typed semantic commands such as close requests; they do not directly change workflow policy or introduce a global mouse event bus.
+5. Capability availability, enabled state, operation lifecycle state, and visual placement are separate concerns. Core/services own capability and operation state; the presentation layer decides primary versus overflow placement; UI adapters render the result.
 
 ## Change workflow
 
