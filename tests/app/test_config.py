@@ -23,21 +23,11 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert action.stream is False
     assert action.temperature == 0.2
     assert action.output_profile == "english_learning_compact"
-<<<<<<< Updated upstream
-    assert bundle.output_profiles.get(action.output_profile).required_markers == (
-        "## Word or Phrase",
-        "## Meaning",
-        "## Context",
-        "## Example",
-    )
-=======
-<<<<<<< Updated upstream
-    assert bundle.output_profiles.get(action.output_profile).required_markers == ("Synonym:",)
-=======
     assert bundle.output_profiles.get(action.output_profile).required_markers == ()
     assert bundle.output_profiles.get(action.output_profile).presentation == "plain_text"
->>>>>>> Stashed changes
->>>>>>> Stashed changes
+    assert "appears literally in the input" in action.system_prompt
+    assert "never substitute, infer, or invent" in action.system_prompt
+    assert "記憶：" in action.prompt
     assert bundle.schema_versions.app == 1
     assert bundle.schema_versions.actions == 3
     assert bundle.schema_versions.output_profiles == 1
