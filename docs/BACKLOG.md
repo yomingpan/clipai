@@ -1,5 +1,31 @@
 # ClipAI Next-gen Backlog
 
+## Completed 2026-07-12: Shortcut Composition, Multimodal Clipboard, And Output Acknowledgment
+
+Status: implemented and manually accepted on branch `codex/shortcut-screenshot-ack`.
+
+- Shortcut sequence composition is complete:
+  - Long-press `Ctrl+Alt+Q`, release `Q`, then enter an existing full action shortcut within one second.
+  - The composed action preserves short/long semantics, runs without a popup, and speaks the result directly.
+  - Waiting, provider, TTS, success, cancellation, timeout, invalid-key, replacement, and late-completion lifecycles use typed operation identity.
+  - Sequence failures remain visible on the tray; `Show Last Error` replays the reason and recommendation through a Windows notification.
+- Multimodal clipboard input is complete with revised scope:
+  - ClipAI does not implement region or full-screen capture; users continue using their preferred screenshot tool.
+  - A readable clipboard image takes precedence over selection and clipboard text; text behavior is unchanged when no image exists.
+  - OpenAI, Gemini, and Anthropic adapters serialize the shared typed image contract into native multimodal payloads.
+  - Invalid, oversized, or model-incompatible images fail safely without text fallback, automatic model switching, or image data in diagnostics.
+- Copy and Archive confirmed-success feedback is complete:
+  - Both intents carry explicit semantic text and operation identity; popup selection takes precedence over canonical result content.
+  - The UI shows a check only after a typed success acknowledgment and shows an error state after failure.
+  - Collapsed Archive overflow shows `已封存` for one second; Archive does not close the popup.
+  - Focused popup shortcuts are `Ctrl+Q` Speak, `Ctrl+C` Copy, and `Ctrl+S` Archive.
+- Windows popup task-switcher behavior is complete:
+  - Result popups use the Windows tool-window style and are hidden from both the taskbar and Alt+Tab.
+  - The ClipAI tray icon remains the persistent application surface.
+- Verification: compile succeeded and the complete unit/architecture suite reports `185 passed`. The repository currently has no tests marked `integration`; Windows behavior was accepted through manual verification.
+
+Commits: `69637e6`, `fe7eebe`, `c1be04c`, `696dc15`.
+
 ## 2026-07-12 Popup Reading Experience And Interaction Requirements
 
 今天確認的核心方向：Popup 的首要任務是讓使用者快速理解內容。內容結構、視窗尺寸、文字呈現與按鈕數量都必須降低認知負荷；功能不能只是存在，也必須在真正需要時才出現。
