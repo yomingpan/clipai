@@ -307,6 +307,7 @@ class ResultDialogPresenter:
             y=bounds.y if bounds else None,
             minimum_width=340,
             minimum_height=220,
+            hide_from_task_switcher=True,
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()

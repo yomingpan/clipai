@@ -24,8 +24,42 @@ from ClipAI.ui.base_dialog import (
     StandardResultActions,
     SurfaceFlashController,
     SurfaceStateColors,
+    hide_window_from_task_switcher,
     rgb_to_hex,
 )
+
+
+def test_windows_tool_window_style_hides_taskbar_and_alt_tab() -> None:
+    class Window:
+        def update_idletasks(self):
+            pass
+
+        def winfo_id(self):
+            return 10
+
+    class User32:
+        def __init__(self):
+            self.style = 0x00040000
+            self.updated = None
+            self.positioned = None
+
+        def GetParent(self, hwnd):
+            return 20
+
+        def GetWindowLongW(self, hwnd, index):
+            assert (hwnd, index) == (20, -20)
+            return self.style
+
+        def SetWindowLongW(self, hwnd, index, style):
+            self.updated = (hwnd, index, style)
+
+        def SetWindowPos(self, *args):
+            self.positioned = args
+
+    user32 = User32()
+    assert hide_window_from_task_switcher(Window(), user32) is True
+    assert user32.updated == (20, -20, 0x00000080)
+    assert user32.positioned[-1] == 0x0027
 
 
 class FakeCanvas:

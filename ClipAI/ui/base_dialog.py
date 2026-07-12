@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+import sys
 from dataclasses import dataclass
 from typing import Callable, Literal, Mapping
 
@@ -184,6 +185,29 @@ class RoundedSurfacePainter:
         self._canvas.create_oval(x2 - radius * 2, y2 - radius * 2, x2, y2, **options)
 
 
+def hide_window_from_task_switcher(window, user32=None) -> bool:
+    """Hide a Windows popup from both the taskbar and Alt+Tab."""
+    if user32 is None:
+        if sys.platform != "win32":
+            return False
+        import ctypes
+
+        user32 = ctypes.windll.user32
+    try:
+        window.update_idletasks()
+        child = int(window.winfo_id())
+        hwnd = int(user32.GetParent(child)) or child
+        gwl_exstyle = -20
+        ws_ex_toolwindow = 0x00000080
+        ws_ex_appwindow = 0x00040000
+        style = int(user32.GetWindowLongW(hwnd, gwl_exstyle))
+        user32.SetWindowLongW(hwnd, gwl_exstyle, (style | ws_ex_toolwindow) & ~ws_ex_appwindow)
+        user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0027)
+        return True
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+
+
 class BaseDialog:
     def __init__(
         self,
@@ -207,6 +231,7 @@ class BaseDialog:
         y: int | None = None,
         minimum_width: int | None = None,
         minimum_height: int | None = None,
+        hide_from_task_switcher: bool = False,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
@@ -285,10 +310,11 @@ class BaseDialog:
             self.root.protocol("WM_DELETE_WINDOW", self.lifecycle.close)
             self.root.bind("<Escape>", lambda _event: self.lifecycle.close())
             self.enable_drag(self.canvas, self.surface)
+            if hide_from_task_switcher:
+                self.root.after_idle(lambda: hide_window_from_task_switcher(self.root))
         except Exception:
             self._valid = False
             raise
-
     def is_valid(self) -> bool:
         return self._valid
 
