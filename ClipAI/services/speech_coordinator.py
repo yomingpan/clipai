@@ -49,7 +49,8 @@ class SpeechCoordinator:
 
     def create_job(self, *, clipboard_only: bool) -> SpeechJob:
         self.cancel_current()
-        operation_id = f"tts:clipboard:{uuid.uuid4().hex}"
+        source = "clipboard" if clipboard_only else "selection"
+        operation_id = f"tts:{source}:{uuid.uuid4().hex}"
         token = CancellationToken()
         operation = self._operation_tracker.start(operation_id, "tts") if self._operation_tracker else None
         with self._lock:

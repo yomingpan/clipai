@@ -28,6 +28,7 @@ class ActionCatalog:
             output_mode=action.output_mode,
             temperature=action.temperature,
             output_profile=variant.output_profile if variant and variant.output_profile else action.output_profile,
+            input_policy=action.input_policy,
         )
 
     def contains(self, action_id: str) -> bool:

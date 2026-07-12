@@ -9,3 +9,8 @@ shortcuts:
   - id: speak_selection_or_clipboard
     hotkey: ctrl+alt+q
     command: speak_selection_or_clipboard
+
+  - id: shorten_content
+    hotkey: ctrl+alt+x
+    command: start_action
+    action_id: shorten_content

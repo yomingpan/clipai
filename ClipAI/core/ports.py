@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ApplicationStatus, LLMRequest, LLMResult, OperationKind, SpeechRequest
+from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, LLMRequest, LLMResult, OperationKind, SpeechRequest
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -38,6 +38,10 @@ class ApplicationView(ResultPresenter, Protocol):
     def run(self, command_pump: Callable[[], None]) -> None: ...
 
     def stop(self) -> None: ...
+
+
+class ActiveWorkflowContextReader(Protocol):
+    def active_workflow_context(self) -> ActiveWorkflowContext | None: ...
 
 
 class ArchiveStore(Protocol):
@@ -78,3 +82,7 @@ class UserNotifier(Protocol):
 
 class DiagnosticsExporter(Protocol):
     def export(self) -> Path: ...
+
+
+class DisplayMetricsReader(Protocol):
+    def current(self) -> DisplayMetrics: ...

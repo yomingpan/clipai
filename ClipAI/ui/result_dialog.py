@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import queue
 import tkinter as tk
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, FollowUp, PasteResult, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActiveWorkflowContext
+from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
+from ClipAI.ui.popup_layout import PopupLayoutPolicy
 
 
 @dataclass
@@ -18,12 +21,40 @@ class _SessionView:
     surface: BaseResultSurface
     revision: int = -1
     speaking: bool = False
+    content: str = ""
+    step_id: str | None = None
+    focus_lifecycle: PopupFocusLifecycle | None = None
+    flashed_completion_keys: set[str] = field(default_factory=set)
+
+
+@dataclass
+class PopupFocusLifecycle:
+    """Gate toolkit focus events until a popup is registered and shown."""
+
+    registered: bool = False
+    shown: bool = False
+    initial_focus_established: bool = False
+    outside_check_pending: bool = False
+
+    @property
+    def ready(self) -> bool:
+        return self.registered and self.shown and self.initial_focus_established
+
+    def request_outside_check(self) -> bool:
+        if not self.ready or self.outside_check_pending:
+            return False
+        self.outside_check_pending = True
+        return True
+
+    def finish_outside_check(self, *, pinned: bool, focused_inside: bool) -> bool:
+        self.outside_check_pending = False
+        return self.ready and not pinned and not focused_inside
 
 
 class ResultDialogPresenter:
     """One persistent Tk root that renders any number of session Toplevels."""
 
-    def __init__(self) -> None:
+    def __init__(self, display_metrics: DisplayMetricsReader | None = None, layout_policy: PopupLayoutPolicy | None = None) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
         self._updates: queue.Queue[SessionSnapshot] = queue.Queue()
@@ -32,9 +63,26 @@ class ResultDialogPresenter:
         self._stopping = False
         self._destroyed = False
         self._tick_job: str | None = None
+        self._active_workflow_id: str | None = None
+        self._display_metrics = display_metrics
+        self._layout_policy = layout_policy or PopupLayoutPolicy()
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
+
+    def active_workflow_context(self) -> ActiveWorkflowContext | None:
+        workflow_id = self._active_workflow_id
+        if workflow_id is None:
+            return None
+        view = self._views.get(workflow_id)
+        if view is None or view.step_id is None or not view.content.strip():
+            return None
+        return ActiveWorkflowContext(
+            workflow_id,
+            view.step_id,
+            view.content,
+            view.surface.selected_text(),
+        )
 
     def render(self, snapshot: SessionSnapshot) -> None:
         self._updates.put(snapshot)
@@ -102,11 +150,20 @@ class ResultDialogPresenter:
             if view is not None:
                 view.dialog.close()
                 self._views.pop(snapshot.session_id, None)
+                if self._active_workflow_id == snapshot.session_id:
+                    self._active_workflow_id = None
             return
+        created = view is None
         if view is None:
             view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
+            self._register_view(snapshot.session_id, view)
         view.revision = snapshot.revision
+        if created or self._active_workflow_id is None:
+            self._active_workflow_id = snapshot.session_id
+        view.content = snapshot.content
+        if snapshot.displayed_step_index >= 0:
+            view.step_id = snapshot.steps[snapshot.displayed_step_index].step_id
         view.surface.set_pinned_state(snapshot.pinned)
         view.surface.set_title(snapshot.title)
         view.surface.set_source_preview(snapshot.source_preview)
@@ -117,14 +174,33 @@ class ResultDialogPresenter:
         view.surface.pin_button.configure(
             command=lambda sid=snapshot.session_id: self._toggle_pin(sid)
         )
+        view.surface.configure_back_action(
+            (lambda sid=snapshot.session_id: self._command_sink(NavigateWorkflowBack(sid)))
+            if snapshot.can_navigate_back
+            else None
+        )
         if snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
-            view.surface.set_content_chunks([(snapshot.error, "body")])
+            if snapshot.content:
+                view.surface.set_content_chunks([(snapshot.content, "body")])
+                view.surface.set_source_preview(f"Failed: {snapshot.error}")
+            else:
+                view.surface.set_content_chunks([(snapshot.error, "body")])
         elif snapshot.status == SessionStatus.COMPLETED:
-            view.dialog.flash("success")
-            view.surface.set_content_chunks([(snapshot.content, "body")])
+            completion_key = view.step_id or snapshot.content
+            if completion_key and completion_key not in view.flashed_completion_keys:
+                view.flashed_completion_keys.add(completion_key)
+                view.dialog.flash("success")
+            if snapshot.presentation is not None:
+                view.surface.set_presentation_document(snapshot.presentation)
+            else:
+                view.surface.set_content_chunks([(snapshot.content, "body")])
         else:
-            view.surface.set_loading(snapshot.status_text)
+            if snapshot.content:
+                view.surface.set_content_chunks([(snapshot.content, "body")])
+                view.surface.set_source_preview(snapshot.status_text)
+            else:
+                view.surface.set_loading(snapshot.status_text)
         view.surface.configure_standard_actions(
             on_speak=(lambda sid=snapshot.session_id: self._toggle_speech(sid)) if "speaker" in snapshot.available_actions else None,
             on_copy=(lambda sid=snapshot.session_id: self._copy(sid)) if "copy" in snapshot.available_actions else None,
@@ -151,8 +227,6 @@ class ResultDialogPresenter:
         view = self._views.get(session_id)
         if view is None:
             return
-        view.speaking = not view.speaking
-        view.surface.set_speaker_active(view.speaking)
         self._send_text_command(session_id, ToggleSpeech)
 
     def _archive(self, session_id: str) -> None:
@@ -200,10 +274,12 @@ class ResultDialogPresenter:
         view.surface.follow_entry.bind("<Return>", lambda _event: send(), add="+")
 
     def _create_view(self, session_id: str) -> _SessionView:
+        metrics = self._display_metrics.current() if self._display_metrics is not None else None
+        bounds = self._layout_policy.calculate(metrics) if metrics is not None else None
         dialog = BaseDialog(
             title="ClipAI",
-            width=460,
-            height=300,
+            width=bounds.width if bounds else 350,
+            height=bounds.height if bounds else 230,
             position="cursor",
             background_color="#111111",
             surface_color="#2B2B2B",
@@ -211,22 +287,58 @@ class ResultDialogPresenter:
             transparent_background=True,
             surface_inset=8,
             master=self._root,
+            x=bounds.x if bounds else None,
+            y=bounds.y if bounds else None,
+            minimum_width=340,
+            minimum_height=220,
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
+        return _SessionView(dialog=dialog, surface=surface, focus_lifecycle=PopupFocusLifecycle())
+
+    def _register_view(self, session_id: str, view: _SessionView) -> None:
+        lifecycle = view.focus_lifecycle or PopupFocusLifecycle()
+        view.focus_lifecycle = lifecycle
+        lifecycle.registered = True
+        dialog = view.dialog
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
-        return _SessionView(dialog=dialog, surface=surface)
+        dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._activate(sid), add="+")
+        dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
+        lifecycle.shown = True
+
+        def establish_initial_focus() -> None:
+            if session_id not in self._views:
+                return
+            dialog.lifecycle.focus()
+            lifecycle.initial_focus_established = True
+
+        dialog.lifecycle.schedule(0, establish_initial_focus)
+
+    def _activate(self, session_id: str) -> None:
+        self._active_workflow_id = session_id
+        self._command_sink(ActivateWorkflow(session_id))
 
     def _close_if_outside(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None:
+            return
+        lifecycle = view.focus_lifecycle
+        if lifecycle is None or not lifecycle.request_outside_check():
+            return
+
         def check() -> None:
             view = self._views.get(session_id)
-            if view is None or view.dialog.pinned:
+            if view is None:
                 return
             try:
                 focused = view.dialog.root.focus_get()
-                if focused is None or focused.winfo_toplevel() is not view.dialog.root:
+                focused_inside = focused is not None and focused.winfo_toplevel() is view.dialog.root
+                if lifecycle.finish_outside_check(pinned=view.dialog.pinned, focused_inside=focused_inside):
+                    view.surface.collapse_overflow()
                     self._command_sink(CloseSession(session_id))
             except tk.TclError:
-                self._command_sink(CloseSession(session_id))
+                if lifecycle.finish_outside_check(pinned=view.dialog.pinned, focused_inside=False):
+                    view.surface.collapse_overflow()
+                    self._command_sink(CloseSession(session_id))
 
         self._root.after(100, check)

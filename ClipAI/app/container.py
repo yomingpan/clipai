@@ -14,6 +14,7 @@ from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.hotkey import register_hotkeys_with_long_press
 from ClipAI.platform.selection import SystemSelectionReader
 from ClipAI.platform.filesystem import JsonlArchiveStore
+from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.platform.notification import SystemNotifier
@@ -22,7 +23,7 @@ from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import ProviderCredential
-from ClipAI.services.execute_action import ExecuteAction
+from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
@@ -47,7 +48,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         lambda: runtime_holder[0].enqueue(ExportDiagnostics()),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
-    view = ResultDialogPresenter()
+    view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
     notifier = SystemNotifier()
     diagnostics_exporter = SafeDiagnosticsExporter(
         metadata={
@@ -75,7 +76,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         else None
     )
     selection_reader = SystemSelectionReader(clipboard)
-    execute_action = ExecuteAction(
+    execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
         provider=provider,
         prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),
