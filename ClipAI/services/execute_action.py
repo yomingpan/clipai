@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from ClipAI.core.errors import CancelledError, ClipAIError
-from ClipAI.core.models import LLMRequest, LLMResult, ReadinessIssue, ResolvedAction
+from ClipAI.core.models import ActionInvocation, InputDocument, LLMRequest, LLMResult, ReadinessIssue, ResolvedAction
 from ClipAI.core.ports import LLMProvider, OperationHandle, OperationTracker
 from ClipAI.core.state import SessionStatus
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
-from ClipAI.services.session_controller import SessionController
+from ClipAI.services.result_router import ResultRouter
+from ClipAI.services.workflow_controller import WorkflowController
 
 
-class ExecuteAction:
+class ActionExecutor:
     def __init__(
         self,
         *,
@@ -24,6 +25,7 @@ class ExecuteAction:
         available_actions: tuple[str, ...] = ("copy", "follow_up"),
         operation_tracker: OperationTracker | None = None,
         readiness_issues: tuple[ReadinessIssue, ...] = (),
+        result_router: ResultRouter | None = None,
     ) -> None:
         self._input_resolver = input_resolver
         self._provider = provider
@@ -35,19 +37,23 @@ class ExecuteAction:
         self._available_actions = available_actions
         self._operation_tracker = operation_tracker
         self._readiness_issues = readiness_issues
+        self._result_router = result_router or ResultRouter()
 
-    def execute(self, action: ResolvedAction, session: SessionController) -> None:
+    def execute_invocation(
+        self,
+        action: ResolvedAction,
+        invocation: ActionInvocation,
+        workflow: WorkflowController,
+    ) -> None:
+        token = workflow.cancellation
         try:
-            if session.transition(SessionStatus.READING_INPUT, status_text="Reading input...") is None:
+            if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id):
                 return
-            if self._fail_if_not_ready(session):
-                return
-            document = self._input_resolver.resolve(action.input_mode)
-            if session.transition(
+            document = invocation.input_target.document or self._input_resolver.resolve(action.input_mode)
+            if workflow.update(
+                invocation.invocation_id,
                 SessionStatus.PREPARING_REQUEST,
                 status_text=f"Preparing {action.name}...",
-                source_preview=_source_preview(document.source, document.text),
-                original_input=document.text,
             ) is None:
                 return
             request = self._prompt_builder.build(
@@ -56,66 +62,100 @@ class ExecuteAction:
                 model=self._model,
                 default_temperature=self._default_temperature,
             )
-            if session.transition(
+            if workflow.update(
+                invocation.invocation_id,
                 SessionStatus.REQUESTING_PROVIDER,
                 status_text=f"Asking {self._provider_name}...",
             ) is None:
                 return
-            result = self._complete_provider(request, session)
-            if session.transition(SessionStatus.PROCESSING_RESULT, status_text="Rendering result...") is None:
+            result = self._complete_provider_for_invocation(request, invocation.invocation_id, token)
+            if workflow.update(
+                invocation.invocation_id,
+                SessionStatus.PROCESSING_RESULT,
+                status_text="Rendering result...",
+            ) is None:
                 return
             processed = self._result_processor.process(result.text, action.output_profile)
-            session.transition(
-                SessionStatus.COMPLETED,
-                status_text="Completed",
-                content=processed.text,
-                available_actions=self._available_actions,
+            self._result_router.route(
+                invocation.result_route,
+                processed,
+                popup_sink=lambda routed: workflow.complete(
+                    invocation,
+                    action,
+                    document,
+                    routed.text,
+                    self._available_actions,
+                ),
             )
         except CancelledError:
-            session.cancel()
-        except ClipAIError as exc:
-            session.fail(str(exc))
-
-    def execute_follow_up(self, action: ResolvedAction, question: str, session: SessionController) -> None:
-        previous = session.snapshot
-        if previous.status != SessionStatus.COMPLETED or not question.strip():
             return
+        except ClipAIError as exc:
+            workflow.fail(invocation.invocation_id, str(exc))
+
+    def execute_follow_up_invocation(
+        self,
+        action: ResolvedAction,
+        question: str,
+        invocation: ActionInvocation,
+        workflow: WorkflowController,
+        *,
+        original_input: str,
+        previous_result: str,
+    ) -> None:
+        token = workflow.cancellation
         try:
-            if session.transition(SessionStatus.PREPARING_REQUEST, status_text="Preparing follow-up...") is None:
-                return
-            if self._fail_if_not_ready(session):
+            if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id):
                 return
             request = self._prompt_builder.build_follow_up(
                 action,
-                original_input=previous.original_input,
-                previous_result=previous.content,
-                question=question.strip(),
+                original_input=original_input,
+                previous_result=previous_result,
+                question=question,
                 model=self._model,
                 default_temperature=self._default_temperature,
             )
-            if session.transition(SessionStatus.REQUESTING_PROVIDER, status_text=f"Asking {self._provider_name}...") is None:
+            if workflow.update(
+                invocation.invocation_id,
+                SessionStatus.REQUESTING_PROVIDER,
+                status_text=f"Asking {self._provider_name}...",
+            ) is None:
                 return
-            result = self._complete_provider(request, session)
-            if session.transition(SessionStatus.PROCESSING_RESULT, status_text="Rendering result...") is None:
+            result = self._complete_provider_for_invocation(request, invocation.invocation_id, token)
+            if workflow.update(
+                invocation.invocation_id,
+                SessionStatus.PROCESSING_RESULT,
+                status_text="Rendering result...",
+            ) is None:
                 return
             processed = self._result_processor.process(result.text, action.output_profile)
-            session.transition(
-                SessionStatus.COMPLETED,
-                status_text="Completed",
-                content=processed.text,
-                available_actions=self._available_actions,
+            document = InputDocument(question, "workflow_result", workflow.snapshot.session_id, invocation.parent_step_id)
+            self._result_router.route(
+                invocation.result_route,
+                processed,
+                popup_sink=lambda routed: workflow.complete(
+                    invocation,
+                    action,
+                    document,
+                    routed.text,
+                    self._available_actions,
+                ),
             )
         except CancelledError:
-            session.cancel()
+            return
         except ClipAIError as exc:
-            session.fail(str(exc))
+            workflow.fail(invocation.invocation_id, str(exc))
 
-    def _complete_provider(self, request: LLMRequest, session: SessionController) -> LLMResult:
+    def _complete_provider_for_invocation(
+        self,
+        request: LLMRequest,
+        invocation_id: str,
+        cancellation,
+    ) -> LLMResult:
         operation: OperationHandle | None = None
         if self._operation_tracker is not None:
-            operation = self._operation_tracker.start(f"llm:{session.snapshot.session_id}", "llm")
+            operation = self._operation_tracker.start(f"llm:{invocation_id}", "llm")
         try:
-            result = self._provider.complete(request, session.cancellation)
+            result = self._provider.complete(request, cancellation)
         except CancelledError:
             if operation is not None:
                 operation.cancel()
@@ -124,20 +164,17 @@ class ExecuteAction:
             if operation is not None:
                 operation.fail()
             raise
+        if cancellation.is_cancelled:
+            if operation is not None:
+                operation.cancel()
+            raise CancelledError("action invocation was replaced")
         if operation is not None:
             operation.succeed()
         return result
 
-    def _fail_if_not_ready(self, session: SessionController) -> bool:
+    def _fail_workflow_if_not_ready(self, workflow: WorkflowController, invocation_id: str) -> bool:
         issue = next((item for item in self._readiness_issues if item.feature == "llm"), None)
         if issue is None:
             return False
-        session.fail(issue.message)
+        workflow.fail(invocation_id, issue.message)
         return True
-
-
-def _source_preview(source: str, text: str, limit: int = 90) -> str:
-    compact = " ".join(text.split())
-    if len(compact) > limit:
-        compact = f"{compact[: limit - 1]}..."
-    return f"{source.title()}: {compact}"

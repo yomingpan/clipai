@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from enum import Enum
 import threading
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ClipAI.core.models import WorkflowStep
 
 
 class SessionStatus(str, Enum):
@@ -65,6 +69,10 @@ class SessionSnapshot:
     available_actions: tuple[str, ...] = ()
     original_input: str = ""
     speaking: bool = False
+    steps: tuple[WorkflowStep, ...] = ()
+    displayed_step_index: int = -1
+    active_invocation_id: str | None = None
+    can_navigate_back: bool = False
 
     def evolve(self, **changes: object) -> SessionSnapshot:
         return replace(self, revision=self.revision + 1, **changes)

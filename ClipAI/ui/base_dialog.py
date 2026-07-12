@@ -566,6 +566,8 @@ class BaseResultSurface:
 
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="w", padx=9, pady=(0, 0))
+        self._back_button = self.add_action_slot("back", "←", None, width=24, tooltip="Previous result")
+        self._back_button.configure(state="disabled")
         self.standard_actions = StandardResultActions(self)
 
         self.source_label = ctk.CTkLabel(
@@ -648,6 +650,9 @@ class BaseResultSurface:
             on_archive=on_archive,
             on_follow_up=on_follow_up,
         )
+
+    def configure_back_action(self, command: Callable[[], None] | None) -> None:
+        self._back_button.configure(command=command, state="normal" if command is not None else "disabled")
 
     def set_speaker_active(self, active: bool) -> None:
         self.standard_actions.set_speaker_active(active)

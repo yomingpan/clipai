@@ -7,7 +7,8 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, FollowUp, PasteResult, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActiveWorkflowContext
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 
@@ -18,6 +19,8 @@ class _SessionView:
     surface: BaseResultSurface
     revision: int = -1
     speaking: bool = False
+    content: str = ""
+    step_id: str | None = None
 
 
 class ResultDialogPresenter:
@@ -32,9 +35,24 @@ class ResultDialogPresenter:
         self._stopping = False
         self._destroyed = False
         self._tick_job: str | None = None
+        self._active_workflow_id: str | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
+
+    def active_workflow_context(self) -> ActiveWorkflowContext | None:
+        workflow_id = self._active_workflow_id
+        if workflow_id is None:
+            return None
+        view = self._views.get(workflow_id)
+        if view is None or view.step_id is None or not view.content.strip():
+            return None
+        return ActiveWorkflowContext(
+            workflow_id,
+            view.step_id,
+            view.content,
+            view.surface.selected_text(),
+        )
 
     def render(self, snapshot: SessionSnapshot) -> None:
         self._updates.put(snapshot)
@@ -102,11 +120,19 @@ class ResultDialogPresenter:
             if view is not None:
                 view.dialog.close()
                 self._views.pop(snapshot.session_id, None)
+                if self._active_workflow_id == snapshot.session_id:
+                    self._active_workflow_id = None
             return
+        created = view is None
         if view is None:
             view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
         view.revision = snapshot.revision
+        if created or self._active_workflow_id is None:
+            self._active_workflow_id = snapshot.session_id
+        view.content = snapshot.content
+        if snapshot.displayed_step_index >= 0:
+            view.step_id = snapshot.steps[snapshot.displayed_step_index].step_id
         view.surface.set_pinned_state(snapshot.pinned)
         view.surface.set_title(snapshot.title)
         view.surface.set_source_preview(snapshot.source_preview)
@@ -117,14 +143,27 @@ class ResultDialogPresenter:
         view.surface.pin_button.configure(
             command=lambda sid=snapshot.session_id: self._toggle_pin(sid)
         )
+        view.surface.configure_back_action(
+            (lambda sid=snapshot.session_id: self._command_sink(NavigateWorkflowBack(sid)))
+            if snapshot.can_navigate_back
+            else None
+        )
         if snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
-            view.surface.set_content_chunks([(snapshot.error, "body")])
+            if snapshot.content:
+                view.surface.set_content_chunks([(snapshot.content, "body")])
+                view.surface.set_source_preview(f"Failed: {snapshot.error}")
+            else:
+                view.surface.set_content_chunks([(snapshot.error, "body")])
         elif snapshot.status == SessionStatus.COMPLETED:
             view.dialog.flash("success")
             view.surface.set_content_chunks([(snapshot.content, "body")])
         else:
-            view.surface.set_loading(snapshot.status_text)
+            if snapshot.content:
+                view.surface.set_content_chunks([(snapshot.content, "body")])
+                view.surface.set_source_preview(snapshot.status_text)
+            else:
+                view.surface.set_loading(snapshot.status_text)
         view.surface.configure_standard_actions(
             on_speak=(lambda sid=snapshot.session_id: self._toggle_speech(sid)) if "speaker" in snapshot.available_actions else None,
             on_copy=(lambda sid=snapshot.session_id: self._copy(sid)) if "copy" in snapshot.available_actions else None,
@@ -215,7 +254,13 @@ class ResultDialogPresenter:
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
+        dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._activate(sid), add="+")
+        dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
         return _SessionView(dialog=dialog, surface=surface)
+
+    def _activate(self, session_id: str) -> None:
+        self._active_workflow_id = session_id
+        self._command_sink(ActivateWorkflow(session_id))
 
     def _close_if_outside(self, session_id: str) -> None:
         def check() -> None:

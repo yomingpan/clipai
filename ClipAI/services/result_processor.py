@@ -29,4 +29,8 @@ class ResultProcessor:
         missing = [marker for marker in profile.required_markers if marker not in result]
         if missing:
             logger.warning("Output profile %s is missing markers: %s", profile.id, ", ".join(missing))
-        return ProcessedResult(text=result)
+        return ProcessedResult(
+            text=result,
+            output_profile=profile.id,
+            presentation=profile.presentation,
+        )

@@ -17,7 +17,7 @@ ClipAI 一開始就要把系統切成幾個好替換的接縫。像家電插頭�
 - `LLMProvider`
 - `UIGateway`
 - typed command queue
-- `SessionController`
+- `WorkflowController`（包含 invocation identity、cancellation 與 successful-step history）
 - Clipboard/Input abstraction
 - Output abstraction
 

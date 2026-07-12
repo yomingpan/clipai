@@ -22,7 +22,7 @@ from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import ProviderCredential
-from ClipAI.services.execute_action import ExecuteAction
+from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
@@ -75,7 +75,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         else None
     )
     selection_reader = SystemSelectionReader(clipboard)
-    execute_action = ExecuteAction(
+    execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
         provider=provider,
         prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),

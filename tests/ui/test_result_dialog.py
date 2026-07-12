@@ -44,6 +44,7 @@ def presenter_with_selection(selected: str | None):
     presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
     presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events))}
     presenter._command_sink = lambda command: events.append(command)
+    presenter._active_workflow_id = "s1"
     return presenter, events
 
 
@@ -81,3 +82,14 @@ def test_pin_updates_visual_state_before_emitting_command() -> None:
     presenter, events = presenter_with_selection(None)
     presenter._toggle_pin("s1")
     assert events == ["pin:toggled", TogglePin("s1")]
+
+
+def test_active_workflow_context_projects_selection_and_displayed_step() -> None:
+    presenter, _events = presenter_with_selection("selected")
+    presenter._views["s1"].content = "full result"
+    presenter._views["s1"].step_id = "step-1"
+    context = presenter.active_workflow_context()
+    assert context.workflow_id == "s1"
+    assert context.step_id == "step-1"
+    assert context.content == "full result"
+    assert context.selected_text == "selected"

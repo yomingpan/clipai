@@ -25,7 +25,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert action.output_profile == "english_learning_compact"
     assert bundle.output_profiles.get(action.output_profile).required_markers == ("Synonym:",)
     assert bundle.schema_versions.app == 1
-    assert bundle.schema_versions.actions == 2
+    assert bundle.schema_versions.actions == 3
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
@@ -114,9 +114,16 @@ def test_future_catalog_schema_version_is_rejected(tmp_path: Path, filename: str
 
 def test_future_actions_schema_version_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "actions.yaml"
-    path.write_text("schema_version: 3\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 3"):
+    path.write_text("schema_version: 4\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 4"):
         load_action_catalog(path)
+
+
+def test_action_input_policy_is_typed_and_shorten_is_contextual() -> None:
+    catalog = load_action_catalog("config/actions.yaml")
+    assert catalog.get("english_companion").input_policy == "external_text"
+    assert catalog.get("shorten_content").input_policy == "contextual_text"
+    assert "as briefly as possible" in catalog.resolve("shorten_content", "long").prompt
 
 
 @pytest.mark.parametrize(

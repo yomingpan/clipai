@@ -32,7 +32,7 @@ tests/              # Unit sims 與 integration tests
 - 整個程式只有一個 `AppRuntime`、一個 Tk root 與一個 Tk mainloop。
 - 主流程使用直接 method call；跨 thread 使用 typed command queue。
 - 禁止 global Event Bus。Event Bus 不得用來指揮 action pipeline 或修改 session。
-- 每個 session 只有一個 `SessionController` 能修改狀態。
+- 每個 composable popup workflow 只有一個 `WorkflowController`，由它擁有狀態、active invocation 與成功 step history。
 - Provider 採同步 contract，由單一有界 `ThreadPoolExecutor` 執行；Provider 自己不得建立 thread。
 - Hotkey callback 只能 enqueue command；worker 不得直接碰 Tkinter。
 - 新的未 pin action 取代舊 action；取消後晚到的結果必須依 session id/revision 丟棄。
