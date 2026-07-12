@@ -6,15 +6,32 @@ profiles:
     presentation: plain_text
 
   - id: english_learning_compact
+<<<<<<< Updated upstream
     presentation: markdown_sections
+=======
+<<<<<<< Updated upstream
+    presentation: english_learning
+>>>>>>> Stashed changes
     required_markers:
       - "## Word or Phrase"
       - "## Meaning"
       - "## Context"
       - "## Example"
     instruction: |
+<<<<<<< Updated upstream
       Use exactly these four concise Markdown sections in order: Word or Phrase, Meaning, Context, and Example.
       Add `## Synonym or Similar Expression` only when it provides a useful distinction. Teach one practical expression only.
+=======
+      Return exactly four concise lines: one core word or phrase, one natural Traditional Chinese meaning,
+      one short high-frequency English example, and `Synonym:` followed by 1-3 close alternatives or `None`.
+      Do not add headings, commentary, or extra sections.
+=======
+    presentation: plain_text
+    instruction: |
+      Teach one practical expression only. Put it first, then use natural short paragraphs for meaning, context, and one example.
+      Do not use Markdown headings or repeated field labels.
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
 
   - id: english_improvement
     presentation: markdown_sections
