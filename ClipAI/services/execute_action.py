@@ -61,6 +61,7 @@ class ActionExecutor:
                 document.text,
                 model=self._model,
                 default_temperature=self._default_temperature,
+                image=document.image,
             )
             if workflow.update(
                 invocation.invocation_id,
@@ -88,6 +89,8 @@ class ActionExecutor:
                     routed.document,
                 ),
             )
+            if invocation.result_route == "speech":
+                workflow.complete(invocation, action, document, processed.text, (), processed.document)
         except CancelledError:
             return
         except ClipAIError as exc:

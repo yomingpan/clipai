@@ -7,7 +7,7 @@ import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, PasteResult, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget
+from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, OutputActionAcknowledgment
 from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, OperationHandle, OperationTracker, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -16,11 +16,21 @@ from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.input_target_resolver import InputTargetResolver
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.shortcut_intent import ShortcutIntentCoordinator
+from ClipAI.services.shortcut_sequence import ShortcutSequenceCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime")
+
+
+class _HeadlessPresenter:
+    def __init__(self, on_failed: Callable[[str], None]) -> None:
+        self._on_failed = on_failed
+
+    def render(self, snapshot: SessionSnapshot) -> None:
+        if snapshot.status == SessionStatus.FAILED:
+            self._on_failed(snapshot.error)
 
 
 class AppRuntime:
@@ -60,13 +70,19 @@ class AppRuntime:
         self._incident_reporter = incident_reporter or IncidentReporter(logger)
         self._speech_coordinator = speech_coordinator
         self._workflow_context_reader = workflow_context_reader or (view if hasattr(view, "active_workflow_context") else None)  # type: ignore[assignment]
-        self._shortcut_intents = shortcut_intents or ShortcutIntentCoordinator(shortcuts)
+        self._shortcut_intents = shortcut_intents or ShortcutSequenceCoordinator(
+            shortcuts,
+            on_waiting=self._sequence_waiting,
+            on_error=self._sequence_error,
+            on_cancel_active=self._cancel_sequence,
+        )
         self._input_targets = input_targets or InputTargetResolver()
         self._commands: queue.Queue[AppCommand] = queue.Queue()
         self._workflows: dict[str, WorkflowController] = {}
         self._speech_operations: dict[str, OperationHandle] = {}
         self._popup_speech_ids: dict[str, str] = {}
         self._foreground_id: str | None = None
+        self._sequence_workflow_id: str | None = None
         self._listener: object | None = None
         self._tray: object | None = None
         self._stopping = False
@@ -105,6 +121,9 @@ class AppRuntime:
         if self._stopping:
             return
         self._stopping = True
+        if hasattr(self._shortcut_intents, "cancel"):
+            self._shortcut_intents.cancel()
+        self._cancel_sequence()
         for controller in list(self._workflows.values()):
             controller.cancel()
         for operation in list(self._speech_operations.values()):
@@ -126,7 +145,9 @@ class AppRuntime:
 
     def _handle(self, command: AppCommand) -> None:
         if isinstance(command, ShortcutTriggered):
-            self._handle(self._shortcut_intents.resolve(command))
+            resolved = self._shortcut_intents.resolve(command)
+            if resolved is not None:
+                self._handle(resolved)
         elif isinstance(command, StartAction):
             self._start_action(command)
         elif isinstance(command, CloseSession):
@@ -136,7 +157,8 @@ class AppRuntime:
         elif isinstance(command, CopyResult):
             controller = self._workflows.get(command.session_id)
             if controller and controller.snapshot.content:
-                self._output_actions.copy(command.text.strip() if command.text and command.text.strip() else controller.snapshot.content)
+                text = command.text.strip() if command.text and command.text.strip() else controller.snapshot.content
+                self._run_output_action(command.session_id, command.operation_id, "copy", lambda: self._output_actions.copy(text))
         elif isinstance(command, PasteResult):
             controller = self._workflows.get(command.session_id)
             if controller and controller.snapshot.content and self._output_actions.can_paste:
@@ -150,7 +172,8 @@ class AppRuntime:
         elif isinstance(command, ArchiveResult):
             controller = self._workflows.get(command.session_id)
             if controller and controller.snapshot.content and self._output_actions.can_archive:
-                self._output_actions.archive(controller.snapshot.content)
+                text = command.text.strip() if command.text and command.text.strip() else controller.snapshot.content
+                self._run_output_action(command.session_id, command.operation_id, "archive", lambda: self._output_actions.archive(text))
         elif isinstance(command, TogglePin):
             controller = self._workflows.get(command.session_id)
             if controller and controller.snapshot.status not in {SessionStatus.CANCELLED, SessionStatus.CLOSED}:
@@ -188,6 +211,9 @@ class AppRuntime:
 
     def _start_action(self, command: StartAction) -> None:
         action = self._actions.resolve(command.action_id, command.press_type)
+        if command.result_route == "speech":
+            self._start_sequence_action(action, command)
+            return
         context = self._workflow_context_reader.active_workflow_context() if self._workflow_context_reader is not None else None
         if context is not None and context.workflow_id not in self._workflows:
             context = None
@@ -241,6 +267,77 @@ class AppRuntime:
             lambda: self._execute_action.execute_invocation(action, invocation, controller),
             lambda error: self._handle_unhandled(workflow_id, error),
         )
+
+    def _run_output_action(self, session_id: str, operation_id: str, action: str, work: Callable[[], None]) -> None:
+        operation_id = operation_id or uuid.uuid4().hex
+        operation = self._operation_tracker.start(f"{action}:{operation_id}", action) if self._operation_tracker else None
+        try:
+            work()
+        except BaseException as exc:
+            if operation is not None:
+                operation.fail()
+            if self._operation_tracker is not None and hasattr(self._operation_tracker, "report_error"):
+                self._operation_tracker.report_error(f"{action.title()} failed.", "Try again or open diagnostics if the problem continues.")  # type: ignore[attr-defined]
+            acknowledgment = OutputActionAcknowledgment(session_id, operation_id, action, False, str(exc))  # type: ignore[arg-type]
+        else:
+            if operation is not None:
+                operation.succeed()
+            acknowledgment = OutputActionAcknowledgment(session_id, operation_id, action, True)  # type: ignore[arg-type]
+        if hasattr(self._view, "acknowledge_output"):
+            self._view.acknowledge_output(acknowledgment)
+
+    def _start_sequence_action(self, action, command: StartAction) -> None:
+        self._cancel_sequence()
+        workflow_id = uuid.uuid4().hex
+        controller = WorkflowController(
+            SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._model),
+            _HeadlessPresenter(lambda message: self._sequence_error(message, "Check the active model and try again.")),
+        )
+        invocation = ActionInvocation(
+            invocation_id=uuid.uuid4().hex,
+            action_id=action.id,
+            press_type=command.press_type,
+            input_target=InputTarget("external_text"),
+            result_route="speech",
+            workflow_id=workflow_id,
+        )
+        controller.begin_invocation(invocation, action)
+        self._workflows[workflow_id] = controller
+        self._sequence_workflow_id = workflow_id
+        def execute() -> None:
+            self._execute_action.execute_invocation(action, invocation, controller)
+            if controller.snapshot.status == SessionStatus.COMPLETED and self._sequence_workflow_id == workflow_id:
+                self._workflows.pop(workflow_id, None)
+                self._sequence_workflow_id = None
+
+        self._supervisor.submit(invocation.invocation_id, execute, lambda error: self._handle_unhandled(workflow_id, error))
+
+    def _cancel_sequence(self) -> None:
+        workflow_id, self._sequence_workflow_id = self._sequence_workflow_id, None
+        if workflow_id is None:
+            return
+        controller = self._workflows.pop(workflow_id, None)
+        if controller is not None:
+            active_id = controller.snapshot.active_invocation_id
+            controller.cancel()
+            if active_id:
+                self._supervisor.cancel(active_id)
+        self._output_actions.stop_speech()
+
+    def _sequence_waiting(self) -> None:
+        if self._operation_tracker is not None and hasattr(self._operation_tracker, "report_waiting"):
+            self._operation_tracker.report_waiting()  # type: ignore[attr-defined]
+
+    def _sequence_error(self, message: str, suggestion: str) -> None:
+        if self._operation_tracker is not None and hasattr(self._operation_tracker, "report_error"):
+            self._operation_tracker.report_error(message, suggestion)  # type: ignore[attr-defined]
+        if self._notifier is not None:
+            self._notifier.notify("ClipAI", " ".join(part for part in (message, suggestion) if part))
+
+    def show_last_error(self) -> None:
+        error = getattr(self._operation_tracker, "last_error", None)
+        if error is not None and self._notifier is not None:
+            self._notifier.notify("ClipAI — Last Error", " ".join(part for part in (error.message, error.suggestion) if part))
 
     def _follow_up(self, command: FollowUp) -> None:
         controller = self._workflows.get(command.session_id)

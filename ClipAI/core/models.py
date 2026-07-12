@@ -6,22 +6,40 @@ from typing import Literal
 from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
+HotkeyEventType = Literal["short", "long", "long_release", "invalid", "cancel"]
 MessageRole = Literal["system", "user", "assistant"]
+ImageSource = Literal["clipboard"]
 InputMode = Literal["clipboard", "selection_or_clipboard"]
 OutputMode = Literal["popup"]
 InputPolicy = Literal["external_text", "contextual_text"]
 ResultRoute = Literal["popup", "speech"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
-OperationKind = Literal["llm", "tts"]
+OperationKind = Literal["llm", "tts", "copy", "archive"]
 PresentationBlockKind = Literal["paragraph", "heading", "unordered_item", "ordered_item"]
 InlineStyle = Literal["plain", "bold", "italic"]
 ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
+OutputActionKind = Literal["copy", "archive"]
+
+
+@dataclass(frozen=True)
+class TextContent:
+    text: str
+
+
+@dataclass(frozen=True)
+class ImageContent:
+    data: bytes
+    mime_type: str
+    source: ImageSource = "clipboard"
+
+
+MessageContent = str | tuple[TextContent | ImageContent, ...]
 
 
 @dataclass(frozen=True)
 class LLMMessage:
     role: MessageRole
-    content: str
+    content: MessageContent
 
 
 @dataclass(frozen=True)
@@ -35,6 +53,21 @@ class LLMRequest:
 class LLMUsage:
     input_tokens: int | None = None
     output_tokens: int | None = None
+
+
+@dataclass(frozen=True)
+class UserFacingError:
+    message: str
+    suggestion: str = ""
+
+
+@dataclass(frozen=True)
+class OutputActionAcknowledgment:
+    session_id: str
+    operation_id: str
+    action: OutputActionKind
+    succeeded: bool
+    error: str = ""
 
 
 @dataclass(frozen=True)
@@ -150,6 +183,7 @@ class InputDocument:
     source: Literal["selection", "clipboard", "workflow_result", "voice_transcript", "screenshot"]
     workflow_id: str | None = None
     step_id: str | None = None
+    image: ImageContent | None = None
 
 
 @dataclass(frozen=True)

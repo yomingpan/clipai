@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from ClipAI.core.errors import CancelledError, ProviderAuthError, ProviderResponseError
-from ClipAI.core.models import LLMRequest, LLMResult, LLMUsage
+from ClipAI.core.models import ImageContent, LLMRequest, LLMResult, LLMUsage, TextContent
 from ClipAI.core.state import CancellationToken
 from ClipAI.providers.http_transport import HttpResponse, HttpTransport, RequestsHttpTransport
 from ClipAI.providers.settings import AnthropicSettings, ProviderCredential
@@ -31,6 +32,8 @@ class AnthropicProvider:
             json=self.to_payload(request),
             timeout=self._settings.timeout_sec,
         )
+        if _contains_image(request) and response.status_code in {400, 404, 422}:
+            raise ProviderResponseError("This model could not accept the clipboard image. Switch to a multimodal model and try again.")
         _raise_for_status(response)
         text = self.extract_text(response.payload).strip()
         if not text:
@@ -48,12 +51,12 @@ class AnthropicProvider:
         )
 
     def to_payload(self, request: LLMRequest) -> dict[str, Any]:
-        system_text = "\n\n".join(message.content for message in request.messages if message.role == "system").strip()
+        system_text = "\n\n".join(_text_only(message.content) for message in request.messages if message.role == "system").strip()
         payload: dict[str, Any] = {
             "model": request.model,
             "max_tokens": self._settings.max_tokens,
             "messages": [
-                {"role": message.role, "content": message.content}
+                {"role": message.role, "content": _anthropic_content(message.content)}
                 for message in request.messages
                 if message.role != "system"
             ],
@@ -73,6 +76,27 @@ class AnthropicProvider:
             if block.get("type") == "text"
         )
 
+
+def _text_only(content) -> str:
+    if isinstance(content, str):
+        return content
+    return "".join(part.text for part in content if isinstance(part, TextContent))
+
+
+def _anthropic_content(content):
+    if isinstance(content, str):
+        return content
+    parts = []
+    for part in content:
+        if isinstance(part, TextContent):
+            parts.append({"type": "text", "text": part.text})
+        elif isinstance(part, ImageContent):
+            parts.append({"type": "image", "source": {"type": "base64", "media_type": part.mime_type, "data": base64.b64encode(part.data).decode("ascii")}})
+    return parts
+
+
+def _contains_image(request: LLMRequest) -> bool:
+    return any(not isinstance(message.content, str) and any(isinstance(part, ImageContent) for part in message.content) for message in request.messages)
 
 def _raise_for_status(response: HttpResponse) -> None:
     if response.status_code < 400:

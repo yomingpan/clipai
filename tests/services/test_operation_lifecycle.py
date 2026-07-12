@@ -74,28 +74,24 @@ def test_overlapping_success_keeps_processing_until_last_operation() -> None:
     assert indicator.statuses[-1] == "success"
 
 
-def test_error_temporarily_wins_then_projects_remaining_operation() -> None:
+def test_error_is_sticky_while_an_operation_remains() -> None:
     coordinator, indicator, scheduler = make_coordinator()
     llm = coordinator.start("llm:1", "llm")
     coordinator.start("tts:1", "tts")
     llm.fail()
     assert indicator.statuses[-1] == "error"
-    assert scheduler.calls[-1].delay == 3.0
-    scheduler.calls[-1].fire()
-    assert indicator.statuses[-1] == "processing"
+    assert scheduler.calls == []
+    assert coordinator.last_error is not None
 
 
 def test_error_remains_visible_when_an_operation_starts_or_finishes() -> None:
     coordinator, indicator, scheduler = make_coordinator()
     failed = coordinator.start("llm:1", "llm")
     failed.fail()
-    reset = scheduler.calls[-1]
     tts = coordinator.start("tts:1", "tts")
     tts.succeed()
-    assert indicator.statuses[-1] == "error"
-    assert reset.cancelled is False
-    reset.fire()
-    assert indicator.statuses[-1] == "idle"
+    assert indicator.statuses[-1] == "success"
+    assert coordinator.last_error is None
 
 
 def test_cancel_does_not_flash_success_and_uses_warning_baseline() -> None:
@@ -143,11 +139,8 @@ def test_stop_cancels_timer_and_late_handle_has_no_effect() -> None:
     coordinator, indicator, scheduler = make_coordinator(ready=False)
     finished = coordinator.start("llm:1", "llm")
     finished.fail()
-    reset = scheduler.calls[-1]
     active = coordinator.start("tts:1", "tts")
     coordinator.stop()
-    assert reset.cancelled is True
     assert indicator.statuses[-1] == "warning"
     active.succeed()
-    reset.fire()
     assert indicator.statuses[-1] == "warning"

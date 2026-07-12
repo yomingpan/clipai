@@ -3,19 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeAlias
 
-from ClipAI.core.models import PressType
+from ClipAI.core.models import HotkeyEventType, PressType, ResultRoute
 
 
 @dataclass(frozen=True)
 class StartAction:
     action_id: str
     press_type: PressType
+    result_route: ResultRoute = "popup"
 
 
 @dataclass(frozen=True)
 class ShortcutTriggered:
     shortcut_id: str
-    press_type: PressType
+    press_type: HotkeyEventType
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class CancelSession:
 class CopyResult:
     session_id: str
     text: str | None = None
+    operation_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,8 @@ class PasteResult:
 @dataclass(frozen=True)
 class ArchiveResult:
     session_id: str
+    text: str | None = None
+    operation_id: str = ""
 
 
 @dataclass(frozen=True)

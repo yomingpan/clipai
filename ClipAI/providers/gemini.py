@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from ClipAI.core.errors import CancelledError, ProviderAuthError, ProviderResponseError
-from ClipAI.core.models import LLMRequest, LLMResult, LLMUsage
+from ClipAI.core.models import ImageContent, LLMRequest, LLMResult, LLMUsage, TextContent
 from ClipAI.core.state import CancellationToken
 from ClipAI.providers.http_transport import HttpResponse, HttpTransport, RequestsHttpTransport
 from ClipAI.providers.settings import GeminiSettings, ProviderCredential
@@ -27,6 +28,8 @@ class GeminiProvider:
             json=self.to_payload(request),
             timeout=self._settings.timeout_sec,
         )
+        if _contains_image(request) and response.status_code in {400, 404, 422}:
+            raise ProviderResponseError("This model could not accept the clipboard image. Switch to a multimodal model and try again.")
         _raise_for_status("Gemini", response)
         text = self.extract_text(response.payload).strip()
         if not text:
@@ -45,9 +48,9 @@ class GeminiProvider:
 
     @staticmethod
     def to_payload(request: LLMRequest) -> dict[str, Any]:
-        system_text = "\n\n".join(message.content for message in request.messages if message.role == "system").strip()
+        system_text = "\n\n".join(_text_only(message.content) for message in request.messages if message.role == "system").strip()
         contents = [
-            {"role": "model" if message.role == "assistant" else "user", "parts": [{"text": message.content}]}
+            {"role": "model" if message.role == "assistant" else "user", "parts": _gemini_parts(message.content)}
             for message in request.messages
             if message.role != "system"
         ]
@@ -72,6 +75,27 @@ class GeminiProvider:
             return None
         return str(payload["candidates"][0].get("finishReason") or "") or None
 
+
+def _text_only(content) -> str:
+    if isinstance(content, str):
+        return content
+    return "".join(part.text for part in content if isinstance(part, TextContent))
+
+
+def _gemini_parts(content):
+    if isinstance(content, str):
+        return [{"text": content}]
+    parts = []
+    for part in content:
+        if isinstance(part, TextContent):
+            parts.append({"text": part.text})
+        elif isinstance(part, ImageContent):
+            parts.append({"inline_data": {"mime_type": part.mime_type, "data": base64.b64encode(part.data).decode("ascii")}})
+    return parts
+
+
+def _contains_image(request: LLMRequest) -> bool:
+    return any(not isinstance(message.content, str) and any(isinstance(part, ImageContent) for part in message.content) for message in request.messages)
 
 def _raise_for_status(name: str, response: HttpResponse) -> None:
     if response.status_code < 400:

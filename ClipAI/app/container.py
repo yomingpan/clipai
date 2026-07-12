@@ -27,6 +27,7 @@ from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
+from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
@@ -46,6 +47,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     tray = TrayController(
         lambda: runtime_holder[0].enqueue(ShutdownApplication()),
         lambda: runtime_holder[0].enqueue(ExportDiagnostics()),
+        lambda: runtime_holder[0].show_last_error(),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
@@ -76,6 +78,22 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         else None
     )
     selection_reader = SystemSelectionReader(clipboard)
+    output_actions = OutputActions(
+        clipboard=clipboard,
+        archive=JsonlArchiveStore(),
+        speech=speech,
+        keyboard=SystemKeyboardOutput(),
+    )
+
+    def speak_result(text: str) -> None:
+        operation = operation_tracker.start(f"tts:sequence:{os.urandom(8).hex()}", "tts")
+        try:
+            output_actions.speak(text)
+        except BaseException:
+            operation.fail()
+            raise
+        operation.succeed()
+
     execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
         provider=provider,
@@ -87,6 +105,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         available_actions=("copy", "paste", "archive", "follow_up", "speaker") if speech is not None else ("copy", "paste", "archive", "follow_up"),
         operation_tracker=operation_tracker,
         readiness_issues=readiness_issues,
+        result_router=ResultRouter(speak_result if speech is not None else None),
     )
 
     def register(action_map: dict[str, dict[str, str]], callback: Callable[[str, str], None]) -> object:
@@ -101,12 +120,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         actions=bundle.actions,
         shortcuts=bundle.shortcuts,
         execute_action=execute_action,
-        output_actions=OutputActions(
-            clipboard=clipboard,
-            archive=JsonlArchiveStore(),
-            speech=speech,
-            keyboard=SystemKeyboardOutput(),
-        ),
+        output_actions=output_actions,
         view=view,
         supervisor=TaskSupervisor(bundle.runtime.max_workers),
         model=model,

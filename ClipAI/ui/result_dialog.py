@@ -4,11 +4,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 import queue
 import tkinter as tk
+import uuid
 
 import customtkinter as ctk
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext
+from ClipAI.core.models import ActiveWorkflowContext, OutputActionAcknowledgment
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
@@ -25,6 +26,7 @@ class _SessionView:
     step_id: str | None = None
     focus_lifecycle: PopupFocusLifecycle | None = None
     flashed_completion_keys: set[str] = field(default_factory=set)
+    output_operations: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -86,6 +88,17 @@ class ResultDialogPresenter:
 
     def render(self, snapshot: SessionSnapshot) -> None:
         self._updates.put(snapshot)
+
+    def acknowledge_output(self, acknowledgment: OutputActionAcknowledgment) -> None:
+        view = self._views.get(acknowledgment.session_id)
+        if view is None or view.output_operations.get(acknowledgment.action) != acknowledgment.operation_id:
+            return
+        if acknowledgment.succeeded:
+            view.surface.pulse_standard_action(acknowledgment.action)
+            if acknowledgment.action == "archive" and not view.surface.overflow_expanded:
+                view.surface.show_action_message("已封存", 1000)
+        else:
+            view.surface.pulse_standard_action_error(acknowledgment.action)
 
     def run(self, command_pump: Callable[[], None]) -> None:
         def tick() -> None:
@@ -220,8 +233,10 @@ class ResultDialogPresenter:
         view = self._views.get(session_id)
         if view is None:
             return
-        view.surface.pulse_standard_action("copy")
-        self._send_text_command(session_id, CopyResult)
+        operation_id = uuid.uuid4().hex
+        view.output_operations["copy"] = operation_id
+        text = view.surface.selected_text()
+        self._command_sink(CopyResult(session_id, text, operation_id))
 
     def _toggle_speech(self, session_id: str) -> None:
         view = self._views.get(session_id)
@@ -233,8 +248,9 @@ class ResultDialogPresenter:
         view = self._views.get(session_id)
         if view is None:
             return
-        view.surface.pulse_standard_action("archive")
-        self._command_sink(ArchiveResult(session_id))
+        operation_id = uuid.uuid4().hex
+        view.output_operations["archive"] = operation_id
+        self._command_sink(ArchiveResult(session_id, view.surface.selected_text(), operation_id))
 
     def _paste(self, session_id: str) -> None:
         view = self._views.get(session_id)
@@ -291,6 +307,7 @@ class ResultDialogPresenter:
             y=bounds.y if bounds else None,
             minimum_width=340,
             minimum_height=220,
+            hide_from_task_switcher=True,
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
@@ -304,6 +321,9 @@ class ResultDialogPresenter:
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
         dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._activate(sid), add="+")
         dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
+        dialog.root.bind("<Control-q>", lambda _event, sid=session_id: self._shortcut(self._toggle_speech, sid), add="+")
+        dialog.root.bind("<Control-c>", lambda _event, sid=session_id: self._shortcut(self._copy, sid), add="+")
+        dialog.root.bind("<Control-s>", lambda _event, sid=session_id: self._shortcut(self._archive, sid), add="+")
         lifecycle.shown = True
 
         def establish_initial_focus() -> None:
@@ -313,6 +333,11 @@ class ResultDialogPresenter:
             lifecycle.initial_focus_established = True
 
         dialog.lifecycle.schedule(0, establish_initial_focus)
+
+    def _shortcut(self, action: Callable[[str], None], session_id: str) -> str:
+        if self._active_workflow_id == session_id:
+            action(session_id)
+        return "break"
 
     def _activate(self, session_id: str) -> None:
         self._active_workflow_id = session_id

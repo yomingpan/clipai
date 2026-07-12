@@ -159,7 +159,7 @@ def test_timer_fire_then_release_does_not_trigger_short_after_long() -> None:
     FakeTimer.timers[0].fire()
     release_ctrl_alt_8(dispatcher)
 
-    assert events == [("explain_word", "long")]
+    assert events == [("explain_word", "long"), ("explain_word", "long_release")]
 
 
 def test_release_then_timer_fire_does_not_trigger_long_after_short() -> None:

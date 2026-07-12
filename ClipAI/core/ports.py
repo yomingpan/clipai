@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, LLMRequest, LLMResult, OperationKind, SpeechRequest
+from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, ImageContent, LLMRequest, LLMResult, OperationKind, OutputActionAcknowledgment, SpeechRequest
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -14,6 +14,8 @@ class LLMProvider(Protocol):
 
 class ClipboardReader(Protocol):
     def read_text(self) -> str: ...
+
+    def read_image(self) -> ImageContent | None: ...
 
 
 class ClipboardWriter(Protocol):
@@ -38,6 +40,8 @@ class ApplicationView(ResultPresenter, Protocol):
     def run(self, command_pump: Callable[[], None]) -> None: ...
 
     def stop(self) -> None: ...
+
+    def acknowledge_output(self, acknowledgment: OutputActionAcknowledgment) -> None: ...
 
 
 class ActiveWorkflowContextReader(Protocol):
