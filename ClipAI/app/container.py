@@ -145,13 +145,14 @@ def _build_provider(bundle: ConfigBundle, credential: ProviderCredential | None 
         return FakeProvider(), "fake-model"
     settings = bundle.providers.active_settings()
     assert settings is not None
+    model = _resolve_active_model(bundle)
     credential = credential or ProviderCredential(settings.api_key_env)
     if active == "gemini":
-        return GeminiProvider(bundle.providers.gemini, credential), bundle.providers.gemini.model
+        return GeminiProvider(bundle.providers.gemini, credential), model
     if active == "openai":
-        return OpenAIProvider(bundle.providers.openai, credential), bundle.providers.openai.model
+        return OpenAIProvider(bundle.providers.openai, credential), model
     if active == "anthropic":
-        return AnthropicProvider(bundle.providers.anthropic, credential), bundle.providers.anthropic.model
+        return AnthropicProvider(bundle.providers.anthropic, credential), model
     raise ValueError(f"unsupported provider: {active}")
 
 
@@ -160,6 +161,14 @@ def _resolve_active_credential(bundle: ConfigBundle) -> ProviderCredential | Non
     if settings is None:
         return None
     return ProviderCredential(settings.api_key_env, os.getenv(settings.api_key_env))
+
+
+def _resolve_active_model(bundle: ConfigBundle) -> str:
+    settings = bundle.providers.active_settings()
+    if settings is None:
+        return "fake-model"
+    env_name = f"{bundle.providers.active.upper()}_MODEL"
+    return (os.getenv(env_name) or settings.model).strip()
 
 
 def _application_version() -> str:
