@@ -1,5 +1,158 @@
 # ClipAI Next-gen Backlog
 
+## 2026-07-12 Popup Reading Experience And Interaction Requirements
+
+今天確認的核心方向：Popup 的首要任務是讓使用者快速理解內容。內容結構、視窗尺寸、文字呈現與按鈕數量都必須降低認知負荷；功能不能只是存在，也必須在真正需要時才出現。
+
+### Bug: Ctrl+Alt+Q Repeated Selection Speech
+
+問題：
+
+- 第一次選取外部文字後按 `Ctrl+Alt+Q`，能正確朗讀 selection。
+- 第二次選取另一段文字並再次觸發時，可能忽略新的 selection，改讀舊內容或 clipboard。
+- 每次獨立觸發都應重新取得使用者當下的 selection，不能沿用上一次 capture 結果或殘留狀態。
+
+需求：
+
+- 修復 `Ctrl+Alt+Q` 重複觸發時無法讀取最新選取文字的問題。
+- 每次 trigger 必須建立新的 selection capture lifecycle 與 operation identity。
+- 前一次 TTS 需被取消，但取消、clipboard restore 或 selection capture 不得污染下一次 trigger。
+- Selection capture 失敗或為空時，才 fallback 至當下 clipboard。
+- Popup active 時既有 clipboard-only suppression policy 必須另外驗證，不能與一般桌面 selection-first 情境混淆。
+
+成功標準：
+
+- 連續選取三段不同文字並觸發三次，依序朗讀三段最新 selection。
+- 快速重觸、前一次仍在播放、clipboard restore 尚在進行等情境不會朗讀舊內容。
+- Selection 為空時仍可正確 fallback 至 clipboard。
+
+### Bug: Popup Opening Unexpectedly Speaks Clipboard
+
+問題：
+
+- 新增 `Ctrl+Alt+Q` 功能後，正常開啟 popup 的流程可能自動朗讀目前 clipboard。
+- Popup appearance 與 speech trigger 被錯誤耦合，造成未經使用者明確要求的音訊輸出。
+- 這與預期行為不同，也可能在公開場合朗讀敏感或不相關的 clipboard 內容。
+
+需求：
+
+- 開啟、建立、render、activate 或更新 popup 都不得自動啟動 TTS。
+- 只有使用者明確觸發 `Ctrl+Alt+Q` 或按下 popup Speak button 時，才可建立 speech operation。
+- `ShortcutTriggered`、workflow render 與 popup lifecycle 不得被誤判成 `SpeakSelectionOrClipboard`。
+- Popup active 時的 clipboard-only speech policy 只適用於使用者明確觸發 speech，不代表 popup 開啟時應朗讀。
+- Provider completion、workflow chaining、Back navigation、pin/unpin 與 focus event 都不得間接呼叫 speech output。
+
+成功標準：
+
+- 使用 `Ctrl+Alt+8`、`Ctrl+Alt+X`、follow-up 或其他 popup actions 開啟/更新 popup 時完全沒有自動朗讀。
+- 只有 `Ctrl+Alt+Q` 與 Speak button 會產生 TTS operation。
+- Clipboard 含文字、selection 非空或 popup 已 active 都不會改變上述規則。
+
+### Bug: First Popup Does Not Close On Outside Click
+
+問題：
+
+- App 啟動後第一次出現的 popup，使用者直接點擊其他 app 或桌面時不會關閉。
+- 必須先點擊 popup 一次，再點擊外部，後續 click-outside close 才正常。
+- 這表示首次 popup 的 focus ownership、activation 或 FocusOut binding lifecycle 不完整。
+
+需求：
+
+- 第一次建立 popup 時，就必須完成 click-outside detection 的註冊與初始 focus/activation 狀態設定。
+- 使用者不需要先點擊 popup；popup 顯示後直接點擊外部即可關閉。
+- 點擊 popup 內的文字、按鈕、scrollbar、follow-up input 或 extension menu 不得誤關閉。
+- Pinned popup 維持不因外部點擊關閉。
+- 修正不得依賴 global mouse event bus；OS/Tk focus behavior 應封裝在 UI seam，close 仍透過 typed command。
+- 必須處理初次 `deiconify`、topmost、focus 尚未建立以及 FocusOut 早於 view registration 等事件順序。
+
+成功標準：
+
+- 每次冷啟動後的第一個 popup，直接點擊桌面或其他 app 都會關閉。
+- 第二次及後續 popup 行為與第一次一致。
+- Popup 內部互動與 pinned 狀態不受影響。
+- Unit/sim 覆蓋首次 focus lifecycle，並以真實 Windows manual smoke test 驗證。
+
+### Popup Markdown Rendering
+
+目標：Popup 直接呈現適合閱讀的格式，不讓使用者看到 Markdown source symbols。
+
+需求：
+
+- Heading、unordered/ordered list、bold、italic 與一般段落必須直接渲染。
+- 使用者不應看到作為格式語法的 `#`、`-`、`*`、`**` 等符號。
+- 可使用有限且一致的文字顏色協助區分 heading、重點、補充與 error，但 accessibility 與對比優先於裝飾。
+- Markdown parser 與 rendering model 應位於可測的 presentation boundary；不可由 UI 以零散 regex 猜測格式。
+- Copy、Paste、Archive 與 provider result 必須保留乾淨、語意正確的文字，不得被 UI style metadata 污染。
+- Unsupported Markdown 必須有安全 plain-text fallback，不得造成內容消失或 popup crash。
+
+成功標準：
+
+- Bold、italic、heading 與 list 在 popup 中可直接辨識且沒有 Markdown 噪音。
+- 長內容仍可正常 selection、copy、scroll 與 speech preprocessing。
+- 同一份 parsed presentation model 可用 unit test 驗證，不依賴真實 Tk mainloop。
+
+### Global Output Structure Prompt
+
+產品原則：每次 LLM 輸出的核心區塊最多四個，避免使用者為理解輸出而承擔額外認知負荷。
+
+需求：
+
+- 在集中式 global system prompt 加入「核心內容最多四個區塊」規範，所有 action 預設繼承。
+- 區塊應依使用者任務與資訊重要性組織；不得為湊格式建立低資訊量 heading。
+- 每個區塊內仍需保持精簡，避免用大量 nested bullets 將複雜度藏在四個 heading 之下。
+- Action-specific prompt 可要求少於四個區塊；除非產品明確允許，不得要求超過四個核心區塊。
+- Output profile 與 result validation 應能偵測明顯超出區塊限制的結果，至少提供 diagnostics，不可只依賴模型自律。
+
+成功標準：
+
+- English Companion、shorten、follow-up 與後續 actions 的輸出都遵循最多四個核心區塊。
+- 不出現重複總結、低資訊 heading 或以巢狀清單規避限制的內容。
+- Global prompt 原則只有一個 ownership，避免散落在每個 action 重複維護。
+
+### Popup Size And Reading Comfort
+
+目標：優先處理 popup 的尺寸、留白、字級與內容密度，讓視窗舒服、清楚且能快速掃讀。
+
+需求：
+
+- 重新評估 popup default logical width/height、minimum size、line length、content padding、字級與行距。
+- 尺寸策略必須同時符合 Windows High DPI / Display Scaling backlog，不可只針對目前螢幕寫死 pixel 值。
+- 主要文字區應取得足夠空間；header、metadata、status 與 actions 不得過度壓縮內容。
+- 長內容使用 scrolling，短內容避免留下不必要的大面積空白。
+- 尺寸與 typography 應以實際閱讀測試調整，並建立 100% 至 200% scaling 的 manual verification matrix。
+
+成功標準：
+
+- 常見短、中、長輸出都具有舒適行長、清楚層級與合理留白。
+- 不會因內容或 scaling 造成文字裁切、按鈕不可點或視窗超出工作區。
+
+### Progressive Disclosure For Popup Actions
+
+目標：預設只顯示最常用的操作，額外功能在需要時才展開，避免按鈕列造成認知負荷。
+
+主要按鈕：
+
+- Speak / Stop。
+- Copy。
+- Follow-up。
+
+需求：
+
+- Popup 預設 action row 維持三個主要功能，常態最多不得超過四個可見 action。
+- Paste、Archive 與未來額外功能收納至右側 extension menu。
+- Extension control 使用清楚的右向三角形或一致的 disclosure icon，固定靠 action row 最右側，與主要按鈕群保留視覺間距。
+- 點擊 extension control 後，額外 actions 以向下展開的區域或 menu 顯示；再次點擊、點擊外部或關閉 popup 時可收合。
+- Workflow 有第二、第三個 step 時，Back/chain navigation 只在需要時出現，不占用首次 popup 的主要 action 配額。
+- 所有 action 的 enabled、pending、success、failure 狀態仍反映真實 lifecycle；收納不能犧牲 feedback 或 accessibility。
+- Extension control 必須具備 tooltip、keyboard focus、可理解的 expanded/collapsed state 與足夠 hit target。
+
+成功標準：
+
+- 初次 popup 只需理解 Speak、Copy、Follow-up 三個主要按鈕。
+- 額外 actions 可在一次明確操作內找到，且不與主要按鈕混成同一密集區塊。
+- Back 只在 workflow history 可返回時出現。
+- 使用者可不依賴動畫理解 menu 是否展開，鍵盤與高 DPI 環境仍可操作。
+
 ## 2026-07-11 Interaction Contract Decisions
 
 - Result popup 永遠 topmost；pin 只控制 focus out 留存，且 pin/unpin 必須有明確 icon、tooltip 與 active state。
@@ -318,6 +471,37 @@ Synonym: starter, hors d'oeuvre
 - 轉文字結果足夠精準，減少手動修正。
 - 語音輸入與現有 text input flow 可共存。
 
+## Priority 14: Windows High DPI And Display Scaling
+
+目標：讓 ClipAI popup 在 Windows 不同 DPI、顯示縮放比例、解析度與多螢幕環境中保持可讀、完整且可操作。
+
+目前風險：
+
+- 固定 pixel width/height 可能在 125%、150%、175% 或 200% scaling 下變得過大或過小。
+- 文字、按鈕與內容區域可能被裁切，或因控制項太小而難以點擊。
+- Popup 從一個 DPI 不同的螢幕移到另一個螢幕時，尺寸與位置可能不正確。
+- 只依全螢幕解析度計算，可能超出 Windows 可用工作區或被 taskbar 遮擋。
+
+需求：
+
+- App 啟動時宣告正確的 Windows DPI awareness，優先支援 Per-Monitor DPI Aware 行為。
+- Popup sizing 必須根據目前所在螢幕的 DPI、display scaling 與可用工作區計算，不直接依賴固定 pixel layout。
+- Layout 使用 logical units、內容需求與比例限制；固定值只能作為經過 DPI conversion 的設計 token。
+- 定義合理的 logical minimum size，確保標題、狀態、內容與所有可用 action button 不被裁切且保持可點擊。
+- 定義最大寬高與工作區 margin，避免 popup 超出可視範圍。
+- 文字、icon、button hit target、padding 與 spacing 必須隨 DPI 保持一致的實際可讀性，不得只放大外框。
+- 長內容應由 scrollable content area 承擔，不得無限制放大視窗或擠壓 action controls。
+- Popup 定位、cursor positioning、click-outside、drag 與 pinned workflow 在多螢幕/DPI 切換後仍須正確。
+- DPI calculation 與 screen geometry 必須透過可注入的 platform/display metrics port，UI 不直接散落 Windows API 判斷。
+
+成功標準：
+
+- Windows 100%、125%、150%、175% 與 200% scaling 下，popup 大小合理且內容可讀。
+- 主要 action buttons 全部可見、可點，不因 scaling 被裁切或重疊。
+- 小螢幕、大螢幕及不同 DPI 的多螢幕環境中，popup 不超出可用工作區。
+- 從一個螢幕移到另一個 DPI 不同的螢幕後，新的 popup 使用正確 metrics。
+- Sizing policy 可用 fake display metrics 做 unit test，真實 Windows 行為有 integration/manual matrix。
+
 ## Core Direction: Composable Shortcut Chains
 
 這是 ClipAI 未來的核心產品能力，不是單一快捷鍵功能。ClipAI 應讓使用者把目前結果直接交給下一個 shortcut，形成低摩擦、可連續組合的內容處理鏈。
@@ -410,7 +594,16 @@ Synonym: starter, hors d'oeuvre
 - Product philosophy documented.
 - Architecture boundaries documented.
 - Testing strategy documented.
-- Base dialog surface prototype.
-- Hotkey dispatcher tests.
-- Phase 3 vertical slice.
-- Phase 4 Gemini provider MVP.
+- Base dialog/result surface、topmost、pin/unpin 與 click-outside close。
+- Hotkey dispatcher short/long press、modifier normalization 與 atomic shortcut registry。
+- Immediate popup lifecycle feedback：reading、preparing、provider、rendering、success 與 failure。
+- Gemini/OpenAI/Anthropic provider adapters、fake provider、timeout/readiness 與 redacted diagnostics foundation。
+- Selection-first、clipboard fallback 與 typed input resolver。
+- Popup output actions：copy、paste with clipboard restore、archive、speaker/stop 與 follow-up。
+- Tray startup/shutdown、operation lifecycle status 與 concurrent operation identity handling。
+- Centralized output profiles、result preprocessing 與 speech-text preprocessing。
+- Language-aware TTS voice selection，以及 `Ctrl+Alt+Q` selection/clipboard direct speech。
+- Shortcut/action separation：`ShortcutCatalog`、typed command dispatch 與 actions schema migration。
+- Composable popup workflow foundation：immutable invocation、independent cancellation、late-result guard 與 successful-step history。
+- `Ctrl+Alt+X` contextual shorten workflow：short/long variant、popup selection-first、same-popup chaining 與 Back navigation。
+- Unit/architecture regression suite covering current workflow contracts。
