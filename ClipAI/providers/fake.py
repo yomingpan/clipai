@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.errors import CancelledError
-from ClipAI.core.models import LLMRequest, LLMResult
+from ClipAI.core.models import LLMRequest, LLMResult, TextContent
 from ClipAI.core.state import CancellationToken
 
 
@@ -21,9 +21,10 @@ class FakeProvider:
         return LLMResult(text=text, provider="fake", model=request.model, finish_reason="stop")
 
 
-def _compact_preview(text: str, limit: int = 120) -> str:
+def _compact_preview(text, limit: int = 120) -> str:
+    if not isinstance(text, str):
+        text = " ".join(part.text for part in text if isinstance(part, TextContent))
     compact = " ".join(text.split())
     if len(compact) <= limit:
         return compact
     return f"{compact[: limit - 1]}..."
-
