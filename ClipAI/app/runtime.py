@@ -65,6 +65,7 @@ class AppRuntime:
         self._commands: queue.Queue[AppCommand] = queue.Queue()
         self._workflows: dict[str, WorkflowController] = {}
         self._speech_operations: dict[str, OperationHandle] = {}
+        self._popup_speech_ids: dict[str, str] = {}
         self._foreground_id: str | None = None
         self._listener: object | None = None
         self._tray: object | None = None
@@ -109,6 +110,7 @@ class AppRuntime:
         for operation in list(self._speech_operations.values()):
             operation.cancel()
         self._speech_operations.clear()
+        self._popup_speech_ids.clear()
         if self._speech_coordinator is not None:
             self._speech_coordinator.cancel_current()
         if self._listener is not None and hasattr(self._listener, "stop"):
@@ -286,6 +288,9 @@ class AppRuntime:
         if controller.snapshot.speaking:
             self._output_actions.stop_speech()
             controller.set_speaking(False)
+            operation_id = self._popup_speech_ids.pop(session_id, None)
+            if operation_id is not None:
+                self._supervisor.cancel(operation_id)
             operation = self._speech_operations.pop(session_id, None)
             if operation is not None:
                 operation.cancel()
@@ -294,7 +299,9 @@ class AppRuntime:
             self._speech_coordinator.cancel_current()
         controller.set_speaking(True)
         text = selected_text.strip() if selected_text and selected_text.strip() else controller.snapshot.content
-        operation = self._operation_tracker.start(f"tts:{session_id}", "tts") if self._operation_tracker else None
+        operation_id = f"speech:{session_id}:{uuid.uuid4().hex}"
+        self._popup_speech_ids[session_id] = operation_id
+        operation = self._operation_tracker.start(f"tts:{operation_id}", "tts") if self._operation_tracker else None
         if operation is not None:
             self._speech_operations[session_id] = operation
 
@@ -308,11 +315,13 @@ class AppRuntime:
                     operation.fail()
                 raise
             finally:
-                self._speech_operations.pop(session_id, None)
-                controller.set_speaking(False)
+                if self._popup_speech_ids.get(session_id) == operation_id:
+                    self._popup_speech_ids.pop(session_id, None)
+                    self._speech_operations.pop(session_id, None)
+                    controller.set_speaking(False)
 
         self._supervisor.submit(
-            f"speech:{session_id}",
+            operation_id,
             speak,
             lambda error: self._handle_speech_error(session_id, error),
         )
@@ -321,6 +330,9 @@ class AppRuntime:
         controller = self._workflows.pop(session_id, None)
         if controller:
             self._output_actions.stop_speech()
+            operation_id = self._popup_speech_ids.pop(session_id, None)
+            if operation_id is not None:
+                self._supervisor.cancel(operation_id)
             operation = self._speech_operations.pop(session_id, None)
             if operation is not None:
                 operation.cancel()

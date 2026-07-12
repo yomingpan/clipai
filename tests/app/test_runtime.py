@@ -355,7 +355,8 @@ def test_speech_runs_as_supervised_output_and_can_stop() -> None:
     runtime.enqueue(ToggleSpeech(session_id))
     runtime.drain_commands()
     assert controller.snapshot.speaking is True
-    work = supervisor.work[f"speech:{session_id}"]
+    operation_id = runtime._popup_speech_ids[session_id]
+    work = supervisor.work[operation_id]
     work()
     assert outputs.spoken == ["speak me"]
     assert controller.snapshot.speaking is False
@@ -369,7 +370,7 @@ def test_speech_prefers_selected_command_text() -> None:
     runtime._workflows[session_id]._snapshot = runtime._workflows[session_id].snapshot.evolve(content="full")
     runtime.enqueue(ToggleSpeech(session_id, "selected"))
     runtime.drain_commands()
-    supervisor.work[f"speech:{session_id}"]()
+    supervisor.work[runtime._popup_speech_ids[session_id]]()
     assert outputs.spoken == ["selected"]
 
 
@@ -382,8 +383,9 @@ def test_speech_reports_one_external_api_lifecycle() -> None:
     runtime._workflows[session_id]._snapshot = runtime._workflows[session_id].snapshot.evolve(content="speak")
     runtime.enqueue(ToggleSpeech(session_id))
     runtime.drain_commands()
-    supervisor.work[f"speech:{session_id}"]()
-    assert operations.events == [("start", f"tts:{session_id}", "tts"), ("success", f"tts:{session_id}")]
+    operation_id = runtime._popup_speech_ids[session_id]
+    supervisor.work[operation_id]()
+    assert operations.events == [("start", f"tts:{operation_id}", "tts"), ("success", f"tts:{operation_id}")]
 
 
 def test_diagnostics_export_is_typed_supervised_work_with_feedback() -> None:

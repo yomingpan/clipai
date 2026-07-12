@@ -106,6 +106,15 @@ def test_new_job_cancels_old_job_without_old_completion_overwriting_new() -> Non
     assert tracker.calls[1][2].outcomes == ["success"]
 
 
+def test_each_trigger_reads_the_current_selection_again() -> None:
+    coordinator, _clipboard, selection, speech, _tracker = make_coordinator()
+    for value in ("first", "second", "third"):
+        selection.text = value
+        coordinator.create_job(clipboard_only=False).run()
+    assert [request.text for request in speech.requests] == ["first", "second", "third"]
+    assert selection.calls == 3
+
+
 def test_speech_error_marks_operation_failed() -> None:
     coordinator, _clipboard, _selection, _speech, tracker = make_coordinator(speech=Speech(RuntimeError("tts failed")))
     job = coordinator.create_job(clipboard_only=False)

@@ -190,8 +190,6 @@ class ResultDialogPresenter:
         view = self._views.get(session_id)
         if view is None:
             return
-        view.speaking = not view.speaking
-        view.surface.set_speaker_active(view.speaking)
         self._send_text_command(session_id, ToggleSpeech)
 
     def _archive(self, session_id: str) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import time
+import threading
 import uuid
 
 from ClipAI.core.ports import ClipboardReader, ClipboardWriter
@@ -22,8 +23,13 @@ class SystemSelectionReader:
         self._copy_selection = copy_selection or _send_copy_shortcut
         self._timeout_sec = timeout_sec
         self._poll_sec = poll_sec
+        self._capture_lock = threading.Lock()
 
     def read_text(self) -> str:
+        with self._capture_lock:
+            return self._capture_text()
+
+    def _capture_text(self) -> str:
         original = self._clipboard.read_text()
         marker = f"__CLIPAI_SELECTION_{uuid.uuid4().hex}__"
         try:
@@ -57,4 +63,3 @@ def _send_copy_shortcut() -> None:
     with keyboard.pressed(Key.ctrl):
         keyboard.press("c")
         keyboard.release("c")
-

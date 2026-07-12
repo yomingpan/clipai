@@ -66,10 +66,10 @@ def test_copy_and_archive_show_feedback_before_emitting_command() -> None:
     ]
 
 
-def test_speaker_icon_changes_before_emitting_command() -> None:
+def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._toggle_speech("s1")
-    assert events == ["speaker:True", ToggleSpeech("s1", "selected")]
+    assert events == [ToggleSpeech("s1", "selected")]
 
 
 def test_paste_disables_and_hides_before_emitting_command() -> None:
