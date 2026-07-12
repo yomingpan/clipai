@@ -521,6 +521,11 @@ class StandardResultActions:
 
         self._pulse_jobs[slot_id] = self._surface.dialog.lifecycle.schedule(duration_ms, reset)
 
+    def pulse_error(self, slot_id: ResultActionId, duration_ms: int = 1000) -> None:
+        button = self._buttons[slot_id]
+        button.configure(text="!", fg_color="#E81123", hover_color="#E81123", text_color=CONTENT_COLOR)
+        self._surface.dialog.lifecycle.schedule(duration_ms, lambda: self._set_active(slot_id, False))
+
     def set_enabled(self, slot_id: ResultActionId, enabled: bool) -> None:
         self._buttons[slot_id].configure(state="normal" if enabled else "disabled")
 
@@ -625,6 +630,8 @@ class BaseResultSurface:
         self.standard_actions = StandardResultActions(self)
         self._overflow_button = self.add_action_slot("overflow", "▶", self.toggle_overflow, width=24, tooltip="More actions")
         self._overflow_button.pack_configure(side="right", padx=(12, 0))
+        self.action_status_label = ctk.CTkLabel(self.actions, text="", text_color="#8A8A8A", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9))
+        self.action_status_label.pack(side="right", padx=(8, 0))
 
         self.source_label = ctk.CTkLabel(
             self.root,
@@ -727,6 +734,13 @@ class BaseResultSurface:
 
     def pulse_standard_action(self, slot_id: ResultActionId, duration_ms: int = 1000) -> None:
         self.standard_actions.pulse(slot_id, duration_ms)
+
+    def pulse_standard_action_error(self, slot_id: ResultActionId, duration_ms: int = 1000) -> None:
+        self.standard_actions.pulse_error(slot_id, duration_ms)
+
+    def show_action_message(self, text: str, duration_ms: int = 1000) -> None:
+        self.action_status_label.configure(text=text)
+        self.dialog.lifecycle.schedule(duration_ms, lambda: self.action_status_label.configure(text=""))
 
     def add_action_slot(
         self,

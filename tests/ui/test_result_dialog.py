@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.commands import ArchiveResult, CopyResult, PasteResult, TogglePin, ToggleSpeech
+from ClipAI.core.models import OutputActionAcknowledgment
 from ClipAI.ui.result_dialog import PopupFocusLifecycle, ResultDialogPresenter, _SessionView
 
 
@@ -21,6 +22,7 @@ class Surface:
     def __init__(self, selected: str | None, events: list[str]) -> None:
         self.selected = selected
         self.events = events
+        self.overflow_expanded = False
 
     def selected_text(self) -> str | None:
         return self.selected
@@ -30,6 +32,12 @@ class Surface:
 
     def pulse_standard_action(self, slot_id: str, duration_ms: int = 1000) -> None:
         self.events.append(f"{slot_id}:pulse:{duration_ms}")
+
+    def pulse_standard_action_error(self, slot_id: str, duration_ms: int = 1000) -> None:
+        self.events.append(f"{slot_id}:error:{duration_ms}")
+
+    def show_action_message(self, text: str, duration_ms: int = 1000) -> None:
+        self.events.append(f"message:{text}:{duration_ms}")
 
     def set_speaker_active(self, active: bool) -> None:
         self.events.append(f"speaker:{active}")
@@ -54,16 +62,22 @@ def test_text_command_carries_popup_selection() -> None:
     assert events == [CopyResult("s1", "selected")]
 
 
-def test_copy_and_archive_show_feedback_before_emitting_command() -> None:
+def test_copy_and_archive_wait_for_typed_acknowledgment() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._copy("s1")
     presenter._archive("s1")
-    assert events == [
-        "copy:pulse:1000",
-        CopyResult("s1", "selected"),
-        "archive:pulse:1000",
-        ArchiveResult("s1"),
-    ]
+    assert len(events) == 2
+    assert isinstance(events[0], CopyResult) and events[0].text == "selected" and events[0].operation_id
+    assert isinstance(events[1], ArchiveResult) and events[1].text == "selected" and events[1].operation_id
+
+
+def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._views["s1"].output_operations["archive"] = "new"
+    presenter.acknowledge_output(OutputActionAcknowledgment("s1", "old", "archive", True))
+    assert events == []
+    presenter.acknowledge_output(OutputActionAcknowledgment("s1", "new", "archive", True))
+    assert events == ["archive:pulse:1000", "message:已封存:1000"]
 
 
 def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:
