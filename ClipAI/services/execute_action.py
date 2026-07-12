@@ -44,6 +44,8 @@ class ActionExecutor:
         action: ResolvedAction,
         invocation: ActionInvocation,
         workflow: WorkflowController,
+        *,
+        model: str | None = None,
     ) -> None:
         token = workflow.cancellation
         try:
@@ -59,7 +61,7 @@ class ActionExecutor:
             request = self._prompt_builder.build(
                 action,
                 document.text,
-                model=self._model,
+                model=model or self._model,
                 default_temperature=self._default_temperature,
                 image=document.image,
             )
@@ -107,6 +109,7 @@ class ActionExecutor:
         *,
         original_input: str,
         previous_result: str,
+        model: str | None = None,
     ) -> None:
         token = workflow.cancellation
         try:
@@ -117,7 +120,7 @@ class ActionExecutor:
                 original_input=original_input,
                 previous_result=previous_result,
                 question=question,
-                model=self._model,
+                model=model or self._model,
                 default_temperature=self._default_temperature,
             )
             if workflow.update(

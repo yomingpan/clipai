@@ -8,13 +8,15 @@ from ClipAI.app.config_schema import ConfigBundle
 from ClipAI.core.errors import ConfigError
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ExportDiagnostics, ShutdownApplication
+from ClipAI.core.commands import ExportDiagnostics, SelectProviderModel, ShutdownApplication
+from ClipAI.core.models import ModelSelectionState
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider
 from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.hotkey import register_hotkeys_with_long_press
 from ClipAI.platform.selection import SystemSelectionReader
 from ClipAI.platform.filesystem import JsonlArchiveStore
+from ClipAI.platform.dotenv_preferences import DotenvModelPreferenceStore
 from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
@@ -43,12 +45,16 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     credential = _resolve_active_credential(bundle)
     readiness_issues = assess_provider_readiness(bundle.providers, credential)
     provider, model = _build_provider(bundle, credential)
+    active_settings = bundle.providers.active_settings()
+    available_models = active_settings.available_models if active_settings is not None else (model,)
     clipboard = SystemClipboard()
     runtime_holder: list[AppRuntime] = []
     tray = TrayController(
         lambda: runtime_holder[0].enqueue(ShutdownApplication()),
         lambda: runtime_holder[0].enqueue(ExportDiagnostics()),
         lambda: runtime_holder[0].show_last_error(),
+        model_selection=ModelSelectionState(bundle.providers.active, available_models, model),
+        on_select_model=lambda provider_name, selected_model: runtime_holder[0].enqueue(SelectProviderModel(provider_name, selected_model)),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
@@ -135,6 +141,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         speech_coordinator=speech_coordinator,
         workflow_context_reader=view,
         output_operation_presenter=view,
+        provider_name=bundle.providers.active,
+        available_models=available_models,
+        model_preferences=DotenvModelPreferenceStore(),
+        model_selection_presenter=tray,
     )
     runtime_holder.append(runtime)
     return runtime

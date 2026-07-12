@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ShortcutDefinition, WorkflowStep
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, SelectProviderModel, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ModelSelectionState, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -56,6 +56,7 @@ class FakeSupervisor:
 class FakeExecute:
     def __init__(self) -> None:
         self.invocations = []
+        self.models = []
 
     def execute(self, action, controller) -> None:
         pass
@@ -63,8 +64,9 @@ class FakeExecute:
     def execute_follow_up(self, action, text, controller) -> None:
         pass
 
-    def execute_invocation(self, action, invocation, controller) -> None:
+    def execute_invocation(self, action, invocation, controller, *, model=None) -> None:
         self.invocations.append(invocation)
+        self.models.append(model)
 
     def execute_follow_up_invocation(self, *args, **kwargs) -> None:
         pass
@@ -107,12 +109,27 @@ class Tray:
         self.on_exit = on_exit
         self.started = False
         self.stopped = False
+        self.model_selections = []
 
     def start(self) -> None:
         self.started = True
 
     def stop(self) -> None:
         self.stopped = True
+
+    def set_model_selection(self, selection) -> None:
+        self.model_selections.append(selection)
+
+
+class ModelPreferences:
+    def __init__(self, error=None) -> None:
+        self.saved = []
+        self.error = error
+
+    def save_model(self, env_name, model) -> None:
+        if self.error:
+            raise self.error
+        self.saved.append((env_name, model))
 
 
 class Operation:
@@ -141,6 +158,13 @@ class OperationTracker:
 
     def stop(self) -> None:
         self.stopped = True
+
+    def report_error(self, message, suggestion="") -> None:
+        self.events.append(("report_error", message, suggestion))
+
+    @property
+    def last_error(self):
+        return None
 
 
 class Exporter:
@@ -233,7 +257,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None):
     action = ActionDefinition("a", "Action", "system", "{input}", {})
     shorten = ActionDefinition("shorten", "Shorten", "system", "{input}", {})
     view = FakeView()
@@ -261,8 +285,47 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         speech_coordinator=speech_coordinator,
         workflow_context_reader=view,
         output_operation_presenter=view,
+        provider_name="openai",
+        available_models=("model", "new-model"),
+        model_preferences=model_preferences,
     )
     return runtime, view, supervisor, outputs, listener
+
+
+def test_model_selection_persists_before_switching_new_workflows() -> None:
+    preferences = ModelPreferences()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(model_preferences=preferences)
+    presenter = Tray(lambda: None)
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    first_id = view.snapshots[-1].session_id
+    first_work = supervisor.work[runtime._workflows[first_id].snapshot.active_invocation_id]
+    runtime.enqueue(SelectProviderModel("openai", "new-model"))
+    runtime.drain_commands()
+    first_work()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    second_id = view.snapshots[-1].session_id
+    supervisor.work[runtime._workflows[second_id].snapshot.active_invocation_id]()
+    assert preferences.saved == [("OPENAI_MODEL", "new-model")]
+    assert runtime._execute_action.models == ["model", "new-model"]
+    assert presenter.model_selections[-1] == ModelSelectionState("openai", ("model", "new-model"), "new-model")
+
+
+def test_model_selection_write_failure_keeps_previous_model() -> None:
+    operations = OperationTracker()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        operation_tracker=operations,
+        model_preferences=ModelPreferences(OSError("denied")),
+    )
+    presenter = Tray(lambda: None)
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(SelectProviderModel("openai", "new-model"))
+    runtime.drain_commands()
+    assert runtime._model == "model"
+    assert presenter.model_selections[-1].selected_model == "model"
+    assert operations.events[-1][0] == "report_error"
 
 
 def test_global_speech_command_is_supervised_without_creating_session() -> None:

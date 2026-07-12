@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, ImageContent, LLMRequest, LLMResult, OperationKind, OutputOperationResult, SpeechRequest, UserFacingError
+from ClipAI.core.models import ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, SpeechRequest, UserFacingError
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -77,6 +77,14 @@ class StatusIndicator(Protocol):
     def set_status(self, status: ApplicationStatus) -> None: ...
 
     def set_memory_active(self, active: bool) -> None: ...
+
+
+class ModelSelectionPresenter(Protocol):
+    def set_model_selection(self, selection: ModelSelectionState) -> None: ...
+
+
+class ModelPreferenceStore(Protocol):
+    def save_model(self, env_name: str, model: str) -> None: ...
 
 
 class OperationHandle(Protocol):

@@ -6,9 +6,9 @@ import queue
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, PasteResult, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, OutputOperationIntent
-from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, OperationTracker, OutputOperationPresenter, RuntimeComponent, Stoppable, UserNotifier
+from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, PasteResult, SelectProviderModel, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent
+from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, ModelPreferenceStore, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, RuntimeComponent, Stoppable, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
@@ -55,6 +55,10 @@ class AppRuntime:
         speech_coordinator: SpeechCoordinator | None = None,
         workflow_context_reader: ActiveWorkflowContextReader,
         output_operation_presenter: OutputOperationPresenter,
+        provider_name: str = "fake",
+        available_models: tuple[str, ...] = (),
+        model_preferences: ModelPreferenceStore | None = None,
+        model_selection_presenter: ModelSelectionPresenter | None = None,
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         input_targets: InputTargetResolver | None = None,
     ) -> None:
@@ -65,6 +69,10 @@ class AppRuntime:
         self._view = view
         self._supervisor = supervisor
         self._model = model
+        self._provider_name = provider_name
+        self._available_models = available_models or (model,)
+        self._model_preferences = model_preferences
+        self._model_selection_presenter = model_selection_presenter
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
         self._operation_tracker = operation_tracker
@@ -209,6 +217,32 @@ class AppRuntime:
             controller = self._workflows.get(command.workflow_id)
             if controller is not None:
                 controller.navigate_back()
+        elif isinstance(command, SelectProviderModel):
+            self._select_provider_model(command)
+
+    def _model_selection(self) -> ModelSelectionState:
+        return ModelSelectionState(self._provider_name, self._available_models, self._model)
+
+    def _select_provider_model(self, command: SelectProviderModel) -> None:
+        if self._model_selection_presenter is None or self._model_preferences is None:
+            return
+        if command.provider != self._provider_name or command.model not in self._available_models:
+            self._model_selection_presenter.set_model_selection(self._model_selection())
+            if self._operation_tracker is not None:
+                self._operation_tracker.report_error("Model switch rejected.", "Choose a model listed for the active provider.")
+            return
+        if command.model == self._model:
+            self._model_selection_presenter.set_model_selection(self._model_selection())
+            return
+        try:
+            self._model_preferences.save_model(f"{self._provider_name.upper()}_MODEL", command.model)
+        except OSError:
+            self._model_selection_presenter.set_model_selection(self._model_selection())
+            if self._operation_tracker is not None:
+                self._operation_tracker.report_error("Could not save the model selection.", "The previous model remains active. Check .env permissions and try again.")
+            return
+        self._model = command.model
+        self._model_selection_presenter.set_model_selection(self._model_selection())
 
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:
@@ -279,9 +313,10 @@ class AppRuntime:
         )
         controller.begin_invocation(invocation, action)
         self._foreground_id = workflow_id
+        invocation_model = controller.snapshot.model
         self._supervisor.submit(
             invocation.invocation_id,
-            lambda: self._execute_action.execute_invocation(action, invocation, controller),
+            lambda: self._execute_action.execute_invocation(action, invocation, controller, model=invocation_model),
             lambda error: self._handle_unhandled(workflow_id, error),
         )
 
@@ -332,8 +367,9 @@ class AppRuntime:
         controller.begin_invocation(invocation, action)
         self._workflows[workflow_id] = controller
         self._sequence_workflow_id = workflow_id
+        invocation_model = controller.snapshot.model
         def execute() -> None:
-            self._execute_action.execute_invocation(action, invocation, controller)
+            self._execute_action.execute_invocation(action, invocation, controller, model=invocation_model)
             if controller.snapshot.status == SessionStatus.COMPLETED and self._sequence_workflow_id == workflow_id:
                 self._workflows.pop(workflow_id, None)
                 self._sequence_workflow_id = None
@@ -395,6 +431,7 @@ class AppRuntime:
                 controller,
                 original_input=previous.original_input,
                 previous_result=parent.result_text,
+                model=previous.model,
             ),
             lambda error: self._handle_unhandled(command.session_id, error),
         )
