@@ -6,7 +6,7 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ValidateAndSaveProviderSettings
+from ClipAI.core.commands import RefreshProviderModels, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ProviderOption, ProviderSettingsState
 
 
@@ -18,8 +18,8 @@ class ProviderSettingsDialog:
         self._state: ProviderSettingsState | None = None
         self._window = ctk.CTkToplevel(master)
         self._window.title("ClipAI Provider Settings")
-        self._window.geometry("430x390")
-        self._window.minsize(390, 350)
+        self._window.geometry("430x500")
+        self._window.minsize(390, 460)
         self._window.protocol("WM_DELETE_WINDOW", self.close)
         self._window.grid_columnconfigure(0, weight=1)
 
@@ -49,6 +49,8 @@ class ProviderSettingsDialog:
         self._message.grid(row=8, column=0, padx=24, pady=(18, 8), sticky="ew")
         self._save = ctk.CTkButton(self._window, text="Validate and Save", command=self._submit)
         self._save.grid(row=9, column=0, padx=24, pady=(8, 22), sticky="ew")
+        self._refresh = ctk.CTkButton(self._window, text="Refresh Models", command=self._refresh_models)
+        self._refresh.grid(row=10, column=0, padx=24, pady=(0, 22), sticky="ew")
         self._window.bind("<Escape>", lambda _event: self.close())
         self._window.bind("<Control-Return>", lambda _event: self._submit())
 
@@ -73,6 +75,7 @@ class ProviderSettingsDialog:
         self._gateway_url.configure(state=enabled)
         self._model_entry.configure(state=enabled)
         self._save.configure(state=enabled, text="Validating..." if pending else "Validate and Save")
+        self._refresh.configure(state=enabled, text="Refreshing..." if pending and "model" in state.message.lower() else "Refresh Models")
         self._message.configure(text=state.message)
         if state.operation_state == "succeeded":
             self._api_key.delete(0, "end")
@@ -139,6 +142,12 @@ class ProviderSettingsDialog:
                 base_url=self._gateway_url.get().strip() if provider == "gateway" else "",
             )
         )
+
+    def _refresh_models(self) -> None:
+        state = self._state
+        if state is None or state.operation_state == "pending":
+            return
+        self._command_sink(RefreshProviderModels(self._provider.get(), uuid.uuid4().hex))
 
     def close(self) -> None:
         try:

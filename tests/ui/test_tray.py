@@ -115,3 +115,15 @@ def test_tray_provider_menu_projects_options_and_emits_selection() -> None:
     root.action.items[1].action(None, None)
     assert events == ["gemini"]
     assert tray._build_provider_menu(Pystray).text == "Provider (gemini)..."
+
+
+def test_tray_marks_custom_current_model_and_disables_during_refresh() -> None:
+    tray = TrayController(
+        lambda: None,
+        model_selection=ModelSelectionState("openai", ("custom-model",), "custom-model", refreshing=True, custom_models=("custom-model",)),
+        on_select_model=lambda _provider, _model: None,
+    )
+    root = tray._build_model_menu(Pystray)
+    assert root.text == "Model (refreshing)..."
+    assert root.action.items[0].text == "custom-model (custom/current)"
+    assert root.action.items[0].enabled(None) is False

@@ -29,6 +29,8 @@ class ModelSelectionState:
     available_models: tuple[str, ...]
     selected_model: str
     pending_model: str | None = None
+    refreshing: bool = False
+    custom_models: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,7 @@ class ProviderOption:
     available_models: tuple[str, ...]
     selected_model: str
     configured: bool
+    custom_models: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -8,7 +8,7 @@ import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, OpenProviderSettings, PasteResult, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActionInvocation, EnvironmentSetting, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, ProviderOption, ProviderSelectionState, ProviderSettingsState
 from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, EnvironmentSettingsStore, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, ProviderSettingsPresenter, RuntimeComponent, Stoppable, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -38,6 +38,20 @@ class _ProviderSettingsSaved:
 @dataclass(frozen=True)
 class _ProviderSettingsFailed:
     operation_id: str
+    message: str
+
+
+@dataclass(frozen=True)
+class _ProviderModelsRefreshed:
+    operation_id: str
+    provider: str
+    models: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _ProviderModelsRefreshFailed:
+    operation_id: str
+    provider: str
     message: str
 
 
@@ -82,6 +96,7 @@ class AppRuntime:
         build_provider_candidate: Callable[[str, str, str, str, str], ProviderRuntimeSnapshot] | None = None,
         gateway_name: str = "",
         gateway_base_url: str = "",
+        discover_provider_models: Callable[[str], tuple[str, ...]] | None = None,
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         input_targets: InputTargetResolver | None = None,
     ) -> None:
@@ -100,6 +115,8 @@ class AppRuntime:
         self._provider_options = provider_options or (
             ProviderOption(provider_binding.provider_id, provider_binding.provider_id.title(), self._available_models, provider_binding.model, not provider_binding.readiness_issues),
         )
+        active_option = next((item for item in self._provider_options if item.provider_id == self._provider_name), None)
+        self._custom_models = active_option.custom_models if active_option is not None else ()
         self._provider_selection_presenter = provider_selection_presenter
         self._provider_bindings = {item.provider_id: item for item in (provider_bindings or (provider_binding,))}
         self._reload_provider_settings = reload_provider_settings
@@ -109,6 +126,8 @@ class AppRuntime:
         self._gateway_name = gateway_name
         self._gateway_base_url = gateway_base_url
         self._provider_settings_operation_id = ""
+        self._discover_provider_models = discover_provider_models
+        self._model_refresh_operation_id = ""
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
         self._operation_tracker = operation_tracker
@@ -268,9 +287,15 @@ class AppRuntime:
             self._provider_settings_saved(command)
         elif isinstance(command, _ProviderSettingsFailed):
             self._provider_settings_failed(command)
+        elif isinstance(command, RefreshProviderModels):
+            self._refresh_provider_models(command)
+        elif isinstance(command, _ProviderModelsRefreshed):
+            self._provider_models_refreshed(command)
+        elif isinstance(command, _ProviderModelsRefreshFailed):
+            self._provider_models_refresh_failed(command)
 
-    def _model_selection(self) -> ModelSelectionState:
-        return ModelSelectionState(self._provider_name, self._available_models, self._model)
+    def _model_selection(self, *, refreshing: bool = False) -> ModelSelectionState:
+        return ModelSelectionState(self._provider_name, self._available_models, self._model, refreshing=refreshing, custom_models=self._custom_models)
 
     def _provider_selection(self, *, reloading: bool = False) -> ProviderSelectionState:
         return ProviderSelectionState(self._provider_options, self._provider_name, reloading=reloading)
@@ -287,7 +312,7 @@ class AppRuntime:
             self._model_selection_presenter.set_model_selection(self._model_selection())
             return
         try:
-            self._settings_store.save_settings((EnvironmentSetting(f"{self._provider_name.upper()}_MODEL", command.model),))
+            self._settings_store.save_settings((EnvironmentSetting(_model_env_name(self._provider_name), command.model),))
         except OSError:
             self._model_selection_presenter.set_model_selection(self._model_selection())
             if self._operation_tracker is not None:
@@ -302,7 +327,7 @@ class AppRuntime:
         )
         self._provider_bindings[self._provider_name] = self._active_provider_binding
         self._provider_options = tuple(
-            ProviderOption(option.provider_id, option.display_name, option.available_models, command.model, option.configured)
+            ProviderOption(option.provider_id, option.display_name, option.available_models, command.model, option.configured, option.custom_models)
             if option.provider_id == self._provider_name else option
             for option in self._provider_options
         )
@@ -338,6 +363,7 @@ class AppRuntime:
         self._provider_name = binding.provider_id
         self._model = binding.model
         self._available_models = option.available_models
+        self._custom_models = option.custom_models
         if self._provider_selection_presenter is not None:
             self._provider_selection_presenter.set_provider_selection(self._provider_selection())
         if self._model_selection_presenter is not None:
@@ -472,6 +498,72 @@ class AppRuntime:
             )
         if self._operation_tracker is not None:
             self._operation_tracker.report_error("Provider settings were not saved.", command.message)
+
+    def _refresh_provider_models(self, command: RefreshProviderModels) -> None:
+        if self._discover_provider_models is None:
+            return
+        provider = command.provider or self._provider_name
+        option = next((item for item in self._provider_options if item.provider_id == provider), None)
+        if option is None:
+            return
+        operation_id = command.operation_id or uuid.uuid4().hex
+        self._model_refresh_operation_id = operation_id
+        if provider == self._provider_name and self._model_selection_presenter is not None:
+            self._model_selection_presenter.set_model_selection(self._model_selection(refreshing=True))
+        if self._provider_settings_presenter is not None:
+            self._provider_settings_presenter.set_provider_settings(
+                self._provider_settings_state(provider, operation_state="pending", message="Refreshing model catalog...", operation_id=operation_id)
+            )
+
+        def work() -> None:
+            try:
+                models = tuple(dict.fromkeys(model.strip() for model in self._discover_provider_models(provider) if model.strip()))
+                if not models:
+                    raise ValueError("provider returned no models")
+            except BaseException as exc:
+                self.enqueue(_ProviderModelsRefreshFailed(operation_id, provider, _safe_model_refresh_error(exc)))
+                return
+            self.enqueue(_ProviderModelsRefreshed(operation_id, provider, models))
+
+        self._supervisor.submit(
+            f"provider-models:{operation_id}",
+            work,
+            lambda error: self.enqueue(_ProviderModelsRefreshFailed(operation_id, provider, _safe_model_refresh_error(error))),
+        )
+
+    def _provider_models_refreshed(self, command: _ProviderModelsRefreshed) -> None:
+        if command.operation_id != self._model_refresh_operation_id:
+            return
+        self._model_refresh_operation_id = ""
+        option = next(item for item in self._provider_options if item.provider_id == command.provider)
+        models = command.models if option.selected_model in command.models else (option.selected_model, *command.models)
+        custom_models = (option.selected_model,) if option.selected_model not in command.models else ()
+        updated = ProviderOption(option.provider_id, option.display_name, models, option.selected_model, option.configured, custom_models)
+        self._provider_options = tuple(updated if item.provider_id == command.provider else item for item in self._provider_options)
+        if command.provider == self._provider_name:
+            self._available_models = models
+            self._custom_models = custom_models
+            if self._model_selection_presenter is not None:
+                self._model_selection_presenter.set_model_selection(self._model_selection())
+        if self._provider_selection_presenter is not None:
+            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
+        if self._provider_settings_presenter is not None:
+            self._provider_settings_presenter.set_provider_settings(
+                self._provider_settings_state(command.provider, operation_state="succeeded", message="Model catalog refreshed.")
+            )
+
+    def _provider_models_refresh_failed(self, command: _ProviderModelsRefreshFailed) -> None:
+        if command.operation_id != self._model_refresh_operation_id:
+            return
+        self._model_refresh_operation_id = ""
+        if command.provider == self._provider_name and self._model_selection_presenter is not None:
+            self._model_selection_presenter.set_model_selection(self._model_selection())
+        if self._provider_settings_presenter is not None:
+            self._provider_settings_presenter.set_provider_settings(
+                self._provider_settings_state(command.provider, operation_state="failed", message=command.message)
+            )
+        if self._operation_tracker is not None:
+            self._operation_tracker.report_error("Could not refresh models.", command.message)
 
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:
@@ -799,3 +891,14 @@ def _safe_provider_settings_error(error: BaseException) -> str:
     if isinstance(error, OSError):
         return "Could not write .env. Check file permissions and try again."
     return "Provider validation failed unexpectedly. Try again."
+
+
+def _safe_model_refresh_error(error: BaseException) -> str:
+    message = _safe_provider_settings_error(error)
+    if message == "Provider validation failed unexpectedly. Try again.":
+        return "The provider returned no usable models. The previous catalog remains active."
+    return message
+
+
+def _model_env_name(provider: str) -> str:
+    return "CLIPAI_GATEWAY_MODEL" if provider == "gateway" else f"{provider.upper()}_MODEL"

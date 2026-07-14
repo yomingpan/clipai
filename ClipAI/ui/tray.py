@@ -70,6 +70,7 @@ class TrayController:
         on_select_provider: Callable[[str], None] | None = None,
         on_reload_configuration: Callable[[], None] | None = None,
         on_open_provider_settings: Callable[[], None] | None = None,
+        on_refresh_models: Callable[[], None] | None = None,
     ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
@@ -80,6 +81,7 @@ class TrayController:
         self._on_select_provider = on_select_provider
         self._on_reload_configuration = on_reload_configuration
         self._on_open_provider_settings = on_open_provider_settings
+        self._on_refresh_models = on_refresh_models
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -104,7 +106,9 @@ class TrayController:
             menu_items.append(pystray.MenuItem("Reload Configuration", lambda _icon, _item: self._on_reload_configuration()))
         if self._on_open_provider_settings is not None:
             menu_items.append(pystray.MenuItem("Provider Settings...", lambda _icon, _item: self._on_open_provider_settings()))
-        if provider_menu is not None or model_menu is not None or self._on_reload_configuration is not None or self._on_open_provider_settings is not None:
+        if self._on_refresh_models is not None:
+            menu_items.append(pystray.MenuItem("Refresh Models", lambda _icon, _item: self._on_refresh_models()))
+        if provider_menu is not None or model_menu is not None or self._on_reload_configuration is not None or self._on_open_provider_settings is not None or self._on_refresh_models is not None:
             menu_items.append(pystray.Menu.SEPARATOR)
         if self._on_show_last_error is not None:
             menu_items.extend((pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()), pystray.Menu.SEPARATOR))
@@ -130,13 +134,13 @@ class TrayController:
         selection = self._model_selection
         if selection is None or self._on_select_model is None:
             return None
-        label = f"Model ({selection.pending_model})..." if selection.pending_model else f"Model: {selection.selected_model}"
+        label = "Model (refreshing)..." if selection.refreshing else (f"Model ({selection.pending_model})..." if selection.pending_model else f"Model: {selection.selected_model}")
         items = tuple(
             pystray.MenuItem(
-                model,
+                f"{model} (custom/current)" if model in selection.custom_models else model,
                 self._model_action(model),
                 checked=lambda _item, chosen=model: self._model_selection is not None and self._model_selection.selected_model == chosen,
-                enabled=lambda _item: self._model_selection is not None and self._model_selection.pending_model is None,
+                enabled=lambda _item: self._model_selection is not None and self._model_selection.pending_model is None and not self._model_selection.refreshing,
             )
             for model in selection.available_models
         )

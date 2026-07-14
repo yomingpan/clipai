@@ -74,3 +74,27 @@ def test_gateway_catalog_falls_back_to_explicit_minimal_completion() -> None:
     models = ProviderModelCatalogClient(transport).list_models("gateway", settings, "")
     assert models == ("model-a",)
     assert [call[0] for call in transport.calls] == ["get", "post"]
+
+
+def test_gemini_catalog_paginates_filters_and_deduplicates() -> None:
+    class PagedTransport:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def get(self, url, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return HttpResponse(200, "", {
+                    "models": [
+                        {"name": "models/gemini-a", "supportedGenerationMethods": ["generateContent"]},
+                        {"name": "models/embed", "supportedGenerationMethods": ["embedContent"]},
+                    ],
+                    "nextPageToken": "next",
+                })
+            return HttpResponse(200, "", {"models": [{"name": "models/gemini-a"}, {"name": "models/gemini-b"}]})
+
+    transport = PagedTransport()
+    settings = GeminiSettings("KEY", "https://gemini.test", "gemini-a", 10)
+    models = ProviderModelCatalogClient(transport).list_models("gemini", settings, "secret")
+    assert models == ("gemini-a", "gemini-b")
+    assert transport.calls[1]["params"]["pageToken"] == "next"

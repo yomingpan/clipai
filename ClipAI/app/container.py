@@ -8,7 +8,7 @@ from ClipAI.app.config_schema import ConfigBundle
 from ClipAI.core.errors import ConfigError
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, ReloadConfiguration, SelectProvider, SelectProviderModel, ShutdownApplication
+from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShutdownApplication
 from ClipAI.core.models import ModelSelectionState, ProviderOption, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider
@@ -66,6 +66,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         on_select_provider=lambda provider_name: runtime_holder[0].enqueue(SelectProvider(provider_name)),
         on_reload_configuration=lambda: runtime_holder[0].enqueue(ReloadConfiguration()),
         on_open_provider_settings=lambda: runtime_holder[0].enqueue(OpenProviderSettings()),
+        on_refresh_models=lambda: runtime_holder[0].enqueue(RefreshProviderModels()),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
@@ -143,6 +144,26 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             )
         return _build_provider_snapshot(bundle, environment)
 
+    def discover_provider_models(provider_id: str) -> tuple[str, ...]:
+        if provider_id == "anthropic":
+            return bundle.providers.anthropic.available_models
+        environment = {**os.environ, **settings_store.read_settings()}
+        current = _build_provider_snapshot(bundle, environment)
+        option = next(item for item in current.options if item.provider_id == provider_id)
+        if provider_id == "gateway":
+            settings = GatewaySettings(
+                current.gateway_name,
+                current.gateway_base_url,
+                option.selected_model,
+                bundle.providers.gateway.timeout_sec,
+                available_models=option.available_models,
+            )
+            api_key = environment.get("CLIPAI_GATEWAY_API_KEY", "")
+        else:
+            settings = getattr(bundle.providers, provider_id)
+            api_key = environment.get(settings.api_key_env, "")
+        return model_catalog_client.list_models(provider_id, settings, api_key)
+
     execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
         prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),
@@ -189,6 +210,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         build_provider_candidate=build_provider_candidate,
         gateway_name=snapshot.gateway_name,
         gateway_base_url=snapshot.gateway_base_url,
+        discover_provider_models=discover_provider_models,
     )
     runtime_holder.append(runtime)
     return runtime
@@ -232,8 +254,10 @@ def _build_provider_snapshot(bundle: ConfigBundle, environment=None) -> Provider
         credential = ProviderCredential(settings.api_key_env, values.get(settings.api_key_env))
         model = (values.get(f"{provider_id.upper()}_MODEL") or settings.model).strip()
         available_models = settings.available_models or (settings.model,)
+        custom_models: tuple[str, ...] = ()
         if model not in available_models:
-            raise ConfigError(f"{provider_id.upper()}_MODEL must be one of: {', '.join(available_models)}")
+            available_models = (model, *available_models)
+            custom_models = (model,)
         issues = () if credential.value else (
             ReadinessIssue(
                 "provider.missing_api_key",
@@ -243,7 +267,7 @@ def _build_provider_snapshot(bundle: ConfigBundle, environment=None) -> Provider
         )
         provider = provider_types[provider_id](settings, credential)
         bindings.append(ProviderExecutionBinding(provider, provider_id, model, issues))
-        options.append(ProviderOption(provider_id, display_names[provider_id], available_models, model, not issues))
+        options.append(ProviderOption(provider_id, display_names[provider_id], available_models, model, not issues, custom_models))
     gateway_defaults = bundle.providers.gateway
     gateway_name = (values.get("CLIPAI_GATEWAY_NAME") or gateway_defaults.name or "Custom Gateway").strip()
     gateway_base_url = (values.get("CLIPAI_GATEWAY_BASE_URL") or gateway_defaults.base_url).strip()
@@ -272,7 +296,7 @@ def _build_provider_snapshot(bundle: ConfigBundle, environment=None) -> Provider
             gateway_issues,
         )
     )
-    options.append(ProviderOption("gateway", gateway_name or "Custom Gateway", (gateway_model,) if gateway_model else (), gateway_model, gateway_ready))
+    options.append(ProviderOption("gateway", gateway_name or "Custom Gateway", (gateway_model,) if gateway_model else (), gateway_model, gateway_ready, (gateway_model,) if gateway_model else ()))
     return ProviderRuntimeSnapshot(active, tuple(bindings), tuple(options), gateway_name or "Custom Gateway", gateway_base_url)
 
 
@@ -296,9 +320,8 @@ def _resolve_active_model(bundle: ConfigBundle) -> str:
         return "fake-model"
     env_name = f"{bundle.providers.active.upper()}_MODEL"
     model = (os.getenv(env_name) or settings.model).strip()
-    available_models = settings.available_models or (settings.model,)
-    if model not in available_models:
-        raise ConfigError(f"{env_name} must be one of: {', '.join(available_models)}")
+    if not model:
+        raise ConfigError(f"{env_name} must be a non-empty model name")
     return model
 
 

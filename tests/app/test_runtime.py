@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, OpenProviderSettings, PasteResult, ReloadConfiguration, SelectProvider, SelectProviderModel, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ModelSelectionState, ProviderOption, ProviderSelectionState, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -275,7 +275,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None):
     action = ActionDefinition("a", "Action", "system", "{input}", {})
     shorten = ActionDefinition("shorten", "Shorten", "system", "{input}", {})
     view = FakeView()
@@ -317,6 +317,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         provider_settings_presenter=view,
         validate_provider_credential=validate_provider_credential,
         build_provider_candidate=build_provider_candidate,
+        discover_provider_models=discover_provider_models,
     )
     return runtime, view, supervisor, outputs, listener
 
@@ -527,6 +528,66 @@ def test_gateway_settings_allow_empty_key_and_save_single_profile() -> None:
     ]
     assert runtime._provider_name == "gateway"
     assert view.provider_settings_states[-1].operation_state == "succeeded"
+
+
+def test_refresh_models_replaces_catalog_but_keeps_current_model() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime(
+        discover_provider_models=lambda provider: ("remote-a", "remote-a", "remote-b") if provider == "openai" else (),
+    )
+    presenter = Tray(lambda: None)
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(RefreshProviderModels("openai", "refresh-1"))
+    runtime.drain_commands()
+    assert presenter.model_selections[-1].refreshing is True
+    supervisor.work["provider-models:refresh-1"]()
+    runtime.drain_commands()
+    assert runtime._available_models == ("model", "remote-a", "remote-b")
+    assert presenter.model_selections[-1].refreshing is False
+    assert view.provider_settings_states[-1].operation_state == "succeeded"
+
+
+def test_refresh_failure_keeps_previous_catalog() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime(discover_provider_models=lambda _provider: ())
+    presenter = Tray(lambda: None)
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(RefreshProviderModels("openai", "refresh-empty"))
+    runtime.drain_commands()
+    supervisor.work["provider-models:refresh-empty"]()
+    runtime.drain_commands()
+    assert runtime._available_models == ("model", "new-model")
+    assert view.provider_settings_states[-1].operation_state == "failed"
+
+
+def test_late_model_refresh_result_cannot_replace_newer_catalog() -> None:
+    calls = iter((("old-model",), ("new-model-remote",)))
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(discover_provider_models=lambda _provider: next(calls))
+    runtime.enqueue(RefreshProviderModels("openai", "old-refresh"))
+    runtime.drain_commands()
+    runtime.enqueue(RefreshProviderModels("openai", "new-refresh"))
+    runtime.drain_commands()
+    supervisor.work["provider-models:old-refresh"]()
+    runtime.drain_commands()
+    assert runtime._available_models == ("model", "new-model")
+    supervisor.work["provider-models:new-refresh"]()
+    runtime.drain_commands()
+    assert runtime._available_models == ("model", "new-model-remote")
+
+
+def test_gateway_model_selection_uses_clipai_env_name() -> None:
+    preferences = ModelPreferences()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(model_preferences=preferences)
+    binding = ProviderExecutionBinding(FakeProvider(), "gateway", "old")
+    runtime._active_provider_binding = binding
+    runtime._provider_bindings["gateway"] = binding
+    runtime._provider_name = "gateway"
+    runtime._model = "old"
+    runtime._available_models = ("old", "new")
+    runtime._provider_options = (ProviderOption("gateway", "Gateway", ("old", "new"), "old", True),)
+    presenter = Tray(lambda: None)
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(SelectProviderModel("gateway", "new"))
+    runtime.drain_commands()
+    assert preferences.saved == [("CLIPAI_GATEWAY_MODEL", "new")]
 
 
 def test_global_speech_command_is_supervised_without_creating_session() -> None:

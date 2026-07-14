@@ -26,13 +26,7 @@ class ProviderModelCatalogClient:
             self._raise_for_status("Gateway", response)
             return _data_models(response.payload)
         if provider_id == "gemini" and isinstance(settings, GeminiSettings):
-            response = self._transport.get(
-                f"{settings.base_url.rstrip('/')}/v1beta/models",
-                params={"key": api_key},
-                timeout=settings.timeout_sec,
-            )
-            self._raise_for_status("Gemini", response)
-            return _gemini_models(response.payload)
+            return self._list_gemini(settings, api_key)
         if provider_id == "openai" and isinstance(settings, OpenAISettings):
             response = self._transport.get(
                 f"{settings.base_url.rstrip('/')}/v1/models",
@@ -50,6 +44,25 @@ class ProviderModelCatalogClient:
             self._raise_for_status("Anthropic", response)
             return _data_models(response.payload)
         raise ProviderResponseError("Unsupported provider configuration")
+
+    def _list_gemini(self, settings: GeminiSettings, api_key: str) -> tuple[str, ...]:
+        models: list[str] = []
+        page_token = ""
+        for _page in range(100):
+            params = {"key": api_key}
+            if page_token:
+                params["pageToken"] = page_token
+            response = self._transport.get(
+                f"{settings.base_url.rstrip('/')}/v1beta/models",
+                params=params,
+                timeout=settings.timeout_sec,
+            )
+            self._raise_for_status("Gemini", response)
+            models.extend(_gemini_models(response.payload))
+            page_token = str(response.payload.get("nextPageToken") or "")
+            if not page_token:
+                return tuple(dict.fromkeys(models))
+        raise ProviderResponseError("Gemini model catalog exceeded the pagination limit")
 
     def _test_gateway_completion(self, settings: GatewaySettings, api_key: str) -> tuple[str, ...]:
         from ClipAI.core.models import LLMMessage, LLMRequest
@@ -88,6 +101,9 @@ def _gemini_models(payload: Any) -> tuple[str, ...]:
     values = []
     for item in payload["models"]:
         if not isinstance(item, dict):
+            continue
+        methods = item.get("supportedGenerationMethods")
+        if isinstance(methods, list) and "generateContent" not in methods:
             continue
         name = str(item.get("name") or "")
         if name.startswith("models/"):
