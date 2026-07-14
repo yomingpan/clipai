@@ -49,3 +49,11 @@ Technology should not replace human growth.
 It should create more opportunities for it.
 
 **AI should make us better thinkers, not just faster workers.**
+
+---
+
+## Provider and model settings
+
+ClipAI can switch providers and models from the system Tray. See
+[Provider and model settings](docs/PROVIDER_SETTINGS.md) for `.env`, API key,
+custom gateway, reload, and model refresh behavior.
