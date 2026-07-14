@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, SelectProviderModel, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ModelSelectionState, ShortcutDefinition, WorkflowStep
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, ReloadConfiguration, SelectProvider, SelectProviderModel, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ModelSelectionState, ProviderOption, ProviderSelectionState, ReadinessIssue, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.providers.fake import FakeProvider
-from ClipAI.services.provider_binding import ProviderExecutionBinding
+from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
 
 
 class FakeView:
@@ -114,6 +114,7 @@ class Tray:
         self.started = False
         self.stopped = False
         self.model_selections = []
+        self.provider_selections = []
 
     def start(self) -> None:
         self.started = True
@@ -124,16 +125,19 @@ class Tray:
     def set_model_selection(self, selection) -> None:
         self.model_selections.append(selection)
 
+    def set_provider_selection(self, selection) -> None:
+        self.provider_selections.append(selection)
+
 
 class ModelPreferences:
     def __init__(self, error=None) -> None:
         self.saved = []
         self.error = error
 
-    def save_model(self, env_name, model) -> None:
+    def save_settings(self, settings) -> None:
         if self.error:
             raise self.error
-        self.saved.append((env_name, model))
+        self.saved.extend((setting.name, setting.value) for setting in settings)
 
 
 class Operation:
@@ -165,6 +169,9 @@ class OperationTracker:
 
     def report_error(self, message, suggestion="") -> None:
         self.events.append(("report_error", message, suggestion))
+
+    def report_waiting(self) -> None:
+        self.events.append(("waiting",))
 
     @property
     def last_error(self):
@@ -261,7 +268,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None):
     action = ActionDefinition("a", "Action", "system", "{input}", {})
     shorten = ActionDefinition("shorten", "Shorten", "system", "{input}", {})
     view = FakeView()
@@ -290,7 +297,16 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         workflow_context_reader=view,
         output_operation_presenter=view,
         available_models=("model", "new-model"),
-        model_preferences=model_preferences,
+        settings_store=model_preferences,
+        provider_options=(
+            ProviderOption("openai", "OpenAI", ("model", "new-model"), "model", True),
+            ProviderOption("gemini", "Gemini", ("gemini-model",), "gemini-model", True),
+        ),
+        provider_bindings=(
+            ProviderExecutionBinding(FakeProvider(), "openai", "model"),
+            ProviderExecutionBinding(FakeProvider(), "gemini", "gemini-model"),
+        ),
+        reload_provider_settings=reload_provider_settings,
     )
     return runtime, view, supervisor, outputs, listener
 
@@ -352,6 +368,72 @@ def test_model_selection_write_failure_keeps_previous_model() -> None:
     runtime.drain_commands()
     assert runtime._model == "model"
     assert presenter.model_selections[-1].selected_model == "model"
+    assert operations.events[-1][0] == "report_error"
+
+
+def test_provider_selection_persists_before_switching_new_workflows() -> None:
+    preferences = ModelPreferences()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(model_preferences=preferences)
+    presenter = Tray(lambda: None)
+    runtime._provider_selection_presenter = presenter
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(SelectProvider("gemini"))
+    runtime.drain_commands()
+    assert preferences.saved == [("CLIPAI_PROVIDER", "gemini")]
+    assert runtime._active_provider_binding.provider_id == "gemini"
+    assert presenter.provider_selections[-1].selected_provider == "gemini"
+    assert presenter.model_selections[-1] == ModelSelectionState("gemini", ("gemini-model",), "gemini-model")
+
+
+def test_reload_failure_keeps_previous_provider() -> None:
+    operations = OperationTracker()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        operation_tracker=operations,
+        reload_provider_settings=lambda: (_ for _ in ()).throw(ValueError("bad env")),
+    )
+    presenter = Tray(lambda: None)
+    runtime._provider_selection_presenter = presenter
+    runtime.enqueue(ReloadConfiguration())
+    runtime.drain_commands()
+    assert runtime._provider_name == "openai"
+    assert operations.events[-1][0] == "report_error"
+
+
+def test_reload_success_replaces_catalog_and_active_binding() -> None:
+    option = ProviderOption("gemini", "Gemini", ("fresh",), "fresh", True)
+    binding = ProviderExecutionBinding(FakeProvider(), "gemini", "fresh")
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        reload_provider_settings=lambda: ProviderRuntimeSnapshot("gemini", (binding,), (option,)),
+    )
+    presenter = Tray(lambda: None)
+    runtime._provider_selection_presenter = presenter
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(ReloadConfiguration())
+    runtime.drain_commands()
+    assert runtime._provider_name == "gemini"
+    assert runtime._model == "fresh"
+    assert presenter.provider_selections[-1] == ProviderSelectionState((option,), "gemini")
+
+
+def test_provider_without_key_is_rejected_without_persistence() -> None:
+    preferences = ModelPreferences()
+    operations = OperationTracker()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        model_preferences=preferences,
+        operation_tracker=operations,
+    )
+    runtime._provider_bindings["gemini"] = ProviderExecutionBinding(
+        FakeProvider(),
+        "gemini",
+        "gemini-model",
+        (ReadinessIssue("missing", "missing", "llm"),),
+    )
+    presenter = Tray(lambda: None)
+    runtime._provider_selection_presenter = presenter
+    runtime.enqueue(SelectProvider("gemini"))
+    runtime.drain_commands()
+    assert preferences.saved == []
+    assert runtime._provider_name == "openai"
     assert operations.events[-1][0] == "report_error"
 
 

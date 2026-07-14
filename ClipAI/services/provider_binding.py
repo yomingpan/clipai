@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ClipAI.core.models import ReadinessIssue
+from ClipAI.core.models import ProviderOption, ReadinessIssue
 from ClipAI.core.ports import LLMProvider
 
 
@@ -14,3 +14,10 @@ class ProviderExecutionBinding:
     provider_id: str
     model: str
     readiness_issues: tuple[ReadinessIssue, ...] = ()
+
+
+@dataclass(frozen=True)
+class ProviderRuntimeSnapshot:
+    active_provider: str
+    bindings: tuple[ProviderExecutionBinding, ...]
+    options: tuple[ProviderOption, ...]

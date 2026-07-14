@@ -7,7 +7,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from ClipAI.core.models import ApplicationStatus, ModelSelectionState
+from ClipAI.core.models import ApplicationStatus, ModelSelectionState, ProviderSelectionState
 
 logger = logging.getLogger("clipai.tray")
 
@@ -66,12 +66,18 @@ class TrayController:
         *,
         model_selection: ModelSelectionState | None = None,
         on_select_model: Callable[[str, str], None] | None = None,
+        provider_selection: ProviderSelectionState | None = None,
+        on_select_provider: Callable[[str], None] | None = None,
+        on_reload_configuration: Callable[[], None] | None = None,
     ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
         self._on_show_last_error = on_show_last_error
         self._model_selection = model_selection
         self._on_select_model = on_select_model
+        self._provider_selection = provider_selection
+        self._on_select_provider = on_select_provider
+        self._on_reload_configuration = on_reload_configuration
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -86,9 +92,16 @@ class TrayController:
             self._on_exit()
 
         menu_items = []
+        provider_menu = self._build_provider_menu(pystray)
+        if provider_menu is not None:
+            menu_items.append(provider_menu)
         model_menu = self._build_model_menu(pystray)
         if model_menu is not None:
-            menu_items.extend((model_menu, pystray.Menu.SEPARATOR))
+            menu_items.append(model_menu)
+        if self._on_reload_configuration is not None:
+            menu_items.append(pystray.MenuItem("Reload Configuration", lambda _icon, _item: self._on_reload_configuration()))
+        if provider_menu is not None or model_menu is not None or self._on_reload_configuration is not None:
+            menu_items.append(pystray.Menu.SEPARATOR)
         if self._on_show_last_error is not None:
             menu_items.extend((pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()), pystray.Menu.SEPARATOR))
         if self._on_export_diagnostics is not None:
@@ -124,6 +137,40 @@ class TrayController:
             for model in selection.available_models
         )
         return pystray.MenuItem(label, pystray.Menu(*items))
+
+    def _build_provider_menu(self, pystray):
+        selection = self._provider_selection
+        if selection is None or self._on_select_provider is None:
+            return None
+        label = "Provider (reloading)..." if selection.reloading else (f"Provider ({selection.pending_provider})..." if selection.pending_provider else f"Provider: {selection.selected_provider}")
+        items = tuple(
+            pystray.MenuItem(
+                option.display_name,
+                self._provider_action(option.provider_id),
+                checked=lambda _item, chosen=option.provider_id: self._provider_selection is not None and self._provider_selection.selected_provider == chosen,
+                enabled=lambda _item, chosen=option.provider_id: self._provider_selection is not None and self._provider_selection.pending_provider is None and not self._provider_selection.reloading and chosen != self._provider_selection.selected_provider,
+            )
+            for option in selection.providers
+        )
+        return pystray.MenuItem(label, pystray.Menu(*items))
+
+    def _provider_action(self, provider: str):
+        def select(_icon, _item) -> None:
+            self._select_provider(provider)
+
+        return select
+
+    def _select_provider(self, provider: str) -> None:
+        selection = self._provider_selection
+        if selection is None or self._on_select_provider is None or selection.pending_provider is not None or provider == selection.selected_provider:
+            return
+        self._provider_selection = ProviderSelectionState(selection.providers, selection.selected_provider, provider)
+        self._refresh_menu()
+        self._on_select_provider(provider)
+
+    def set_provider_selection(self, selection: ProviderSelectionState) -> None:
+        self._provider_selection = selection
+        self._refresh_menu()
 
     def _model_action(self, model: str):
         def select(_icon, _item) -> None:

@@ -6,14 +6,15 @@ import queue
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, PasteResult, SelectProviderModel, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent
-from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, ModelPreferenceStore, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, RuntimeComponent, Stoppable, UserNotifier
+from ClipAI.core.errors import ConfigError
+from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, PasteResult, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActionInvocation, EnvironmentSetting, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, ProviderOption, ProviderSelectionState
+from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, EnvironmentSettingsStore, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, RuntimeComponent, Stoppable, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.output_actions import OutputActions
-from ClipAI.services.provider_binding import ProviderExecutionBinding
+from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
 from ClipAI.services.output_operation import OutputOperationCoordinator
 from ClipAI.services.input_target_resolver import InputTargetResolver
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -57,8 +58,12 @@ class AppRuntime:
         workflow_context_reader: ActiveWorkflowContextReader,
         output_operation_presenter: OutputOperationPresenter,
         available_models: tuple[str, ...] = (),
-        model_preferences: ModelPreferenceStore | None = None,
+        settings_store: EnvironmentSettingsStore | None = None,
         model_selection_presenter: ModelSelectionPresenter | None = None,
+        provider_options: tuple[ProviderOption, ...] = (),
+        provider_bindings: tuple[ProviderExecutionBinding, ...] = (),
+        provider_selection_presenter: ProviderSelectionPresenter | None = None,
+        reload_provider_settings: Callable[[], ProviderRuntimeSnapshot] | None = None,
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         input_targets: InputTargetResolver | None = None,
     ) -> None:
@@ -72,8 +77,14 @@ class AppRuntime:
         self._model = provider_binding.model
         self._provider_name = provider_binding.provider_id
         self._available_models = available_models or (provider_binding.model,)
-        self._model_preferences = model_preferences
+        self._settings_store = settings_store
         self._model_selection_presenter = model_selection_presenter
+        self._provider_options = provider_options or (
+            ProviderOption(provider_binding.provider_id, provider_binding.provider_id.title(), self._available_models, provider_binding.model, not provider_binding.readiness_issues),
+        )
+        self._provider_selection_presenter = provider_selection_presenter
+        self._provider_bindings = {item.provider_id: item for item in (provider_bindings or (provider_binding,))}
+        self._reload_provider_settings = reload_provider_settings
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
         self._operation_tracker = operation_tracker
@@ -221,12 +232,19 @@ class AppRuntime:
                 controller.navigate_back()
         elif isinstance(command, SelectProviderModel):
             self._select_provider_model(command)
+        elif isinstance(command, SelectProvider):
+            self._select_provider(command)
+        elif isinstance(command, ReloadConfiguration):
+            self._reload_configuration()
 
     def _model_selection(self) -> ModelSelectionState:
         return ModelSelectionState(self._provider_name, self._available_models, self._model)
 
+    def _provider_selection(self, *, reloading: bool = False) -> ProviderSelectionState:
+        return ProviderSelectionState(self._provider_options, self._provider_name, reloading=reloading)
+
     def _select_provider_model(self, command: SelectProviderModel) -> None:
-        if self._model_selection_presenter is None or self._model_preferences is None:
+        if self._model_selection_presenter is None or self._settings_store is None:
             return
         if command.provider != self._provider_name or command.model not in self._available_models:
             self._model_selection_presenter.set_model_selection(self._model_selection())
@@ -237,7 +255,7 @@ class AppRuntime:
             self._model_selection_presenter.set_model_selection(self._model_selection())
             return
         try:
-            self._model_preferences.save_model(f"{self._provider_name.upper()}_MODEL", command.model)
+            self._settings_store.save_settings((EnvironmentSetting(f"{self._provider_name.upper()}_MODEL", command.model),))
         except OSError:
             self._model_selection_presenter.set_model_selection(self._model_selection())
             if self._operation_tracker is not None:
@@ -250,7 +268,69 @@ class AppRuntime:
             model=command.model,
             readiness_issues=self._active_provider_binding.readiness_issues,
         )
+        self._provider_bindings[self._provider_name] = self._active_provider_binding
+        self._provider_options = tuple(
+            ProviderOption(option.provider_id, option.display_name, option.available_models, command.model, option.configured)
+            if option.provider_id == self._provider_name else option
+            for option in self._provider_options
+        )
         self._model_selection_presenter.set_model_selection(self._model_selection())
+        if self._provider_selection_presenter is not None:
+            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
+
+    def _select_provider(self, command: SelectProvider) -> None:
+        if self._provider_selection_presenter is None or self._settings_store is None:
+            return
+        binding = self._provider_bindings.get(command.provider)
+        option = next((item for item in self._provider_options if item.provider_id == command.provider), None)
+        if binding is None or option is None or binding.readiness_issues:
+            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
+            if self._operation_tracker is not None:
+                self._operation_tracker.report_error("Provider switch rejected.", "Configure this provider's API key and try again.")
+            return
+        if command.provider == self._provider_name:
+            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
+            return
+        try:
+            self._settings_store.save_settings((EnvironmentSetting("CLIPAI_PROVIDER", command.provider),))
+        except OSError:
+            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
+            if self._operation_tracker is not None:
+                self._operation_tracker.report_error("Could not save the provider selection.", "The previous provider remains active. Check .env permissions and try again.")
+            return
+        self._activate_provider(binding, option)
+
+    def _activate_provider(self, binding: ProviderExecutionBinding, option: ProviderOption) -> None:
+        self._active_provider_binding = binding
+        self._provider_name = binding.provider_id
+        self._model = binding.model
+        self._available_models = option.available_models
+        if self._provider_selection_presenter is not None:
+            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
+        if self._model_selection_presenter is not None:
+            self._model_selection_presenter.set_model_selection(self._model_selection())
+
+    def _reload_configuration(self) -> None:
+        if self._reload_provider_settings is None:
+            return
+        if self._provider_selection_presenter is not None:
+            self._provider_selection_presenter.set_provider_selection(self._provider_selection(reloading=True))
+        try:
+            snapshot = self._reload_provider_settings()
+            bindings = {item.provider_id: item for item in snapshot.bindings}
+            active = bindings[snapshot.active_provider]
+            option = next(item for item in snapshot.options if item.provider_id == snapshot.active_provider)
+            if active.readiness_issues:
+                raise ValueError("active provider is not configured")
+        except (ConfigError, OSError, ValueError, KeyError):
+            if self._provider_selection_presenter is not None:
+                self._provider_selection_presenter.set_provider_selection(self._provider_selection())
+            if self._operation_tracker is not None:
+                self._operation_tracker.report_error("Could not reload provider configuration.", "The previous provider remains active. Check .env and try again.")
+            return
+        self._provider_bindings = bindings
+        self._provider_options = snapshot.options
+        self._activate_provider(active, option)
 
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:

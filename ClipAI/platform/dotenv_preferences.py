@@ -4,29 +4,42 @@ import os
 from pathlib import Path
 import tempfile
 
+from ClipAI.core.models import EnvironmentSetting
+
+try:
+    from dotenv import dotenv_values
+except Exception:
+    dotenv_values = None
+
 
 class DotenvModelPreferenceStore:
     def __init__(self, path: str | Path = ".env") -> None:
         self._path = Path(path)
 
     def save_model(self, env_name: str, model: str) -> None:
+        self.save_settings((EnvironmentSetting(env_name, model),))
+
+    def save_settings(self, settings: tuple[EnvironmentSetting, ...]) -> None:
+        if not settings:
+            return
         original = self._path.read_text(encoding="utf-8") if self._path.exists() else ""
         newline = "\r\n" if "\r\n" in original else "\n"
         trailing_newline = original.endswith(("\n", "\r"))
-        replacement = f"{env_name}={model}"
         lines = original.splitlines()
-        updated = False
-        for index, line in enumerate(lines):
-            stripped = line.lstrip()
-            if stripped.startswith("#") or "=" not in stripped:
-                continue
-            if stripped.split("=", 1)[0].strip() == env_name:
-                lines[index] = replacement
-                updated = True
-                break
-        if not updated:
-            lines.append(replacement)
-            trailing_newline = True
+        for setting in settings:
+            replacement = f"{setting.name}={setting.value}"
+            updated = False
+            for index, line in enumerate(lines):
+                stripped = line.lstrip()
+                if stripped.startswith("#") or "=" not in stripped:
+                    continue
+                if stripped.split("=", 1)[0].strip() == setting.name:
+                    lines[index] = replacement
+                    updated = True
+                    break
+            if not updated:
+                lines.append(replacement)
+                trailing_newline = True
         content = newline.join(lines) + (newline if trailing_newline else "")
         self._path.parent.mkdir(parents=True, exist_ok=True)
         handle = tempfile.NamedTemporaryFile(
@@ -43,3 +56,16 @@ class DotenvModelPreferenceStore:
         except BaseException:
             temp_path.unlink(missing_ok=True)
             raise
+
+    def read_settings(self) -> dict[str, str]:
+        if not self._path.exists():
+            return {}
+        if dotenv_values is not None:
+            return {str(key): str(value) for key, value in dotenv_values(self._path).items() if value is not None}
+        values: dict[str, str] = {}
+        for line in self._path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                name, value = stripped.split("=", 1)
+                values[name.strip()] = value.strip().strip("'\"")
+        return values

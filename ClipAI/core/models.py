@@ -31,6 +31,29 @@ class ModelSelectionState:
 
 
 @dataclass(frozen=True)
+class ProviderOption:
+    provider_id: str
+    display_name: str
+    available_models: tuple[str, ...]
+    selected_model: str
+    configured: bool
+
+
+@dataclass(frozen=True)
+class ProviderSelectionState:
+    providers: tuple[ProviderOption, ...]
+    selected_provider: str
+    pending_provider: str | None = None
+    reloading: bool = False
+
+
+@dataclass(frozen=True)
+class EnvironmentSetting:
+    name: str
+    value: str
+
+
+@dataclass(frozen=True)
 class TextContent:
     text: str
 

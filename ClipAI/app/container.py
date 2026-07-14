@@ -8,8 +8,8 @@ from ClipAI.app.config_schema import ConfigBundle
 from ClipAI.core.errors import ConfigError
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ExportDiagnostics, SelectProviderModel, ShutdownApplication
-from ClipAI.core.models import ModelSelectionState
+from ClipAI.core.commands import ExportDiagnostics, ReloadConfiguration, SelectProvider, SelectProviderModel, ShutdownApplication
+from ClipAI.core.models import ModelSelectionState, ProviderOption, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider
 from ClipAI.platform.clipboard import SystemClipboard
@@ -27,7 +27,7 @@ from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
-from ClipAI.services.provider_binding import ProviderExecutionBinding
+from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
@@ -43,19 +43,25 @@ from ClipAI.support.diagnostics import SafeDiagnosticsExporter
 
 def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     configure_logging(bundle.logging)
-    credential = _resolve_active_credential(bundle)
-    readiness_issues = assess_provider_readiness(bundle.providers, credential)
-    provider, model = _build_provider(bundle, credential)
-    active_settings = bundle.providers.active_settings()
-    available_models = active_settings.available_models if active_settings is not None else (model,)
+    settings_store = DotenvModelPreferenceStore()
+    snapshot = _build_provider_snapshot(bundle)
+    active_binding = next(item for item in snapshot.bindings if item.provider_id == snapshot.active_provider)
+    active_option = next(item for item in snapshot.options if item.provider_id == snapshot.active_provider)
+    credential = _credential_for(bundle, snapshot.active_provider)
+    provider, model = active_binding.provider, active_binding.model
+    readiness_issues = active_binding.readiness_issues
+    available_models = active_option.available_models
     clipboard = SystemClipboard()
     runtime_holder: list[AppRuntime] = []
     tray = TrayController(
         lambda: runtime_holder[0].enqueue(ShutdownApplication()),
         lambda: runtime_holder[0].enqueue(ExportDiagnostics()),
         lambda: runtime_holder[0].show_last_error(),
-        model_selection=ModelSelectionState(bundle.providers.active, available_models, model),
+        model_selection=ModelSelectionState(snapshot.active_provider, available_models, model),
         on_select_model=lambda provider_name, selected_model: runtime_holder[0].enqueue(SelectProviderModel(provider_name, selected_model)),
+        provider_selection=ProviderSelectionState(snapshot.options, snapshot.active_provider),
+        on_select_provider=lambda provider_name: runtime_holder[0].enqueue(SelectProvider(provider_name)),
+        on_reload_configuration=lambda: runtime_holder[0].enqueue(ReloadConfiguration()),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
@@ -69,7 +75,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
                 "shortcuts": bundle.schema_versions.shortcuts,
                 "output_profiles": bundle.schema_versions.output_profiles,
             },
-            "provider": bundle.providers.active,
+            "provider": snapshot.active_provider,
             "model": model,
             "ready": not readiness_issues,
             "readiness_codes": [issue.code for issue in readiness_issues],
@@ -129,7 +135,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         output_actions=output_actions,
         view=view,
         supervisor=TaskSupervisor(bundle.runtime.max_workers),
-        provider_binding=ProviderExecutionBinding(provider, bundle.providers.active, model, readiness_issues),
+        provider_binding=active_binding,
         hotkey_registrar=register,
         tray_factory=lambda _on_exit: tray,
         operation_tracker=operation_tracker,
@@ -139,8 +145,12 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         workflow_context_reader=view,
         output_operation_presenter=view,
         available_models=available_models,
-        model_preferences=DotenvModelPreferenceStore(),
+        settings_store=settings_store,
         model_selection_presenter=tray,
+        provider_options=snapshot.options,
+        provider_bindings=snapshot.bindings,
+        provider_selection_presenter=tray,
+        reload_provider_settings=lambda: _build_provider_snapshot(bundle, {**os.environ, **settings_store.read_settings()}),
     )
     runtime_holder.append(runtime)
     return runtime
@@ -161,6 +171,47 @@ def _build_provider(bundle: ConfigBundle, credential: ProviderCredential | None 
     if active == "anthropic":
         return AnthropicProvider(bundle.providers.anthropic, credential), model
     raise ValueError(f"unsupported provider: {active}")
+
+
+def _build_provider_snapshot(bundle: ConfigBundle, environment=None) -> ProviderRuntimeSnapshot:
+    values = os.environ if environment is None else environment
+    active = (values.get("CLIPAI_PROVIDER") or bundle.providers.active).strip().lower()
+    allowed = ("gemini", "openai", "anthropic")
+    if active == "fake":
+        binding = ProviderExecutionBinding(FakeProvider(), "fake", "fake-model")
+        option = ProviderOption("fake", "Fake", ("fake-model",), "fake-model", True)
+        return ProviderRuntimeSnapshot("fake", (binding,), (option,))
+    if active not in allowed:
+        raise ConfigError(f"CLIPAI_PROVIDER must be one of: {', '.join(allowed)}")
+    bindings: list[ProviderExecutionBinding] = []
+    options: list[ProviderOption] = []
+    display_names = {"gemini": "Gemini", "openai": "OpenAI", "anthropic": "Anthropic"}
+    provider_types = {"gemini": GeminiProvider, "openai": OpenAIProvider, "anthropic": AnthropicProvider}
+    for provider_id in allowed:
+        settings = getattr(bundle.providers, provider_id)
+        credential = ProviderCredential(settings.api_key_env, values.get(settings.api_key_env))
+        model = (values.get(f"{provider_id.upper()}_MODEL") or settings.model).strip()
+        available_models = settings.available_models or (settings.model,)
+        if model not in available_models:
+            raise ConfigError(f"{provider_id.upper()}_MODEL must be one of: {', '.join(available_models)}")
+        issues = () if credential.value else (
+            ReadinessIssue(
+                "provider.missing_api_key",
+                f"Set {settings.api_key_env} and reload ClipAI to use {provider_id}.",
+                "llm",
+            ),
+        )
+        provider = provider_types[provider_id](settings, credential)
+        bindings.append(ProviderExecutionBinding(provider, provider_id, model, issues))
+        options.append(ProviderOption(provider_id, display_names[provider_id], available_models, model, not issues))
+    return ProviderRuntimeSnapshot(active, tuple(bindings), tuple(options))
+
+
+def _credential_for(bundle: ConfigBundle, provider_id: str) -> ProviderCredential | None:
+    if provider_id == "fake":
+        return None
+    settings = getattr(bundle.providers, provider_id)
+    return ProviderCredential(settings.api_key_env, os.getenv(settings.api_key_env))
 
 
 def _resolve_active_credential(bundle: ConfigBundle) -> ProviderCredential | None:

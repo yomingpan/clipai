@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.models import ModelSelectionState
+from ClipAI.core.models import ModelSelectionState, ProviderOption, ProviderSelectionState
 from ClipAI.ui.tray import STATUS_COLORS, TrayController, create_tray_image
 
 
@@ -93,3 +93,25 @@ def test_tray_accepts_authoritative_model_projection_after_pending() -> None:
     root = tray._build_model_menu(Pystray)
     assert root.text == "Model: large"
     assert root.action.items[1].checked(None) is True
+
+
+def test_tray_provider_menu_projects_options_and_emits_selection() -> None:
+    events: list[str] = []
+    selection = ProviderSelectionState(
+        (
+            ProviderOption("openai", "OpenAI", ("small",), "small", True),
+            ProviderOption("gemini", "Gemini", ("flash",), "flash", True),
+        ),
+        "openai",
+    )
+    tray = TrayController(
+        lambda: None,
+        provider_selection=selection,
+        on_select_provider=events.append,
+    )
+    root = tray._build_provider_menu(Pystray)
+    assert root.text == "Provider: openai"
+    assert [item.text for item in root.action.items] == ["OpenAI", "Gemini"]
+    root.action.items[1].action(None, None)
+    assert events == ["gemini"]
+    assert tray._build_provider_menu(Pystray).text == "Provider (gemini)..."

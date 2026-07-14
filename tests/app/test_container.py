@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 
 from ClipAI.app.config_loader import load_config_bundle
-from ClipAI.app.container import _build_provider, _resolve_active_credential, _resolve_active_model
+from ClipAI.app.container import _build_provider, _build_provider_snapshot, _resolve_active_credential, _resolve_active_model
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gemini import GeminiProvider
@@ -71,3 +71,29 @@ def test_composition_root_rejects_dotenv_model_outside_catalog(monkeypatch) -> N
     monkeypatch.setenv("GEMINI_MODEL", "unknown-model")
     with pytest.raises(ConfigError, match="GEMINI_MODEL must be one of"):
         _resolve_active_model(bundle)
+
+
+def test_provider_snapshot_uses_dotenv_provider_and_marks_missing_keys() -> None:
+    bundle = load_config_bundle()
+    snapshot = _build_provider_snapshot(
+        bundle,
+        {
+            "CLIPAI_PROVIDER": "openai",
+            "OPENAI_API_KEY": "secret-value",
+            "OPENAI_MODEL": "gpt-4.1",
+        },
+    )
+    assert snapshot.active_provider == "openai"
+    openai = next(item for item in snapshot.bindings if item.provider_id == "openai")
+    gemini = next(item for item in snapshot.bindings if item.provider_id == "gemini")
+    assert openai.model == "gpt-4.1"
+    assert openai.readiness_issues == ()
+    assert gemini.readiness_issues[0].code == "provider.missing_api_key"
+    assert "secret-value" not in repr(snapshot)
+
+
+def test_provider_snapshot_rejects_unknown_dotenv_provider() -> None:
+    from ClipAI.core.errors import ConfigError
+
+    with pytest.raises(ConfigError, match="CLIPAI_PROVIDER"):
+        _build_provider_snapshot(load_config_bundle(), {"CLIPAI_PROVIDER": "unknown"})
