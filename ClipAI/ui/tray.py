@@ -69,6 +69,7 @@ class TrayController:
         provider_selection: ProviderSelectionState | None = None,
         on_select_provider: Callable[[str], None] | None = None,
         on_reload_configuration: Callable[[], None] | None = None,
+        on_open_provider_settings: Callable[[], None] | None = None,
     ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
@@ -78,6 +79,7 @@ class TrayController:
         self._provider_selection = provider_selection
         self._on_select_provider = on_select_provider
         self._on_reload_configuration = on_reload_configuration
+        self._on_open_provider_settings = on_open_provider_settings
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -100,7 +102,9 @@ class TrayController:
             menu_items.append(model_menu)
         if self._on_reload_configuration is not None:
             menu_items.append(pystray.MenuItem("Reload Configuration", lambda _icon, _item: self._on_reload_configuration()))
-        if provider_menu is not None or model_menu is not None or self._on_reload_configuration is not None:
+        if self._on_open_provider_settings is not None:
+            menu_items.append(pystray.MenuItem("Provider Settings...", lambda _icon, _item: self._on_open_provider_settings()))
+        if provider_menu is not None or model_menu is not None or self._on_reload_configuration is not None or self._on_open_provider_settings is not None:
             menu_items.append(pystray.Menu.SEPARATOR)
         if self._on_show_last_error is not None:
             menu_items.extend((pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()), pystray.Menu.SEPARATOR))

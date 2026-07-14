@@ -20,6 +20,7 @@ InlineStyle = Literal["plain", "bold", "italic"]
 ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
+SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,16 @@ class ProviderSelectionState:
 class EnvironmentSetting:
     name: str
     value: str
+
+
+@dataclass(frozen=True)
+class ProviderSettingsState:
+    providers: tuple[ProviderOption, ...]
+    selected_provider: str
+    selected_model: str
+    operation_state: SettingsOperationState = "idle"
+    message: str = ""
+    operation_id: str = ""
 
 
 @dataclass(frozen=True)

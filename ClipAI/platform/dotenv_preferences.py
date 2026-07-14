@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import tempfile
 
 from ClipAI.core.models import EnvironmentSetting
@@ -27,6 +28,10 @@ class DotenvModelPreferenceStore:
         trailing_newline = original.endswith(("\n", "\r"))
         lines = original.splitlines()
         for setting in settings:
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", setting.name):
+                raise ValueError("environment setting name is invalid")
+            if "\r" in setting.value or "\n" in setting.value:
+                raise ValueError("environment setting value must be one line")
             replacement = f"{setting.name}={setting.value}"
             updated = False
             for index, line in enumerate(lines):

@@ -8,7 +8,7 @@ from ClipAI.app.config_schema import ConfigBundle
 from ClipAI.core.errors import ConfigError
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ExportDiagnostics, ReloadConfiguration, SelectProvider, SelectProviderModel, ShutdownApplication
+from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, ReloadConfiguration, SelectProvider, SelectProviderModel, ShutdownApplication
 from ClipAI.core.models import ModelSelectionState, ProviderOption, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider
@@ -25,6 +25,7 @@ from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
+from ClipAI.providers.model_catalog import ProviderModelCatalogClient
 from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
@@ -62,6 +63,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         provider_selection=ProviderSelectionState(snapshot.options, snapshot.active_provider),
         on_select_provider=lambda provider_name: runtime_holder[0].enqueue(SelectProvider(provider_name)),
         on_reload_configuration=lambda: runtime_holder[0].enqueue(ReloadConfiguration()),
+        on_open_provider_settings=lambda: runtime_holder[0].enqueue(OpenProviderSettings()),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
@@ -109,6 +111,22 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         archive=JsonlArchiveStore(),
         keyboard=SystemKeyboardOutput(),
     )
+    model_catalog_client = ProviderModelCatalogClient()
+
+    def validate_provider_credential(provider_id: str, api_key: str) -> None:
+        settings = getattr(bundle.providers, provider_id)
+        model_catalog_client.list_models(provider_id, settings, api_key)
+
+    def build_provider_candidate(provider_id: str, selected_model: str, api_key: str) -> ProviderRuntimeSnapshot:
+        settings = getattr(bundle.providers, provider_id)
+        environment = {
+            **os.environ,
+            **settings_store.read_settings(),
+            "CLIPAI_PROVIDER": provider_id,
+            settings.api_key_env: api_key,
+            f"{provider_id.upper()}_MODEL": selected_model,
+        }
+        return _build_provider_snapshot(bundle, environment)
 
     execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
@@ -151,6 +169,9 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         provider_bindings=snapshot.bindings,
         provider_selection_presenter=tray,
         reload_provider_settings=lambda: _build_provider_snapshot(bundle, {**os.environ, **settings_store.read_settings()}),
+        provider_settings_presenter=view,
+        validate_provider_credential=validate_provider_credential,
+        build_provider_candidate=build_provider_candidate,
     )
     runtime_holder.append(runtime)
     return runtime

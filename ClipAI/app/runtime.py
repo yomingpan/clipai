@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import logging
 import queue
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, PasteResult, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActionInvocation, EnvironmentSetting, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, ProviderOption, ProviderSelectionState
-from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, EnvironmentSettingsStore, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, RuntimeComponent, Stoppable, UserNotifier
+from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, OpenProviderSettings, PasteResult, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ActionInvocation, EnvironmentSetting, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, ProviderOption, ProviderSelectionState, ProviderSettingsState
+from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, EnvironmentSettingsStore, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, ProviderSettingsPresenter, RuntimeComponent, Stoppable, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
@@ -26,6 +27,18 @@ from ClipAI.services.workflow_registry import WorkflowRegistry
 from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime")
+
+
+@dataclass(frozen=True)
+class _ProviderSettingsSaved:
+    operation_id: str
+    snapshot: ProviderRuntimeSnapshot
+
+
+@dataclass(frozen=True)
+class _ProviderSettingsFailed:
+    operation_id: str
+    message: str
 
 
 class _HeadlessPresenter:
@@ -64,6 +77,9 @@ class AppRuntime:
         provider_bindings: tuple[ProviderExecutionBinding, ...] = (),
         provider_selection_presenter: ProviderSelectionPresenter | None = None,
         reload_provider_settings: Callable[[], ProviderRuntimeSnapshot] | None = None,
+        provider_settings_presenter: ProviderSettingsPresenter | None = None,
+        validate_provider_credential: Callable[[str, str], None] | None = None,
+        build_provider_candidate: Callable[[str, str, str], ProviderRuntimeSnapshot] | None = None,
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         input_targets: InputTargetResolver | None = None,
     ) -> None:
@@ -85,6 +101,10 @@ class AppRuntime:
         self._provider_selection_presenter = provider_selection_presenter
         self._provider_bindings = {item.provider_id: item for item in (provider_bindings or (provider_binding,))}
         self._reload_provider_settings = reload_provider_settings
+        self._provider_settings_presenter = provider_settings_presenter
+        self._validate_provider_credential = validate_provider_credential
+        self._build_provider_candidate = build_provider_candidate
+        self._provider_settings_operation_id = ""
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
         self._operation_tracker = operation_tracker
@@ -236,6 +256,14 @@ class AppRuntime:
             self._select_provider(command)
         elif isinstance(command, ReloadConfiguration):
             self._reload_configuration()
+        elif isinstance(command, OpenProviderSettings):
+            self._open_provider_settings(command.provider)
+        elif isinstance(command, ValidateAndSaveProviderSettings):
+            self._validate_and_save_provider_settings(command)
+        elif isinstance(command, _ProviderSettingsSaved):
+            self._provider_settings_saved(command)
+        elif isinstance(command, _ProviderSettingsFailed):
+            self._provider_settings_failed(command)
 
     def _model_selection(self) -> ModelSelectionState:
         return ModelSelectionState(self._provider_name, self._available_models, self._model)
@@ -287,6 +315,7 @@ class AppRuntime:
             self._provider_selection_presenter.set_provider_selection(self._provider_selection())
             if self._operation_tracker is not None:
                 self._operation_tracker.report_error("Provider switch rejected.", "Configure this provider's API key and try again.")
+            self._open_provider_settings(command.provider)
             return
         if command.provider == self._provider_name:
             self._provider_selection_presenter.set_provider_selection(self._provider_selection())
@@ -331,6 +360,99 @@ class AppRuntime:
         self._provider_bindings = bindings
         self._provider_options = snapshot.options
         self._activate_provider(active, option)
+
+    def _provider_settings_state(
+        self,
+        provider: str,
+        *,
+        operation_state: str = "idle",
+        message: str = "",
+        operation_id: str = "",
+    ) -> ProviderSettingsState:
+        option = next((item for item in self._provider_options if item.provider_id == provider), None)
+        if option is None:
+            option = next(item for item in self._provider_options if item.provider_id == self._provider_name)
+        return ProviderSettingsState(
+            self._provider_options,
+            option.provider_id,
+            option.selected_model,
+            operation_state,  # type: ignore[arg-type]
+            message,
+            operation_id,
+        )
+
+    def _open_provider_settings(self, provider: str | None = None) -> None:
+        if self._provider_settings_presenter is None:
+            return
+        selected = provider if provider and any(item.provider_id == provider for item in self._provider_options) else self._provider_name
+        self._provider_settings_presenter.show_provider_settings(self._provider_settings_state(selected))
+
+    def _validate_and_save_provider_settings(self, command: ValidateAndSaveProviderSettings) -> None:
+        if (
+            self._provider_settings_presenter is None
+            or self._settings_store is None
+            or self._validate_provider_credential is None
+            or self._build_provider_candidate is None
+        ):
+            return
+        option = next((item for item in self._provider_options if item.provider_id == command.provider), None)
+        operation_id = command.operation_id or uuid.uuid4().hex
+        if option is None or command.model not in option.available_models or not command.api_key.strip():
+            self._provider_settings_presenter.set_provider_settings(
+                self._provider_settings_state(command.provider, operation_state="failed", message="Provider, model, and API key are required.")
+            )
+            return
+        self._provider_settings_operation_id = operation_id
+        self._provider_settings_presenter.set_provider_settings(
+            self._provider_settings_state(command.provider, operation_state="pending", message="Validating provider credentials...", operation_id=operation_id)
+        )
+
+        def work() -> None:
+            try:
+                self._validate_provider_credential(command.provider, command.api_key)
+                candidate = self._build_provider_candidate(command.provider, command.model, command.api_key)
+                self._settings_store.save_settings(
+                    (
+                        EnvironmentSetting("CLIPAI_PROVIDER", command.provider),
+                        EnvironmentSetting(f"{command.provider.upper()}_API_KEY", command.api_key),
+                        EnvironmentSetting(f"{command.provider.upper()}_MODEL", command.model),
+                    )
+                )
+            except BaseException as exc:
+                self.enqueue(_ProviderSettingsFailed(operation_id, _safe_provider_settings_error(exc)))
+                return
+            self.enqueue(_ProviderSettingsSaved(operation_id, candidate))
+
+        self._supervisor.submit(
+            f"provider-settings:{operation_id}",
+            work,
+            lambda error: self.enqueue(_ProviderSettingsFailed(operation_id, _safe_provider_settings_error(error))),
+        )
+
+    def _provider_settings_saved(self, command: _ProviderSettingsSaved) -> None:
+        if command.operation_id != self._provider_settings_operation_id:
+            return
+        self._provider_settings_operation_id = ""
+        self._provider_bindings = {item.provider_id: item for item in command.snapshot.bindings}
+        self._provider_options = command.snapshot.options
+        active = self._provider_bindings[command.snapshot.active_provider]
+        option = next(item for item in self._provider_options if item.provider_id == command.snapshot.active_provider)
+        self._activate_provider(active, option)
+        if self._provider_settings_presenter is not None:
+            self._provider_settings_presenter.set_provider_settings(
+                self._provider_settings_state(active.provider_id, operation_state="succeeded", message="Provider settings saved.")
+            )
+
+    def _provider_settings_failed(self, command: _ProviderSettingsFailed) -> None:
+        if command.operation_id != self._provider_settings_operation_id:
+            return
+        self._provider_settings_operation_id = ""
+        if self._provider_settings_presenter is not None:
+            self._provider_settings_presenter.set_provider_settings(
+                self._provider_settings_state(self._provider_name, operation_state="failed", message=command.message)
+            )
+        if self._operation_tracker is not None:
+            self._operation_tracker.report_error("Provider settings were not saved.", command.message)
 
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:
@@ -640,3 +762,19 @@ class AppRuntime:
         incident_id = self._incident_reporter.report(error, context="diagnostics:export")
         if self._notifier is not None:
             self._notifier.notify("ClipAI Diagnostics", f"Export failed. Incident: {incident_id}")
+
+
+def _safe_provider_settings_error(error: BaseException) -> str:
+    from ClipAI.core.errors import ProviderAuthError, ProviderResponseError, ProviderTimeoutError, ProviderUnavailableError
+
+    if isinstance(error, ProviderAuthError):
+        return "The provider rejected this API key. Check the key and try again."
+    if isinstance(error, ProviderTimeoutError):
+        return "Provider validation timed out. Try again."
+    if isinstance(error, ProviderUnavailableError):
+        return "Could not connect to the provider. Check the network and try again."
+    if isinstance(error, ProviderResponseError):
+        return str(error)
+    if isinstance(error, OSError):
+        return "Could not write .env. Check file permissions and try again."
+    return "Provider validation failed unexpectedly. Try again."
