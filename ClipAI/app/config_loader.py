@@ -9,7 +9,7 @@ import warnings
 from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings, VoiceOpenAISettings
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.models import ActionDefinition, ActionVariant, ExternalFallback, InputMode, OutputMode, OutputProfile, PressType, ShortcutCommandKind, ShortcutDefinition
-from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings
+from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -71,13 +71,14 @@ def load_app_config(path: str | Path) -> tuple[AppSettings, RuntimeSettings, Pro
     runtime = RuntimeSettings(max_workers=max_workers)
 
     provider_data = _mapping(root.get("provider"), "config.provider")
-    _reject_unknown(provider_data, {"active", "gemini", "openai", "anthropic"}, "config.provider")
-    active = cast(ProviderName, _choice(provider_data.get("active"), "config.provider.active", {"fake", "gemini", "openai", "anthropic"}, "fake"))
+    _reject_unknown(provider_data, {"active", "gemini", "openai", "anthropic", "gateway"}, "config.provider")
+    active = cast(ProviderName, _choice(provider_data.get("active"), "config.provider.active", {"fake", "gemini", "openai", "anthropic", "gateway"}, "fake"))
     providers = ProviderCatalog(
         active=active,
         gemini=_parse_gemini(_mapping(provider_data.get("gemini"), "config.provider.gemini")),
         openai=_parse_openai(_mapping(provider_data.get("openai"), "config.provider.openai")),
         anthropic=_parse_anthropic(_mapping(provider_data.get("anthropic"), "config.provider.anthropic")),
+        gateway=_parse_gateway(_mapping(provider_data.get("gateway"), "config.provider.gateway", allow_none=True)),
     )
     return app, runtime, providers, _parse_tts(root.get("tts")), _parse_voice_input(root.get("voice_input")), _parse_logging(root.get("logging"))
 
@@ -313,6 +314,19 @@ def _parse_anthropic(data: dict[str, Any]) -> AnthropicSettings:
     )
 
 
+def _parse_gateway(data: dict[str, Any]) -> GatewaySettings:
+    path = "config.provider.gateway"
+    _reject_unknown(data, {"name", "base_url", "model", "timeout_sec"}, path)
+    model = _string(data.get("model"), f"{path}.model", default="", allow_empty=True)
+    return GatewaySettings(
+        name=_string(data.get("name"), f"{path}.name", default="Custom Gateway", allow_empty=True),
+        base_url=_string(data.get("base_url"), f"{path}.base_url", default="", allow_empty=True),
+        model=model,
+        timeout_sec=_positive_number(data.get("timeout_sec"), f"{path}.timeout_sec", 60.0),
+        available_models=(model,) if model else (),
+    )
+
+
 def _model_catalog(value: Any, path: str, default_model: str) -> tuple[str, ...]:
     if value is None:
         return (default_model,)
@@ -371,10 +385,10 @@ def _reject_unknown(data: dict[str, Any], allowed: set[str], path: str) -> None:
         raise ConfigError(f"{path}.{unknown[0]} is not a supported setting")
 
 
-def _string(value: Any, path: str, *, default: str | None = None) -> str:
+def _string(value: Any, path: str, *, default: str | None = None, allow_empty: bool = False) -> str:
     if value is None and default is not None:
         return default
-    if not isinstance(value, str) or (not value.strip() and default is None):
+    if not isinstance(value, str) or (not value.strip() and default is None and not allow_empty):
         raise ConfigError(f"{path} must be a non-empty string")
     return value.strip()
 

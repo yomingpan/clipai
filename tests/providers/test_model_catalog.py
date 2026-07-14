@@ -5,7 +5,7 @@ import pytest
 from ClipAI.core.errors import ProviderAuthError, ProviderResponseError
 from ClipAI.providers.http_transport import HttpResponse
 from ClipAI.providers.model_catalog import ProviderModelCatalogClient
-from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings
+from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
 
 
 class FakeTransport:
@@ -14,6 +14,10 @@ class FakeTransport:
         self.calls = []
 
     def get(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return self.response
+
+    def post(self, url, **kwargs):
         self.calls.append((url, kwargs))
         return self.response
 
@@ -50,3 +54,23 @@ def test_catalog_rejects_auth_and_invalid_metadata_without_secret() -> None:
     invalid = ProviderModelCatalogClient(FakeTransport(HttpResponse(200, "", {"wrong": []})))
     with pytest.raises(ProviderResponseError, match="invalid model metadata"):
         invalid.list_models("openai", settings, "secret")
+
+
+def test_gateway_catalog_falls_back_to_explicit_minimal_completion() -> None:
+    class GatewayTransport:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def get(self, url, **kwargs):
+            self.calls.append(("get", url, kwargs))
+            return HttpResponse(404, "", None)
+
+        def post(self, url, **kwargs):
+            self.calls.append(("post", url, kwargs))
+            return HttpResponse(200, "", {"choices": [{"message": {"content": "OK"}}]})
+
+    transport = GatewayTransport()
+    settings = GatewaySettings("Local", "http://localhost:8000", "model-a", 10)
+    models = ProviderModelCatalogClient(transport).list_models("gateway", settings, "")
+    assert models == ("model-a",)
+    assert [call[0] for call in transport.calls] == ["get", "post"]

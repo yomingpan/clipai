@@ -456,8 +456,8 @@ def test_provider_settings_validate_then_save_and_activate() -> None:
     candidate = ProviderRuntimeSnapshot("gemini", (binding,), (option,))
     runtime, view, supervisor, _outputs, _listener = make_runtime(
         model_preferences=preferences,
-        validate_provider_credential=lambda provider, key: validated.append((provider, key)),
-        build_provider_candidate=lambda _provider, _model, _key: candidate,
+        validate_provider_credential=lambda provider, key, _base_url, _model: validated.append((provider, key)),
+        build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: candidate,
     )
     command = ValidateAndSaveProviderSettings("gemini", "gemini-model", "top-secret", "save-1")
     assert "top-secret" not in repr(command)
@@ -479,8 +479,8 @@ def test_provider_settings_validate_then_save_and_activate() -> None:
 def test_late_provider_settings_failure_cannot_replace_newer_state() -> None:
     runtime, view, supervisor, _outputs, _listener = make_runtime(
         model_preferences=ModelPreferences(),
-        validate_provider_credential=lambda _provider, _key: (_ for _ in ()).throw(RuntimeError("failed")),
-        build_provider_candidate=lambda _provider, _model, _key: (_ for _ in ()).throw(AssertionError()),
+        validate_provider_credential=lambda _provider, _key, _base_url, _model: (_ for _ in ()).throw(RuntimeError("failed")),
+        build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: (_ for _ in ()).throw(AssertionError()),
     )
     runtime.enqueue(ValidateAndSaveProviderSettings("gemini", "gemini-model", "first", "old"))
     runtime.drain_commands()
@@ -489,6 +489,44 @@ def test_late_provider_settings_failure_cannot_replace_newer_state() -> None:
     supervisor.work["provider-settings:old"]()
     runtime.drain_commands()
     assert view.provider_settings_states[-1].operation_id == "new"
+
+
+def test_gateway_settings_allow_empty_key_and_save_single_profile() -> None:
+    preferences = ModelPreferences()
+    validated = []
+    option = ProviderOption("gateway", "Local AI", ("local-model",), "local-model", True)
+    binding = ProviderExecutionBinding(FakeProvider(), "gateway", "local-model")
+    candidate = ProviderRuntimeSnapshot("gateway", (binding,), (option,), "Local AI", "http://localhost:8000/v1")
+    runtime, view, supervisor, _outputs, _listener = make_runtime(
+        model_preferences=preferences,
+        validate_provider_credential=lambda provider, key, base_url, model: validated.append((provider, key, base_url, model)),
+        build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: candidate,
+    )
+    runtime._provider_options = (*runtime._provider_options, ProviderOption("gateway", "Custom Gateway", (), "", False))
+    command = ValidateAndSaveProviderSettings(
+        "gateway",
+        "local-model",
+        "",
+        "gateway-save",
+        "Local AI",
+        "http://localhost:8000",
+    )
+    secret_url_command = ValidateAndSaveProviderSettings("gateway", "model", "", base_url="https://gateway.test?token=hidden")
+    assert "token=hidden" not in repr(secret_url_command)
+    runtime.enqueue(command)
+    runtime.drain_commands()
+    supervisor.work["provider-settings:gateway-save"]()
+    runtime.drain_commands()
+    assert validated == [("gateway", "", "http://localhost:8000", "local-model")]
+    assert preferences.saved == [
+        ("CLIPAI_PROVIDER", "gateway"),
+        ("CLIPAI_GATEWAY_NAME", "Local AI"),
+        ("CLIPAI_GATEWAY_BASE_URL", "http://localhost:8000"),
+        ("CLIPAI_GATEWAY_API_KEY", ""),
+        ("CLIPAI_GATEWAY_MODEL", "local-model"),
+    ]
+    assert runtime._provider_name == "gateway"
+    assert view.provider_settings_states[-1].operation_state == "succeeded"
 
 
 def test_global_speech_command_is_supervised_without_creating_session() -> None:

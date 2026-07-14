@@ -62,6 +62,11 @@ class ProviderSettingsState:
     operation_state: SettingsOperationState = "idle"
     message: str = ""
     operation_id: str = ""
+    gateway_name: str = ""
+    gateway_base_url: str = ""
+    gateway_key_optional: bool = False
+    model_editable: bool = False
+    test_may_incur_cost: bool = False
 
 
 @dataclass(frozen=True)

@@ -97,3 +97,19 @@ def test_provider_snapshot_rejects_unknown_dotenv_provider() -> None:
 
     with pytest.raises(ConfigError, match="CLIPAI_PROVIDER"):
         _build_provider_snapshot(load_config_bundle(), {"CLIPAI_PROVIDER": "unknown"})
+
+
+def test_provider_snapshot_builds_keyless_local_gateway() -> None:
+    snapshot = _build_provider_snapshot(
+        load_config_bundle(),
+        {
+            "CLIPAI_PROVIDER": "gateway",
+            "CLIPAI_GATEWAY_NAME": "Local AI",
+            "CLIPAI_GATEWAY_BASE_URL": "http://localhost:8000",
+            "CLIPAI_GATEWAY_MODEL": "local-model",
+        },
+    )
+    binding = next(item for item in snapshot.bindings if item.provider_id == "gateway")
+    assert snapshot.active_provider == "gateway"
+    assert snapshot.gateway_base_url == "http://localhost:8000/v1"
+    assert binding.readiness_issues == ()

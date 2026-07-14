@@ -78,8 +78,10 @@ class AppRuntime:
         provider_selection_presenter: ProviderSelectionPresenter | None = None,
         reload_provider_settings: Callable[[], ProviderRuntimeSnapshot] | None = None,
         provider_settings_presenter: ProviderSettingsPresenter | None = None,
-        validate_provider_credential: Callable[[str, str], None] | None = None,
-        build_provider_candidate: Callable[[str, str, str], ProviderRuntimeSnapshot] | None = None,
+        validate_provider_credential: Callable[[str, str, str, str], None] | None = None,
+        build_provider_candidate: Callable[[str, str, str, str, str], ProviderRuntimeSnapshot] | None = None,
+        gateway_name: str = "",
+        gateway_base_url: str = "",
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         input_targets: InputTargetResolver | None = None,
     ) -> None:
@@ -104,6 +106,8 @@ class AppRuntime:
         self._provider_settings_presenter = provider_settings_presenter
         self._validate_provider_credential = validate_provider_credential
         self._build_provider_candidate = build_provider_candidate
+        self._gateway_name = gateway_name
+        self._gateway_base_url = gateway_base_url
         self._provider_settings_operation_id = ""
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
@@ -379,6 +383,11 @@ class AppRuntime:
             operation_state,  # type: ignore[arg-type]
             message,
             operation_id,
+            self._gateway_name,
+            self._gateway_base_url,
+            option.provider_id == "gateway",
+            option.provider_id == "gateway",
+            option.provider_id == "gateway",
         )
 
     def _open_provider_settings(self, provider: str | None = None) -> None:
@@ -397,7 +406,10 @@ class AppRuntime:
             return
         option = next((item for item in self._provider_options if item.provider_id == command.provider), None)
         operation_id = command.operation_id or uuid.uuid4().hex
-        if option is None or command.model not in option.available_models or not command.api_key.strip():
+        model_allowed = command.model in option.available_models if option and option.provider_id != "gateway" else bool(command.model.strip())
+        key_present = bool(command.api_key.strip()) or (option is not None and option.provider_id == "gateway")
+        gateway_fields_valid = option is None or option.provider_id != "gateway" or bool(command.server_name.strip() and command.base_url.strip())
+        if option is None or not model_allowed or not key_present or not gateway_fields_valid:
             self._provider_settings_presenter.set_provider_settings(
                 self._provider_settings_state(command.provider, operation_state="failed", message="Provider, model, and API key are required.")
             )
@@ -409,15 +421,20 @@ class AppRuntime:
 
         def work() -> None:
             try:
-                self._validate_provider_credential(command.provider, command.api_key)
-                candidate = self._build_provider_candidate(command.provider, command.model, command.api_key)
-                self._settings_store.save_settings(
-                    (
+                self._validate_provider_credential(command.provider, command.api_key, command.base_url, command.model)
+                candidate = self._build_provider_candidate(command.provider, command.model, command.api_key, command.server_name, command.base_url)
+                updates = (
+                        EnvironmentSetting("CLIPAI_PROVIDER", command.provider),
+                        EnvironmentSetting("CLIPAI_GATEWAY_NAME", command.server_name.strip()),
+                        EnvironmentSetting("CLIPAI_GATEWAY_BASE_URL", command.base_url.strip()),
+                        EnvironmentSetting("CLIPAI_GATEWAY_API_KEY", command.api_key.strip()),
+                        EnvironmentSetting("CLIPAI_GATEWAY_MODEL", command.model.strip()),
+                    ) if command.provider == "gateway" else (
                         EnvironmentSetting("CLIPAI_PROVIDER", command.provider),
                         EnvironmentSetting(f"{command.provider.upper()}_API_KEY", command.api_key),
                         EnvironmentSetting(f"{command.provider.upper()}_MODEL", command.model),
                     )
-                )
+                self._settings_store.save_settings(updates)
             except BaseException as exc:
                 self.enqueue(_ProviderSettingsFailed(operation_id, _safe_provider_settings_error(exc)))
                 return
@@ -435,6 +452,8 @@ class AppRuntime:
         self._provider_settings_operation_id = ""
         self._provider_bindings = {item.provider_id: item for item in command.snapshot.bindings}
         self._provider_options = command.snapshot.options
+        self._gateway_name = command.snapshot.gateway_name
+        self._gateway_base_url = command.snapshot.gateway_base_url
         active = self._provider_bindings[command.snapshot.active_provider]
         option = next(item for item in self._provider_options if item.provider_id == command.snapshot.active_provider)
         self._activate_provider(active, option)
@@ -765,7 +784,7 @@ class AppRuntime:
 
 
 def _safe_provider_settings_error(error: BaseException) -> str:
-    from ClipAI.core.errors import ProviderAuthError, ProviderResponseError, ProviderTimeoutError, ProviderUnavailableError
+    from ClipAI.core.errors import ConfigError, ProviderAuthError, ProviderResponseError, ProviderTimeoutError, ProviderUnavailableError
 
     if isinstance(error, ProviderAuthError):
         return "The provider rejected this API key. Check the key and try again."
@@ -774,6 +793,8 @@ def _safe_provider_settings_error(error: BaseException) -> str:
     if isinstance(error, ProviderUnavailableError):
         return "Could not connect to the provider. Check the network and try again."
     if isinstance(error, ProviderResponseError):
+        return str(error)
+    if isinstance(error, ConfigError):
         return str(error)
     if isinstance(error, OSError):
         return "Could not write .env. Check file permissions and try again."

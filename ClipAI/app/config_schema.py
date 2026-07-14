@@ -4,13 +4,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ClipAI.core.models import ReadinessIssue
-from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings, ProviderSettings
+from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings, ProviderSettings
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.support.logging_setup import LoggingSettings
 
-ProviderName = Literal["fake", "gemini", "openai", "anthropic"]
+ProviderName = Literal["fake", "gemini", "openai", "anthropic", "gateway"]
 ModifierMode = Literal["alt_shift", "ctrl_shift", "ctrl_alt"]
 
 
@@ -64,6 +64,7 @@ class ProviderCatalog:
     gemini: GeminiSettings
     openai: OpenAISettings
     anthropic: AnthropicSettings
+    gateway: GatewaySettings
 
     def active_settings(self) -> ProviderSettings | None:
         if self.active == "fake":

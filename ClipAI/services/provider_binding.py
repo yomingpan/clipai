@@ -21,3 +21,5 @@ class ProviderRuntimeSnapshot:
     active_provider: str
     bindings: tuple[ProviderExecutionBinding, ...]
     options: tuple[ProviderOption, ...]
+    gateway_name: str = ""
+    gateway_base_url: str = ""

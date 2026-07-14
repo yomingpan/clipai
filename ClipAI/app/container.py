@@ -22,11 +22,13 @@ from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.platform.notification import SystemNotifier
 from ClipAI.providers.fake import FakeProvider
+from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider, normalize_gateway_base_url
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.model_catalog import ProviderModelCatalogClient
 from ClipAI.providers.settings import ProviderCredential
+from ClipAI.providers.settings import GatewaySettings
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
 from ClipAI.services.input_resolver import InputResolver
@@ -113,11 +115,15 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
     model_catalog_client = ProviderModelCatalogClient()
 
-    def validate_provider_credential(provider_id: str, api_key: str) -> None:
-        settings = getattr(bundle.providers, provider_id)
+    def validate_provider_credential(provider_id: str, api_key: str, base_url: str, model: str) -> None:
+        settings = (
+            GatewaySettings("Custom Gateway", normalize_gateway_base_url(base_url), model, bundle.providers.gateway.timeout_sec, available_models=(model,))
+            if provider_id == "gateway"
+            else getattr(bundle.providers, provider_id)
+        )
         model_catalog_client.list_models(provider_id, settings, api_key)
 
-    def build_provider_candidate(provider_id: str, selected_model: str, api_key: str) -> ProviderRuntimeSnapshot:
+    def build_provider_candidate(provider_id: str, selected_model: str, api_key: str, server_name: str, base_url: str) -> ProviderRuntimeSnapshot:
         settings = getattr(bundle.providers, provider_id)
         environment = {
             **os.environ,
@@ -126,6 +132,15 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             settings.api_key_env: api_key,
             f"{provider_id.upper()}_MODEL": selected_model,
         }
+        if provider_id == "gateway":
+            environment.update(
+                {
+                    "CLIPAI_GATEWAY_NAME": server_name,
+                    "CLIPAI_GATEWAY_BASE_URL": base_url,
+                    "CLIPAI_GATEWAY_API_KEY": api_key,
+                    "CLIPAI_GATEWAY_MODEL": selected_model,
+                }
+            )
         return _build_provider_snapshot(bundle, environment)
 
     execute_action = ActionExecutor(
@@ -172,6 +187,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         provider_settings_presenter=view,
         validate_provider_credential=validate_provider_credential,
         build_provider_candidate=build_provider_candidate,
+        gateway_name=snapshot.gateway_name,
+        gateway_base_url=snapshot.gateway_base_url,
     )
     runtime_holder.append(runtime)
     return runtime
@@ -191,13 +208,15 @@ def _build_provider(bundle: ConfigBundle, credential: ProviderCredential | None 
         return OpenAIProvider(bundle.providers.openai, credential), model
     if active == "anthropic":
         return AnthropicProvider(bundle.providers.anthropic, credential), model
+    if active == "gateway":
+        return OpenAICompatibleGatewayProvider(bundle.providers.gateway, credential), model
     raise ValueError(f"unsupported provider: {active}")
 
 
 def _build_provider_snapshot(bundle: ConfigBundle, environment=None) -> ProviderRuntimeSnapshot:
     values = os.environ if environment is None else environment
     active = (values.get("CLIPAI_PROVIDER") or bundle.providers.active).strip().lower()
-    allowed = ("gemini", "openai", "anthropic")
+    allowed = ("gemini", "openai", "anthropic", "gateway")
     if active == "fake":
         binding = ProviderExecutionBinding(FakeProvider(), "fake", "fake-model")
         option = ProviderOption("fake", "Fake", ("fake-model",), "fake-model", True)
@@ -208,7 +227,7 @@ def _build_provider_snapshot(bundle: ConfigBundle, environment=None) -> Provider
     options: list[ProviderOption] = []
     display_names = {"gemini": "Gemini", "openai": "OpenAI", "anthropic": "Anthropic"}
     provider_types = {"gemini": GeminiProvider, "openai": OpenAIProvider, "anthropic": AnthropicProvider}
-    for provider_id in allowed:
+    for provider_id in ("gemini", "openai", "anthropic"):
         settings = getattr(bundle.providers, provider_id)
         credential = ProviderCredential(settings.api_key_env, values.get(settings.api_key_env))
         model = (values.get(f"{provider_id.upper()}_MODEL") or settings.model).strip()
@@ -225,7 +244,36 @@ def _build_provider_snapshot(bundle: ConfigBundle, environment=None) -> Provider
         provider = provider_types[provider_id](settings, credential)
         bindings.append(ProviderExecutionBinding(provider, provider_id, model, issues))
         options.append(ProviderOption(provider_id, display_names[provider_id], available_models, model, not issues))
-    return ProviderRuntimeSnapshot(active, tuple(bindings), tuple(options))
+    gateway_defaults = bundle.providers.gateway
+    gateway_name = (values.get("CLIPAI_GATEWAY_NAME") or gateway_defaults.name or "Custom Gateway").strip()
+    gateway_base_url = (values.get("CLIPAI_GATEWAY_BASE_URL") or gateway_defaults.base_url).strip()
+    gateway_model = (values.get("CLIPAI_GATEWAY_MODEL") or gateway_defaults.model).strip()
+    gateway_key = values.get("CLIPAI_GATEWAY_API_KEY") or ""
+    gateway_ready = bool(gateway_base_url and gateway_model)
+    if gateway_ready:
+        gateway_base_url = normalize_gateway_base_url(gateway_base_url)
+    elif active == "gateway":
+        raise ConfigError("CLIPAI_GATEWAY_BASE_URL and CLIPAI_GATEWAY_MODEL are required when CLIPAI_PROVIDER=gateway")
+    gateway_settings = GatewaySettings(
+        gateway_name or "Custom Gateway",
+        gateway_base_url,
+        gateway_model,
+        gateway_defaults.timeout_sec,
+        available_models=(gateway_model,) if gateway_model else (),
+    )
+    gateway_issues = () if gateway_ready else (
+        ReadinessIssue("provider.gateway_not_configured", "Configure the custom gateway before selecting it.", "llm"),
+    )
+    bindings.append(
+        ProviderExecutionBinding(
+            OpenAICompatibleGatewayProvider(gateway_settings, ProviderCredential("CLIPAI_GATEWAY_API_KEY", gateway_key)),
+            "gateway",
+            gateway_model,
+            gateway_issues,
+        )
+    )
+    options.append(ProviderOption("gateway", gateway_name or "Custom Gateway", (gateway_model,) if gateway_model else (), gateway_model, gateway_ready))
+    return ProviderRuntimeSnapshot(active, tuple(bindings), tuple(options), gateway_name or "Custom Gateway", gateway_base_url)
 
 
 def _credential_for(bundle: ConfigBundle, provider_id: str) -> ProviderCredential | None:

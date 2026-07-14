@@ -4,7 +4,8 @@ from typing import Any
 
 from ClipAI.core.errors import ProviderAuthError, ProviderResponseError
 from ClipAI.providers.http_transport import HttpResponse, HttpTransport, RequestsHttpTransport
-from ClipAI.providers.settings import AnthropicSettings, GeminiSettings, OpenAISettings, ProviderSettings
+from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider, gateway_headers, normalize_gateway_base_url
+from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings, ProviderCredential, ProviderSettings
 
 
 class ProviderModelCatalogClient:
@@ -12,8 +13,18 @@ class ProviderModelCatalogClient:
         self._transport = transport or RequestsHttpTransport()
 
     def list_models(self, provider_id: str, settings: ProviderSettings, api_key: str) -> tuple[str, ...]:
-        if not api_key.strip():
+        if provider_id != "gateway" and not api_key.strip():
             raise ProviderAuthError("API key is required")
+        if provider_id == "gateway" and isinstance(settings, GatewaySettings):
+            response = self._transport.get(
+                f"{normalize_gateway_base_url(settings.base_url)}/models",
+                headers=gateway_headers(api_key),
+                timeout=settings.timeout_sec,
+            )
+            if response.status_code in {404, 405}:
+                return self._test_gateway_completion(settings, api_key)
+            self._raise_for_status("Gateway", response)
+            return _data_models(response.payload)
         if provider_id == "gemini" and isinstance(settings, GeminiSettings):
             response = self._transport.get(
                 f"{settings.base_url.rstrip('/')}/v1beta/models",
@@ -39,6 +50,21 @@ class ProviderModelCatalogClient:
             self._raise_for_status("Anthropic", response)
             return _data_models(response.payload)
         raise ProviderResponseError("Unsupported provider configuration")
+
+    def _test_gateway_completion(self, settings: GatewaySettings, api_key: str) -> tuple[str, ...]:
+        from ClipAI.core.models import LLMMessage, LLMRequest
+
+        request = LLMRequest((LLMMessage("user", "Reply with OK."),), settings.model, 0.0)
+        response = self._transport.post(
+            f"{normalize_gateway_base_url(settings.base_url)}/chat/completions",
+            headers=gateway_headers(api_key),
+            json=OpenAICompatibleGatewayProvider.to_payload(request),
+            timeout=settings.timeout_sec,
+        )
+        self._raise_for_status("Gateway", response)
+        if not OpenAICompatibleGatewayProvider.extract_text(response.payload).strip():
+            raise ProviderResponseError("Gateway returned an invalid Chat Completions response")
+        return (settings.model,)
 
     @staticmethod
     def _raise_for_status(name: str, response: HttpResponse) -> None:

@@ -40,4 +40,14 @@ class AnthropicSettings:
     available_models: tuple[str, ...] = ()
 
 
-ProviderSettings = GeminiSettings | OpenAISettings | AnthropicSettings
+@dataclass(frozen=True)
+class GatewaySettings:
+    name: str
+    base_url: str
+    model: str
+    timeout_sec: float
+    api_key_env: str = "CLIPAI_GATEWAY_API_KEY"
+    available_models: tuple[str, ...] = ()
+
+
+ProviderSettings = GeminiSettings | OpenAISettings | AnthropicSettings | GatewaySettings

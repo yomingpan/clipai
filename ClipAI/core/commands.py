@@ -120,6 +120,8 @@ class ValidateAndSaveProviderSettings:
     model: str
     api_key: str = field(repr=False)
     operation_id: str = ""
+    server_name: str = ""
+    base_url: str = field(default="", repr=False)
 
 
 AppCommand: TypeAlias = ShortcutTriggered | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings
