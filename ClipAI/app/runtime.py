@@ -13,6 +13,7 @@ from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.output_actions import OutputActions
+from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.output_operation import OutputOperationCoordinator
 from ClipAI.services.input_target_resolver import InputTargetResolver
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -45,7 +46,7 @@ class AppRuntime:
         output_actions: OutputActions,
         view: ApplicationView,
         supervisor: TaskSupervisor,
-        model: str,
+        provider_binding: ProviderExecutionBinding,
         hotkey_registrar: Callable[[dict[str, dict[str, str]], Callable[[str, str], None]], Stoppable],
         tray_factory: Callable[[Callable[[], None]], RuntimeComponent] | None = None,
         operation_tracker: OperationTracker | None = None,
@@ -55,7 +56,6 @@ class AppRuntime:
         speech_coordinator: SpeechCoordinator | None = None,
         workflow_context_reader: ActiveWorkflowContextReader,
         output_operation_presenter: OutputOperationPresenter,
-        provider_name: str = "fake",
         available_models: tuple[str, ...] = (),
         model_preferences: ModelPreferenceStore | None = None,
         model_selection_presenter: ModelSelectionPresenter | None = None,
@@ -68,9 +68,10 @@ class AppRuntime:
         self._output_actions = output_actions
         self._view = view
         self._supervisor = supervisor
-        self._model = model
-        self._provider_name = provider_name
-        self._available_models = available_models or (model,)
+        self._active_provider_binding = provider_binding
+        self._model = provider_binding.model
+        self._provider_name = provider_binding.provider_id
+        self._available_models = available_models or (provider_binding.model,)
         self._model_preferences = model_preferences
         self._model_selection_presenter = model_selection_presenter
         self._hotkey_registrar = hotkey_registrar
@@ -92,6 +93,7 @@ class AppRuntime:
         self._commands: queue.Queue[AppCommand] = queue.Queue()
         self._workflow_registry = WorkflowRegistry()
         self._workflows = self._workflow_registry.workflows
+        self._workflow_provider_bindings: dict[str, ProviderExecutionBinding] = {}
         self._listener: Stoppable | None = None
         self._tray: RuntimeComponent | None = None
         self._stopping = False
@@ -242,6 +244,12 @@ class AppRuntime:
                 self._operation_tracker.report_error("Could not save the model selection.", "The previous model remains active. Check .env permissions and try again.")
             return
         self._model = command.model
+        self._active_provider_binding = ProviderExecutionBinding(
+            provider=self._active_provider_binding.provider,
+            provider_id=self._active_provider_binding.provider_id,
+            model=command.model,
+            readiness_issues=self._active_provider_binding.readiness_issues,
+        )
         self._model_selection_presenter.set_model_selection(self._model_selection())
 
     def _speak_selection_or_clipboard(self) -> None:
@@ -303,6 +311,7 @@ class AppRuntime:
                 self._view,
             )
             self._workflows[workflow_id] = controller
+            self._workflow_provider_bindings[workflow_id] = self._active_provider_binding
         invocation = ActionInvocation(
             invocation_id=uuid.uuid4().hex,
             action_id=action.id,
@@ -313,10 +322,10 @@ class AppRuntime:
         )
         controller.begin_invocation(invocation, action)
         self._foreground_id = workflow_id
-        invocation_model = controller.snapshot.model
+        binding = self._workflow_provider_bindings[workflow_id]
         self._supervisor.submit(
             invocation.invocation_id,
-            lambda: self._execute_action.execute_invocation(action, invocation, controller, model=invocation_model),
+            lambda: self._execute_action.execute_invocation(action, invocation, controller, binding=binding),
             lambda error: self._handle_unhandled(workflow_id, error),
         )
 
@@ -366,12 +375,14 @@ class AppRuntime:
         )
         controller.begin_invocation(invocation, action)
         self._workflows[workflow_id] = controller
+        self._workflow_provider_bindings[workflow_id] = self._active_provider_binding
         self._sequence_workflow_id = workflow_id
-        invocation_model = controller.snapshot.model
+        binding = self._workflow_provider_bindings[workflow_id]
         def execute() -> None:
-            self._execute_action.execute_invocation(action, invocation, controller, model=invocation_model)
+            self._execute_action.execute_invocation(action, invocation, controller, binding=binding)
             if controller.snapshot.status == SessionStatus.COMPLETED and self._sequence_workflow_id == workflow_id:
                 self._workflows.pop(workflow_id, None)
+                self._workflow_provider_bindings.pop(workflow_id, None)
                 self._sequence_workflow_id = None
 
         self._supervisor.submit(invocation.invocation_id, execute, lambda error: self._handle_unhandled(workflow_id, error))
@@ -381,6 +392,7 @@ class AppRuntime:
         if workflow_id is None:
             return
         controller = self._workflows.pop(workflow_id, None)
+        self._workflow_provider_bindings.pop(workflow_id, None)
         if controller is not None:
             active_id = controller.snapshot.active_invocation_id
             controller.cancel()
@@ -422,6 +434,7 @@ class AppRuntime:
             parent_step_id=parent.step_id,
         )
         controller.begin_invocation(invocation, action)
+        binding = self._workflow_provider_bindings[command.session_id]
         self._supervisor.submit(
             invocation.invocation_id,
             lambda: self._execute_action.execute_follow_up_invocation(
@@ -431,7 +444,7 @@ class AppRuntime:
                 controller,
                 original_input=previous.original_input,
                 previous_result=parent.result_text,
-                model=previous.model,
+                binding=binding,
             ),
             lambda error: self._handle_unhandled(command.session_id, error),
         )
@@ -498,6 +511,7 @@ class AppRuntime:
 
     def _close(self, session_id: str) -> None:
         controller = self._workflows.pop(session_id, None)
+        self._workflow_provider_bindings.pop(session_id, None)
         if controller:
             operation_id = self._speech_coordinator.operation_for(session_id) if self._speech_coordinator else None
             if operation_id is not None:

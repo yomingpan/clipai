@@ -27,6 +27,7 @@ from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
+from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
@@ -105,15 +106,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
 
     execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
-        provider=provider,
         prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),
         result_processor=ResultProcessor(bundle.output_profiles),
-        model=model,
         default_temperature=bundle.app.temperature,
-        provider_name=bundle.providers.active,
         available_actions=("copy", "paste", "archive", "follow_up", "speaker") if speech is not None else ("copy", "paste", "archive", "follow_up"),
         operation_tracker=operation_tracker,
-        readiness_issues=readiness_issues,
         result_router=ResultRouter(speech_coordinator),
     )
 
@@ -132,7 +129,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         output_actions=output_actions,
         view=view,
         supervisor=TaskSupervisor(bundle.runtime.max_workers),
-        model=model,
+        provider_binding=ProviderExecutionBinding(provider, bundle.providers.active, model, readiness_issues),
         hotkey_registrar=register,
         tray_factory=lambda _on_exit: tray,
         operation_tracker=operation_tracker,
@@ -141,7 +138,6 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         speech_coordinator=speech_coordinator,
         workflow_context_reader=view,
         output_operation_presenter=view,
-        provider_name=bundle.providers.active,
         available_models=available_models,
         model_preferences=DotenvModelPreferenceStore(),
         model_selection_presenter=tray,

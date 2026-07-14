@@ -7,6 +7,7 @@ from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.prompt_builder import PromptBuilder
+from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.workflow_controller import WorkflowController
@@ -83,18 +84,24 @@ def action() -> ResolvedAction:
 def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, operation_tracker=None, readiness_issues=()) -> ActionExecutor:
     return ActionExecutor(
         input_resolver=InputResolver(clipboard, selection),
-        provider=provider or FakeProvider("result"),
         prompt_builder=PromptBuilder(),
         result_processor=ResultProcessor(),
-        model="model",
         default_temperature=0.2,
-        provider_name="fake",
         operation_tracker=operation_tracker,
-        readiness_issues=readiness_issues,
     )
 
 
-def run_invocation(use_case: ActionExecutor, *, invocation_id: str = "i1") -> WorkflowController:
+def binding(provider=None, readiness_issues=()) -> ProviderExecutionBinding:
+    return ProviderExecutionBinding(provider or FakeProvider("result"), "fake", "model", readiness_issues)
+
+
+def run_invocation(
+    use_case: ActionExecutor,
+    *,
+    invocation_id: str = "i1",
+    provider=None,
+    readiness_issues=(),
+) -> WorkflowController:
     presenter = RecordingPresenter()
     controller = WorkflowController(
         SessionSnapshot("w1", 0, SessionStatus.CREATED, "english", "English", "model"),
@@ -103,7 +110,12 @@ def run_invocation(use_case: ActionExecutor, *, invocation_id: str = "i1") -> Wo
     invocation = ActionInvocation(invocation_id, "english", "short", InputTarget("external_text"), workflow_id="w1")
     resolved = action()
     controller.begin_invocation(invocation, resolved)
-    use_case.execute_invocation(resolved, invocation, controller)
+    use_case.execute_invocation(
+        resolved,
+        invocation,
+        controller,
+        binding=binding(provider, readiness_issues),
+    )
     return controller
 
 
@@ -124,7 +136,9 @@ def test_execute_invocation_appends_successful_workflow_step() -> None:
     invocation = ActionInvocation("i1", "english", "short", InputTarget("external_text"), workflow_id="w1")
     resolved = action()
     controller.begin_invocation(invocation, resolved)
-    workflow(FakeClipboard("clipboard"), FakeSelection("selected")).execute_invocation(resolved, invocation, controller)
+    workflow(FakeClipboard("clipboard"), FakeSelection("selected")).execute_invocation(
+        resolved, invocation, controller, binding=binding()
+    )
     assert controller.snapshot.status == SessionStatus.COMPLETED
     assert controller.snapshot.content == "result"
     assert controller.snapshot.steps[0].input_text == "selected"
@@ -148,12 +162,12 @@ def test_replaced_invocation_cancels_operation_without_late_success() -> None:
 
     operations = RecordingOperations()
     controller.begin_invocation(old, resolved)
+    provider = ReplacingProvider()
     workflow(
         FakeClipboard("clipboard"),
         FakeSelection("selected"),
-        provider=ReplacingProvider(),
         operation_tracker=operations,
-    ).execute_invocation(resolved, old, controller)
+    ).execute_invocation(resolved, old, controller, binding=binding(provider))
     assert operations.events == [("start", "llm:old", "llm"), ("cancel", "llm:old")]
     assert controller.snapshot.active_invocation_id == "new"
     assert controller.snapshot.content == ""
@@ -171,12 +185,12 @@ def test_llm_reports_provider_error_without_false_success() -> None:
             raise ProviderResponseError("provider failed")
 
     operations = RecordingOperations()
+    provider = FailingProvider()
     session = run_invocation(workflow(
         FakeClipboard("clipboard"),
         FakeSelection("selected"),
-        provider=FailingProvider(),
         operation_tracker=operations,
-    ))
+    ), provider=provider)
     assert operations.events == [("start", "llm:i1", "llm"), ("error", "llm:i1")]
     assert session.snapshot.status == SessionStatus.FAILED
 
@@ -187,12 +201,11 @@ def test_missing_provider_key_fails_before_input_or_provider_call() -> None:
             raise AssertionError("provider must not be called")
 
     issue = ReadinessIssue("provider.missing_api_key", "Set GEMINI_API_KEY and restart ClipAI.", "llm")
+    provider = NeverProvider()
     session = run_invocation(workflow(
         FakeClipboard("clipboard"),
         FakeSelection("selected"),
-        provider=NeverProvider(),
-        readiness_issues=(issue,),
-    ))
+    ), provider=provider, readiness_issues=(issue,))
     assert session.snapshot.status == SessionStatus.FAILED
     assert session.snapshot.error == issue.message
 
@@ -202,7 +215,7 @@ def test_empty_input_fails_without_calling_provider() -> None:
         def complete(self, request, cancellation):
             raise AssertionError("provider must not be called")
 
-    session = run_invocation(workflow(FakeClipboard(""), FakeSelection(""), NeverProvider()))
+    session = run_invocation(workflow(FakeClipboard(""), FakeSelection("")), provider=NeverProvider())
     assert session.snapshot.status == SessionStatus.FAILED
     assert "No text found" in session.snapshot.error
 
@@ -217,8 +230,8 @@ def test_follow_up_keeps_previous_context() -> None:
             return LLMResult("first" if len(self.requests) == 1 else "followed", "fake", request.model)
 
     provider = RecordingProvider()
-    use_case = workflow(FakeClipboard("appetizer"), FakeSelection(""), provider)
-    session = run_invocation(use_case)
+    use_case = workflow(FakeClipboard("appetizer"), FakeSelection(""))
+    session = run_invocation(use_case, provider=provider)
     parent = session.snapshot.steps[-1]
     follow = ActionInvocation(
         "i2",
@@ -236,6 +249,7 @@ def test_follow_up_keeps_previous_context() -> None:
         session,
         original_input=session.snapshot.original_input,
         previous_result=parent.result_text,
+        binding=binding(provider),
     )
     assert session.snapshot.content == "followed"
     assert [message.role for message in provider.requests[1].messages] == ["system", "user", "assistant", "user"]

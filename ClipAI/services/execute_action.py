@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from ClipAI.core.errors import CancelledError, ClipAIError
-from ClipAI.core.models import ActionInvocation, InputDocument, LLMRequest, LLMResult, ReadinessIssue, ResolvedAction
-from ClipAI.core.ports import LLMProvider, OperationHandle, OperationTracker
+from ClipAI.core.models import ActionInvocation, InputDocument, LLMRequest, LLMResult, ResolvedAction
+from ClipAI.core.ports import OperationHandle, OperationTracker
 from ClipAI.core.state import SessionStatus
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.prompt_builder import PromptBuilder
+from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.workflow_controller import WorkflowController
@@ -16,27 +17,19 @@ class ActionExecutor:
         self,
         *,
         input_resolver: InputResolver,
-        provider: LLMProvider,
         prompt_builder: PromptBuilder,
         result_processor: ResultProcessor,
-        model: str,
         default_temperature: float,
-        provider_name: str,
         available_actions: tuple[str, ...] = ("copy", "follow_up"),
         operation_tracker: OperationTracker | None = None,
-        readiness_issues: tuple[ReadinessIssue, ...] = (),
         result_router: ResultRouter | None = None,
     ) -> None:
         self._input_resolver = input_resolver
-        self._provider = provider
         self._prompt_builder = prompt_builder
         self._result_processor = result_processor
-        self._model = model
         self._default_temperature = default_temperature
-        self._provider_name = provider_name
         self._available_actions = available_actions
         self._operation_tracker = operation_tracker
-        self._readiness_issues = readiness_issues
         self._result_router = result_router or ResultRouter()
 
     def execute_invocation(
@@ -45,11 +38,11 @@ class ActionExecutor:
         invocation: ActionInvocation,
         workflow: WorkflowController,
         *,
-        model: str | None = None,
+        binding: ProviderExecutionBinding,
     ) -> None:
         token = workflow.cancellation
         try:
-            if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id):
+            if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id, binding):
                 return
             document = invocation.input_target.document or self._input_resolver.resolve(action.input_mode)
             if workflow.update(
@@ -61,17 +54,17 @@ class ActionExecutor:
             request = self._prompt_builder.build(
                 action,
                 document.text,
-                model=model or self._model,
+                model=binding.model,
                 default_temperature=self._default_temperature,
                 image=document.image,
             )
             if workflow.update(
                 invocation.invocation_id,
                 SessionStatus.REQUESTING_PROVIDER,
-                status_text=f"Asking {self._provider_name}...",
+                status_text=f"Asking {binding.provider_id}...",
             ) is None:
                 return
-            result = self._complete_provider_for_invocation(request, invocation.invocation_id, token)
+            result = self._complete_provider_for_invocation(request, invocation.invocation_id, token, binding)
             if workflow.update(
                 invocation.invocation_id,
                 SessionStatus.PROCESSING_RESULT,
@@ -109,27 +102,27 @@ class ActionExecutor:
         *,
         original_input: str,
         previous_result: str,
-        model: str | None = None,
+        binding: ProviderExecutionBinding,
     ) -> None:
         token = workflow.cancellation
         try:
-            if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id):
+            if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id, binding):
                 return
             request = self._prompt_builder.build_follow_up(
                 action,
                 original_input=original_input,
                 previous_result=previous_result,
                 question=question,
-                model=model or self._model,
+                model=binding.model,
                 default_temperature=self._default_temperature,
             )
             if workflow.update(
                 invocation.invocation_id,
                 SessionStatus.REQUESTING_PROVIDER,
-                status_text=f"Asking {self._provider_name}...",
+                status_text=f"Asking {binding.provider_id}...",
             ) is None:
                 return
-            result = self._complete_provider_for_invocation(request, invocation.invocation_id, token)
+            result = self._complete_provider_for_invocation(request, invocation.invocation_id, token, binding)
             if workflow.update(
                 invocation.invocation_id,
                 SessionStatus.PROCESSING_RESULT,
@@ -162,12 +155,13 @@ class ActionExecutor:
         request: LLMRequest,
         invocation_id: str,
         cancellation,
+        binding: ProviderExecutionBinding,
     ) -> LLMResult:
         operation: OperationHandle | None = None
         if self._operation_tracker is not None:
             operation = self._operation_tracker.start(f"llm:{invocation_id}", "llm")
         try:
-            result = self._provider.complete(request, cancellation)
+            result = binding.provider.complete(request, cancellation)
         except CancelledError:
             if operation is not None:
                 operation.cancel()
@@ -184,8 +178,13 @@ class ActionExecutor:
             operation.succeed()
         return result
 
-    def _fail_workflow_if_not_ready(self, workflow: WorkflowController, invocation_id: str) -> bool:
-        issue = next((item for item in self._readiness_issues if item.feature == "llm"), None)
+    def _fail_workflow_if_not_ready(
+        self,
+        workflow: WorkflowController,
+        invocation_id: str,
+        binding: ProviderExecutionBinding,
+    ) -> bool:
+        issue = next((item for item in binding.readiness_issues if item.feature == "llm"), None)
         if issue is None:
             return False
         workflow.fail(invocation_id, issue.message)

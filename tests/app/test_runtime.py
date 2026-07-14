@@ -6,6 +6,8 @@ from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ModelSel
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
+from ClipAI.providers.fake import FakeProvider
+from ClipAI.services.provider_binding import ProviderExecutionBinding
 
 
 class FakeView:
@@ -57,6 +59,7 @@ class FakeExecute:
     def __init__(self) -> None:
         self.invocations = []
         self.models = []
+        self.bindings = []
 
     def execute(self, action, controller) -> None:
         pass
@@ -64,9 +67,10 @@ class FakeExecute:
     def execute_follow_up(self, action, text, controller) -> None:
         pass
 
-    def execute_invocation(self, action, invocation, controller, *, model=None) -> None:
+    def execute_invocation(self, action, invocation, controller, *, binding) -> None:
         self.invocations.append(invocation)
-        self.models.append(model)
+        self.models.append(binding.model)
+        self.bindings.append(binding)
 
     def execute_follow_up_invocation(self, *args, **kwargs) -> None:
         pass
@@ -276,7 +280,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         output_actions=outputs,
         view=view,
         supervisor=supervisor,
-        model="model",
+        provider_binding=ProviderExecutionBinding(FakeProvider(), "openai", "model"),
         hotkey_registrar=lambda _map, _callback: listener,
         tray_factory=Tray if with_tray else None,
         operation_tracker=operation_tracker,
@@ -285,7 +289,6 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         speech_coordinator=speech_coordinator,
         workflow_context_reader=view,
         output_operation_presenter=view,
-        provider_name="openai",
         available_models=("model", "new-model"),
         model_preferences=model_preferences,
     )
@@ -311,6 +314,30 @@ def test_model_selection_persists_before_switching_new_workflows() -> None:
     assert preferences.saved == [("OPENAI_MODEL", "new-model")]
     assert runtime._execute_action.models == ["model", "new-model"]
     assert presenter.model_selections[-1] == ModelSelectionState("openai", ("model", "new-model"), "new-model")
+
+
+def test_workflow_captures_provider_binding_before_runtime_switch() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    first_id = view.snapshots[-1].session_id
+    first_work = supervisor.work[runtime._workflows[first_id].snapshot.active_invocation_id]
+
+    replacement = ProviderExecutionBinding(FakeProvider("replacement"), "gemini", "gemini-model")
+    runtime._active_provider_binding = replacement
+    runtime._model = replacement.model
+    runtime._provider_name = replacement.provider_id
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    second_id = view.snapshots[-1].session_id
+    second_work = supervisor.work[runtime._workflows[second_id].snapshot.active_invocation_id]
+
+    first_work()
+    second_work()
+    assert [(item.provider_id, item.model) for item in runtime._execute_action.bindings] == [
+        ("openai", "model"),
+        ("gemini", "gemini-model"),
+    ]
 
 
 def test_model_selection_write_failure_keeps_previous_model() -> None:
