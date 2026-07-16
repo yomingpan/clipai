@@ -568,7 +568,8 @@ class AppRuntime:
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:
             return
-        self._cancel_current_speech_projection()
+        if self._cancel_current_speech_projection():
+            return
         job = self._speech_coordinator.create_job(clipboard_only=self._has_active_workflows())
         intent = OutputOperationIntent(job.operation_id, job.workflow_id, "speech", "")
         operation = self._output_operations.begin(intent)
@@ -808,19 +809,21 @@ class AppRuntime:
         if current and controller is not None:
             controller.set_speaking(False)
 
-    def _cancel_current_speech_projection(self) -> None:
+    def _cancel_current_speech_projection(self) -> bool:
         if self._speech_coordinator is None:
-            return
+            return False
         identity = self._speech_coordinator.current_identity
         if identity is None:
-            return
+            return False
         operation_id, workflow_id = identity
-        self._speech_coordinator.cancel_operation(operation_id)
+        if not self._speech_coordinator.cancel_operation(operation_id):
+            return False
         self._supervisor.cancel(operation_id)
         self._output_operations.cancel(OutputOperationIntent(operation_id, workflow_id, "speech", ""))
         previous = self._workflows.get(workflow_id)
         if previous is not None:
             previous.set_speaking(False)
+        return True
 
     def _close(self, session_id: str) -> None:
         controller = self._workflows.pop(session_id, None)

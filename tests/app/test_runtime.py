@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ModelSelectionState, ProviderOption, ProviderSelectionState, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -220,17 +220,27 @@ class GlobalSpeech:
         self.clipboard_only: list[bool] = []
         self.calls: list[str] = []
         self.cancelled = 0
+        self.current = None
 
     def create_job(self, *, clipboard_only: bool) -> SpeechJob:
         self.clipboard_only.append(clipboard_only)
+        self.current = (SpeechJob.operation_id, SpeechJob.workflow_id)
         return SpeechJob(self.calls)
 
     def cancel_current(self) -> None:
+        if self.current is not None:
+            self.cancel_operation(self.current[0])
+
+    def cancel_operation(self, operation_id: str) -> bool:
+        if self.current is None or self.current[0] != operation_id:
+            return False
+        self.current = None
         self.cancelled += 1
+        return True
 
     @property
     def current_identity(self):
-        return None
+        return self.current
 
 
 class PopupSpeech:
@@ -602,6 +612,39 @@ def test_global_speech_command_is_supervised_without_creating_session() -> None:
     assert speech.calls == ["run"]
 
 
+def test_global_speech_shortcut_stops_active_speech_without_starting_another_job() -> None:
+    speech = GlobalSpeech()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
+    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.drain_commands()
+
+    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.drain_commands()
+
+    assert speech.clipboard_only == [False]
+    assert speech.cancelled == 1
+    assert speech.current_identity is None
+    assert supervisor.cancelled == [SpeechJob.operation_id]
+    assert [(result.operation_id, result.state) for result in view.output_results] == [
+        (SpeechJob.operation_id, "pending"),
+        (SpeechJob.operation_id, "cancelled"),
+    ]
+
+
+def test_long_speech_shortcut_keeps_active_speech_and_arms_sequence() -> None:
+    speech = GlobalSpeech()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
+    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.drain_commands()
+
+    runtime.enqueue(ShortcutTriggered("speech", "long"))
+    runtime.drain_commands()
+
+    assert speech.current_identity == (SpeechJob.operation_id, SpeechJob.workflow_id)
+    assert speech.cancelled == 0
+    assert speech.clipboard_only == [False]
+
+
 def test_global_speech_uses_clipboard_only_when_session_exists() -> None:
     speech = GlobalSpeech()
     runtime, _view, _supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
@@ -767,6 +810,46 @@ def test_speech_runs_as_supervised_output_and_can_stop() -> None:
     work()
     assert outputs.spoken == ["speak me"]
     assert controller.snapshot.speaking is False
+
+
+def test_global_speech_shortcut_stops_popup_speech_and_resets_speaker_state() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    controller = runtime._workflows[session_id]
+    controller._snapshot = controller.snapshot.evolve(content="speak me")
+    runtime.enqueue(ToggleSpeech(session_id, operation_id="popup-speech"))
+    runtime.drain_commands()
+    assert controller.snapshot.speaking is True
+
+    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.drain_commands()
+
+    assert runtime._speech_coordinator.current_identity is None
+    assert controller.snapshot.speaking is False
+    assert outputs.stops == 1
+    assert supervisor.cancelled == ["popup-speech"]
+
+
+def test_late_completion_from_stopped_speech_cannot_clear_new_speaker_state() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    controller = runtime._workflows[session_id]
+    controller._snapshot = controller.snapshot.evolve(content="speak me")
+    runtime.enqueue(ToggleSpeech(session_id, operation_id="old-speech"))
+    runtime.drain_commands()
+    old_work = supervisor.work["old-speech"]
+
+    runtime.enqueue(SpeakSelectionOrClipboard())
+    runtime.enqueue(ToggleSpeech(session_id, operation_id="new-speech"))
+    runtime.drain_commands()
+    old_work()
+
+    assert runtime._speech_coordinator.current_identity == ("new-speech", session_id)
+    assert controller.snapshot.speaking is True
 
 
 def test_speech_prefers_selected_command_text() -> None:
