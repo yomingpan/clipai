@@ -20,7 +20,6 @@ from ClipAI.platform.dotenv_preferences import DotenvModelPreferenceStore
 from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
-from ClipAI.platform.notification import SystemNotifier
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider, normalize_gateway_base_url
 from ClipAI.providers.anthropic import AnthropicProvider
@@ -70,7 +69,6 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
-    notifier = SystemNotifier()
     diagnostics_exporter = SafeDiagnosticsExporter(
         metadata={
             "version": _application_version(),
@@ -194,7 +192,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         tray_factory=lambda _on_exit: tray,
         operation_tracker=operation_tracker,
         diagnostics_exporter=diagnostics_exporter,
-        notifier=notifier,
+        notifier=tray,
         speech_coordinator=speech_coordinator,
         workflow_context_reader=view,
         output_operation_presenter=view,

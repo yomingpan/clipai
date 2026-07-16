@@ -216,6 +216,20 @@ class TrayController:
         self._memory_active = active
         self._update_icon()
 
+    def notify(self, title: str, message: str) -> None:
+        """Show a notification through ClipAI's existing tray icon.
+
+        Using the active pystray icon avoids Plyer's separate Windows helper
+        window, which Windows otherwise presents as an additional Python icon.
+        """
+        if self._icon is None:
+            logger.warning("Cannot show notification before tray icon is ready")
+            return
+        try:
+            self._icon.notify(message, title)
+        except Exception:
+            logger.exception("Tray notification failed title=%s", title)
+
     def _update_icon(self) -> None:
         if self._icon is None:
             return

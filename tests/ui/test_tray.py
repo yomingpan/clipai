@@ -26,6 +26,14 @@ class Pystray:
     MenuItem = MenuItem
 
 
+class NotificationIcon:
+    def __init__(self) -> None:
+        self.notifications: list[tuple[str, str]] = []
+
+    def notify(self, message: str, title: str) -> None:
+        self.notifications.append((message, title))
+
+
 def test_tray_image_uses_requested_size_and_status_palette() -> None:
     image = create_tray_image("processing", size=32)
     assert image.size == (32, 32)
@@ -43,6 +51,16 @@ def test_tray_status_is_a_dumb_projection_without_reset_timer() -> None:
     tray.set_status("success")
     assert tray._status == "success"
     tray.stop()
+
+
+def test_tray_notification_uses_the_existing_icon() -> None:
+    tray = TrayController(lambda: None)
+    icon = NotificationIcon()
+    tray._icon = icon
+
+    tray.notify("ClipAI", "Configuration saved")
+
+    assert icon.notifications == [("Configuration saved", "ClipAI")]
 
 
 def test_tray_keeps_diagnostics_callback_separate_from_export_work() -> None:
