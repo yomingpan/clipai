@@ -32,19 +32,33 @@ provider:
     api_key_env: GEMINI_API_KEY
     base_url: https://generativelanguage.googleapis.com
     model: gemini-3.1-flash-lite
+    available_models:
+      - gemini-3.1-flash-lite
+      - gemini-2.5-flash
     timeout_sec: 60
   openai:
     api_key_env: OPENAI_API_KEY
     base_url: https://api.openai.com
     model: gpt-4.1-mini
+    available_models:
+      - gpt-4.1-mini
+      - gpt-4.1
     timeout_sec: 60
   anthropic:
     api_key_env: ANTHROPIC_API_KEY
     base_url: https://api.anthropic.com
     model: claude-sonnet-4-5
+    available_models:
+      - claude-sonnet-4-5
+      - claude-haiku-4-5
     timeout_sec: 60
     api_version: "2023-06-01"
     max_tokens: 1024
+  gateway:
+    name: Custom Gateway
+    base_url: ""
+    model: ""
+    timeout_sec: 60
 
 runtime:
   max_workers: 2

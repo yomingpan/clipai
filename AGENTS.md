@@ -19,6 +19,23 @@ Before changing this repository, read:
 3. Do not add an abstraction speculatively. Add one when it removes actual coupling, duplication, or state ambiguity in the current design.
 4. UI must not directly call clipboard, keyboard, TTS, archive, or provider implementations. Use typed commands and injected ports.
 
+## Progressive architecture diagnosis
+
+Temporary architectural ambiguity is acceptable during exploration only when it
+is visible, reversible, locally contained, and has a defined review trigger.
+
+Invoke `progressive-architecture-diagnosis` before adding another workaround
+when ownership is unclear; a similar bug occurs twice; a second state, queue,
+workflow, validation, or configuration mechanism appears; one module changes
+across three distinct feature requests; or architecture begins to affect
+delivery speed or product choices.
+
+A trigger requires diagnosis, not automatic refactoring. The diagnosis must
+identify a single owner (or explicitly state its absence), distinguish reusable
+capability from special case, trace boundary leakage, and propose at least one
+enforceable safeguard. Do not modify production code as part of the diagnosis
+unless the user explicitly asks for implementation.
+
 ## Intent and lifecycle rules
 
 1. Side effects require an explicit typed user intent. Speech, paste, archive, clipboard mutation, provider calls, and diagnostics export must not be inferred from popup creation, render, focus, activation, navigation, provider completion, or session revision.

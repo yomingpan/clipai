@@ -16,7 +16,7 @@ except Exception:
 def main() -> None:
     try:
         if load_dotenv:
-            load_dotenv()
+            load_dotenv(override=True)
 
         bundle = load_config_bundle()
         runtime = build_runtime(bundle)

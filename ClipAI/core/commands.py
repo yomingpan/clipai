@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypeAlias
 
 from ClipAI.core.models import HotkeyEventType, PressType, ResultRoute
@@ -93,4 +93,41 @@ class ExportDiagnostics:
     pass
 
 
-AppCommand: TypeAlias = ShortcutTriggered | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics
+@dataclass(frozen=True)
+class SelectProviderModel:
+    provider: str
+    model: str
+
+
+@dataclass(frozen=True)
+class SelectProvider:
+    provider: str
+
+
+@dataclass(frozen=True)
+class ReloadConfiguration:
+    pass
+
+
+@dataclass(frozen=True)
+class OpenProviderSettings:
+    provider: str | None = None
+
+
+@dataclass(frozen=True)
+class ValidateAndSaveProviderSettings:
+    provider: str
+    model: str
+    api_key: str = field(repr=False)
+    operation_id: str = ""
+    server_name: str = ""
+    base_url: str = field(default="", repr=False)
+
+
+@dataclass(frozen=True)
+class RefreshProviderModels:
+    provider: str = ""
+    operation_id: str = ""
+
+
+AppCommand: TypeAlias = ShortcutTriggered | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels

@@ -20,6 +20,56 @@ InlineStyle = Literal["plain", "bold", "italic"]
 ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
+SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
+
+
+@dataclass(frozen=True)
+class ModelSelectionState:
+    provider: str
+    available_models: tuple[str, ...]
+    selected_model: str
+    pending_model: str | None = None
+    refreshing: bool = False
+    custom_models: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ProviderOption:
+    provider_id: str
+    display_name: str
+    available_models: tuple[str, ...]
+    selected_model: str
+    configured: bool
+    custom_models: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ProviderSelectionState:
+    providers: tuple[ProviderOption, ...]
+    selected_provider: str
+    pending_provider: str | None = None
+    reloading: bool = False
+
+
+@dataclass(frozen=True)
+class EnvironmentSetting:
+    name: str
+    value: str
+
+
+@dataclass(frozen=True)
+class ProviderSettingsState:
+    providers: tuple[ProviderOption, ...]
+    selected_provider: str
+    selected_model: str
+    operation_state: SettingsOperationState = "idle"
+    message: str = ""
+    operation_id: str = ""
+    gateway_name: str = ""
+    gateway_base_url: str = ""
+    gateway_key_optional: bool = False
+    model_editable: bool = False
+    test_may_incur_cost: bool = False
 
 
 @dataclass(frozen=True)

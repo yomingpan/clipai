@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ShortcutDefinition, WorkflowStep
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ModelSelectionState, ProviderOption, ProviderSelectionState, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
+from ClipAI.providers.fake import FakeProvider
+from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
 
 
 class FakeView:
@@ -15,6 +17,7 @@ class FakeView:
         self.stopped = False
         self.context: ActiveWorkflowContext | None = None
         self.output_results = []
+        self.provider_settings_states = []
 
     def set_command_sink(self, sink) -> None:
         self.sink = sink
@@ -33,6 +36,12 @@ class FakeView:
 
     def present_output_operation(self, result) -> None:
         self.output_results.append(result)
+
+    def show_provider_settings(self, state) -> None:
+        self.provider_settings_states.append(state)
+
+    def set_provider_settings(self, state) -> None:
+        self.provider_settings_states.append(state)
 
 
 class FakeSupervisor:
@@ -56,6 +65,8 @@ class FakeSupervisor:
 class FakeExecute:
     def __init__(self) -> None:
         self.invocations = []
+        self.models = []
+        self.bindings = []
 
     def execute(self, action, controller) -> None:
         pass
@@ -63,8 +74,10 @@ class FakeExecute:
     def execute_follow_up(self, action, text, controller) -> None:
         pass
 
-    def execute_invocation(self, action, invocation, controller) -> None:
+    def execute_invocation(self, action, invocation, controller, *, binding) -> None:
         self.invocations.append(invocation)
+        self.models.append(binding.model)
+        self.bindings.append(binding)
 
     def execute_follow_up_invocation(self, *args, **kwargs) -> None:
         pass
@@ -107,12 +120,31 @@ class Tray:
         self.on_exit = on_exit
         self.started = False
         self.stopped = False
+        self.model_selections = []
+        self.provider_selections = []
 
     def start(self) -> None:
         self.started = True
 
     def stop(self) -> None:
         self.stopped = True
+
+    def set_model_selection(self, selection) -> None:
+        self.model_selections.append(selection)
+
+    def set_provider_selection(self, selection) -> None:
+        self.provider_selections.append(selection)
+
+
+class ModelPreferences:
+    def __init__(self, error=None) -> None:
+        self.saved = []
+        self.error = error
+
+    def save_settings(self, settings) -> None:
+        if self.error:
+            raise self.error
+        self.saved.extend((setting.name, setting.value) for setting in settings)
 
 
 class Operation:
@@ -141,6 +173,16 @@ class OperationTracker:
 
     def stop(self) -> None:
         self.stopped = True
+
+    def report_error(self, message, suggestion="") -> None:
+        self.events.append(("report_error", message, suggestion))
+
+    def report_waiting(self) -> None:
+        self.events.append(("waiting",))
+
+    @property
+    def last_error(self):
+        return None
 
 
 class Exporter:
@@ -178,17 +220,27 @@ class GlobalSpeech:
         self.clipboard_only: list[bool] = []
         self.calls: list[str] = []
         self.cancelled = 0
+        self.current = None
 
     def create_job(self, *, clipboard_only: bool) -> SpeechJob:
         self.clipboard_only.append(clipboard_only)
+        self.current = (SpeechJob.operation_id, SpeechJob.workflow_id)
         return SpeechJob(self.calls)
 
     def cancel_current(self) -> None:
+        if self.current is not None:
+            self.cancel_operation(self.current[0])
+
+    def cancel_operation(self, operation_id: str) -> bool:
+        if self.current is None or self.current[0] != operation_id:
+            return False
+        self.current = None
         self.cancelled += 1
+        return True
 
     @property
     def current_identity(self):
-        return None
+        return self.current
 
 
 class PopupSpeech:
@@ -233,7 +285,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None):
     action = ActionDefinition("a", "Action", "system", "{input}", {})
     shorten = ActionDefinition("shorten", "Shorten", "system", "{input}", {})
     view = FakeView()
@@ -252,7 +304,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         output_actions=outputs,
         view=view,
         supervisor=supervisor,
-        model="model",
+        provider_binding=ProviderExecutionBinding(FakeProvider(), "openai", "model"),
         hotkey_registrar=lambda _map, _callback: listener,
         tray_factory=Tray if with_tray else None,
         operation_tracker=operation_tracker,
@@ -261,8 +313,291 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         speech_coordinator=speech_coordinator,
         workflow_context_reader=view,
         output_operation_presenter=view,
+        available_models=("model", "new-model"),
+        settings_store=model_preferences,
+        provider_options=(
+            ProviderOption("openai", "OpenAI", ("model", "new-model"), "model", True),
+            ProviderOption("gemini", "Gemini", ("gemini-model",), "gemini-model", True),
+        ),
+        provider_bindings=(
+            ProviderExecutionBinding(FakeProvider(), "openai", "model"),
+            ProviderExecutionBinding(FakeProvider(), "gemini", "gemini-model"),
+        ),
+        reload_provider_settings=reload_provider_settings,
+        provider_settings_presenter=view,
+        validate_provider_credential=validate_provider_credential,
+        build_provider_candidate=build_provider_candidate,
+        discover_provider_models=discover_provider_models,
     )
     return runtime, view, supervisor, outputs, listener
+
+
+def test_model_selection_persists_before_switching_new_workflows() -> None:
+    preferences = ModelPreferences()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(model_preferences=preferences)
+    presenter = Tray(lambda: None)
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    first_id = view.snapshots[-1].session_id
+    first_work = supervisor.work[runtime._workflows[first_id].snapshot.active_invocation_id]
+    runtime.enqueue(SelectProviderModel("openai", "new-model"))
+    runtime.drain_commands()
+    first_work()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    second_id = view.snapshots[-1].session_id
+    supervisor.work[runtime._workflows[second_id].snapshot.active_invocation_id]()
+    assert preferences.saved == [("OPENAI_MODEL", "new-model")]
+    assert runtime._execute_action.models == ["model", "new-model"]
+    assert presenter.model_selections[-1] == ModelSelectionState("openai", ("model", "new-model"), "new-model")
+
+
+def test_workflow_captures_provider_binding_before_runtime_switch() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    first_id = view.snapshots[-1].session_id
+    first_work = supervisor.work[runtime._workflows[first_id].snapshot.active_invocation_id]
+
+    replacement = ProviderExecutionBinding(FakeProvider("replacement"), "gemini", "gemini-model")
+    runtime._active_provider_binding = replacement
+    runtime._model = replacement.model
+    runtime._provider_name = replacement.provider_id
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    second_id = view.snapshots[-1].session_id
+    second_work = supervisor.work[runtime._workflows[second_id].snapshot.active_invocation_id]
+
+    first_work()
+    second_work()
+    assert [(item.provider_id, item.model) for item in runtime._execute_action.bindings] == [
+        ("openai", "model"),
+        ("gemini", "gemini-model"),
+    ]
+
+
+def test_model_selection_write_failure_keeps_previous_model() -> None:
+    operations = OperationTracker()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        operation_tracker=operations,
+        model_preferences=ModelPreferences(OSError("denied")),
+    )
+    presenter = Tray(lambda: None)
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(SelectProviderModel("openai", "new-model"))
+    runtime.drain_commands()
+    assert runtime._model == "model"
+    assert presenter.model_selections[-1].selected_model == "model"
+    assert operations.events[-1][0] == "report_error"
+
+
+def test_provider_selection_persists_before_switching_new_workflows() -> None:
+    preferences = ModelPreferences()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(model_preferences=preferences)
+    presenter = Tray(lambda: None)
+    runtime._provider_selection_presenter = presenter
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(SelectProvider("gemini"))
+    runtime.drain_commands()
+    assert preferences.saved == [("CLIPAI_PROVIDER", "gemini")]
+    assert runtime._active_provider_binding.provider_id == "gemini"
+    assert presenter.provider_selections[-1].selected_provider == "gemini"
+    assert presenter.model_selections[-1] == ModelSelectionState("gemini", ("gemini-model",), "gemini-model")
+
+
+def test_reload_failure_keeps_previous_provider() -> None:
+    operations = OperationTracker()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        operation_tracker=operations,
+        reload_provider_settings=lambda: (_ for _ in ()).throw(ValueError("bad env")),
+    )
+    presenter = Tray(lambda: None)
+    runtime._provider_selection_presenter = presenter
+    runtime.enqueue(ReloadConfiguration())
+    runtime.drain_commands()
+    assert runtime._provider_name == "openai"
+    assert operations.events[-1][0] == "report_error"
+
+
+def test_reload_success_replaces_catalog_and_active_binding() -> None:
+    option = ProviderOption("gemini", "Gemini", ("fresh",), "fresh", True)
+    binding = ProviderExecutionBinding(FakeProvider(), "gemini", "fresh")
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        reload_provider_settings=lambda: ProviderRuntimeSnapshot("gemini", (binding,), (option,)),
+    )
+    presenter = Tray(lambda: None)
+    runtime._provider_selection_presenter = presenter
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(ReloadConfiguration())
+    runtime.drain_commands()
+    assert runtime._provider_name == "gemini"
+    assert runtime._model == "fresh"
+    assert presenter.provider_selections[-1] == ProviderSelectionState((option,), "gemini")
+
+
+def test_provider_without_key_is_rejected_without_persistence() -> None:
+    preferences = ModelPreferences()
+    operations = OperationTracker()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        model_preferences=preferences,
+        operation_tracker=operations,
+    )
+    runtime._provider_bindings["gemini"] = ProviderExecutionBinding(
+        FakeProvider(),
+        "gemini",
+        "gemini-model",
+        (ReadinessIssue("missing", "missing", "llm"),),
+    )
+    presenter = Tray(lambda: None)
+    runtime._provider_selection_presenter = presenter
+    runtime.enqueue(SelectProvider("gemini"))
+    runtime.drain_commands()
+    assert preferences.saved == []
+    assert runtime._provider_name == "openai"
+    assert operations.events[-1][0] == "report_error"
+    assert runtime._view.provider_settings_states[-1].selected_provider == "gemini"
+
+
+def test_provider_settings_validate_then_save_and_activate() -> None:
+    preferences = ModelPreferences()
+    validated: list[tuple[str, str]] = []
+    option = ProviderOption("gemini", "Gemini", ("gemini-model",), "gemini-model", True)
+    binding = ProviderExecutionBinding(FakeProvider(), "gemini", "gemini-model")
+    candidate = ProviderRuntimeSnapshot("gemini", (binding,), (option,))
+    runtime, view, supervisor, _outputs, _listener = make_runtime(
+        model_preferences=preferences,
+        validate_provider_credential=lambda provider, key, _base_url, _model: validated.append((provider, key)),
+        build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: candidate,
+    )
+    command = ValidateAndSaveProviderSettings("gemini", "gemini-model", "top-secret", "save-1")
+    assert "top-secret" not in repr(command)
+    runtime.enqueue(command)
+    runtime.drain_commands()
+    assert view.provider_settings_states[-1].operation_state == "pending"
+    supervisor.work["provider-settings:save-1"]()
+    runtime.drain_commands()
+    assert validated == [("gemini", "top-secret")]
+    assert preferences.saved == [
+        ("CLIPAI_PROVIDER", "gemini"),
+        ("GEMINI_API_KEY", "top-secret"),
+        ("GEMINI_MODEL", "gemini-model"),
+    ]
+    assert runtime._provider_name == "gemini"
+    assert view.provider_settings_states[-1].operation_state == "succeeded"
+
+
+def test_late_provider_settings_failure_cannot_replace_newer_state() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime(
+        model_preferences=ModelPreferences(),
+        validate_provider_credential=lambda _provider, _key, _base_url, _model: (_ for _ in ()).throw(RuntimeError("failed")),
+        build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: (_ for _ in ()).throw(AssertionError()),
+    )
+    runtime.enqueue(ValidateAndSaveProviderSettings("gemini", "gemini-model", "first", "old"))
+    runtime.drain_commands()
+    runtime.enqueue(ValidateAndSaveProviderSettings("gemini", "gemini-model", "second", "new"))
+    runtime.drain_commands()
+    supervisor.work["provider-settings:old"]()
+    runtime.drain_commands()
+    assert view.provider_settings_states[-1].operation_id == "new"
+
+
+def test_gateway_settings_allow_empty_key_and_save_single_profile() -> None:
+    preferences = ModelPreferences()
+    validated = []
+    option = ProviderOption("gateway", "Local AI", ("local-model",), "local-model", True)
+    binding = ProviderExecutionBinding(FakeProvider(), "gateway", "local-model")
+    candidate = ProviderRuntimeSnapshot("gateway", (binding,), (option,), "Local AI", "http://localhost:8000/v1")
+    runtime, view, supervisor, _outputs, _listener = make_runtime(
+        model_preferences=preferences,
+        validate_provider_credential=lambda provider, key, base_url, model: validated.append((provider, key, base_url, model)),
+        build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: candidate,
+    )
+    runtime._provider_options = (*runtime._provider_options, ProviderOption("gateway", "Custom Gateway", (), "", False))
+    command = ValidateAndSaveProviderSettings(
+        "gateway",
+        "local-model",
+        "",
+        "gateway-save",
+        "Local AI",
+        "http://localhost:8000",
+    )
+    secret_url_command = ValidateAndSaveProviderSettings("gateway", "model", "", base_url="https://gateway.test?token=hidden")
+    assert "token=hidden" not in repr(secret_url_command)
+    runtime.enqueue(command)
+    runtime.drain_commands()
+    supervisor.work["provider-settings:gateway-save"]()
+    runtime.drain_commands()
+    assert validated == [("gateway", "", "http://localhost:8000", "local-model")]
+    assert preferences.saved == [
+        ("CLIPAI_PROVIDER", "gateway"),
+        ("CLIPAI_GATEWAY_NAME", "Local AI"),
+        ("CLIPAI_GATEWAY_BASE_URL", "http://localhost:8000"),
+        ("CLIPAI_GATEWAY_API_KEY", ""),
+        ("CLIPAI_GATEWAY_MODEL", "local-model"),
+    ]
+    assert runtime._provider_name == "gateway"
+    assert view.provider_settings_states[-1].operation_state == "succeeded"
+
+
+def test_refresh_models_replaces_catalog_but_keeps_current_model() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime(
+        discover_provider_models=lambda provider: ("remote-a", "remote-a", "remote-b") if provider == "openai" else (),
+    )
+    presenter = Tray(lambda: None)
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(RefreshProviderModels("openai", "refresh-1"))
+    runtime.drain_commands()
+    assert presenter.model_selections[-1].refreshing is True
+    supervisor.work["provider-models:refresh-1"]()
+    runtime.drain_commands()
+    assert runtime._available_models == ("model", "remote-a", "remote-b")
+    assert presenter.model_selections[-1].refreshing is False
+    assert view.provider_settings_states[-1].operation_state == "succeeded"
+
+
+def test_refresh_failure_keeps_previous_catalog() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime(discover_provider_models=lambda _provider: ())
+    presenter = Tray(lambda: None)
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(RefreshProviderModels("openai", "refresh-empty"))
+    runtime.drain_commands()
+    supervisor.work["provider-models:refresh-empty"]()
+    runtime.drain_commands()
+    assert runtime._available_models == ("model", "new-model")
+    assert view.provider_settings_states[-1].operation_state == "failed"
+
+
+def test_late_model_refresh_result_cannot_replace_newer_catalog() -> None:
+    calls = iter((("old-model",), ("new-model-remote",)))
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(discover_provider_models=lambda _provider: next(calls))
+    runtime.enqueue(RefreshProviderModels("openai", "old-refresh"))
+    runtime.drain_commands()
+    runtime.enqueue(RefreshProviderModels("openai", "new-refresh"))
+    runtime.drain_commands()
+    supervisor.work["provider-models:old-refresh"]()
+    runtime.drain_commands()
+    assert runtime._available_models == ("model", "new-model")
+    supervisor.work["provider-models:new-refresh"]()
+    runtime.drain_commands()
+    assert runtime._available_models == ("model", "new-model-remote")
+
+
+def test_gateway_model_selection_uses_clipai_env_name() -> None:
+    preferences = ModelPreferences()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(model_preferences=preferences)
+    binding = ProviderExecutionBinding(FakeProvider(), "gateway", "old")
+    runtime._active_provider_binding = binding
+    runtime._provider_bindings["gateway"] = binding
+    runtime._provider_name = "gateway"
+    runtime._model = "old"
+    runtime._available_models = ("old", "new")
+    runtime._provider_options = (ProviderOption("gateway", "Gateway", ("old", "new"), "old", True),)
+    presenter = Tray(lambda: None)
+    runtime._model_selection_presenter = presenter
+    runtime.enqueue(SelectProviderModel("gateway", "new"))
+    runtime.drain_commands()
+    assert preferences.saved == [("CLIPAI_GATEWAY_MODEL", "new")]
 
 
 def test_global_speech_command_is_supervised_without_creating_session() -> None:
@@ -275,6 +610,39 @@ def test_global_speech_command_is_supervised_without_creating_session() -> None:
     work = supervisor.work["speech:tts:clipboard:unique"]
     work()
     assert speech.calls == ["run"]
+
+
+def test_global_speech_shortcut_stops_active_speech_without_starting_another_job() -> None:
+    speech = GlobalSpeech()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
+    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.drain_commands()
+
+    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.drain_commands()
+
+    assert speech.clipboard_only == [False]
+    assert speech.cancelled == 1
+    assert speech.current_identity is None
+    assert supervisor.cancelled == [SpeechJob.operation_id]
+    assert [(result.operation_id, result.state) for result in view.output_results] == [
+        (SpeechJob.operation_id, "pending"),
+        (SpeechJob.operation_id, "cancelled"),
+    ]
+
+
+def test_long_speech_shortcut_keeps_active_speech_and_arms_sequence() -> None:
+    speech = GlobalSpeech()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
+    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.drain_commands()
+
+    runtime.enqueue(ShortcutTriggered("speech", "long"))
+    runtime.drain_commands()
+
+    assert speech.current_identity == (SpeechJob.operation_id, SpeechJob.workflow_id)
+    assert speech.cancelled == 0
+    assert speech.clipboard_only == [False]
 
 
 def test_global_speech_uses_clipboard_only_when_session_exists() -> None:
@@ -442,6 +810,46 @@ def test_speech_runs_as_supervised_output_and_can_stop() -> None:
     work()
     assert outputs.spoken == ["speak me"]
     assert controller.snapshot.speaking is False
+
+
+def test_global_speech_shortcut_stops_popup_speech_and_resets_speaker_state() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    controller = runtime._workflows[session_id]
+    controller._snapshot = controller.snapshot.evolve(content="speak me")
+    runtime.enqueue(ToggleSpeech(session_id, operation_id="popup-speech"))
+    runtime.drain_commands()
+    assert controller.snapshot.speaking is True
+
+    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.drain_commands()
+
+    assert runtime._speech_coordinator.current_identity is None
+    assert controller.snapshot.speaking is False
+    assert outputs.stops == 1
+    assert supervisor.cancelled == ["popup-speech"]
+
+
+def test_late_completion_from_stopped_speech_cannot_clear_new_speaker_state() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    controller = runtime._workflows[session_id]
+    controller._snapshot = controller.snapshot.evolve(content="speak me")
+    runtime.enqueue(ToggleSpeech(session_id, operation_id="old-speech"))
+    runtime.drain_commands()
+    old_work = supervisor.work["old-speech"]
+
+    runtime.enqueue(SpeakSelectionOrClipboard())
+    runtime.enqueue(ToggleSpeech(session_id, operation_id="new-speech"))
+    runtime.drain_commands()
+    old_work()
+
+    assert runtime._speech_coordinator.current_identity == ("new-speech", session_id)
+    assert controller.snapshot.speaking is True
 
 
 def test_speech_prefers_selected_command_text() -> None:

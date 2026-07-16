@@ -1,0 +1,4 @@
+interface:
+  display_name: "Architecture Diagnosis"
+  short_description: "Diagnose debt before structural change"
+  default_prompt: "Use $progressive-architecture-diagnosis to diagnose architecture debt in this area before proposing implementation changes."

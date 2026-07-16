@@ -9,11 +9,12 @@ import uuid
 import customtkinter as ctk
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext, OutputOperationResult
+from ClipAI.core.models import ActiveWorkflowContext, OutputOperationResult, ProviderSettingsState
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
+from ClipAI.ui.provider_settings import ProviderSettingsDialog
 
 
 @dataclass
@@ -70,6 +71,7 @@ class ResultDialogPresenter:
         self._active_workflow_id: str | None = None
         self._display_metrics = display_metrics
         self._layout_policy = layout_policy or PopupLayoutPolicy()
+        self._provider_settings_dialog: ProviderSettingsDialog | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
@@ -93,6 +95,15 @@ class ResultDialogPresenter:
 
     def present_output_operation(self, result: OutputOperationResult) -> None:
         self._output_updates.put(result)
+
+    def show_provider_settings(self, state: ProviderSettingsState) -> None:
+        if self._provider_settings_dialog is None:
+            self._provider_settings_dialog = ProviderSettingsDialog(self._root, self._command_sink)
+        self._provider_settings_dialog.apply(state)
+
+    def set_provider_settings(self, state: ProviderSettingsState) -> None:
+        if self._provider_settings_dialog is not None:
+            self._provider_settings_dialog.apply(state)
 
     def _apply_output_operation(self, result: OutputOperationResult) -> None:
         view = self._views.get(result.workflow_id)
@@ -151,6 +162,9 @@ class ResultDialogPresenter:
         for view in list(self._views.values()):
             view.dialog.close()
         self._views.clear()
+        if self._provider_settings_dialog is not None:
+            self._provider_settings_dialog.destroy()
+            self._provider_settings_dialog = None
         try:
             self._root.quit()
         except tk.TclError:

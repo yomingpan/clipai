@@ -16,6 +16,15 @@ class HttpResponse:
 
 
 class HttpTransport(Protocol):
+    def get(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict[str, str] | None = None,
+        timeout: float,
+    ) -> HttpResponse: ...
+
     def post(
         self,
         url: str,
@@ -48,6 +57,28 @@ class RequestsHttpTransport:
             raise ProviderUnavailableError("AI service connection failed") from exc
         except requests.exceptions.RequestException as exc:
             raise ProviderUnavailableError("AI request failed") from exc
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        return HttpResponse(status_code=response.status_code, text=response.text, payload=payload)
+
+    def get(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict[str, str] | None = None,
+        timeout: float,
+    ) -> HttpResponse:
+        try:
+            response = self._session.get(url, headers=headers, params=params, timeout=timeout)
+        except requests.exceptions.Timeout as exc:
+            raise ProviderTimeoutError("Provider validation timed out") from exc
+        except requests.exceptions.ConnectionError as exc:
+            raise ProviderUnavailableError("Provider validation could not connect") from exc
+        except requests.exceptions.RequestException as exc:
+            raise ProviderUnavailableError("Provider validation failed") from exc
         try:
             payload = response.json()
         except ValueError:
