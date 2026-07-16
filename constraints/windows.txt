@@ -21,7 +21,6 @@ multidict==6.7.1
 packaging==26.2
 Pillow==11.1.0
 pip-system-certs==5.0
-plyer==2.1.0
 propcache==0.5.2
 proxy-tools==0.1.0
 pycparser==3.0
