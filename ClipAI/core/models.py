@@ -41,6 +41,7 @@ class ProviderOption:
     selected_model: str
     configured: bool
     custom_models: tuple[str, ...] = ()
+    credential_hint: str = ""
 
 
 @dataclass(frozen=True)

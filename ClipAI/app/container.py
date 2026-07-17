@@ -111,12 +111,15 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     model_catalog_client = ProviderModelCatalogClient()
 
     def validate_provider_credential(provider_id: str, api_key: str, base_url: str, model: str) -> None:
+        existing = {**os.environ, **settings_store.read_settings()}
+        settings = getattr(bundle.providers, provider_id)
+        effective_api_key = api_key.strip() or existing.get(settings.api_key_env, "")
         settings = (
             GatewaySettings("Custom Gateway", normalize_gateway_base_url(base_url), model, bundle.providers.gateway.timeout_sec, available_models=(model,))
             if provider_id == "gateway"
-            else getattr(bundle.providers, provider_id)
+            else settings
         )
-        model_catalog_client.list_models(provider_id, settings, api_key)
+        model_catalog_client.list_models(provider_id, settings, effective_api_key)
 
     def build_provider_candidate(provider_id: str, selected_model: str, api_key: str, server_name: str, base_url: str) -> ProviderRuntimeSnapshot:
         settings = getattr(bundle.providers, provider_id)
@@ -124,18 +127,20 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             **os.environ,
             **settings_store.read_settings(),
             "CLIPAI_PROVIDER": provider_id,
-            settings.api_key_env: api_key,
             f"{provider_id.upper()}_MODEL": selected_model,
         }
+        if api_key.strip():
+            environment[settings.api_key_env] = api_key
         if provider_id == "gateway":
             environment.update(
                 {
                     "CLIPAI_GATEWAY_NAME": server_name,
                     "CLIPAI_GATEWAY_BASE_URL": base_url,
-                    "CLIPAI_GATEWAY_API_KEY": api_key,
                     "CLIPAI_GATEWAY_MODEL": selected_model,
                 }
             )
+            if api_key.strip():
+                environment["CLIPAI_GATEWAY_API_KEY"] = api_key
         return _build_provider_snapshot(bundle, environment)
 
     def discover_provider_models(provider_id: str, connection: ModelCatalogConnection | None = None) -> tuple[str, ...]:
@@ -154,7 +159,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
                 bundle.providers.gateway.timeout_sec,
                 available_models=option.available_models,
             )
-            api_key = connection.api_key if connection is not None else environment.get("CLIPAI_GATEWAY_API_KEY", "")
+            api_key = (connection.api_key.strip() or environment.get("CLIPAI_GATEWAY_API_KEY", "")) if connection is not None else environment.get("CLIPAI_GATEWAY_API_KEY", "")
         else:
             settings = getattr(bundle.providers, provider_id)
             api_key = environment.get(settings.api_key_env, "")
@@ -263,7 +268,7 @@ def _build_provider_snapshot(bundle: ConfigBundle, environment=None) -> Provider
         )
         provider = provider_types[provider_id](settings, credential)
         bindings.append(ProviderExecutionBinding(provider, provider_id, model, issues))
-        options.append(ProviderOption(provider_id, display_names[provider_id], available_models, model, not issues, custom_models))
+        options.append(ProviderOption(provider_id, display_names[provider_id], available_models, model, not issues, custom_models, _credential_hint(credential.value)))
     gateway_defaults = bundle.providers.gateway
     gateway_name = (values.get("CLIPAI_GATEWAY_NAME") or gateway_defaults.name or "Custom Gateway").strip()
     gateway_base_url = (values.get("CLIPAI_GATEWAY_BASE_URL") or gateway_defaults.base_url).strip()
@@ -292,8 +297,15 @@ def _build_provider_snapshot(bundle: ConfigBundle, environment=None) -> Provider
             gateway_issues,
         )
     )
-    options.append(ProviderOption("gateway", gateway_name or "Custom Gateway", (gateway_model,) if gateway_model else (), gateway_model, gateway_ready, (gateway_model,) if gateway_model else ()))
+    options.append(ProviderOption("gateway", gateway_name or "Custom Gateway", (gateway_model,) if gateway_model else (), gateway_model, gateway_ready, (gateway_model,) if gateway_model else (), _credential_hint(gateway_key)))
     return ProviderRuntimeSnapshot(active, tuple(bindings), tuple(options), gateway_name or "Custom Gateway", gateway_base_url)
+
+
+def _credential_hint(value: str | None) -> str:
+    secret = (value or "").strip()
+    if not secret:
+        return ""
+    return f"••••{secret[-4:]}" if len(secret) >= 8 else "configured"
 
 
 def _credential_for(bundle: ConfigBundle, provider_id: str) -> ProviderCredential | None:

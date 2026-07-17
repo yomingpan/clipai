@@ -533,7 +533,6 @@ def test_gateway_settings_allow_empty_key_and_save_single_profile() -> None:
         ("CLIPAI_PROVIDER", "gateway"),
         ("CLIPAI_GATEWAY_NAME", "Local AI"),
         ("CLIPAI_GATEWAY_BASE_URL", "http://localhost:8000"),
-        ("CLIPAI_GATEWAY_API_KEY", ""),
         ("CLIPAI_GATEWAY_MODEL", "local-model"),
     ]
     assert runtime._provider_name == "gateway"
@@ -554,6 +553,78 @@ def test_refresh_models_replaces_catalog_but_keeps_current_model() -> None:
     assert runtime._available_models == ("model", "remote-a", "remote-b")
     assert presenter.model_selections[-1].refreshing is False
     assert view.provider_settings_states[-1].operation_state == "succeeded"
+
+
+def test_provider_settings_model_change_keeps_existing_api_key() -> None:
+    preferences = ModelPreferences()
+    validated = []
+    binding = ProviderExecutionBinding(FakeProvider(), "gemini", "gemini-model")
+    candidate = ProviderRuntimeSnapshot("gemini", (binding,), (ProviderOption("gemini", "Gemini", ("gemini-model",), "gemini-model", True),))
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(
+        model_preferences=preferences,
+        validate_provider_credential=lambda provider, key, _base_url, _model: validated.append((provider, key)),
+        build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: candidate,
+    )
+
+    runtime.enqueue(ValidateAndSaveProviderSettings("gemini", "gemini-model", "", "keep-key"))
+    runtime.drain_commands()
+    supervisor.work["provider-settings:keep-key"]()
+    runtime.drain_commands()
+
+    assert validated == [("gemini", "")]
+    assert preferences.saved == [("CLIPAI_PROVIDER", "gemini"), ("GEMINI_MODEL", "gemini-model")]
+
+
+def test_opening_selected_provider_reloads_credential_hint_without_activating_it() -> None:
+    openai_option = ProviderOption("openai", "OpenAI", ("model",), "model", True, credential_hint="••••old1")
+    gemini_option = ProviderOption("gemini", "Gemini", ("gemini-model",), "gemini-model", True, credential_hint="••••new2")
+    snapshot = ProviderRuntimeSnapshot(
+        "openai",
+        (
+            ProviderExecutionBinding(FakeProvider(), "openai", "model"),
+            ProviderExecutionBinding(FakeProvider(), "gemini", "gemini-model"),
+        ),
+        (openai_option, gemini_option),
+    )
+    runtime, view, _supervisor, _outputs, _listener = make_runtime(reload_provider_settings=lambda: snapshot)
+
+    runtime.enqueue(OpenProviderSettings("gemini"))
+    runtime.drain_commands()
+
+    state = view.provider_settings_states[-1]
+    selected = next(item for item in state.providers if item.provider_id == "gemini")
+    assert state.selected_provider == "gemini"
+    assert selected.credential_hint == "••••new2"
+    assert runtime._provider_name == "openai"
+
+
+def test_provider_switch_reloads_binding_before_activation() -> None:
+    preferences = ModelPreferences()
+    refreshed = ProviderExecutionBinding(FakeProvider(), "gemini", "fresh-model")
+    snapshot = ProviderRuntimeSnapshot(
+        "openai",
+        (
+            ProviderExecutionBinding(FakeProvider(), "openai", "model"),
+            refreshed,
+        ),
+        (
+            ProviderOption("openai", "OpenAI", ("model",), "model", True),
+            ProviderOption("gemini", "Gemini", ("fresh-model",), "fresh-model", True, credential_hint="••••new2"),
+        ),
+    )
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        model_preferences=preferences,
+        reload_provider_settings=lambda: snapshot,
+    )
+    presenter = Tray(lambda: None)
+    runtime._provider_selection_presenter = presenter
+    runtime._model_selection_presenter = presenter
+
+    runtime.enqueue(SelectProvider("gemini"))
+    runtime.drain_commands()
+
+    assert runtime._active_provider_binding is refreshed
+    assert runtime._model == "fresh-model"
 
 
 def test_gateway_refresh_uses_unsaved_connection_without_writing_settings() -> None:

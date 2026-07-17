@@ -6,7 +6,7 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import RefreshProviderModels, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import OpenProviderSettings, RefreshProviderModels, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ModelCatalogConnection, ProviderOption, ProviderSettingsState
 
 
@@ -105,8 +105,11 @@ class ProviderSettingsDialog:
             self._api_key.focus_set()
 
     def _provider_changed(self, provider_id: str) -> None:
+        self._api_key.delete(0, "end")
         self._apply_provider(provider_id, load_values=True)
-        self._loaded_provider = provider_id
+        self._credential_status.configure(text="Loading saved credentials...")
+        self._loaded_provider = ""
+        self._command_sink(OpenProviderSettings(provider_id))
 
     def _apply_provider(self, provider_id: str, *, selected_model: str | None = None, load_values: bool = False) -> None:
         option = self._option(provider_id)
@@ -140,9 +143,9 @@ class ProviderSettingsDialog:
             self._model_menu.configure(values=list(models))
             self._model.set(selected_model if selected_model in models else option.selected_model)
         if provider_id == "gateway":
-            status = "API key is optional. Refresh models before saving, or use a custom model ID."
+            status = _credential_status(option.credential_hint, optional=True)
         else:
-            status = "API key is configured. Enter a new key to replace it." if option.configured else "API key is not configured."
+            status = _credential_status(option.credential_hint) if option.configured else "API key is not configured."
         self._credential_status.configure(text=status)
 
     def _gateway_model_mode_changed(self) -> None:
@@ -173,8 +176,9 @@ class ProviderSettingsDialog:
             return
         provider = self._provider.get()
         api_key = self._api_key.get().strip()
-        if not api_key and provider != "gateway":
-            self._message.configure(text="Enter a new API key before saving.")
+        option = self._option(provider)
+        if not api_key and provider != "gateway" and (option is None or not option.configured):
+            self._message.configure(text="Enter an API key before saving.")
             return
         operation_id = uuid.uuid4().hex
         self._command_sink(
@@ -215,3 +219,15 @@ class ProviderSettingsDialog:
             self._window.destroy()
         except tk.TclError:
             pass
+
+
+def _credential_status(hint: str, *, optional: bool = False) -> str:
+    if hint == "configured":
+        saved = "API key is configured."
+    elif hint:
+        saved = f"Using saved API key ending in {hint[-4:]}."
+    elif optional:
+        return "API key is optional. No saved key is configured."
+    else:
+        return "API key is not configured."
+    return f"{saved} Leave blank to keep it."

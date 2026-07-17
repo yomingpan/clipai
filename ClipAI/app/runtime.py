@@ -327,7 +327,7 @@ class AppRuntime:
         )
         self._provider_bindings[self._provider_name] = self._active_provider_binding
         self._provider_options = tuple(
-            ProviderOption(option.provider_id, option.display_name, option.available_models, command.model, option.configured, option.custom_models)
+            ProviderOption(option.provider_id, option.display_name, option.available_models, command.model, option.configured, option.custom_models, option.credential_hint)
             if option.provider_id == self._provider_name else option
             for option in self._provider_options
         )
@@ -338,6 +338,17 @@ class AppRuntime:
     def _select_provider(self, command: SelectProvider) -> None:
         if self._provider_selection_presenter is None or self._settings_store is None:
             return
+        snapshot = self._read_provider_snapshot()
+        if self._reload_provider_settings is not None and snapshot is None:
+            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
+            if self._operation_tracker is not None:
+                self._operation_tracker.report_error("Provider switch rejected.", "Could not reload .env. The previous provider remains active.")
+            return
+        if snapshot is not None:
+            self._provider_bindings = {item.provider_id: item for item in snapshot.bindings}
+            self._provider_options = snapshot.options
+            self._gateway_name = snapshot.gateway_name
+            self._gateway_base_url = snapshot.gateway_base_url
         binding = self._provider_bindings.get(command.provider)
         option = next((item for item in self._provider_options if item.provider_id == command.provider), None)
         if binding is None or option is None or binding.readiness_issues:
@@ -419,8 +430,54 @@ class AppRuntime:
     def _open_provider_settings(self, provider: str | None = None) -> None:
         if self._provider_settings_presenter is None:
             return
+        reloaded = self._reload_provider_metadata()
         selected = provider if provider and any(item.provider_id == provider for item in self._provider_options) else self._provider_name
-        self._provider_settings_presenter.show_provider_settings(self._provider_settings_state(selected))
+        state = self._provider_settings_state(
+            selected,
+            operation_state="idle" if reloaded else "failed",
+            message="" if reloaded else "Could not reload saved provider settings. Check .env and try again.",
+        )
+        self._provider_settings_presenter.show_provider_settings(state)
+
+    def _read_provider_snapshot(self) -> ProviderRuntimeSnapshot | None:
+        if self._reload_provider_settings is None:
+            return None
+        try:
+            return self._reload_provider_settings()
+        except (ConfigError, OSError, ValueError, KeyError):
+            return None
+
+    def _reload_provider_metadata(self) -> bool:
+        if self._reload_provider_settings is None:
+            return True
+        snapshot = self._read_provider_snapshot()
+        if snapshot is None:
+            return False
+        current = {item.provider_id: item for item in self._provider_options}
+        merged: list[ProviderOption] = []
+        for fresh in snapshot.options:
+            previous = current.get(fresh.provider_id)
+            models = previous.available_models if previous is not None and previous.available_models else fresh.available_models
+            selected = fresh.selected_model
+            custom_models = previous.custom_models if previous is not None else fresh.custom_models
+            if selected and selected not in models:
+                models = (selected, *models)
+                custom_models = tuple(dict.fromkeys((selected, *custom_models)))
+            merged.append(
+                ProviderOption(
+                    fresh.provider_id,
+                    fresh.display_name,
+                    models,
+                    selected,
+                    fresh.configured,
+                    custom_models,
+                    fresh.credential_hint,
+                )
+            )
+        self._provider_options = tuple(merged)
+        self._gateway_name = snapshot.gateway_name
+        self._gateway_base_url = snapshot.gateway_base_url
+        return True
 
     def _validate_and_save_provider_settings(self, command: ValidateAndSaveProviderSettings) -> None:
         if (
@@ -430,10 +487,15 @@ class AppRuntime:
             or self._build_provider_candidate is None
         ):
             return
+        if not self._reload_provider_metadata():
+            self._provider_settings_presenter.set_provider_settings(
+                self._provider_settings_state(command.provider, operation_state="failed", message="Could not reload saved provider settings. Check .env and try again.")
+            )
+            return
         option = next((item for item in self._provider_options if item.provider_id == command.provider), None)
         operation_id = command.operation_id or uuid.uuid4().hex
         model_allowed = command.model in option.available_models if option and option.provider_id != "gateway" else bool(command.model.strip())
-        key_present = bool(command.api_key.strip()) or (option is not None and option.provider_id == "gateway")
+        key_present = bool(command.api_key.strip()) or (option is not None and (option.configured or option.provider_id == "gateway"))
         gateway_fields_valid = option is None or option.provider_id != "gateway" or bool(command.server_name.strip() and command.base_url.strip())
         if option is None or not model_allowed or not key_present or not gateway_fields_valid:
             self._provider_settings_presenter.set_provider_settings(
@@ -442,24 +504,27 @@ class AppRuntime:
             return
         self._provider_settings_operation_id = operation_id
         self._provider_settings_presenter.set_provider_settings(
-            self._provider_settings_state(command.provider, operation_state="pending", message="Validating provider credentials...", operation_id=operation_id)
+            self._provider_settings_state(command.provider, operation_state="pending", message=_provider_validation_message(command.api_key, option), operation_id=operation_id)
         )
 
         def work() -> None:
             try:
                 self._validate_provider_credential(command.provider, command.api_key, command.base_url, command.model)
                 candidate = self._build_provider_candidate(command.provider, command.model, command.api_key, command.server_name, command.base_url)
-                updates = (
+                if command.provider == "gateway":
+                    updates = (
                         EnvironmentSetting("CLIPAI_PROVIDER", command.provider),
                         EnvironmentSetting("CLIPAI_GATEWAY_NAME", command.server_name.strip()),
                         EnvironmentSetting("CLIPAI_GATEWAY_BASE_URL", command.base_url.strip()),
-                        EnvironmentSetting("CLIPAI_GATEWAY_API_KEY", command.api_key.strip()),
-                        EnvironmentSetting("CLIPAI_GATEWAY_MODEL", command.model.strip()),
-                    ) if command.provider == "gateway" else (
-                        EnvironmentSetting("CLIPAI_PROVIDER", command.provider),
-                        EnvironmentSetting(f"{command.provider.upper()}_API_KEY", command.api_key),
-                        EnvironmentSetting(f"{command.provider.upper()}_MODEL", command.model),
                     )
+                    if command.api_key.strip():
+                        updates += (EnvironmentSetting("CLIPAI_GATEWAY_API_KEY", command.api_key.strip()),)
+                    updates += (EnvironmentSetting("CLIPAI_GATEWAY_MODEL", command.model.strip()),)
+                else:
+                    updates = (EnvironmentSetting("CLIPAI_PROVIDER", command.provider),)
+                    if command.api_key.strip():
+                        updates += (EnvironmentSetting(f"{command.provider.upper()}_API_KEY", command.api_key),)
+                    updates += (EnvironmentSetting(f"{command.provider.upper()}_MODEL", command.model),)
                 self._settings_store.save_settings(updates)
             except BaseException as exc:
                 self.enqueue(_ProviderSettingsFailed(operation_id, _safe_provider_settings_error(exc)))
@@ -503,6 +568,12 @@ class AppRuntime:
         if self._discover_provider_models is None:
             return
         provider = command.provider or self._provider_name
+        if not self._reload_provider_metadata():
+            if self._provider_settings_presenter is not None:
+                self._provider_settings_presenter.set_provider_settings(
+                    self._provider_settings_state(provider, operation_state="failed", message="Could not reload saved provider settings. Check .env and try again.")
+                )
+            return
         option = next((item for item in self._provider_options if item.provider_id == provider), None)
         if option is None:
             return
@@ -540,7 +611,7 @@ class AppRuntime:
         keep_current = bool(option.selected_model) and option.selected_model not in command.models
         models = (option.selected_model, *command.models) if keep_current else command.models
         custom_models = (option.selected_model,) if keep_current else ()
-        updated = ProviderOption(option.provider_id, option.display_name, models, option.selected_model, option.configured, custom_models)
+        updated = ProviderOption(option.provider_id, option.display_name, models, option.selected_model, option.configured, custom_models, option.credential_hint)
         self._provider_options = tuple(updated if item.provider_id == command.provider else item for item in self._provider_options)
         if command.provider == self._provider_name:
             self._available_models = models
@@ -907,3 +978,14 @@ def _safe_model_refresh_error(error: BaseException) -> str:
 
 def _model_env_name(provider: str) -> str:
     return "CLIPAI_GATEWAY_MODEL" if provider == "gateway" else f"{provider.upper()}_MODEL"
+
+
+def _provider_validation_message(api_key: str, option: ProviderOption | None) -> str:
+    if api_key.strip():
+        return "Validating the new API key..."
+    hint = option.credential_hint if option is not None else ""
+    if hint == "configured":
+        return "Validating with the saved API key..."
+    if hint:
+        return f"Validating with the saved API key ending in {hint[-4:]}..."
+    return "Validating provider without an API key..."
