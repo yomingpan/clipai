@@ -542,7 +542,7 @@ def test_gateway_settings_allow_empty_key_and_save_single_profile() -> None:
 
 def test_refresh_models_replaces_catalog_but_keeps_current_model() -> None:
     runtime, view, supervisor, _outputs, _listener = make_runtime(
-        discover_provider_models=lambda provider: ("remote-a", "remote-a", "remote-b") if provider == "openai" else (),
+        discover_provider_models=lambda provider, _connection: ("remote-a", "remote-a", "remote-b") if provider == "openai" else (),
     )
     presenter = Tray(lambda: None)
     runtime._model_selection_presenter = presenter
@@ -556,8 +556,29 @@ def test_refresh_models_replaces_catalog_but_keeps_current_model() -> None:
     assert view.provider_settings_states[-1].operation_state == "succeeded"
 
 
+def test_gateway_refresh_uses_unsaved_connection_without_writing_settings() -> None:
+    preferences = ModelPreferences()
+    received = []
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(
+        model_preferences=preferences,
+        discover_provider_models=lambda provider, connection: received.append((provider, connection)) or ("gateway-a", "gateway-b"),
+    )
+    runtime._provider_options = (*runtime._provider_options, ProviderOption("gateway", "Gateway", (), "", False))
+    from ClipAI.core.models import ModelCatalogConnection
+
+    runtime.enqueue(RefreshProviderModels("gateway", "gateway-refresh", ModelCatalogConnection("http://localhost:8000", "secret", "fallback")))
+    runtime.drain_commands()
+    supervisor.work["provider-models:gateway-refresh"]()
+    runtime.drain_commands()
+
+    assert received == [("gateway", ModelCatalogConnection("http://localhost:8000", "secret", "fallback"))]
+    assert preferences.saved == []
+    option = next(item for item in runtime._provider_options if item.provider_id == "gateway")
+    assert option.available_models == ("gateway-a", "gateway-b")
+
+
 def test_refresh_failure_keeps_previous_catalog() -> None:
-    runtime, view, supervisor, _outputs, _listener = make_runtime(discover_provider_models=lambda _provider: ())
+    runtime, view, supervisor, _outputs, _listener = make_runtime(discover_provider_models=lambda _provider, _connection: ())
     presenter = Tray(lambda: None)
     runtime._model_selection_presenter = presenter
     runtime.enqueue(RefreshProviderModels("openai", "refresh-empty"))
@@ -570,7 +591,7 @@ def test_refresh_failure_keeps_previous_catalog() -> None:
 
 def test_late_model_refresh_result_cannot_replace_newer_catalog() -> None:
     calls = iter((("old-model",), ("new-model-remote",)))
-    runtime, _view, supervisor, _outputs, _listener = make_runtime(discover_provider_models=lambda _provider: next(calls))
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(discover_provider_models=lambda _provider, _connection: next(calls))
     runtime.enqueue(RefreshProviderModels("openai", "old-refresh"))
     runtime.drain_commands()
     runtime.enqueue(RefreshProviderModels("openai", "new-refresh"))

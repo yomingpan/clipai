@@ -67,6 +67,8 @@ class ProviderModelCatalogClient:
     def _test_gateway_completion(self, settings: GatewaySettings, api_key: str) -> tuple[str, ...]:
         from ClipAI.core.models import LLMMessage, LLMRequest
 
+        if not settings.model.strip():
+            raise ProviderResponseError("Gateway does not list models. Enter a model ID to validate Chat Completions.")
         request = LLMRequest((LLMMessage("user", "Reply with OK."),), settings.model, 0.0)
         response = self._transport.post(
             f"{normalize_gateway_base_url(settings.base_url)}/chat/completions",

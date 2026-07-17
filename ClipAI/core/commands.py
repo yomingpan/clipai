@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
-from ClipAI.core.models import HotkeyEventType, PressType, ResultRoute
+from ClipAI.core.models import HotkeyEventType, ModelCatalogConnection, PressType, ResultRoute
 
 
 @dataclass(frozen=True)
@@ -128,6 +128,7 @@ class ValidateAndSaveProviderSettings:
 class RefreshProviderModels:
     provider: str = ""
     operation_id: str = ""
+    connection: ModelCatalogConnection | None = None
 
 
 AppCommand: TypeAlias = ShortcutTriggered | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels

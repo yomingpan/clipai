@@ -9,7 +9,7 @@ import uuid
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
-from ClipAI.core.models import ActionInvocation, EnvironmentSetting, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, ProviderOption, ProviderSelectionState, ProviderSettingsState
+from ClipAI.core.models import ActionInvocation, EnvironmentSetting, InputDocument, InputTarget, ModelCatalogConnection, ModelSelectionState, OutputOperationIntent, ProviderOption, ProviderSelectionState, ProviderSettingsState
 from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, EnvironmentSettingsStore, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, ProviderSettingsPresenter, RuntimeComponent, Stoppable, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -96,7 +96,7 @@ class AppRuntime:
         build_provider_candidate: Callable[[str, str, str, str, str], ProviderRuntimeSnapshot] | None = None,
         gateway_name: str = "",
         gateway_base_url: str = "",
-        discover_provider_models: Callable[[str], tuple[str, ...]] | None = None,
+        discover_provider_models: Callable[[str, ModelCatalogConnection | None], tuple[str, ...]] | None = None,
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         input_targets: InputTargetResolver | None = None,
     ) -> None:
@@ -517,7 +517,8 @@ class AppRuntime:
 
         def work() -> None:
             try:
-                models = tuple(dict.fromkeys(model.strip() for model in self._discover_provider_models(provider) if model.strip()))
+                connection = command.connection if provider == "gateway" else None
+                models = tuple(dict.fromkeys(model.strip() for model in self._discover_provider_models(provider, connection) if model.strip()))
                 if not models:
                     raise ValueError("provider returned no models")
             except BaseException as exc:
@@ -536,8 +537,9 @@ class AppRuntime:
             return
         self._model_refresh_operation_id = ""
         option = next(item for item in self._provider_options if item.provider_id == command.provider)
-        models = command.models if option.selected_model in command.models else (option.selected_model, *command.models)
-        custom_models = (option.selected_model,) if option.selected_model not in command.models else ()
+        keep_current = bool(option.selected_model) and option.selected_model not in command.models
+        models = (option.selected_model, *command.models) if keep_current else command.models
+        custom_models = (option.selected_model,) if keep_current else ()
         updated = ProviderOption(option.provider_id, option.display_name, models, option.selected_model, option.configured, custom_models)
         self._provider_options = tuple(updated if item.provider_id == command.provider else item for item in self._provider_options)
         if command.provider == self._provider_name:

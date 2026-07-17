@@ -8,8 +8,8 @@ from ClipAI.app.config_schema import ConfigBundle
 from ClipAI.core.errors import ConfigError
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShutdownApplication
-from ClipAI.core.models import ModelSelectionState, ProviderOption, ProviderSelectionState, ReadinessIssue
+from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, ShutdownApplication
+from ClipAI.core.models import ModelCatalogConnection, ModelSelectionState, ProviderOption, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider
 from ClipAI.platform.clipboard import SystemClipboard
@@ -60,12 +60,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         lambda: runtime_holder[0].enqueue(ExportDiagnostics()),
         lambda: runtime_holder[0].show_last_error(),
         model_selection=ModelSelectionState(snapshot.active_provider, available_models, model),
-        on_select_model=lambda provider_name, selected_model: runtime_holder[0].enqueue(SelectProviderModel(provider_name, selected_model)),
         provider_selection=ProviderSelectionState(snapshot.options, snapshot.active_provider),
-        on_select_provider=lambda provider_name: runtime_holder[0].enqueue(SelectProvider(provider_name)),
-        on_reload_configuration=lambda: runtime_holder[0].enqueue(ReloadConfiguration()),
         on_open_provider_settings=lambda: runtime_holder[0].enqueue(OpenProviderSettings()),
-        on_refresh_models=lambda: runtime_holder[0].enqueue(RefreshProviderModels()),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
@@ -142,21 +138,23 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             )
         return _build_provider_snapshot(bundle, environment)
 
-    def discover_provider_models(provider_id: str) -> tuple[str, ...]:
+    def discover_provider_models(provider_id: str, connection: ModelCatalogConnection | None = None) -> tuple[str, ...]:
         if provider_id == "anthropic":
             return bundle.providers.anthropic.available_models
         environment = {**os.environ, **settings_store.read_settings()}
         current = _build_provider_snapshot(bundle, environment)
         option = next(item for item in current.options if item.provider_id == provider_id)
         if provider_id == "gateway":
+            gateway_base_url = connection.base_url if connection is not None else current.gateway_base_url
+            gateway_model = connection.fallback_model if connection is not None else option.selected_model
             settings = GatewaySettings(
                 current.gateway_name,
-                current.gateway_base_url,
-                option.selected_model,
+                gateway_base_url,
+                gateway_model,
                 bundle.providers.gateway.timeout_sec,
                 available_models=option.available_models,
             )
-            api_key = environment.get("CLIPAI_GATEWAY_API_KEY", "")
+            api_key = connection.api_key if connection is not None else environment.get("CLIPAI_GATEWAY_API_KEY", "")
         else:
             settings = getattr(bundle.providers, provider_id)
             api_key = environment.get(settings.api_key_env, "")

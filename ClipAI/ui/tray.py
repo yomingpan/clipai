@@ -20,6 +20,15 @@ STATUS_COLORS: dict[ApplicationStatus, tuple[int, int, int]] = {
     "paused": (107, 107, 107),
 }
 
+STATUS_LABELS: dict[ApplicationStatus, str] = {
+    "idle": "Ready",
+    "processing": "Processing",
+    "success": "Ready",
+    "warning": "Needs attention",
+    "error": "Needs attention",
+    "paused": "Paused",
+}
+
 
 def create_tray_image(status: ApplicationStatus = "idle", *, memory_active: bool = False, size: int = 64) -> Image.Image:
     render_scale = 4
@@ -95,40 +104,42 @@ class TrayController:
             icon.stop()
             self._on_exit()
 
-        menu_items = []
-        provider_menu = self._build_provider_menu(pystray)
-        if provider_menu is not None:
-            menu_items.append(provider_menu)
-        model_menu = self._build_model_menu(pystray)
-        if model_menu is not None:
-            menu_items.append(model_menu)
-        if self._on_reload_configuration is not None:
-            menu_items.append(pystray.MenuItem("Reload Configuration", lambda _icon, _item: self._on_reload_configuration()))
+        menu_items = [
+            pystray.MenuItem(lambda _item: f"ClipAI — {STATUS_LABELS[self._status]}", None, enabled=False),
+            pystray.MenuItem(lambda _item: self._configuration_summary(), None, enabled=False),
+            pystray.Menu.SEPARATOR,
+        ]
         if self._on_open_provider_settings is not None:
-            menu_items.append(pystray.MenuItem("Provider Settings...", lambda _icon, _item: self._on_open_provider_settings()))
-        if self._on_refresh_models is not None:
-            menu_items.append(pystray.MenuItem("Refresh Models", lambda _icon, _item: self._on_refresh_models()))
-        if provider_menu is not None or model_menu is not None or self._on_reload_configuration is not None or self._on_open_provider_settings is not None or self._on_refresh_models is not None:
-            menu_items.append(pystray.Menu.SEPARATOR)
+            menu_items.append(pystray.MenuItem("Settings and Models...", lambda _icon, _item: self._on_open_provider_settings()))
+        support_items = []
         if self._on_show_last_error is not None:
-            menu_items.extend((pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()), pystray.Menu.SEPARATOR))
+            support_items.append(pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()))
         if self._on_export_diagnostics is not None:
-            menu_items.extend(
-                (
-                    pystray.MenuItem("Export Diagnostics", lambda _icon, _item: self._on_export_diagnostics()),
-                    pystray.Menu.SEPARATOR,
-                )
-            )
+            support_items.append(pystray.MenuItem("Export Diagnostics", lambda _icon, _item: self._on_export_diagnostics()))
+        if support_items:
+            menu_items.append(pystray.MenuItem("Support and Diagnostics", pystray.Menu(*support_items)))
+        menu_items.append(pystray.Menu.SEPARATOR)
         menu_items.append(pystray.MenuItem("Quit ClipAI", quit_app))
 
         self._icon = pystray.Icon(
             "clipai",
             create_tray_image(self._status, memory_active=self._memory_active),
-            "ClipAI",
+            self._tooltip(),
             menu=pystray.Menu(*menu_items),
         )
         self._thread = threading.Thread(target=self._run, daemon=True, name="ClipAITray")
         self._thread.start()
+
+    def _configuration_summary(self) -> str:
+        provider = ""
+        if self._provider_selection is not None:
+            selected = next((item for item in self._provider_selection.providers if item.provider_id == self._provider_selection.selected_provider), None)
+            provider = selected.display_name if selected is not None else self._provider_selection.selected_provider.title()
+        model = self._model_selection.selected_model if self._model_selection is not None else ""
+        return " · ".join(part for part in (provider, model) if part) or "No provider configured"
+
+    def _tooltip(self) -> str:
+        return f"ClipAI — {STATUS_LABELS[self._status]} · {self._configuration_summary()}"
 
     def _build_model_menu(self, pystray):
         selection = self._model_selection
@@ -179,6 +190,7 @@ class TrayController:
     def set_provider_selection(self, selection: ProviderSelectionState) -> None:
         self._provider_selection = selection
         self._refresh_menu()
+        self._update_title()
 
     def _model_action(self, model: str):
         def select(_icon, _item) -> None:
@@ -197,6 +209,7 @@ class TrayController:
     def set_model_selection(self, selection: ModelSelectionState) -> None:
         self._model_selection = selection
         self._refresh_menu()
+        self._update_title()
 
     def _refresh_menu(self) -> None:
         if self._icon is not None:
@@ -211,6 +224,7 @@ class TrayController:
     def set_status(self, status: ApplicationStatus) -> None:
         self._status = status
         self._update_icon()
+        self._refresh_menu()
 
     def set_memory_active(self, active: bool) -> None:
         self._memory_active = active
@@ -244,6 +258,15 @@ class TrayController:
                     logger.exception("Tray icon update failed after retry")
             except Exception:
                 logger.exception("Tray icon update failed")
+        self._update_title()
+
+    def _update_title(self) -> None:
+        if self._icon is None:
+            return
+        try:
+            self._icon.title = self._tooltip()
+        except Exception:
+            logger.exception("Tray title update failed")
 
     def stop(self) -> None:
         if self._icon is not None:

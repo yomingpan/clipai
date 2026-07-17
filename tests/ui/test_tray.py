@@ -53,6 +53,18 @@ def test_tray_status_is_a_dumb_projection_without_reset_timer() -> None:
     tray.stop()
 
 
+def test_tray_projects_status_and_current_configuration_as_compact_summaries() -> None:
+    tray = TrayController(
+        lambda: None,
+        model_selection=ModelSelectionState("openai", ("gpt-test",), "gpt-test"),
+        provider_selection=ProviderSelectionState((ProviderOption("openai", "OpenAI", ("gpt-test",), "gpt-test", True),), "openai"),
+    )
+    assert tray._configuration_summary() == "OpenAI · gpt-test"
+    tray.set_status("error")
+    assert tray._status == "error"
+    assert tray._tooltip() == "ClipAI — Needs attention · OpenAI · gpt-test"
+
+
 def test_tray_notification_uses_the_existing_icon() -> None:
     tray = TrayController(lambda: None)
     icon = NotificationIcon()

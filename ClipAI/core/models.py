@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from ClipAI.core.state import CancellationToken
@@ -70,6 +70,15 @@ class ProviderSettingsState:
     gateway_key_optional: bool = False
     model_editable: bool = False
     test_may_incur_cost: bool = False
+
+
+@dataclass(frozen=True)
+class ModelCatalogConnection:
+    """Explicit, in-memory connection values for a model-catalog refresh."""
+
+    base_url: str = field(default="", repr=False)
+    api_key: str = field(default="", repr=False)
+    fallback_model: str = ""
 
 
 @dataclass(frozen=True)
