@@ -109,6 +109,9 @@ class ResultDialogPresenter:
         view = self._views.get(result.workflow_id)
         if view is None:
             return
+        if not view.dialog.is_alive():
+            self._evict_view(result.workflow_id, view)
+            return
         slot_id = "speaker" if result.kind == "speech" else result.kind
         if result.state == "pending":
             view.output_operations[result.kind] = result.operation_id
@@ -194,14 +197,15 @@ class ResultDialogPresenter:
 
     def _apply(self, snapshot: SessionSnapshot) -> None:
         view = self._views.get(snapshot.session_id)
+        if view is not None and not view.dialog.is_alive():
+            self._evict_view(snapshot.session_id, view)
+            return
         if view is not None and snapshot.revision <= view.revision:
             return
         if snapshot.status in {SessionStatus.CLOSED, SessionStatus.CANCELLED}:
             if view is not None:
                 view.dialog.close()
-                self._views.pop(snapshot.session_id, None)
-                if self._active_workflow_id == snapshot.session_id:
-                    self._active_workflow_id = None
+                self._evict_view(snapshot.session_id, view)
             return
         created = view is None
         if view is None:
@@ -267,6 +271,12 @@ class ResultDialogPresenter:
         )
         view.speaking = snapshot.speaking
         view.surface.set_speaker_active(snapshot.speaking)
+
+    def _evict_view(self, session_id: str, view: _SessionView) -> None:
+        if self._views.get(session_id) is view:
+            self._views.pop(session_id, None)
+        if self._active_workflow_id == session_id:
+            self._active_workflow_id = None
 
     def _send_text_command(self, session_id: str, command_type) -> None:
         view = self._views.get(session_id)

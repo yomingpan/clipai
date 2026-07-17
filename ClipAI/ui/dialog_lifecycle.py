@@ -12,6 +12,10 @@ class DialogLifecycle:
         self._unsubscribers: list[Callable[[], None]] = []
         self._closed = False
 
+    @property
+    def is_closed(self) -> bool:
+        return self._closed
+
     def run_dialog(self) -> None:
         if not self._closed:
             self._root.mainloop()

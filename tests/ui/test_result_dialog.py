@@ -15,8 +15,16 @@ class Root:
 
 
 class Dialog:
-    def __init__(self, events: list[str]) -> None:
+    def __init__(self, events: list[str], *, alive: bool = True) -> None:
         self.root = Root(events)
+        self.alive = alive
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    def close(self) -> None:
+        self.alive = False
+        self.root.events.append("close")
 
 
 class Surface:
@@ -79,6 +87,41 @@ def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:
     assert events == []
     presenter._apply_output_operation(OutputOperationResult("new", "s1", "archive", "succeeded"))
     assert "archive:pulse:1000" in events
+
+
+def test_late_output_operation_evicts_dead_view_without_touching_surface() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._views["s1"].dialog.alive = False
+
+    presenter._apply_output_operation(OutputOperationResult("late", "s1", "archive", "pending"))
+
+    assert events == []
+    assert presenter._views == {}
+    assert presenter._active_workflow_id is None
+
+
+def test_late_completed_snapshot_evicts_dead_view_without_touching_surface() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._views["s1"].dialog.alive = False
+    snapshot = SessionSnapshot("s1", 1, SessionStatus.COMPLETED, "a", "A", "model", content="late")
+
+    presenter._apply(snapshot)
+
+    assert events == []
+    assert presenter._views == {}
+    assert presenter._active_workflow_id is None
+
+
+def test_closed_snapshot_cleanup_is_idempotent() -> None:
+    presenter, events = presenter_with_selection("selected")
+    snapshot = SessionSnapshot("s1", 1, SessionStatus.CLOSED, "a", "A", "model")
+
+    presenter._apply(snapshot)
+    presenter._apply(snapshot)
+
+    assert events == ["close"]
+    assert presenter._views == {}
+    assert presenter._active_workflow_id is None
 
 
 def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:

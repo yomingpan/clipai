@@ -74,6 +74,17 @@ PRESENTATION_TAG_FONTS: dict[str, tuple[str, int, str]] = {
 }
 
 
+def apply_widget_font_scaling(widget: object, font: tuple[str, int] | tuple[str, int, str]) -> tuple:
+    """Apply CustomTkinter's owning-widget font scale before crossing into Tk."""
+    apply_scaling = getattr(widget, "_apply_font_scaling", None)
+    if not callable(apply_scaling):
+        raise AttributeError("widget does not expose CustomTkinter font scaling")
+    scaled = apply_scaling(font)
+    if len(scaled) == 3 and isinstance(scaled[2], tuple):
+        return (*scaled[:2], *scaled[2])
+    return scaled
+
+
 def configure_presentation_typography(textbox: object) -> bool:
     """Apply font variants at the concrete Tk adapter seam."""
     tk_text = getattr(textbox, "_textbox", None)
@@ -81,10 +92,19 @@ def configure_presentation_typography(textbox: object) -> bool:
         return False
     try:
         for tag, font in PRESENTATION_TAG_FONTS.items():
-            tk_text.tag_configure(tag, font=font)
-    except (tk.TclError, ValueError):
+            tk_text.tag_configure(tag, font=apply_widget_font_scaling(textbox, font))
+    except (tk.TclError, ValueError, AttributeError):
         return False
     return True
+
+
+class _PresentationTextbox(ctk.CTkTextbox):
+    """CTk textbox that reapplies native Tk tag fonts after DPI changes."""
+
+    def _set_scaling(self, *args, **kwargs):
+        super()._set_scaling(*args, **kwargs)
+        if hasattr(self, "_textbox"):
+            configure_presentation_typography(self)
 
 
 def rgb_to_hex(color: RGB) -> str:
@@ -203,9 +223,13 @@ class RoundedSurfacePainter:
         )
         self._canvas.tag_lower("surface")
 
-    def resize(self, width: int, height: int) -> None:
+    def resize(self, width: int, height: int, *, radius: int | None = None, inset: int | None = None) -> None:
         self._width = width
         self._height = height
+        if radius is not None:
+            self._radius = radius
+        if inset is not None:
+            self._inset = inset
 
     def _draw_round_rect(self, x1: int, y1: int, x2: int, y2: int, radius: int, color: str) -> None:
         options = {"fill": color, "outline": color, "tags": "surface"}
@@ -275,13 +299,11 @@ class BaseDialog:
         self._drag_offset_y = 0
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
         self._surface_inset = surface_inset
+        self._corner_radius = corner_radius
+        self._border_inset = max(1, surface_inset // 3)
 
         try:
             self.root = ctk.CTkToplevel(master) if master is not None else ctk.CTk()
-            self._window_scale = self.root._get_window_scaling()
-            physical_width = round(width * self._window_scale)
-            physical_height = round(height * self._window_scale)
-            physical_inset = round(surface_inset * self._window_scale)
             self.root.title(title)
             self.root.geometry(f"{width}x{height}")
             self.root.minsize(minimum_width or min(width, 320), minimum_height or min(height, 180))
@@ -302,8 +324,6 @@ class BaseDialog:
 
             self.canvas = tk.Canvas(
                 self.root,
-                width=physical_width,
-                height=physical_height,
                 bg=background_color,
                 highlightthickness=0,
                 bd=0,
@@ -311,25 +331,26 @@ class BaseDialog:
             self.canvas.pack(fill="both", expand=True)
             self._painter = RoundedSurfacePainter(
                 self.canvas,
-                width=physical_width,
-                height=physical_height,
+                width=width,
+                height=height,
                 background_color=background_color,
                 surface_color=surface_color,
-                radius=round(corner_radius * self._window_scale),
-                inset=max(1, physical_inset//3),
+                radius=corner_radius,
+                inset=self._border_inset,
             )
             idle_color = border_color or self._state_colors.hex("idle")
             self._painter.draw(idle_color)
 
             self.surface = tk.Frame(self.canvas, bg=surface_color, bd=0, highlightthickness=0)
             self._surface_window = self.canvas.create_window(
-                physical_inset,
-                physical_inset,
+                surface_inset,
+                surface_inset,
                 anchor="nw",
                 window=self.surface,
-                width=physical_width - physical_inset * 2,
-                height=physical_height - physical_inset * 2,
+                width=max(1, width - surface_inset * 2),
+                height=max(1, height - surface_inset * 2),
             )
+            self.canvas.bind("<Configure>", self._on_canvas_configure, add="+")
             self.main_frame = self.surface
 
             self.lifecycle = DialogLifecycle(self.root, owns_mainloop=master is None)
@@ -349,6 +370,14 @@ class BaseDialog:
             raise
     def is_valid(self) -> bool:
         return self._valid
+
+    def is_alive(self) -> bool:
+        if not self._valid or self.lifecycle.is_closed:
+            return False
+        try:
+            return bool(self.root.winfo_exists())
+        except tk.TclError:
+            return False
 
     def flash(self, state: DialogState) -> None:
         self._flash_controller.flash(state)
@@ -386,15 +415,27 @@ class BaseDialog:
         target_x = self.root.winfo_x() if x is None else x
         target_y = self.root.winfo_y() if y is None else y
         self.root.geometry(f"{width}x{height}+{target_x}+{target_y}")
-        physical_width = round(width * self._window_scale)
-        physical_height = round(height * self._window_scale)
-        physical_inset = round(self._surface_inset * self._window_scale)
-        self.canvas.configure(width=physical_width, height=physical_height)
-        self._painter.resize(physical_width, physical_height)
+
+    def _on_canvas_configure(self, event) -> None:
+        actual_width = max(1, int(event.width))
+        actual_height = max(1, int(event.height))
+        width_scale = actual_width / self.width if self.width else 1.0
+        height_scale = actual_height / self.height if self.height else 1.0
+        observed_scale = max(0.1, min(width_scale, height_scale))
+        surface_inset = max(1, round(self._surface_inset * observed_scale))
+        corner_radius = max(1, round(self._corner_radius * observed_scale))
+        border_inset = max(1, round(self._border_inset * observed_scale))
+        self._painter.resize(
+            actual_width,
+            actual_height,
+            radius=corner_radius,
+            inset=border_inset,
+        )
+        self.canvas.coords(self._surface_window, surface_inset, surface_inset)
         self.canvas.itemconfigure(
             self._surface_window,
-            width=physical_width - physical_inset * 2,
-            height=physical_height - physical_inset * 2,
+            width=max(1, actual_width - surface_inset * 2),
+            height=max(1, actual_height - surface_inset * 2),
         )
         self._flash_controller.redraw()
 
@@ -455,7 +496,7 @@ class _Tooltip:
             fg="#FFFFFF",
             padx=8,
             pady=4,
-            font=(TC_FONT_FAMILY, 9),
+            font=apply_widget_font_scaling(self.widget, (TC_FONT_FAMILY, 9)),
         )
         label.pack()
 
@@ -713,7 +754,7 @@ class BaseResultSurface:
         )
         self.source_label.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 0))
 
-        self.content_text = ctk.CTkTextbox(
+        self.content_text = _PresentationTextbox(
             self.root,
             fg_color=SURFACE_BG,
             border_width=0,

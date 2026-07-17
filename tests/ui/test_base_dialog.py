@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+import inspect
+import tkinter as tk
+
+import customtkinter as ctk
 import pytest
 
 from ClipAI.ui.base_dialog import (
@@ -26,11 +31,15 @@ from ClipAI.ui.base_dialog import (
     StandardResultActions,
     SurfaceFlashController,
     SurfaceStateColors,
+    BaseDialog,
+    _PresentationTextbox,
+    apply_widget_font_scaling,
     hide_window_from_task_switcher,
     rgb_to_hex,
     configure_presentation_typography,
     configure_tooltip_layer,
 )
+from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
 
 def test_windows_tool_window_style_hides_taskbar_and_alt_tab() -> None:
@@ -254,6 +263,127 @@ def test_rounded_surface_painter_resize_updates_future_draw_bounds() -> None:
     assert any(200 in values or 197 in values for values in coordinates)
 
 
+def test_canvas_configure_drives_surface_from_observed_allocation() -> None:
+    class Painter:
+        def __init__(self) -> None:
+            self.resize_call = None
+
+        def resize(self, *args, **kwargs) -> None:
+            self.resize_call = (args, kwargs)
+
+    class Canvas:
+        def __init__(self) -> None:
+            self.coords_call = None
+            self.itemconfigure_call = None
+
+        def coords(self, *args) -> None:
+            self.coords_call = args
+
+        def itemconfigure(self, *args, **kwargs) -> None:
+            self.itemconfigure_call = (args, kwargs)
+
+    class Flash:
+        def __init__(self) -> None:
+            self.redraws = 0
+
+        def redraw(self) -> None:
+            self.redraws += 1
+
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog.width = 400
+    dialog.height = 320
+    dialog._surface_inset = 8
+    dialog._corner_radius = 18
+    dialog._border_inset = 2
+    dialog._surface_window = "surface"
+    dialog._painter = Painter()
+    dialog.canvas = Canvas()
+    dialog._flash_controller = Flash()
+
+    dialog._on_canvas_configure(type("Event", (), {"width": 800, "height": 640})())
+
+    assert dialog._painter.resize_call == ((800, 640), {"radius": 36, "inset": 4})
+    assert dialog.canvas.coords_call == ("surface", 16, 16)
+    assert dialog.canvas.itemconfigure_call == (("surface",), {"width": 768, "height": 608})
+    assert dialog._flash_controller.redraws == 1
+
+
+def test_dialog_never_precalculates_physical_widget_dimensions() -> None:
+    source = inspect.getsource(BaseDialog)
+    assert "_get_window_scaling" not in source
+    assert 'bind("<Configure>", self._on_canvas_configure' in source
+
+
+def test_dialog_resize_only_requests_logical_window_geometry() -> None:
+    class Root:
+        geometry_call = None
+
+        def winfo_x(self):
+            return 10
+
+        def winfo_y(self):
+            return 20
+
+        def geometry(self, value):
+            self.geometry_call = value
+
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog.width = 400
+    dialog.height = 320
+    dialog.root = Root()
+
+    dialog.resize(500, 400)
+
+    assert dialog.root.geometry_call == "500x400+10+20"
+    assert (dialog.width, dialog.height) == (500, 400)
+
+
+def test_dialog_is_alive_requires_valid_open_existing_root() -> None:
+    class Lifecycle:
+        is_closed = False
+
+    class Root:
+        def __init__(self, result=True, error=False) -> None:
+            self.result = result
+            self.error = error
+
+        def winfo_exists(self):
+            if self.error:
+                raise tk.TclError("destroyed")
+            return self.result
+
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog._valid = True
+    dialog.lifecycle = Lifecycle()
+    dialog.root = Root()
+    assert dialog.is_alive() is True
+
+    dialog.lifecycle.is_closed = True
+    assert dialog.is_alive() is False
+    dialog.lifecycle.is_closed = False
+    dialog.root = Root(False)
+    assert dialog.is_alive() is False
+    dialog.root = Root(error=True)
+    assert dialog.is_alive() is False
+    dialog._valid = False
+    dialog.root = Root()
+    assert dialog.is_alive() is False
+
+
+def test_dialog_lifecycle_exposes_closed_state() -> None:
+    class Root:
+        def destroy(self):
+            pass
+
+        def quit(self):
+            pass
+
+    lifecycle = DialogLifecycle(Root())
+    assert lifecycle.is_closed is False
+    lifecycle.close()
+    assert lifecycle.is_closed is True
+
+
 def test_drag_position_calculation_uses_recorded_offsets() -> None:
     class DialogLike:
         _drag_offset_x = 12
@@ -311,12 +441,54 @@ def test_presentation_typography_is_applied_at_tk_adapter_seam() -> None:
             self.configured[tag] = options
 
     tk_text = TkText()
-    textbox = type("Textbox", (), {"_textbox": tk_text})()
+    class Textbox:
+        _textbox = tk_text
+
+        def _apply_font_scaling(self, font):
+            return (font[0], -font[1] * 2, font[2:])
+
+    textbox = Textbox()
 
     assert configure_presentation_typography(textbox) is True
-    assert tk_text.configured["heading_1"]["font"] == (TC_FONT_FAMILY, 15, "bold")
+    assert tk_text.configured["heading_1"]["font"] == (TC_FONT_FAMILY, -30, "bold")
     assert tk_text.configured["bold"]["font"][-1] == "bold"
     assert tk_text.configured["italic"]["font"][-1] == "italic"
+
+
+def test_widget_font_scaling_requires_owning_ctk_widget() -> None:
+    class Widget:
+        def _apply_font_scaling(self, font):
+            return (font[0], -18)
+
+    assert apply_widget_font_scaling(Widget(), (TC_FONT_FAMILY, 9)) == (TC_FONT_FAMILY, -18)
+
+    class StyledWidget:
+        def _apply_font_scaling(self, font):
+            return (font[0], -30, ("bold",))
+
+    assert apply_widget_font_scaling(StyledWidget(), (TC_FONT_FAMILY, 15, "bold")) == (
+        TC_FONT_FAMILY,
+        -30,
+        "bold",
+    )
+    with pytest.raises(AttributeError):
+        apply_widget_font_scaling(object(), (TC_FONT_FAMILY, 9))
+
+
+def test_presentation_textbox_reapplies_tags_after_scaling(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(ctk.CTkTextbox, "_set_scaling", lambda self, *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(
+        "ClipAI.ui.base_dialog.configure_presentation_typography",
+        lambda textbox: calls.append(("typography", textbox)) or True,
+    )
+    textbox = _PresentationTextbox.__new__(_PresentationTextbox)
+    textbox._textbox = object()
+
+    textbox._set_scaling(1.5, 1.5)
+
+    assert calls[0] == ((1.5, 1.5), {})
+    assert calls[1] == ("typography", textbox)
 
 
 def test_presentation_typography_safely_degrades_without_tk_text_widget() -> None:
@@ -441,3 +613,8 @@ def test_source_preview_at_limit_is_not_ellipsized() -> None:
 
     text = "a" * SOURCE_PREVIEW_MAX_CHARS
     assert ellipsize_source_preview(text) == text
+
+
+def test_edge_tts_dependency_has_known_working_lower_bound() -> None:
+    pyproject = Path(__file__).parents[2] / "pyproject.toml"
+    assert '"edge-tts>=7.2.8"' in pyproject.read_text(encoding="utf-8")
