@@ -32,6 +32,7 @@ class Surface:
         self.selected = selected
         self.events = events
         self.overflow_expanded = False
+        self.feedback_available = False
 
     def selected_text(self) -> str | None:
         return self.selected
@@ -64,6 +65,13 @@ class Surface:
 
     def hide_feedback(self) -> None:
         self.events.append("feedback:hidden")
+
+    def toggle_feedback_overlay(self) -> bool:
+        self.events.append("feedback:toggled")
+        return self.feedback_available
+
+    def close_feedback_overlay(self) -> None:
+        self.events.append("feedback:closed")
 
 
 def presenter_with_selection(selected: str | None):
@@ -181,6 +189,23 @@ def test_feedback_submission_is_a_typed_identified_command() -> None:
     assert command.operation_id
     assert command.reason == "meaning_lost"
     assert command.save_case is True
+
+
+def test_ctrl_r_feedback_request_reports_unsupported_recipe() -> None:
+    presenter, events = presenter_with_selection(None)
+
+    presenter._toggle_feedback("s1")
+
+    assert events == ["feedback:toggled", "message:此 Recipe 尚未啟用回饋:1000"]
+
+
+def test_ctrl_r_feedback_request_opens_supported_recipe_overlay() -> None:
+    presenter, events = presenter_with_selection(None)
+    presenter._views["s1"].surface.feedback_available = True
+
+    presenter._toggle_feedback("s1")
+
+    assert events == ["feedback:toggled"]
 
 
 def test_active_workflow_context_projects_selection_and_displayed_step() -> None:

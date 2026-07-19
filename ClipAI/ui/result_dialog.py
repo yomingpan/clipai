@@ -215,9 +215,12 @@ class ResultDialogPresenter:
         view.revision = snapshot.revision
         if created or self._active_workflow_id is None:
             self._active_workflow_id = snapshot.session_id
+        previous_step_id = view.step_id
         view.content = snapshot.content
         if snapshot.displayed_step_index >= 0:
             view.step_id = snapshot.steps[snapshot.displayed_step_index].step_id
+        if previous_step_id is not None and view.step_id != previous_step_id:
+            view.surface.close_feedback_overlay()
         view.surface.set_pinned_state(snapshot.pinned)
         view.surface.set_title(snapshot.title)
         view.surface.set_source_preview(snapshot.source_preview)
@@ -351,6 +354,13 @@ class ResultDialogPresenter:
             save_case=save_case,
         ))
 
+    def _toggle_feedback(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None:
+            return
+        if not view.surface.toggle_feedback_overlay():
+            view.surface.show_action_message("此 Recipe 尚未啟用回饋")
+
     def _toggle_follow_up(self, session_id: str) -> None:
         view = self._views.get(session_id)
         if view is None:
@@ -407,6 +417,7 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-q>", lambda _event, sid=session_id: self._shortcut(self._toggle_speech, sid), add="+")
         dialog.root.bind("<Control-c>", lambda _event, sid=session_id: self._shortcut(self._copy, sid), add="+")
         dialog.root.bind("<Control-s>", lambda _event, sid=session_id: self._shortcut(self._archive, sid), add="+")
+        dialog.root.bind("<Control-r>", lambda _event, sid=session_id: self._shortcut(self._toggle_feedback, sid), add="+")
         lifecycle.shown = True
 
         def establish_initial_focus() -> None:

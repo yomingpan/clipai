@@ -615,6 +615,25 @@ def test_source_preview_at_limit_is_not_ellipsized() -> None:
     assert ellipsize_source_preview(text) == text
 
 
+def test_action_contract_tooltip_explains_ai_human_and_verification_space() -> None:
+    from ClipAI.core.models import ActionFeedbackContract, FeedbackReason
+    from ClipAI.ui.base_dialog import action_contract_tooltip_text
+
+    text = action_contract_tooltip_text(ActionFeedbackContract(
+        "縮短內容",
+        "原本的立場與語氣",
+        "是否仍然代表你？",
+        (FeedbackReason("other", "其他"),),
+    ))
+
+    assert text == (
+        "AI 幫你\n縮短內容\n\n"
+        "你仍保留\n原本的立場與語氣\n\n"
+        "結果後確認\n是否仍然代表你？\n\n"
+        "Ctrl + R：Recipe 回饋"
+    )
+
+
 def test_edge_tts_dependency_has_known_working_lower_bound() -> None:
     pyproject = Path(__file__).parents[2] / "pyproject.toml"
     assert '"edge-tts>=7.2.8"' in pyproject.read_text(encoding="utf-8")
