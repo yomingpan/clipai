@@ -29,6 +29,7 @@ class _SessionView:
     flashed_completion_keys: set[str] = field(default_factory=set)
     output_operations: dict[str, str] = field(default_factory=dict)
     rendered_content_key: tuple[object, ...] | None = None
+    shown_guidance_keys: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -226,6 +227,10 @@ class ResultDialogPresenter:
         view.surface.set_source_preview(snapshot.source_preview)
         view.surface.set_model(snapshot.model)
         view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
+        guidance_key = view.step_id or ""
+        if snapshot.status == SessionStatus.COMPLETED and snapshot.show_guidance_hint and guidance_key not in view.shown_guidance_keys:
+            view.shown_guidance_keys.add(guidance_key)
+            view.surface.show_action_guidance_hint()
         view.surface.close_button.configure(
             command=lambda sid=snapshot.session_id: self._command_sink(CloseSession(sid))
         )

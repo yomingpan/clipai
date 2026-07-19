@@ -6,9 +6,9 @@ import queue
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, GuidancePreferencesCompleted, NavigateWorkflowBack, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, OutputOperationIntent
-from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, ProviderSettingsPresenter, RuntimeComponent, Stoppable, UserNotifier
+from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, GuidancePreferencesPresenter, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, ProviderSettingsPresenter, RuntimeComponent, Stoppable, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.action_feedback import ActionFeedbackService
@@ -24,6 +24,7 @@ from ClipAI.services.shortcut_sequence import ShortcutSequenceCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.services.workflow_registry import WorkflowRegistry
+from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator, GuidancePreferencesUpdate
 from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime")
@@ -64,6 +65,8 @@ class AppRuntime:
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         input_targets: InputTargetResolver | None = None,
         action_feedback: ActionFeedbackService | None = None,
+        guidance_preferences: GuidancePreferencesCoordinator | None = None,
+        guidance_preferences_presenter: GuidancePreferencesPresenter | None = None,
     ) -> None:
         self._actions = actions
         self._shortcuts = shortcuts
@@ -92,6 +95,8 @@ class AppRuntime:
         )
         self._input_targets = input_targets or InputTargetResolver()
         self._action_feedback = action_feedback
+        self._guidance_preferences = guidance_preferences
+        self._guidance_preferences_presenter = guidance_preferences_presenter
         self._commands: queue.Queue[AppCommand] = queue.Queue()
         self._workflow_registry = WorkflowRegistry()
         self._workflows = self._workflow_registry.workflows
@@ -241,6 +246,48 @@ class AppRuntime:
             controller = self._workflows.get(command.session_id)
             if controller is not None:
                 controller.complete_feedback(command.step_id, command.operation_id, command.error)
+        elif isinstance(command, SetFirstUseHintsEnabled):
+            self._begin_guidance_preferences_update("set", command.operation_id or uuid.uuid4().hex, command.enabled)
+        elif isinstance(command, ResetFirstUseHints):
+            self._begin_guidance_preferences_update("reset", command.operation_id or uuid.uuid4().hex)
+        elif isinstance(command, GuidancePreferencesCompleted):
+            if self._guidance_preferences is not None:
+                self._project_guidance_preferences_update(
+                    self._guidance_preferences.complete(command.operation_id, command.error)
+                )
+
+    def _begin_guidance_preferences_update(self, kind: str, operation_id: str, enabled: bool = False) -> None:
+        if self._guidance_preferences is None:
+            return
+        update = (
+            self._guidance_preferences.begin_set_enabled(enabled, operation_id)
+            if kind == "set"
+            else self._guidance_preferences.begin_reset(operation_id)
+        )
+        self._project_guidance_preferences_update(update)
+        if update.work is None:
+            return
+
+        def save() -> None:
+            error = self._guidance_preferences.execute(update.work)
+            self.enqueue(GuidancePreferencesCompleted(operation_id, error))
+
+        self._supervisor.submit(
+            f"guidance-preferences:{operation_id}",
+            save,
+            lambda error: self.enqueue(GuidancePreferencesCompleted(
+                operation_id,
+                "無法儲存使用引導設定，請再試一次。",
+            )),
+        )
+
+    def _project_guidance_preferences_update(self, update: GuidancePreferencesUpdate) -> None:
+        if update.ignored:
+            return
+        if self._guidance_preferences_presenter is not None:
+            self._guidance_preferences_presenter.set_guidance_preferences(update.preferences)
+        if update.error and self._notifier is not None:
+            self._notifier.notify("ClipAI", update.error)
 
     def _submit_action_feedback(self, command: SubmitActionFeedback) -> None:
         if self._action_feedback is None:

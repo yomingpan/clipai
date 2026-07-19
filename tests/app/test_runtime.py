@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, InputDocument, ModelSelectionState, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
+from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
 
 
 class FakeView:
@@ -123,6 +124,7 @@ class Tray:
         self.stopped = False
         self.model_selections = []
         self.provider_selections = []
+        self.guidance_preferences = []
 
     def start(self) -> None:
         self.started = True
@@ -135,6 +137,9 @@ class Tray:
 
     def set_provider_selection(self, selection) -> None:
         self.provider_selections.append(selection)
+
+    def set_guidance_preferences(self, preferences) -> None:
+        self.guidance_preferences.append(preferences)
 
 
 class ModelPreferences:
@@ -342,7 +347,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None):
     action = ActionDefinition("a", "Action", "system", "{input}", {})
     shorten = ActionDefinition(
         "shorten",
@@ -403,6 +408,8 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         output_operation_presenter=view,
         provider_settings_presenter=view,
         action_feedback=action_feedback,
+        guidance_preferences=guidance_preferences,
+        guidance_preferences_presenter=guidance_preferences_presenter,
     )
     runtime._provider_backend = backend
     return runtime, view, supervisor, outputs, listener
@@ -414,6 +421,53 @@ class FakeActionFeedback:
 
     def record(self, workflow_id, step, command) -> None:
         self.calls.append((workflow_id, step, command))
+
+
+class GuidanceStore:
+    def __init__(self, preferences=None, error=None) -> None:
+        self.preferences = preferences or GuidancePreferences()
+        self.error = error
+
+    def load(self):
+        return self.preferences
+
+    def save(self, preferences) -> None:
+        if self.error:
+            raise self.error
+        self.preferences = preferences
+
+
+def test_guidance_setting_waits_for_persistence_before_changing_checked_state() -> None:
+    coordinator = GuidancePreferencesCoordinator(GuidanceStore())
+    presenter = Tray(lambda: None)
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(
+        guidance_preferences=coordinator,
+        guidance_preferences_presenter=presenter,
+    )
+
+    runtime.enqueue(SetFirstUseHintsEnabled(False, "guidance-1"))
+    runtime.drain_commands()
+    assert presenter.guidance_preferences[-1] == GuidancePreferences(True, update_pending=True)
+
+    supervisor.work["guidance-preferences:guidance-1"]()
+    runtime.drain_commands()
+    assert presenter.guidance_preferences[-1] == GuidancePreferences(False)
+
+
+def test_reset_guidance_keeps_global_switch_and_only_clears_seen_actions() -> None:
+    coordinator = GuidancePreferencesCoordinator(GuidanceStore(GuidancePreferences(False, frozenset({"shorten"}))))
+    presenter = Tray(lambda: None)
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(
+        guidance_preferences=coordinator,
+        guidance_preferences_presenter=presenter,
+    )
+
+    runtime.enqueue(ResetFirstUseHints("reset-1"))
+    runtime.drain_commands()
+    supervisor.work["guidance-preferences:reset-1"]()
+    runtime.drain_commands()
+
+    assert presenter.guidance_preferences[-1] == GuidancePreferences(False)
 
 
 def test_feedback_is_typed_supervised_work_and_projects_real_completion() -> None:

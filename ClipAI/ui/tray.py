@@ -7,7 +7,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from ClipAI.core.models import ApplicationStatus, ModelSelectionState, ProviderSelectionState
+from ClipAI.core.models import ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState
 
 logger = logging.getLogger("clipai.tray")
 
@@ -80,6 +80,9 @@ class TrayController:
         on_reload_configuration: Callable[[], None] | None = None,
         on_open_provider_settings: Callable[[], None] | None = None,
         on_refresh_models: Callable[[], None] | None = None,
+        guidance_preferences: GuidancePreferences | None = None,
+        on_set_first_use_hints: Callable[[bool], None] | None = None,
+        on_reset_first_use_hints: Callable[[], None] | None = None,
     ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
@@ -91,6 +94,9 @@ class TrayController:
         self._on_reload_configuration = on_reload_configuration
         self._on_open_provider_settings = on_open_provider_settings
         self._on_refresh_models = on_refresh_models
+        self._guidance_preferences = guidance_preferences
+        self._on_set_first_use_hints = on_set_first_use_hints
+        self._on_reset_first_use_hints = on_reset_first_use_hints
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -111,6 +117,9 @@ class TrayController:
         ]
         if self._on_open_provider_settings is not None:
             menu_items.append(pystray.MenuItem("Settings and Models...", lambda _icon, _item: self._on_open_provider_settings()))
+        guidance_menu = self._build_guidance_menu(pystray)
+        if guidance_menu is not None:
+            menu_items.append(guidance_menu)
         support_items = []
         if self._on_show_last_error is not None:
             support_items.append(pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()))
@@ -172,6 +181,30 @@ class TrayController:
             for option in selection.providers
         )
         return pystray.MenuItem(label, pystray.Menu(*items))
+
+    def _build_guidance_menu(self, pystray):
+        if self._guidance_preferences is None or self._on_set_first_use_hints is None or self._on_reset_first_use_hints is None:
+            return None
+        return pystray.MenuItem(
+            "使用引導",
+            pystray.Menu(
+                pystray.MenuItem(
+                    "在第一次使用新 Recipe 時顯示提示",
+                    lambda _icon, _item: self._on_set_first_use_hints(not self._guidance_preferences.first_use_hints_enabled),
+                    checked=lambda _item: self._guidance_preferences.first_use_hints_enabled,
+                    enabled=lambda _item: not self._guidance_preferences.update_pending,
+                ),
+                pystray.MenuItem(
+                    "重新顯示所有提示",
+                    lambda _icon, _item: self._on_reset_first_use_hints(),
+                    enabled=lambda _item: not self._guidance_preferences.update_pending,
+                ),
+            ),
+        )
+
+    def set_guidance_preferences(self, preferences: GuidancePreferences) -> None:
+        self._guidance_preferences = preferences
+        self._refresh_menu()
 
     def _provider_action(self, provider: str):
         def select(_icon, _item) -> None:

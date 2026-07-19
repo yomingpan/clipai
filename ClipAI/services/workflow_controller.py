@@ -49,6 +49,7 @@ class WorkflowController:
                 feedback_step_id="",
                 feedback_operation_id="",
                 feedback_message="",
+                show_guidance_hint=False,
             )
             snapshot = self._snapshot
             token = self._active_token
@@ -75,6 +76,7 @@ class WorkflowController:
         *,
         provider: str = "",
         model: str = "",
+        show_guidance_hint: bool = False,
     ) -> SessionSnapshot | None:
         with self._lock:
             if self._snapshot.active_invocation_id != invocation.invocation_id or self._active_token.is_cancelled:
@@ -115,6 +117,7 @@ class WorkflowController:
                 feedback_step_id="",
                 feedback_operation_id="",
                 feedback_message="",
+                show_guidance_hint=show_guidance_hint,
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
@@ -164,6 +167,7 @@ class WorkflowController:
                 feedback_step_id=step.step_id if step.step_id in self._feedback_step_ids else "",
                 feedback_operation_id="",
                 feedback_message="已記錄回饋" if step.step_id in self._feedback_step_ids else "",
+                show_guidance_hint=False,
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)

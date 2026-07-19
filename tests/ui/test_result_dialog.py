@@ -59,6 +59,9 @@ class Surface:
     def configure_action_contract(self, contract, input_source: str) -> None:
         self.events.append(("contract", contract, input_source))
 
+    def show_action_guidance_hint(self) -> None:
+        self.events.append("guidance:shown")
+
     def configure_feedback(self, contract, state, message, on_submit) -> None:
         self.feedback_submit = on_submit
         self.events.append(("feedback", state, message))

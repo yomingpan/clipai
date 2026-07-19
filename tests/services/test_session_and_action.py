@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from ClipAI.core.models import ActionInvocation, ActionVariant, InputTarget, LLMRequest, LLMResult, OutputProfile, ReadinessIssue, ResolvedAction
+from dataclasses import replace
+
+from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, GuidancePreferences, InputTarget, LLMRequest, LLMResult, OutputProfile, ReadinessIssue, ResolvedAction
 from ClipAI.core.errors import ProviderResponseError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.providers.fake import FakeProvider
@@ -11,6 +13,7 @@ from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.workflow_controller import WorkflowController
+from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
 
 
 class FakeClipboard:
@@ -81,13 +84,14 @@ def action() -> ResolvedAction:
     )
 
 
-def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, operation_tracker=None, readiness_issues=()) -> ActionExecutor:
+def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, operation_tracker=None, readiness_issues=(), guidance_preferences=None) -> ActionExecutor:
     return ActionExecutor(
         input_resolver=InputResolver(clipboard, selection),
         prompt_builder=PromptBuilder(),
         result_processor=ResultProcessor(),
         default_temperature=0.2,
         operation_tracker=operation_tracker,
+        guidance_preferences=guidance_preferences,
     )
 
 
@@ -101,6 +105,7 @@ def run_invocation(
     invocation_id: str = "i1",
     provider=None,
     readiness_issues=(),
+    resolved_action: ResolvedAction | None = None,
 ) -> WorkflowController:
     presenter = RecordingPresenter()
     controller = WorkflowController(
@@ -108,7 +113,7 @@ def run_invocation(
         presenter,
     )
     invocation = ActionInvocation(invocation_id, "english", "short", InputTarget("external_text"), workflow_id="w1")
-    resolved = action()
+    resolved = resolved_action or action()
     controller.begin_invocation(invocation, resolved)
     use_case.execute_invocation(
         resolved,
@@ -117,6 +122,35 @@ def run_invocation(
         binding=binding(provider, readiness_issues),
     )
     return controller
+
+
+class GuidanceStore:
+    def __init__(self) -> None:
+        self.preferences = GuidancePreferences()
+
+    def load(self):
+        return self.preferences
+
+    def save(self, preferences) -> None:
+        self.preferences = preferences
+
+
+def test_first_successful_feedback_recipe_projects_guidance_once() -> None:
+    store = GuidanceStore()
+    guidance = GuidancePreferencesCoordinator(store)
+    resolved = replace(action(), feedback_contract=ActionFeedbackContract(
+        "Translate",
+        "Keep intent",
+        "Verify audience fit",
+        (FeedbackReason("other", "Other"),),
+    ))
+    executor = workflow(FakeClipboard("clipboard"), FakeSelection("selected"), guidance_preferences=guidance)
+
+    first = run_invocation(executor, invocation_id="first", resolved_action=resolved)
+    second = run_invocation(executor, invocation_id="second", resolved_action=resolved)
+
+    assert first.snapshot.show_guidance_hint is True
+    assert second.snapshot.show_guidance_hint is False
 
 
 def test_execute_action_uses_selection_before_clipboard() -> None:

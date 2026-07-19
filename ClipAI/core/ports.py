@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, ProviderSelectionState, ProviderSettingsState, SpeechRequest, UserFacingError
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, ProviderSelectionState, ProviderSettingsState, SpeechRequest, UserFacingError
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -67,6 +67,12 @@ class ActionFeedbackStore(Protocol):
     def append(self, record: ActionFeedbackRecord) -> None: ...
 
 
+class GuidancePreferencesStore(Protocol):
+    def load(self) -> GuidancePreferences: ...
+
+    def save(self, preferences: GuidancePreferences) -> None: ...
+
+
 class SpeechOutput(Protocol):
     def speak(self, request: SpeechRequest) -> None: ...
 
@@ -95,6 +101,10 @@ class ProviderSettingsPresenter(Protocol):
     def show_provider_settings(self, state: ProviderSettingsState) -> None: ...
 
     def set_provider_settings(self, state: ProviderSettingsState) -> None: ...
+
+
+class GuidancePreferencesPresenter(Protocol):
+    def set_guidance_preferences(self, preferences: GuidancePreferences) -> None: ...
 
 
 class ModelPreferenceStore(Protocol):

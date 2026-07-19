@@ -294,6 +294,13 @@ class WorkflowStep:
 
 
 @dataclass(frozen=True)
+class GuidancePreferences:
+    first_use_hints_enabled: bool = True
+    seen_action_ids: frozenset[str] = frozenset()
+    update_pending: bool = False
+
+
+@dataclass(frozen=True)
 class ActiveWorkflowContext:
     workflow_id: str
     step_id: str

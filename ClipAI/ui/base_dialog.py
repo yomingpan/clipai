@@ -520,6 +520,16 @@ class _Tooltip:
             if isinstance(child, tk.Label):
                 child.configure(text=text)
 
+    def show_temporarily(self, duration_ms: int = 3500) -> None:
+        self._cancel()
+
+        def show_and_schedule_hide() -> None:
+            self._job = None
+            self._show()
+            self._job = self.lifecycle.schedule(duration_ms, self._hide)
+
+        self._job = self.lifecycle.schedule(120, show_and_schedule_hide)
+
     def _hide(self, _event=None) -> None:
         self._cancel()
         if self._window is not None:
@@ -947,6 +957,10 @@ class BaseResultSurface:
         self._info_tooltip.set_text(action_contract_tooltip_text(contract))
         if not self.info_button.winfo_manager():
             self.info_button.pack(side="left", padx=(0, 4), before=self.close_button)
+
+    def show_action_guidance_hint(self) -> None:
+        if self._feedback_contract is not None and self.info_button.winfo_manager():
+            self._info_tooltip.show_temporarily()
 
     def configure_feedback(
         self,

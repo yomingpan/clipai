@@ -47,6 +47,7 @@ class MockBaseDialogSurface:
         self.content_rendered = False
         self._build()
         self.dialog.lifecycle.schedule(700, self._show_result)
+        self.dialog.lifecycle.schedule(1100, self.surface.show_action_guidance_hint)
 
     def _build(self) -> None:
         self.surface.set_title("ClipAI - 改成口語可說出口版本")

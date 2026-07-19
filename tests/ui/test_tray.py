@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.models import ModelSelectionState, ProviderOption, ProviderSelectionState
+from ClipAI.core.models import GuidancePreferences, ModelSelectionState, ProviderOption, ProviderSelectionState
 from ClipAI.ui.tray import STATUS_COLORS, TrayController, create_tray_image
 
 
@@ -183,3 +183,41 @@ def test_tray_disables_provider_and_model_mutations_during_configuration_operati
     assert all(item.enabled(None) is False for item in model_menu.action.items)
     assert all(item.enabled(None) is False for item in provider_menu.action.items)
     assert events == []
+
+
+def test_guidance_menu_emits_intents_without_optimistically_changing_checked_state() -> None:
+    events = []
+    tray = TrayController(
+        lambda: None,
+        guidance_preferences=GuidancePreferences(True, frozenset({"shorten"})),
+        on_set_first_use_hints=lambda enabled: events.append(("set", enabled)),
+        on_reset_first_use_hints=lambda: events.append(("reset",)),
+    )
+    menu = tray._build_guidance_menu(Pystray)
+    toggle, reset = menu.action.items
+
+    toggle.action(None, None)
+    reset.action(None, None)
+
+    assert events == [("set", False), ("reset",)]
+    assert toggle.checked(None) is True
+
+
+def test_guidance_menu_reflects_only_authoritative_saved_projection() -> None:
+    tray = TrayController(
+        lambda: None,
+        guidance_preferences=GuidancePreferences(True),
+        on_set_first_use_hints=lambda _enabled: None,
+        on_reset_first_use_hints=lambda: None,
+    )
+    pending = GuidancePreferences(True, update_pending=True)
+    tray.set_guidance_preferences(pending)
+    toggle, reset = tray._build_guidance_menu(Pystray).action.items
+    assert toggle.checked(None) is True
+    assert toggle.enabled(None) is False
+    assert reset.enabled(None) is False
+
+    tray.set_guidance_preferences(GuidancePreferences(False))
+    toggle = tray._build_guidance_menu(Pystray).action.items[0]
+    assert toggle.checked(None) is False
+    assert toggle.enabled(None) is True

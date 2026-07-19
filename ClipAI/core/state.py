@@ -80,6 +80,7 @@ class SessionSnapshot:
     feedback_step_id: str = ""
     feedback_operation_id: str = ""
     feedback_message: str = ""
+    show_guidance_hint: bool = False
 
     def evolve(self, **changes: object) -> SessionSnapshot:
         return replace(self, revision=self.revision + 1, **changes)

@@ -114,6 +114,19 @@ def test_feedback_remains_available_when_input_is_a_previous_workflow_result() -
     assert workflow.begin_feedback("one", "feedback-1") is not None
 
 
+def test_completion_projects_one_time_guidance_without_reappearing_in_history() -> None:
+    workflow = controller()
+    inv = invocation("one")
+    resolved = action()
+    workflow.begin_invocation(inv, resolved)
+    workflow.complete(inv, resolved, inv.input_target.document, "result", (), show_guidance_hint=True)
+    assert workflow.snapshot.show_guidance_hint is True
+
+    complete_step(workflow, "two", "one")
+    workflow.navigate_back()
+    assert workflow.snapshot.show_guidance_hint is False
+
+
 def test_feedback_completion_offscreen_is_remembered_without_overwriting_current_step() -> None:
     workflow = controller()
     contract = ActionFeedbackContract("Shorten", "Keep meaning", "Verify meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))

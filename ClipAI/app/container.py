@@ -3,18 +3,20 @@ from __future__ import annotations
 from collections.abc import Callable
 from importlib.metadata import PackageNotFoundError, version
 import os
+import uuid
 
 from ClipAI.app.config_schema import ConfigBundle
 from ClipAI.core.errors import ConfigError
 from ClipAI.app.provider_configuration import AppProviderConfigurationBackend, build_provider_snapshot
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, ShutdownApplication
+from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider
 from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.action_feedback import JsonlActionFeedbackStore
+from ClipAI.platform.guidance_preferences import JsonGuidancePreferencesStore
 from ClipAI.platform.hotkey import register_hotkeys_with_long_press
 from ClipAI.platform.selection import SystemSelectionReader
 from ClipAI.platform.filesystem import JsonlArchiveStore
@@ -30,6 +32,7 @@ from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.action_feedback import ActionFeedbackService
+from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
 from ClipAI.services.provider_binding import ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.input_resolver import InputResolver
@@ -58,6 +61,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     readiness_issues = active_binding.readiness_issues
     available_models = active_option.available_models
     clipboard = SystemClipboard()
+    guidance_preferences = GuidancePreferencesCoordinator(JsonGuidancePreferencesStore())
     runtime_holder: list[AppRuntime] = []
     tray = TrayController(
         lambda: runtime_holder[0].enqueue(ShutdownApplication()),
@@ -66,6 +70,9 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         model_selection=ModelSelectionState(snapshot.active_provider, available_models, model),
         provider_selection=ProviderSelectionState(snapshot.options, snapshot.active_provider),
         on_open_provider_settings=lambda: runtime_holder[0].enqueue(OpenProviderSettings()),
+        guidance_preferences=guidance_preferences.preferences,
+        on_set_first_use_hints=lambda enabled: runtime_holder[0].enqueue(SetFirstUseHintsEnabled(enabled, uuid.uuid4().hex)),
+        on_reset_first_use_hints=lambda: runtime_holder[0].enqueue(ResetFirstUseHints(uuid.uuid4().hex)),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
@@ -120,6 +127,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         available_actions=("copy", "paste", "archive", "follow_up", "speaker") if speech is not None else ("copy", "paste", "archive", "follow_up"),
         operation_tracker=operation_tracker,
         result_router=ResultRouter(speech_coordinator),
+        guidance_preferences=guidance_preferences,
     )
 
     def register(action_map: dict[str, dict[str, str]], callback: Callable[[str, str], None]) -> object:
@@ -150,6 +158,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         provider_selection_presenter=tray,
         provider_settings_presenter=view,
         action_feedback=ActionFeedbackService(JsonlActionFeedbackStore()),
+        guidance_preferences=guidance_preferences,
+        guidance_preferences_presenter=tray,
     )
     runtime_holder.append(runtime)
     return runtime
