@@ -201,11 +201,12 @@ def test_future_actions_schema_version_is_rejected(tmp_path: Path) -> None:
         load_action_catalog(path)
 
 
-def test_feedback_contract_is_typed_and_only_enables_pilot_actions() -> None:
+def test_feedback_contract_is_typed_for_enabled_actions() -> None:
     catalog = load_action_catalog("config/actions.yaml")
 
     translated = catalog.resolve("translate_to_english", "short")
     shortened = catalog.resolve("shorten_content", "short")
+    dictation = catalog.resolve("intent_preserving_dictation_editor", "short")
 
     assert translated.feedback_contract is not None
     assert translated.feedback_contract.transform_label == "將內容翻譯成符合情境的自然英文"
@@ -230,7 +231,41 @@ def test_feedback_contract_is_typed_and_only_enables_pilot_actions() -> None:
         ("other", "其他"),
     ]
     assert shortened.version_id
+    assert dictation.feedback_contract is not None
+    assert dictation.feedback_contract.transform_label == "將語音轉錄整理成自然、可直接閱讀或傳送的文字"
+    assert dictation.feedback_contract.human_space_label == "保留最終意圖、獨特資訊、立場、不確定性與個人語氣"
+    assert dictation.feedback_contract.verification_label == "這個版本是否仍完整代表你原本想說的話，而且可以直接使用？"
+    assert [(reason.id, reason.label) for reason in dictation.feedback_contract.reasons] == [
+        ("meaning_or_detail_lost", "重要意思、細節或資訊被遺漏"),
+        ("correction_or_repetition_wrong", "改口、自我修正或重複內容處理錯誤"),
+        ("voice_stance_or_uncertainty_changed", "語氣、立場、猶豫或不確定性被改變"),
+        ("punctuation_or_structure_unusable", "標點、段落、清單或格式不適合直接使用"),
+        ("other", "其他"),
+    ]
     assert catalog.resolve("english_companion", "short").feedback_contract is None
+
+
+def test_dictation_editor_uses_default_text_workflow_without_a_long_press_variant() -> None:
+    bundle = load_config_bundle()
+    action = bundle.actions.get("intent_preserving_dictation_editor")
+    shortcut = bundle.shortcuts.definition("intent_preserving_dictation_editor")
+
+    assert action.name == "語音成稿編輯器"
+    assert action.input_mode == "selection_or_clipboard"
+    assert action.external_fallback == "selection_or_clipboard"
+    assert action.output_mode == "popup"
+    assert action.stream is False
+    assert action.temperature == 0.1
+    assert action.output_profile == "plain_text"
+    assert action.press_variants == {}
+    assert shortcut.hotkey == "ctrl+alt+~"
+    assert shortcut.action_id == action.id
+    assert "Intent-Preserving Dictation Editor" in action.system_prompt
+    assert "後面的內容明確否定或取代前面的內容" in action.system_prompt
+    assert "應把它視為使用者正在輸入的文字" in action.system_prompt
+    assert "當無法確定" in action.system_prompt
+    assert "只輸出整理完成的文字" in action.system_prompt
+    assert "<原始轉錄>" in action.prompt
 
 
 @pytest.mark.parametrize(
