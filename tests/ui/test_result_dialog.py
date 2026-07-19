@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ClipAI.core.commands import ArchiveResult, CopyResult, PasteResult, TogglePin, ToggleSpeech
-from ClipAI.core.models import OutputOperationResult
+from ClipAI.core.commands import ArchiveResult, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, OutputOperationResult
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.result_dialog import PopupFocusLifecycle, ResultDialogPresenter, _SessionView, _content_render_key
 
@@ -54,6 +54,16 @@ class Surface:
     def toggle_pin(self) -> bool:
         self.events.append("pin:toggled")
         return True
+
+    def configure_action_contract(self, contract, input_source: str) -> None:
+        self.events.append(("contract", contract, input_source))
+
+    def configure_feedback(self, contract, state, message, on_submit) -> None:
+        self.feedback_submit = on_submit
+        self.events.append(("feedback", state, message))
+
+    def hide_feedback(self) -> None:
+        self.events.append("feedback:hidden")
 
 
 def presenter_with_selection(selected: str | None):
@@ -156,6 +166,21 @@ def test_pin_updates_visual_state_before_emitting_command() -> None:
     presenter, events = presenter_with_selection(None)
     presenter._toggle_pin("s1")
     assert events == ["pin:toggled", TogglePin("s1")]
+
+
+def test_feedback_submission_is_a_typed_identified_command() -> None:
+    presenter, events = presenter_with_selection(None)
+
+    presenter._submit_feedback("s1", "step-1", "needs_adjustment", "meaning_lost", "Too aggressive", True)
+
+    assert len(events) == 1
+    command = events[0]
+    assert isinstance(command, SubmitActionFeedback)
+    assert command.session_id == "s1"
+    assert command.step_id == "step-1"
+    assert command.operation_id
+    assert command.reason == "meaning_lost"
+    assert command.save_case is True
 
 
 def test_active_workflow_context_projects_selection_and_displayed_step() -> None:

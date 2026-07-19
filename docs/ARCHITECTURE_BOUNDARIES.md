@@ -40,6 +40,9 @@ tests/              # Unit sims 與 integration tests
 - 只有 composition root 可以讀取 API key environment variables；provider 只接收已解析且不可洩漏的 credential。
 - 所有 LLM/TTS operation 狀態由單一 `OperationLifecycleCoordinator` 管理；tray 不擁有 success/error timer。
 - Tray menu 只能 enqueue typed command，不得直接匯出檔案、讀 config 或執行 diagnostics。
+- Provider/model 選擇、設定驗證、reload 與 model catalog refresh 由單一 `ProviderConfigurationCoordinator` 擁有狀態與 operation identity；`AppRuntime` 只 dispatch、supervise worker 與投影狀態。
+- 所有 provider configuration mutation 共用一個 operation gate。設定儲存或 catalog refresh 進行中，不得由 tray 或其他入口同時寫入 provider 設定。
+- Provider environment mapping、credential resolution、concrete provider 建構與 `.env` persistence 屬於 app composition adapter；services 只依賴 typed backend contract。
 
 ## Core
 
@@ -304,3 +307,12 @@ UI 只負責：
 架構的目的不是把資料夾切漂亮。
 
 架構的目的，是讓每個真實世界接觸點都能被拔掉，換成假的測試接縫，讓核心邏輯可以快速、穩定、可預測地被驗證。
+
+## Action feedback ownership
+
+- An Action may declare a typed, user-visible feedback contract describing the transformation and the human space it must preserve. Actions without that contract do not expose feedback UI.
+- `WorkflowController` owns the feedback projection for the currently displayed completed step. Feedback operation identity is separate from workflow revision, provider invocation identity, and output-operation identity.
+- UI emits `SubmitActionFeedback`; it never writes feedback files or mutates prompts, recipes, Action configuration, or shortcuts.
+- `services` validates feedback against the immutable completed `WorkflowStep`; a platform `ActionFeedbackStore` adapter performs append-only persistence.
+- Raw input and output are excluded from feedback records unless the user explicitly elects to preserve an adjustment case.
+- Feedback never changes an Action automatically. A future prompt-improvement workflow must use a separate explicit user intent, candidate version, and regression check.

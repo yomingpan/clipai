@@ -113,5 +113,5 @@ def test_provider_snapshot_builds_keyless_local_gateway() -> None:
     )
     binding = next(item for item in snapshot.bindings if item.provider_id == "gateway")
     assert snapshot.active_provider == "gateway"
-    assert snapshot.gateway_base_url == "http://localhost:8000/v1"
+    assert snapshot.connection_base_url == "http://localhost:8000/v1"
     assert binding.readiness_issues == ()

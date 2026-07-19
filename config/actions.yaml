@@ -1,4 +1,4 @@
-schema_version: 4
+schema_version: 5
 
 actions:
   - id: translate_to_traditional_chinese
@@ -24,6 +24,20 @@ actions:
     output_mode: popup
     temperature: 0.1
     output_profile: plain_text
+    feedback:
+      transform: 將內容翻譯成符合情境的自然英文
+      human_space: 保留真正想表達的意思、立場、關係拿捏與最後選擇
+      reasons:
+        - id: meaning_inaccurate
+          label: 語意不準確
+        - id: tone_or_formality_off
+          label: 語氣或正式程度不對
+        - id: terms_names_or_numbers_wrong
+          label: 術語、姓名或數字錯誤
+        - id: missing_context
+          label: 缺少必要脈絡
+        - id: other
+          label: 其他
     system_prompt: >
       Translate the input into natural, clear English appropriate to its context and level of formality. Preserve intent, tone, stance, uncertainty, names, numbers, facts, and constraints. Prefer what the author means over the original word order. Do not summarize, comment, extend, or invent information. The input may be text or an image; when an image is unclear, translate only visible content and mark uncertainty. Output only the translation in natural paragraphs. Do not add headings, bullets, labels, or an introduction.
     prompt: |
@@ -257,6 +271,22 @@ actions:
     output_mode: popup
     temperature: 0.1
     output_profile: plain_text
+    feedback:
+      transform: 在不改變原意下縮短文字
+      human_space: 保留原本的立場、事實、語氣與語言
+      reasons:
+        - id: meaning_lost
+          label: 核心意思少了
+        - id: too_short
+          label: 縮得太多
+        - id: too_long
+          label: 縮得不夠
+        - id: tone_or_stance_changed
+          label: 語氣或立場變了
+        - id: format_or_language_changed
+          label: 格式或語言變了
+        - id: other
+          label: 其他
     system_prompt: >
       This is faithful compression, not translation or reformatting. Preserve the original meaning, facts, intent, tone, names, numbers, constraints, language, and format. Detect the source language before rewriting: English input must produce English only; Chinese input must produce Traditional Chinese only; mixed Chinese-English input must preserve the original language of each part and its approximate language balance. Never translate, normalize the language, add commentary, headings, labels, bullets, a summary, or any structure absent from the input. Preserve the input's prose, paragraph, and list style; shorten within that existing style only. Remove repetition, filler, and low-information wording. Return only the shortened content.
     prompt: |

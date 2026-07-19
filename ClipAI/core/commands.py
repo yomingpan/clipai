@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TypeAlias
 
-from ClipAI.core.models import HotkeyEventType, ModelCatalogConnection, PressType, ResultRoute
+from ClipAI.core.models import FeedbackOutcome, HotkeyEventType, ModelCatalogConnection, PressType, ProviderSettingsInput, ResultRoute
 
 
 @dataclass(frozen=True)
@@ -116,12 +116,8 @@ class OpenProviderSettings:
 
 @dataclass(frozen=True)
 class ValidateAndSaveProviderSettings:
-    provider: str
-    model: str
-    api_key: str = field(repr=False)
+    settings: ProviderSettingsInput
     operation_id: str = ""
-    server_name: str = ""
-    base_url: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True)
@@ -131,4 +127,23 @@ class RefreshProviderModels:
     connection: ModelCatalogConnection | None = None
 
 
-AppCommand: TypeAlias = ShortcutTriggered | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels
+@dataclass(frozen=True)
+class SubmitActionFeedback:
+    session_id: str
+    step_id: str
+    operation_id: str
+    outcome: FeedbackOutcome
+    reason: str = ""
+    note: str = ""
+    save_case: bool = False
+
+
+@dataclass(frozen=True)
+class ActionFeedbackCompleted:
+    session_id: str
+    step_id: str
+    operation_id: str
+    error: str = ""
+
+
+AppCommand: TypeAlias = ShortcutTriggered | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted

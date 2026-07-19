@@ -145,13 +145,13 @@ class TrayController:
         selection = self._model_selection
         if selection is None or self._on_select_model is None:
             return None
-        label = "Model (refreshing)..." if selection.refreshing else (f"Model ({selection.pending_model})..." if selection.pending_model else f"Model: {selection.selected_model}")
+        label = "Model (refreshing)..." if selection.refreshing else ("Model (updating)..." if selection.configuration_pending else (f"Model ({selection.pending_model})..." if selection.pending_model else f"Model: {selection.selected_model}"))
         items = tuple(
             pystray.MenuItem(
                 f"{model} (custom/current)" if model in selection.custom_models else model,
                 self._model_action(model),
                 checked=lambda _item, chosen=model: self._model_selection is not None and self._model_selection.selected_model == chosen,
-                enabled=lambda _item: self._model_selection is not None and self._model_selection.pending_model is None and not self._model_selection.refreshing,
+                enabled=lambda _item: self._model_selection is not None and self._model_selection.pending_model is None and not self._model_selection.refreshing and not self._model_selection.configuration_pending,
             )
             for model in selection.available_models
         )
@@ -161,13 +161,13 @@ class TrayController:
         selection = self._provider_selection
         if selection is None or self._on_select_provider is None:
             return None
-        label = "Provider (reloading)..." if selection.reloading else (f"Provider ({selection.pending_provider})..." if selection.pending_provider else f"Provider: {selection.selected_provider}")
+        label = "Provider (reloading)..." if selection.reloading else ("Provider (updating)..." if selection.configuration_pending else (f"Provider ({selection.pending_provider})..." if selection.pending_provider else f"Provider: {selection.selected_provider}"))
         items = tuple(
             pystray.MenuItem(
                 option.display_name,
                 self._provider_action(option.provider_id),
                 checked=lambda _item, chosen=option.provider_id: self._provider_selection is not None and self._provider_selection.selected_provider == chosen,
-                enabled=lambda _item, chosen=option.provider_id: self._provider_selection is not None and self._provider_selection.pending_provider is None and not self._provider_selection.reloading and chosen != self._provider_selection.selected_provider,
+                enabled=lambda _item, chosen=option.provider_id: self._provider_selection is not None and self._provider_selection.pending_provider is None and not self._provider_selection.reloading and not self._provider_selection.configuration_pending and chosen != self._provider_selection.selected_provider,
             )
             for option in selection.providers
         )
@@ -181,7 +181,7 @@ class TrayController:
 
     def _select_provider(self, provider: str) -> None:
         selection = self._provider_selection
-        if selection is None or self._on_select_provider is None or selection.pending_provider is not None or provider == selection.selected_provider:
+        if selection is None or self._on_select_provider is None or selection.pending_provider is not None or selection.configuration_pending or provider == selection.selected_provider:
             return
         self._provider_selection = ProviderSelectionState(selection.providers, selection.selected_provider, provider)
         self._refresh_menu()
@@ -200,7 +200,7 @@ class TrayController:
 
     def _select_model(self, model: str) -> None:
         selection = self._model_selection
-        if selection is None or self._on_select_model is None or selection.pending_model is not None or model == selection.selected_model:
+        if selection is None or self._on_select_model is None or selection.pending_model is not None or selection.configuration_pending or model == selection.selected_model:
             return
         self._model_selection = ModelSelectionState(selection.provider, selection.available_models, selection.selected_model, model)
         self._refresh_menu()

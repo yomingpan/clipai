@@ -73,3 +73,17 @@ def test_runtime_does_not_probe_optional_capabilities() -> None:
     source = Path("ClipAI/app/runtime.py").read_text(encoding="utf-8")
     assert "hasattr(" not in source
     assert "getattr(" not in source
+
+
+def test_runtime_does_not_own_provider_configuration_policy() -> None:
+    source = Path("ClipAI/app/runtime.py").read_text(encoding="utf-8")
+    forbidden = (
+        "CLIPAI_PROVIDER",
+        "CLIPAI_GATEWAY",
+        "save_settings(",
+        "_provider_settings_operation_id",
+        "_model_refresh_operation_id",
+        "validate_provider_credential",
+        "discover_provider_models",
+    )
+    assert [value for value in forbidden if value in source] == []

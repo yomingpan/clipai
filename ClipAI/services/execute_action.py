@@ -49,6 +49,7 @@ class ActionExecutor:
                 invocation.invocation_id,
                 SessionStatus.PREPARING_REQUEST,
                 status_text=f"Preparing {action.name}...",
+                input_source=document.source,
             ) is None:
                 return
             request = self._prompt_builder.build(

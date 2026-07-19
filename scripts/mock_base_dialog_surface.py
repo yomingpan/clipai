@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
+from ClipAI.core.models import ActionFeedbackContract, FeedbackReason
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 
 
@@ -20,8 +21,8 @@ class MockBaseDialogSurface:
 
         self.dialog = BaseDialog(
             title="ClipAI",
-            width=520,
-            height=350,
+            width=400,
+            height=420,
             position="center",
             state_colors=COLORS,
             background_color="#E9EDF3",
@@ -32,6 +33,15 @@ class MockBaseDialogSurface:
             corner_radius=18,
         )
         self.surface = BaseResultSurface(self.dialog)
+        self.feedback_contract = ActionFeedbackContract(
+            "在不改變原意下縮短文字",
+            "保留原本的立場、事實、語氣與語言",
+            (
+                FeedbackReason("meaning_lost", "核心意思少了"),
+                FeedbackReason("too_short", "縮得太多"),
+                FeedbackReason("other", "其他"),
+            ),
+        )
         self.speaking = False
         self.content_rendered = False
         self._build()
@@ -41,6 +51,7 @@ class MockBaseDialogSurface:
         self.surface.set_title("ClipAI - 改成口語可說出口版本")
         self.surface.set_source_preview("🔍 Analyzing: 這樣可以，還可以這樣。像這樣跟他講話。然後我修好的...")
         self.surface.set_model("gpt-5.4")
+        self.surface.configure_action_contract(self.feedback_contract, "selection")
         self.surface.configure_standard_actions(
             on_speak=self._toggle_speaker,
             on_copy=self._copy_visible_text,
@@ -71,7 +82,12 @@ class MockBaseDialogSurface:
             ]
         )
         self.content_rendered = True
+        self.surface.configure_feedback(self.feedback_contract, "idle", "", self._record_feedback)
         self.dialog.flash("success")
+
+    def _record_feedback(self, outcome, reason, note, save_case) -> None:
+        del outcome, reason, note, save_case
+        self.surface.configure_feedback(self.feedback_contract, "succeeded", "已記錄回饋", self._record_feedback)
 
     def _toggle_speaker(self) -> None:
         self.speaking = not self.speaking

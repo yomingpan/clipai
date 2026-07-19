@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ModelSelectionState, ProviderOption, ProviderSelectionState, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, InputDocument, ModelSelectionState, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
+from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 
 
 class FakeView:
@@ -145,6 +146,62 @@ class ModelPreferences:
         if self.error:
             raise self.error
         self.saved.extend((setting.name, setting.value) for setting in settings)
+
+
+class RuntimeProviderBackend:
+    def __init__(self, snapshot, preferences=None, reload=None, validate=None, build=None, discover=None) -> None:
+        self.snapshot = snapshot
+        self.preferences = preferences or ModelPreferences()
+        self.reload_callback = reload
+        self.validate = validate
+        self.build = build
+        self.discover = discover
+
+    def reload(self):
+        return self.reload_callback() if self.reload_callback is not None else self.snapshot
+
+    def persist_provider(self, provider):
+        current = self.reload()
+        self.preferences.save_settings((EnvironmentSetting("CLIPAI_PROVIDER", provider),))
+        self.snapshot = ProviderRuntimeSnapshot(provider, current.bindings, current.options, current.connection_name, current.connection_base_url)
+        return self.snapshot
+
+    def persist_model(self, provider, model):
+        current = self.reload()
+        env_name = "CLIPAI_GATEWAY_MODEL" if provider == "gateway" else f"{provider.upper()}_MODEL"
+        self.preferences.save_settings((EnvironmentSetting(env_name, model),))
+        bindings = tuple(
+            ProviderExecutionBinding(item.provider, item.provider_id, model, item.readiness_issues) if item.provider_id == provider else item
+            for item in current.bindings
+        )
+        options = tuple(
+            ProviderOption(item.provider_id, item.display_name, item.available_models, model, item.configured, item.custom_models, item.credential_hint, item.capabilities)
+            if item.provider_id == provider else item
+            for item in current.options
+        )
+        self.snapshot = ProviderRuntimeSnapshot(current.active_provider, bindings, options, current.connection_name, current.connection_base_url)
+        return self.snapshot
+
+    def validate_save_and_build(self, settings):
+        if self.validate is not None:
+            self.validate(settings.provider, settings.api_key, settings.connection_base_url, settings.model)
+        candidate = self.build(settings.provider, settings.model, settings.api_key, settings.connection_name, settings.connection_base_url) if self.build is not None else self.snapshot
+        updates = [EnvironmentSetting("CLIPAI_PROVIDER", settings.provider)]
+        if settings.provider == "gateway":
+            updates.extend((EnvironmentSetting("CLIPAI_GATEWAY_NAME", settings.connection_name), EnvironmentSetting("CLIPAI_GATEWAY_BASE_URL", settings.connection_base_url)))
+            if settings.api_key:
+                updates.append(EnvironmentSetting("CLIPAI_GATEWAY_API_KEY", settings.api_key))
+            updates.append(EnvironmentSetting("CLIPAI_GATEWAY_MODEL", settings.model))
+        else:
+            if settings.api_key:
+                updates.append(EnvironmentSetting(f"{settings.provider.upper()}_API_KEY", settings.api_key))
+            updates.append(EnvironmentSetting(f"{settings.provider.upper()}_MODEL", settings.model))
+        self.preferences.save_settings(tuple(updates))
+        self.snapshot = candidate
+        return candidate
+
+    def discover_models(self, provider, connection):
+        return self.discover(provider, connection) if self.discover is not None else ()
 
 
 class Operation:
@@ -285,14 +342,44 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None):
     action = ActionDefinition("a", "Action", "system", "{input}", {})
-    shorten = ActionDefinition("shorten", "Shorten", "system", "{input}", {})
+    shorten = ActionDefinition(
+        "shorten",
+        "Shorten",
+        "system",
+        "{input}",
+        {},
+        feedback_contract=ActionFeedbackContract(
+            "Shorten faithfully",
+            "Keep meaning",
+            (FeedbackReason("meaning_lost", "Meaning lost"),),
+        ),
+    )
     view = FakeView()
     supervisor = FakeSupervisor()
     outputs = FakeOutputs()
     speech_coordinator = speech_coordinator or PopupSpeech(outputs)
     listener = Listener()
+    snapshot = ProviderRuntimeSnapshot(
+        "openai",
+        (
+            ProviderExecutionBinding(FakeProvider(), "openai", "model"),
+            ProviderExecutionBinding(FakeProvider(), "gemini", "gemini-model"),
+        ),
+        (
+            ProviderOption("openai", "OpenAI", ("model", "new-model"), "model", True),
+            ProviderOption("gemini", "Gemini", ("gemini-model",), "gemini-model", True),
+        ),
+    )
+    backend = RuntimeProviderBackend(
+        snapshot,
+        model_preferences,
+        reload_provider_settings,
+        validate_provider_credential,
+        build_provider_candidate,
+        discover_provider_models,
+    )
     runtime = AppRuntime(
         actions=ActionCatalog([action, shorten]),
         shortcuts=ShortcutCatalog([
@@ -304,7 +391,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         output_actions=outputs,
         view=view,
         supervisor=supervisor,
-        provider_binding=ProviderExecutionBinding(FakeProvider(), "openai", "model"),
+        provider_configuration=ProviderConfigurationCoordinator(snapshot, backend),
         hotkey_registrar=lambda _map, _callback: listener,
         tray_factory=Tray if with_tray else None,
         operation_tracker=operation_tracker,
@@ -313,23 +400,50 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         speech_coordinator=speech_coordinator,
         workflow_context_reader=view,
         output_operation_presenter=view,
-        available_models=("model", "new-model"),
-        settings_store=model_preferences,
-        provider_options=(
-            ProviderOption("openai", "OpenAI", ("model", "new-model"), "model", True),
-            ProviderOption("gemini", "Gemini", ("gemini-model",), "gemini-model", True),
-        ),
-        provider_bindings=(
-            ProviderExecutionBinding(FakeProvider(), "openai", "model"),
-            ProviderExecutionBinding(FakeProvider(), "gemini", "gemini-model"),
-        ),
-        reload_provider_settings=reload_provider_settings,
         provider_settings_presenter=view,
-        validate_provider_credential=validate_provider_credential,
-        build_provider_candidate=build_provider_candidate,
-        discover_provider_models=discover_provider_models,
+        action_feedback=action_feedback,
     )
+    runtime._provider_backend = backend
     return runtime, view, supervisor, outputs, listener
+
+
+class FakeActionFeedback:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def record(self, workflow_id, step, command) -> None:
+        self.calls.append((workflow_id, step, command))
+
+
+def test_feedback_is_typed_supervised_work_and_projects_real_completion() -> None:
+    feedback = FakeActionFeedback()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(action_feedback=feedback)
+    runtime.enqueue(StartAction("shorten", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    invocation_id = runtime._workflows[workflow_id].snapshot.active_invocation_id
+    assert invocation_id is not None
+    supervisor.work[invocation_id]()
+    invocation = runtime._execute_action.invocations[-1]
+    action = runtime._actions.resolve("shorten", "short")
+    runtime._workflows[workflow_id].complete(
+        invocation,
+        action,
+        InputDocument("private input", "selection"),
+        "result",
+        ("copy",),
+    )
+
+    runtime.enqueue(SubmitActionFeedback(
+        workflow_id, invocation_id, "feedback-1", "needs_adjustment", "meaning_lost", "note", True
+    ))
+    runtime.drain_commands()
+
+    assert runtime._workflows[workflow_id].snapshot.feedback_state == "pending"
+    supervisor.work["action-feedback:feedback-1"]()
+    runtime.drain_commands()
+    assert runtime._workflows[workflow_id].snapshot.feedback_state == "succeeded"
+    assert feedback.calls[0][1].input_text == "private input"
 
 
 def test_model_selection_persists_before_switching_new_workflows() -> None:
@@ -361,9 +475,15 @@ def test_workflow_captures_provider_binding_before_runtime_switch() -> None:
     first_work = supervisor.work[runtime._workflows[first_id].snapshot.active_invocation_id]
 
     replacement = ProviderExecutionBinding(FakeProvider("replacement"), "gemini", "gemini-model")
-    runtime._active_provider_binding = replacement
-    runtime._model = replacement.model
-    runtime._provider_name = replacement.provider_id
+    runtime._provider_backend.snapshot = ProviderRuntimeSnapshot(
+        "gemini",
+        (runtime._provider_configuration.active_binding, replacement),
+        (
+            ProviderOption("openai", "OpenAI", ("model",), "model", True),
+            ProviderOption("gemini", "Gemini", ("gemini-model",), "gemini-model", True),
+        ),
+    )
+    runtime._provider_configuration.reload()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
     second_id = view.snapshots[-1].session_id
@@ -387,7 +507,7 @@ def test_model_selection_write_failure_keeps_previous_model() -> None:
     runtime._model_selection_presenter = presenter
     runtime.enqueue(SelectProviderModel("openai", "new-model"))
     runtime.drain_commands()
-    assert runtime._model == "model"
+    assert runtime._provider_configuration.active_binding.model == "model"
     assert presenter.model_selections[-1].selected_model == "model"
     assert operations.events[-1][0] == "report_error"
 
@@ -401,7 +521,7 @@ def test_provider_selection_persists_before_switching_new_workflows() -> None:
     runtime.enqueue(SelectProvider("gemini"))
     runtime.drain_commands()
     assert preferences.saved == [("CLIPAI_PROVIDER", "gemini")]
-    assert runtime._active_provider_binding.provider_id == "gemini"
+    assert runtime._provider_configuration.active_binding.provider_id == "gemini"
     assert presenter.provider_selections[-1].selected_provider == "gemini"
     assert presenter.model_selections[-1] == ModelSelectionState("gemini", ("gemini-model",), "gemini-model")
 
@@ -416,7 +536,7 @@ def test_reload_failure_keeps_previous_provider() -> None:
     runtime._provider_selection_presenter = presenter
     runtime.enqueue(ReloadConfiguration())
     runtime.drain_commands()
-    assert runtime._provider_name == "openai"
+    assert runtime._provider_configuration.active_binding.provider_id == "openai"
     assert operations.events[-1][0] == "report_error"
 
 
@@ -431,9 +551,10 @@ def test_reload_success_replaces_catalog_and_active_binding() -> None:
     runtime._model_selection_presenter = presenter
     runtime.enqueue(ReloadConfiguration())
     runtime.drain_commands()
-    assert runtime._provider_name == "gemini"
-    assert runtime._model == "fresh"
-    assert presenter.provider_selections[-1] == ProviderSelectionState((option,), "gemini")
+    assert runtime._provider_configuration.active_binding.provider_id == "gemini"
+    assert runtime._provider_configuration.active_binding.model == "fresh"
+    assert presenter.provider_selections[-1].selected_provider == "gemini"
+    assert presenter.provider_selections[-1].providers[0].available_models == ("fresh", "gemini-model")
 
 
 def test_provider_without_key_is_rejected_without_persistence() -> None:
@@ -443,18 +564,18 @@ def test_provider_without_key_is_rejected_without_persistence() -> None:
         model_preferences=preferences,
         operation_tracker=operations,
     )
-    runtime._provider_bindings["gemini"] = ProviderExecutionBinding(
-        FakeProvider(),
-        "gemini",
-        "gemini-model",
-        (ReadinessIssue("missing", "missing", "llm"),),
+    old = runtime._provider_backend.snapshot
+    runtime._provider_backend.snapshot = ProviderRuntimeSnapshot(
+        old.active_provider,
+        (old.bindings[0], ProviderExecutionBinding(FakeProvider(), "gemini", "gemini-model", (ReadinessIssue("missing", "missing", "llm"),))),
+        old.options,
     )
     presenter = Tray(lambda: None)
     runtime._provider_selection_presenter = presenter
     runtime.enqueue(SelectProvider("gemini"))
     runtime.drain_commands()
     assert preferences.saved == []
-    assert runtime._provider_name == "openai"
+    assert runtime._provider_configuration.active_binding.provider_id == "openai"
     assert operations.events[-1][0] == "report_error"
     assert runtime._view.provider_settings_states[-1].selected_provider == "gemini"
 
@@ -470,7 +591,7 @@ def test_provider_settings_validate_then_save_and_activate() -> None:
         validate_provider_credential=lambda provider, key, _base_url, _model: validated.append((provider, key)),
         build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: candidate,
     )
-    command = ValidateAndSaveProviderSettings("gemini", "gemini-model", "top-secret", "save-1")
+    command = ValidateAndSaveProviderSettings(ProviderSettingsInput("gemini", "gemini-model", "top-secret"), "save-1")
     assert "top-secret" not in repr(command)
     runtime.enqueue(command)
     runtime.drain_commands()
@@ -483,29 +604,32 @@ def test_provider_settings_validate_then_save_and_activate() -> None:
         ("GEMINI_API_KEY", "top-secret"),
         ("GEMINI_MODEL", "gemini-model"),
     ]
-    assert runtime._provider_name == "gemini"
+    assert runtime._provider_configuration.active_binding.provider_id == "gemini"
     assert view.provider_settings_states[-1].operation_state == "succeeded"
 
 
-def test_late_provider_settings_failure_cannot_replace_newer_state() -> None:
+def test_provider_settings_operation_gate_rejects_overlapping_save() -> None:
     runtime, view, supervisor, _outputs, _listener = make_runtime(
         model_preferences=ModelPreferences(),
         validate_provider_credential=lambda _provider, _key, _base_url, _model: (_ for _ in ()).throw(RuntimeError("failed")),
         build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: (_ for _ in ()).throw(AssertionError()),
     )
-    runtime.enqueue(ValidateAndSaveProviderSettings("gemini", "gemini-model", "first", "old"))
+    runtime.enqueue(ValidateAndSaveProviderSettings(ProviderSettingsInput("gemini", "gemini-model", "first"), "old"))
     runtime.drain_commands()
-    runtime.enqueue(ValidateAndSaveProviderSettings("gemini", "gemini-model", "second", "new"))
+    runtime.enqueue(ValidateAndSaveProviderSettings(ProviderSettingsInput("gemini", "gemini-model", "second"), "new"))
     runtime.drain_commands()
+    assert "provider-settings:new" not in supervisor.work
+    assert view.provider_settings_states[-1].operation_id == "old"
     supervisor.work["provider-settings:old"]()
     runtime.drain_commands()
-    assert view.provider_settings_states[-1].operation_id == "new"
+    assert view.provider_settings_states[-1].operation_state == "failed"
 
 
 def test_gateway_settings_allow_empty_key_and_save_single_profile() -> None:
     preferences = ModelPreferences()
     validated = []
-    option = ProviderOption("gateway", "Local AI", ("local-model",), "local-model", True)
+    capabilities = ProviderCapabilities(True, True, True, True)
+    option = ProviderOption("gateway", "Local AI", ("local-model",), "local-model", True, capabilities=capabilities)
     binding = ProviderExecutionBinding(FakeProvider(), "gateway", "local-model")
     candidate = ProviderRuntimeSnapshot("gateway", (binding,), (option,), "Local AI", "http://localhost:8000/v1")
     runtime, view, supervisor, _outputs, _listener = make_runtime(
@@ -513,16 +637,18 @@ def test_gateway_settings_allow_empty_key_and_save_single_profile() -> None:
         validate_provider_credential=lambda provider, key, base_url, model: validated.append((provider, key, base_url, model)),
         build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: candidate,
     )
-    runtime._provider_options = (*runtime._provider_options, ProviderOption("gateway", "Custom Gateway", (), "", False))
-    command = ValidateAndSaveProviderSettings(
-        "gateway",
-        "local-model",
-        "",
-        "gateway-save",
-        "Local AI",
-        "http://localhost:8000",
+    old = runtime._provider_backend.snapshot
+    runtime._provider_backend.snapshot = ProviderRuntimeSnapshot(
+        old.active_provider,
+        (*old.bindings, ProviderExecutionBinding(FakeProvider(), "gateway", "")),
+        (*old.options, ProviderOption("gateway", "Custom Gateway", (), "", False, capabilities=capabilities)),
     )
-    secret_url_command = ValidateAndSaveProviderSettings("gateway", "model", "", base_url="https://gateway.test?token=hidden")
+    runtime._provider_configuration.reload()
+    command = ValidateAndSaveProviderSettings(
+        ProviderSettingsInput("gateway", "local-model", "", "Local AI", "http://localhost:8000"),
+        "gateway-save",
+    )
+    secret_url_command = ValidateAndSaveProviderSettings(ProviderSettingsInput("gateway", "model", connection_base_url="https://gateway.test?token=hidden"))
     assert "token=hidden" not in repr(secret_url_command)
     runtime.enqueue(command)
     runtime.drain_commands()
@@ -535,7 +661,7 @@ def test_gateway_settings_allow_empty_key_and_save_single_profile() -> None:
         ("CLIPAI_GATEWAY_BASE_URL", "http://localhost:8000"),
         ("CLIPAI_GATEWAY_MODEL", "local-model"),
     ]
-    assert runtime._provider_name == "gateway"
+    assert runtime._provider_configuration.active_binding.provider_id == "gateway"
     assert view.provider_settings_states[-1].operation_state == "succeeded"
 
 
@@ -550,7 +676,7 @@ def test_refresh_models_replaces_catalog_but_keeps_current_model() -> None:
     assert presenter.model_selections[-1].refreshing is True
     supervisor.work["provider-models:refresh-1"]()
     runtime.drain_commands()
-    assert runtime._available_models == ("model", "remote-a", "remote-b")
+    assert runtime._provider_configuration.model_selection().available_models == ("model", "remote-a", "remote-b")
     assert presenter.model_selections[-1].refreshing is False
     assert view.provider_settings_states[-1].operation_state == "succeeded"
 
@@ -566,7 +692,7 @@ def test_provider_settings_model_change_keeps_existing_api_key() -> None:
         build_provider_candidate=lambda _provider, _model, _key, _name, _base_url: candidate,
     )
 
-    runtime.enqueue(ValidateAndSaveProviderSettings("gemini", "gemini-model", "", "keep-key"))
+    runtime.enqueue(ValidateAndSaveProviderSettings(ProviderSettingsInput("gemini", "gemini-model", ""), "keep-key"))
     runtime.drain_commands()
     supervisor.work["provider-settings:keep-key"]()
     runtime.drain_commands()
@@ -595,7 +721,7 @@ def test_opening_selected_provider_reloads_credential_hint_without_activating_it
     selected = next(item for item in state.providers if item.provider_id == "gemini")
     assert state.selected_provider == "gemini"
     assert selected.credential_hint == "••••new2"
-    assert runtime._provider_name == "openai"
+    assert runtime._provider_configuration.active_binding.provider_id == "openai"
 
 
 def test_provider_switch_reloads_binding_before_activation() -> None:
@@ -623,8 +749,8 @@ def test_provider_switch_reloads_binding_before_activation() -> None:
     runtime.enqueue(SelectProvider("gemini"))
     runtime.drain_commands()
 
-    assert runtime._active_provider_binding is refreshed
-    assert runtime._model == "fresh-model"
+    assert runtime._provider_configuration.active_binding is refreshed
+    assert runtime._provider_configuration.active_binding.model == "fresh-model"
 
 
 def test_gateway_refresh_uses_unsaved_connection_without_writing_settings() -> None:
@@ -634,7 +760,13 @@ def test_gateway_refresh_uses_unsaved_connection_without_writing_settings() -> N
         model_preferences=preferences,
         discover_provider_models=lambda provider, connection: received.append((provider, connection)) or ("gateway-a", "gateway-b"),
     )
-    runtime._provider_options = (*runtime._provider_options, ProviderOption("gateway", "Gateway", (), "", False))
+    old = runtime._provider_backend.snapshot
+    runtime._provider_backend.snapshot = ProviderRuntimeSnapshot(
+        old.active_provider,
+        (*old.bindings, ProviderExecutionBinding(FakeProvider(), "gateway", "")),
+        (*old.options, ProviderOption("gateway", "Gateway", (), "", False)),
+    )
+    runtime._provider_configuration.reload()
     from ClipAI.core.models import ModelCatalogConnection
 
     runtime.enqueue(RefreshProviderModels("gateway", "gateway-refresh", ModelCatalogConnection("http://localhost:8000", "secret", "fallback")))
@@ -644,7 +776,7 @@ def test_gateway_refresh_uses_unsaved_connection_without_writing_settings() -> N
 
     assert received == [("gateway", ModelCatalogConnection("http://localhost:8000", "secret", "fallback"))]
     assert preferences.saved == []
-    option = next(item for item in runtime._provider_options if item.provider_id == "gateway")
+    option = next(item for item in runtime._provider_configuration.provider_selection().providers if item.provider_id == "gateway")
     assert option.available_models == ("gateway-a", "gateway-b")
 
 
@@ -656,35 +788,33 @@ def test_refresh_failure_keeps_previous_catalog() -> None:
     runtime.drain_commands()
     supervisor.work["provider-models:refresh-empty"]()
     runtime.drain_commands()
-    assert runtime._available_models == ("model", "new-model")
+    assert runtime._provider_configuration.model_selection().available_models == ("model", "new-model")
     assert view.provider_settings_states[-1].operation_state == "failed"
 
 
-def test_late_model_refresh_result_cannot_replace_newer_catalog() -> None:
-    calls = iter((("old-model",), ("new-model-remote",)))
-    runtime, _view, supervisor, _outputs, _listener = make_runtime(discover_provider_models=lambda _provider, _connection: next(calls))
+def test_model_refresh_operation_gate_rejects_overlapping_refresh() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime(discover_provider_models=lambda _provider, _connection: ("old-model",))
     runtime.enqueue(RefreshProviderModels("openai", "old-refresh"))
     runtime.drain_commands()
     runtime.enqueue(RefreshProviderModels("openai", "new-refresh"))
     runtime.drain_commands()
+    assert "provider-models:new-refresh" not in supervisor.work
+    assert view.provider_settings_states[-1].operation_id == "old-refresh"
     supervisor.work["provider-models:old-refresh"]()
     runtime.drain_commands()
-    assert runtime._available_models == ("model", "new-model")
-    supervisor.work["provider-models:new-refresh"]()
-    runtime.drain_commands()
-    assert runtime._available_models == ("model", "new-model-remote")
+    assert runtime._provider_configuration.model_selection().available_models == ("model", "old-model")
 
 
 def test_gateway_model_selection_uses_clipai_env_name() -> None:
     preferences = ModelPreferences()
     runtime, _view, _supervisor, _outputs, _listener = make_runtime(model_preferences=preferences)
     binding = ProviderExecutionBinding(FakeProvider(), "gateway", "old")
-    runtime._active_provider_binding = binding
-    runtime._provider_bindings["gateway"] = binding
-    runtime._provider_name = "gateway"
-    runtime._model = "old"
-    runtime._available_models = ("old", "new")
-    runtime._provider_options = (ProviderOption("gateway", "Gateway", ("old", "new"), "old", True),)
+    runtime._provider_backend.snapshot = ProviderRuntimeSnapshot(
+        "gateway",
+        (binding,),
+        (ProviderOption("gateway", "Gateway", ("old", "new"), "old", True),),
+    )
+    runtime._provider_configuration.reload()
     presenter = Tray(lambda: None)
     runtime._model_selection_presenter = presenter
     runtime.enqueue(SelectProviderModel("gateway", "new"))

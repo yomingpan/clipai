@@ -157,3 +157,29 @@ def test_tray_marks_custom_current_model_and_disables_during_refresh() -> None:
     assert root.text == "Model (refreshing)..."
     assert root.action.items[0].text == "custom-model (custom/current)"
     assert root.action.items[0].enabled(None) is False
+
+
+def test_tray_disables_provider_and_model_mutations_during_configuration_operation() -> None:
+    events = []
+    providers = (
+        ProviderOption("openai", "OpenAI", ("small", "large"), "small", True),
+        ProviderOption("gemini", "Gemini", ("flash",), "flash", True),
+    )
+    tray = TrayController(
+        lambda: None,
+        model_selection=ModelSelectionState("openai", ("small", "large"), "small", configuration_pending=True),
+        provider_selection=ProviderSelectionState(providers, "openai", configuration_pending=True),
+        on_select_model=lambda provider, model: events.append((provider, model)),
+        on_select_provider=lambda provider: events.append(provider),
+    )
+
+    model_menu = tray._build_model_menu(Pystray)
+    provider_menu = tray._build_provider_menu(Pystray)
+    model_menu.action.items[1].action(None, None)
+    provider_menu.action.items[1].action(None, None)
+
+    assert model_menu.text == "Model (updating)..."
+    assert provider_menu.text == "Provider (updating)..."
+    assert all(item.enabled(None) is False for item in model_menu.action.items)
+    assert all(item.enabled(None) is False for item in provider_menu.action.items)
+    assert events == []

@@ -7,7 +7,7 @@ from typing import Callable, Literal, Mapping
 
 import customtkinter as ctk
 
-from ClipAI.core.models import PresentationDocument
+from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PresentationDocument
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
@@ -671,11 +671,13 @@ class BaseResultSurface:
         self.dialog = dialog
         self.root = dialog.surface
         self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_rowconfigure(4, weight=1)
+        self.root.grid_rowconfigure(5, weight=1)
         self._action_buttons: dict[str, ctk.CTkButton] = {}
         self._action_tooltips: dict[str, _Tooltip] = {}
         self.follow_up_visible = False
         self.overflow_expanded = False
+        self._feedback_submit: Callable[[FeedbackOutcome, str, str, bool], None] | None = None
+        self._feedback_reason_ids: dict[str, str] = {}
         self._build()
 
     def _build(self) -> None:
@@ -743,6 +745,18 @@ class BaseResultSurface:
         self.action_status_label = ctk.CTkLabel(self.actions, text="", text_color="#8A8A8A", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9))
         self.action_status_label.pack(side="right", padx=(8, 0))
 
+        self.contract_frame = ctk.CTkFrame(self.root, fg_color="#252525", corner_radius=6)
+        self.contract_label = ctk.CTkLabel(
+            self.contract_frame,
+            text="",
+            anchor="w",
+            justify="left",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            text_color="#A9BACB",
+            wraplength=370,
+        )
+        self.contract_label.pack(fill="x", padx=8, pady=5)
+
         self.source_label = ctk.CTkLabel(
             self.root,
             text="",
@@ -752,7 +766,7 @@ class BaseResultSurface:
             text_color=ANALYZING_COLOR,
             wraplength=390,
         )
-        self.source_label.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 0))
+        self.source_label.grid(row=4, column=0, sticky="ew", padx=12, pady=(0, 0))
 
         self.content_text = _PresentationTextbox(
             self.root,
@@ -768,13 +782,82 @@ class BaseResultSurface:
             height=170,
             pady=0,
         )
-        self.content_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        self.content_text.grid(row=5, column=0, sticky="nsew", padx=12, pady=(0, 8))
         self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
         self.content_text.tag_config("body", foreground=CONTENT_COLOR)
         self.content_text.tag_config("loading", foreground=ANALYZING_COLOR)
         for tag, style in PRESENTATION_TAG_STYLES.items():
             self.content_text.tag_config(tag, **style)
         configure_presentation_typography(self.content_text)
+
+        self.feedback_frame = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
+        self.feedback_prompt = ctk.CTkLabel(
+            self.feedback_frame,
+            text="這次有幫助嗎？",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            text_color="#A9BACB",
+        )
+        self.feedback_prompt.pack(side="left", padx=(0, 7))
+        self.feedback_buttons: list[ctk.CTkButton] = []
+        for label, outcome, width in (("有幫助", "helpful", 52), ("需要調整", "needs_adjustment", 68), ("不適用", "not_applicable", 52)):
+            button = ctk.CTkButton(
+                self.feedback_frame,
+                text=label,
+                height=22,
+                width=width,
+                corner_radius=6,
+                fg_color="#3A3A3A",
+                hover_color="#4A4A4A",
+                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+                command=(lambda selected=outcome: self._choose_feedback(selected)),
+            )
+            button.pack(side="left", padx=(0, 5))
+            self.feedback_buttons.append(button)
+        self.feedback_status = ctk.CTkLabel(
+            self.feedback_frame,
+            text="",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            text_color=ANALYZING_COLOR,
+        )
+        self.feedback_status.pack(side="left", padx=(4, 0))
+
+        self.feedback_detail = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
+        self.feedback_reason = ctk.CTkOptionMenu(
+            self.feedback_detail,
+            values=["請選擇原因"],
+            height=26,
+            width=128,
+            fg_color="#3A3A3A",
+            button_color="#4A4A4A",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+        )
+        self.feedback_reason.pack(side="left", padx=(0, 6))
+        self.feedback_note = ctk.CTkEntry(
+            self.feedback_detail,
+            placeholder_text="可選填一句話",
+            height=26,
+            width=92,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+        )
+        self.feedback_note.pack(side="left", padx=(0, 6))
+        self.feedback_save_case = tk.BooleanVar(value=False)
+        self.feedback_case_checkbox = ctk.CTkCheckBox(
+            self.feedback_detail,
+            text="保留案例",
+            variable=self.feedback_save_case,
+            width=68,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+        )
+        self.feedback_case_checkbox.pack(side="left", padx=(0, 6))
+        self.feedback_submit_button = ctk.CTkButton(
+            self.feedback_detail,
+            text="儲存",
+            width=42,
+            height=26,
+            command=self._submit_adjustment,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+        )
+        self.feedback_submit_button.pack(side="left")
 
         self.follow_row = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.follow_row.grid_columnconfigure(0, weight=1)
@@ -809,6 +892,70 @@ class BaseResultSurface:
 
     def set_model(self, model: str) -> None:
         self.model_label.configure(text=f"model: {model}")
+
+    def configure_action_contract(self, contract: ActionFeedbackContract | None, input_source: str) -> None:
+        if contract is None:
+            self.contract_frame.grid_forget()
+            return
+        source = input_source.replace("_", " ").title()
+        self.contract_label.configure(
+            text=f"取｜{source}\n轉｜{contract.transform_label}\n留｜{contract.human_space_label}"
+        )
+        self.contract_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=(3, 3))
+
+    def configure_feedback(
+        self,
+        contract: ActionFeedbackContract | None,
+        state: FeedbackOperationState,
+        message: str,
+        on_submit: Callable[[FeedbackOutcome, str, str, bool], None] | None,
+    ) -> None:
+        if contract is None or on_submit is None:
+            self.hide_feedback()
+            return
+        self._feedback_submit = on_submit
+        self._feedback_reason_ids = {reason.label: reason.id for reason in contract.reasons}
+        labels = list(self._feedback_reason_ids)
+        self.feedback_reason.configure(values=labels)
+        if labels and self.feedback_reason.get() not in self._feedback_reason_ids:
+            self.feedback_reason.set(labels[0])
+        self.feedback_frame.grid(row=6, column=0, sticky="w", padx=12, pady=(0, 5))
+        enabled = state not in {"pending", "succeeded"}
+        for button in self.feedback_buttons:
+            button.configure(state="normal" if enabled else "disabled")
+        self.feedback_submit_button.configure(state="normal" if enabled else "disabled")
+        self.feedback_status.configure(
+            text=message,
+            text_color="#00B04F" if state == "succeeded" else "#E81123" if state == "failed" else ANALYZING_COLOR,
+        )
+        if state == "succeeded":
+            self.feedback_detail.grid_forget()
+
+    def hide_feedback(self) -> None:
+        self.feedback_frame.grid_forget()
+        self.feedback_detail.grid_forget()
+        self._feedback_submit = None
+
+    def _choose_feedback(self, outcome: FeedbackOutcome) -> None:
+        if outcome == "needs_adjustment":
+            self.feedback_detail.grid(row=7, column=0, sticky="ew", padx=12, pady=(0, 6))
+            return
+        if self._feedback_submit is not None:
+            self._feedback_submit(outcome, "", "", False)
+
+    def _submit_adjustment(self) -> None:
+        if self._feedback_submit is None:
+            return
+        reason = self._feedback_reason_ids.get(self.feedback_reason.get(), "")
+        if not reason:
+            self.feedback_status.configure(text="請選擇原因", text_color="#E81123")
+            return
+        self._feedback_submit(
+            "needs_adjustment",
+            reason,
+            self.feedback_note.get().strip(),
+            bool(self.feedback_save_case.get()),
+        )
 
     def configure_standard_actions(
         self,
@@ -965,7 +1112,7 @@ class BaseResultSurface:
 
     def show_follow_up(self, initial_text: str = "") -> None:
         if not self.follow_up_visible:
-            self.follow_row.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 12))
+            self.follow_row.grid(row=8, column=0, sticky="ew", padx=12, pady=(0, 12))
             self.follow_up_visible = True
         if initial_text:
             self.follow_entry.delete(0, "end")

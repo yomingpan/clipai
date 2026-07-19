@@ -15,6 +15,8 @@ class WorkflowController:
         self._presenter = presenter
         self._lock = threading.RLock()
         self._active_token = CancellationToken()
+        self._feedback_step_ids: set[str] = set()
+        self._feedback_operations: dict[str, str] = {}
         self._presenter.render(initial)
 
     @property
@@ -41,6 +43,12 @@ class WorkflowController:
                 error="",
                 active_invocation_id=invocation.invocation_id,
                 speaking=False,
+                action_feedback_contract=action.feedback_contract,
+                input_source="selection or clipboard" if action.input_mode == "selection_or_clipboard" else "clipboard",
+                feedback_state="idle",
+                feedback_step_id="",
+                feedback_operation_id="",
+                feedback_message="",
             )
             snapshot = self._snapshot
             token = self._active_token
@@ -79,6 +87,9 @@ class WorkflowController:
                 parent_step_id=invocation.parent_step_id,
                 press_type=invocation.press_type,
                 presentation=presentation,
+                input_source=document.source,
+                feedback_contract=action.feedback_contract if document.source != "workflow_result" else None,
+                action_version=action.version_id,
             )
             steps = (*kept, step)
             self._snapshot = self._snapshot.evolve(
@@ -93,6 +104,12 @@ class WorkflowController:
                 active_invocation_id=None,
                 can_navigate_back=len(steps) > 1,
                 presentation=presentation,
+                action_feedback_contract=step.feedback_contract,
+                input_source=document.source,
+                feedback_state="idle",
+                feedback_step_id="",
+                feedback_operation_id="",
+                feedback_message="",
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
@@ -136,7 +153,61 @@ class WorkflowController:
                 displayed_step_index=index,
                 can_navigate_back=index > 0,
                 presentation=step.presentation,
+                action_feedback_contract=step.feedback_contract,
+                input_source=step.input_source,
+                feedback_state="succeeded" if step.step_id in self._feedback_step_ids else "idle",
+                feedback_step_id=step.step_id if step.step_id in self._feedback_step_ids else "",
+                feedback_operation_id="",
+                feedback_message="已記錄回饋" if step.step_id in self._feedback_step_ids else "",
             )
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return snapshot
+
+    def begin_feedback(self, step_id: str, operation_id: str) -> WorkflowStep | None:
+        with self._lock:
+            if self._snapshot.status != SessionStatus.COMPLETED or self._snapshot.displayed_step_index < 0:
+                return None
+            step = self._snapshot.steps[self._snapshot.displayed_step_index]
+            if step.step_id != step_id or step.feedback_contract is None or step_id in self._feedback_step_ids:
+                return None
+            if step_id in self._feedback_operations:
+                return None
+            self._feedback_operations[step_id] = operation_id
+            self._snapshot = self._snapshot.evolve(
+                feedback_state="pending",
+                feedback_step_id=step_id,
+                feedback_operation_id=operation_id,
+                feedback_message="正在儲存回饋…",
+            )
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return step
+
+    def complete_feedback(self, step_id: str, operation_id: str, error: str = "") -> SessionSnapshot | None:
+        with self._lock:
+            if self._feedback_operations.get(step_id) != operation_id:
+                return None
+            self._feedback_operations.pop(step_id, None)
+            if not error:
+                self._feedback_step_ids.add(step_id)
+            if (
+                self._snapshot.feedback_step_id != step_id
+                or self._snapshot.feedback_operation_id != operation_id
+                or self._snapshot.displayed_step_index < 0
+                or self._snapshot.steps[self._snapshot.displayed_step_index].step_id != step_id
+            ):
+                return None
+            if error:
+                self._snapshot = self._snapshot.evolve(
+                    feedback_state="failed",
+                    feedback_message=error,
+                )
+            else:
+                self._snapshot = self._snapshot.evolve(
+                    feedback_state="succeeded",
+                    feedback_message="已記錄回饋",
+                )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
         return snapshot

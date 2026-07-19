@@ -8,7 +8,7 @@ import warnings
 
 from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings, VoiceOpenAISettings
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.models import ActionDefinition, ActionVariant, ExternalFallback, InputMode, OutputMode, OutputProfile, PressType, ShortcutCommandKind, ShortcutDefinition
+from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, ActionVariant, ExternalFallback, FeedbackReason, InputMode, OutputMode, OutputProfile, PressType, ShortcutCommandKind, ShortcutDefinition
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.output_profiles import OutputProfileCatalog
@@ -17,7 +17,7 @@ from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 
 T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
-ACTIONS_SCHEMA_VERSION = 4
+ACTIONS_SCHEMA_VERSION = 5
 
 
 def load_config_bundle(
@@ -188,7 +188,7 @@ def load_action_catalog(path: str | Path, *, output_profiles: OutputProfileCatal
 def _parse_action(value: Any, index: int) -> ActionDefinition:
     path = f"actions.actions[{index}]"
     data = _mapping(value, path)
-    allowed = {"id", "name", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "input_policy", "external_fallback", "output_mode", "temperature", "output_profile"}
+    allowed = {"id", "name", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "input_policy", "external_fallback", "output_mode", "temperature", "output_profile", "feedback"}
     _reject_unknown(data, allowed, path)
     variants: dict[PressType, ActionVariant] = {}
     raw_variants = _mapping(data.get("press_variants"), f"{path}.press_variants", allow_none=True)
@@ -220,6 +220,7 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         {"selection_or_clipboard", "clipboard"},
         "clipboard" if data.get("input_mode") == "clipboard" else "selection_or_clipboard",
     )
+    feedback_contract = _parse_feedback_contract(data.get("feedback"), path)
     return ActionDefinition(
         id=_string(data.get("id"), f"{path}.id"),
         name=_string(data.get("name"), f"{path}.name"),
@@ -232,6 +233,34 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         temperature=None if temperature is None else _number(temperature, f"{path}.temperature"),
         output_profile=_string(data.get("output_profile"), f"{path}.output_profile", default="plain_text"),
         external_fallback=cast(ExternalFallback, external_fallback),
+        feedback_contract=feedback_contract,
+    )
+
+
+def _parse_feedback_contract(value: Any, action_path: str) -> ActionFeedbackContract | None:
+    if value is None:
+        return None
+    path = f"{action_path}.feedback"
+    data = _mapping(value, path)
+    _reject_unknown(data, {"transform", "human_space", "reasons"}, path)
+    raw_reasons = data.get("reasons")
+    if not isinstance(raw_reasons, list) or not raw_reasons:
+        raise ConfigError(f"{path}.reasons must be a non-empty list")
+    reasons: list[FeedbackReason] = []
+    reason_ids: set[str] = set()
+    for index, value in enumerate(raw_reasons):
+        reason_path = f"{path}.reasons[{index}]"
+        reason = _mapping(value, reason_path)
+        _reject_unknown(reason, {"id", "label"}, reason_path)
+        reason_id = _string(reason.get("id"), f"{reason_path}.id")
+        if reason_id in reason_ids:
+            raise ConfigError(f"duplicate feedback reason id: {reason_id}")
+        reason_ids.add(reason_id)
+        reasons.append(FeedbackReason(reason_id, _string(reason.get("label"), f"{reason_path}.label")))
+    return ActionFeedbackContract(
+        transform_label=_string(data.get("transform"), f"{path}.transform"),
+        human_space_label=_string(data.get("human_space"), f"{path}.human_space"),
+        reasons=tuple(reasons),
     )
 
 

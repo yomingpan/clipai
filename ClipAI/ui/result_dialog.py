@@ -8,8 +8,8 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext, OutputOperationResult, ProviderSettingsState
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActiveWorkflowContext, FeedbackOutcome, OutputOperationResult, ProviderSettingsState
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
@@ -222,6 +222,7 @@ class ResultDialogPresenter:
         view.surface.set_title(snapshot.title)
         view.surface.set_source_preview(snapshot.source_preview)
         view.surface.set_model(snapshot.model)
+        view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
         view.surface.close_button.configure(
             command=lambda sid=snapshot.session_id: self._command_sink(CloseSession(sid))
         )
@@ -271,6 +272,17 @@ class ResultDialogPresenter:
         )
         view.speaking = snapshot.speaking
         view.surface.set_speaker_active(snapshot.speaking)
+        if snapshot.status == SessionStatus.COMPLETED and snapshot.action_feedback_contract is not None and view.step_id is not None:
+            view.surface.configure_feedback(
+                snapshot.action_feedback_contract,
+                snapshot.feedback_state,
+                snapshot.feedback_message,
+                lambda outcome, reason, note, save_case, sid=snapshot.session_id, step=view.step_id: self._submit_feedback(
+                    sid, step, outcome, reason, note, save_case
+                ),
+            )
+        else:
+            view.surface.hide_feedback()
 
     def _evict_view(self, session_id: str, view: _SessionView) -> None:
         if self._views.get(session_id) is view:
@@ -319,6 +331,25 @@ class ResultDialogPresenter:
             return
         view.surface.toggle_pin()
         self._command_sink(TogglePin(session_id))
+
+    def _submit_feedback(
+        self,
+        session_id: str,
+        step_id: str,
+        outcome: FeedbackOutcome,
+        reason: str,
+        note: str,
+        save_case: bool,
+    ) -> None:
+        self._command_sink(SubmitActionFeedback(
+            session_id=session_id,
+            step_id=step_id,
+            operation_id=uuid.uuid4().hex,
+            outcome=outcome,
+            reason=reason,
+            note=note,
+            save_case=save_case,
+        ))
 
     def _toggle_follow_up(self, session_id: str) -> None:
         view = self._views.get(session_id)
