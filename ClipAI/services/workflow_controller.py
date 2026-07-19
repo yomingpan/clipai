@@ -72,6 +72,9 @@ class WorkflowController:
         result_text: str,
         available_actions: tuple[str, ...],
         presentation: PresentationDocument | None = None,
+        *,
+        provider: str = "",
+        model: str = "",
     ) -> SessionSnapshot | None:
         with self._lock:
             if self._snapshot.active_invocation_id != invocation.invocation_id or self._active_token.is_cancelled:
@@ -88,8 +91,10 @@ class WorkflowController:
                 press_type=invocation.press_type,
                 presentation=presentation,
                 input_source=document.source,
-                feedback_contract=action.feedback_contract if document.source != "workflow_result" else None,
+                feedback_contract=action.feedback_contract,
                 action_version=action.version_id,
+                provider=provider,
+                model=model,
             )
             steps = (*kept, step)
             self._snapshot = self._snapshot.evolve(

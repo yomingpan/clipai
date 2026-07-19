@@ -179,17 +179,22 @@ class FeedbackReason:
 class ActionFeedbackContract:
     transform_label: str
     human_space_label: str
+    verification_label: str
     reasons: tuple[FeedbackReason, ...]
 
 
 @dataclass(frozen=True)
 class ActionFeedbackRecord:
+    record_schema_version: int
     feedback_id: str
     created_at: str
     workflow_id: str
     step_id: str
     action_id: str
     action_version: str
+    press_type: PressType
+    provider: str
+    model: str
     input_source: str
     outcome: FeedbackOutcome
     reason: str = ""
@@ -284,6 +289,8 @@ class WorkflowStep:
     input_source: str = ""
     feedback_contract: ActionFeedbackContract | None = None
     action_version: str = ""
+    provider: str = ""
+    model: str = ""
 
 
 @dataclass(frozen=True)

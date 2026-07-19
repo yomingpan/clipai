@@ -29,15 +29,17 @@ class ActionFeedbackService:
                 raise ValueError("select a valid feedback reason")
         elif command.reason:
             raise ValueError("feedback reason is only valid when adjustment is needed")
-        if command.save_case and command.outcome != "needs_adjustment":
-            raise ValueError("only an adjustment case can preserve input and output")
         record = ActionFeedbackRecord(
+            record_schema_version=1,
             feedback_id=command.operation_id,
             created_at=self._clock().astimezone(timezone.utc).isoformat(),
             workflow_id=workflow_id,
             step_id=step.step_id,
             action_id=step.action_id,
             action_version=step.action_version,
+            press_type=step.press_type,
+            provider=step.provider,
+            model=step.model,
             input_source=step.input_source,
             outcome=command.outcome,
             reason=command.reason,

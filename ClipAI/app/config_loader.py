@@ -17,7 +17,7 @@ from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 
 T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
-ACTIONS_SCHEMA_VERSION = 5
+ACTIONS_SCHEMA_VERSION = 6
 
 
 def load_config_bundle(
@@ -242,7 +242,7 @@ def _parse_feedback_contract(value: Any, action_path: str) -> ActionFeedbackCont
         return None
     path = f"{action_path}.feedback"
     data = _mapping(value, path)
-    _reject_unknown(data, {"transform", "human_space", "reasons"}, path)
+    _reject_unknown(data, {"transform", "human_space", "verify", "reasons"}, path)
     raw_reasons = data.get("reasons")
     if not isinstance(raw_reasons, list) or not raw_reasons:
         raise ConfigError(f"{path}.reasons must be a non-empty list")
@@ -260,6 +260,7 @@ def _parse_feedback_contract(value: Any, action_path: str) -> ActionFeedbackCont
     return ActionFeedbackContract(
         transform_label=_string(data.get("transform"), f"{path}.transform"),
         human_space_label=_string(data.get("human_space"), f"{path}.human_space"),
+        verification_label=_string(data.get("verify"), f"{path}.verify"),
         reasons=tuple(reasons),
     )
 

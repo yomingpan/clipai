@@ -48,6 +48,7 @@ class ActionCatalog:
             "feedback_contract": None if resolved.feedback_contract is None else {
                 "transform": resolved.feedback_contract.transform_label,
                 "human_space": resolved.feedback_contract.human_space_label,
+                "verify": resolved.feedback_contract.verification_label,
                 "reasons": [(reason.id, reason.label) for reason in resolved.feedback_contract.reasons],
             },
         }

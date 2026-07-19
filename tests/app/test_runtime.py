@@ -353,6 +353,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         feedback_contract=ActionFeedbackContract(
             "Shorten faithfully",
             "Keep meaning",
+            "Verify meaning",
             (FeedbackReason("meaning_lost", "Meaning lost"),),
         ),
     )

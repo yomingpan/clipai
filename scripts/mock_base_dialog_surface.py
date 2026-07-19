@@ -36,6 +36,7 @@ class MockBaseDialogSurface:
         self.feedback_contract = ActionFeedbackContract(
             "在不改變原意下縮短文字",
             "保留原本的立場、事實、語氣與語言",
+            "這個版本是否仍然代表你，而且真的更容易使用？",
             (
                 FeedbackReason("meaning_lost", "核心意思少了"),
                 FeedbackReason("too_short", "縮得太多"),

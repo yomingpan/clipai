@@ -85,10 +85,21 @@ class ActionExecutor:
                     routed.text,
                     self._available_actions,
                     routed.document,
+                    provider=result.provider,
+                    model=result.model,
                 ),
             )
             if invocation.result_route == "speech":
-                workflow.complete(invocation, action, document, processed.text, (), processed.document)
+                workflow.complete(
+                    invocation,
+                    action,
+                    document,
+                    processed.text,
+                    (),
+                    processed.document,
+                    provider=result.provider,
+                    model=result.model,
+                )
         except CancelledError:
             return
         except ClipAIError as exc:
@@ -144,6 +155,8 @@ class ActionExecutor:
                     routed.text,
                     self._available_actions,
                     routed.document,
+                    provider=result.provider,
+                    model=result.model,
                 ),
             )
         except CancelledError:

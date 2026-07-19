@@ -78,7 +78,7 @@ def test_late_completion_from_replaced_invocation_is_ignored() -> None:
 
 def test_feedback_lifecycle_is_owned_by_completed_step_and_ignores_late_completion() -> None:
     workflow = controller()
-    contract = ActionFeedbackContract("Shorten", "Keep meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
+    contract = ActionFeedbackContract("Shorten", "Keep meaning", "Verify meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
     resolved = ResolvedAction(
         "a", "A", "system", "{input}", "short", "selection_or_clipboard", "popup", 0.2,
         feedback_contract=contract, version_id="version-1",
@@ -86,10 +86,12 @@ def test_feedback_lifecycle_is_owned_by_completed_step_and_ignores_late_completi
     document = InputDocument("input", "selection")
     first = ActionInvocation("one", "a", "short", InputTarget("external_text", document), workflow_id="w1")
     workflow.begin_invocation(first, resolved)
-    workflow.complete(first, resolved, document, "result", ("copy",))
+    workflow.complete(first, resolved, document, "result", ("copy",), provider="openai", model="gpt-test")
 
     step = workflow.begin_feedback("one", "feedback-1")
     assert step is not None
+    assert step.provider == "openai"
+    assert step.model == "gpt-test"
     assert workflow.snapshot.feedback_state == "pending"
     assert workflow.complete_feedback("one", "stale") is None
     workflow.complete_feedback("one", "feedback-1")
@@ -98,9 +100,23 @@ def test_feedback_lifecycle_is_owned_by_completed_step_and_ignores_late_completi
     assert workflow.begin_feedback("one", "feedback-2") is None
 
 
+def test_feedback_remains_available_when_input_is_a_previous_workflow_result() -> None:
+    workflow = controller()
+    contract = ActionFeedbackContract("Shorten", "Keep meaning", "Verify meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
+    resolved = ResolvedAction(
+        "a", "A", "system", "{input}", "short", "selection_or_clipboard", "popup", 0.2,
+        feedback_contract=contract, version_id="version-1",
+    )
+    inv = invocation("one")
+    workflow.begin_invocation(inv, resolved)
+    workflow.complete(inv, resolved, inv.input_target.document, "result", ("copy",))
+
+    assert workflow.begin_feedback("one", "feedback-1") is not None
+
+
 def test_feedback_completion_offscreen_is_remembered_without_overwriting_current_step() -> None:
     workflow = controller()
-    contract = ActionFeedbackContract("Shorten", "Keep meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
+    contract = ActionFeedbackContract("Shorten", "Keep meaning", "Verify meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
     resolved = ResolvedAction(
         "a", "A", "system", "{input}", "short", "selection_or_clipboard", "popup", 0.2,
         feedback_contract=contract, version_id="version-1",

@@ -30,7 +30,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "never substitute, infer, or invent" in action.system_prompt
     assert "記憶：" in action.prompt
     assert bundle.schema_versions.app == 1
-    assert bundle.schema_versions.actions == 5
+    assert bundle.schema_versions.actions == 6
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
@@ -196,8 +196,8 @@ def test_future_catalog_schema_version_is_rejected(tmp_path: Path, filename: str
 
 def test_future_actions_schema_version_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "actions.yaml"
-    path.write_text("schema_version: 6\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 6"):
+    path.write_text("schema_version: 7\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 7"):
         load_action_catalog(path)
 
 
@@ -209,6 +209,7 @@ def test_feedback_contract_is_typed_and_only_enables_pilot_actions() -> None:
 
     assert translated.feedback_contract is not None
     assert translated.feedback_contract.transform_label == "將內容翻譯成符合情境的自然英文"
+    assert translated.feedback_contract.verification_label == "這個英文版本是否準確，而且適合真正要讀它的人？"
     assert {reason.id for reason in translated.feedback_contract.reasons} == {
         "meaning_inaccurate",
         "tone_or_formality_off",
@@ -217,6 +218,7 @@ def test_feedback_contract_is_typed_and_only_enables_pilot_actions() -> None:
         "other",
     }
     assert shortened.feedback_contract is not None
+    assert shortened.feedback_contract.verification_label == "這個版本是否仍然代表你，而且真的更容易使用？"
     assert shortened.version_id
     assert catalog.resolve("english_companion", "short").feedback_contract is None
 

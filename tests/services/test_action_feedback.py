@@ -31,9 +31,12 @@ def make_step() -> WorkflowStep:
         feedback_contract=ActionFeedbackContract(
             "Shorten faithfully",
             "Keep meaning",
+            "Does it still represent you?",
             (FeedbackReason("meaning_lost", "Core meaning was lost"), FeedbackReason("other", "Other")),
         ),
         action_version="abc123",
+        provider="fake",
+        model="fake-model",
     )
 
 
@@ -51,7 +54,7 @@ def test_feedback_does_not_preserve_content_by_default() -> None:
     assert record.created_at == "2026-07-19T00:00:00+00:00"
 
 
-def test_explicit_adjustment_case_preserves_input_and_output() -> None:
+def test_explicit_adjustment_case_preserves_input_and_output_and_execution_metadata() -> None:
     store = MemoryStore()
     service = ActionFeedbackService(store)
 
@@ -68,18 +71,29 @@ def test_explicit_adjustment_case_preserves_input_and_output() -> None:
     assert record.input_text == "original private text"
     assert record.result_text == "short result"
     assert record.note == "lost the caveat"
+    assert record.record_schema_version == 1
+    assert record.press_type == "short"
+    assert record.provider == "fake"
+    assert record.model == "fake-model"
 
 
-def test_invalid_reason_and_non_adjustment_case_are_rejected() -> None:
+def test_explicit_helpful_case_preserves_input_and_output() -> None:
+    service = ActionFeedbackService(MemoryStore())
+
+    record = service.record("workflow-1", make_step(), SubmitActionFeedback(
+        "workflow-1", "step-1", "feedback-1", "helpful", save_case=True
+    ))
+
+    assert record.input_text == "original private text"
+    assert record.result_text == "short result"
+
+
+def test_invalid_reason_is_rejected() -> None:
     service = ActionFeedbackService(MemoryStore())
 
     with pytest.raises(ValueError, match="valid feedback reason"):
         service.record("workflow-1", make_step(), SubmitActionFeedback(
             "workflow-1", "step-1", "feedback-1", "needs_adjustment", reason="unknown"
-        ))
-    with pytest.raises(ValueError, match="only an adjustment case"):
-        service.record("workflow-1", make_step(), SubmitActionFeedback(
-            "workflow-1", "step-1", "feedback-2", "helpful", save_case=True
         ))
 
 
@@ -101,6 +115,10 @@ def test_jsonl_store_serializes_one_append_only_record(tmp_path) -> None:
     ))
 
     payload = json.loads(path.read_text(encoding="utf-8").strip())
+    assert payload["record_schema_version"] == 1
     assert payload["feedback_id"] == "feedback-1"
     assert payload["outcome"] == "not_applicable"
+    assert payload["press_type"] == "short"
+    assert payload["provider"] == "fake"
+    assert payload["model"] == "fake-model"
     assert payload["input_text"] is None
