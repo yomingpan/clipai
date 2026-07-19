@@ -64,3 +64,8 @@ shortcuts:
     hotkey: ctrl+alt+x
     command: start_action
     action_id: shorten_content
+
+  - id: intent_preserving_dictation_editor
+    hotkey: ctrl+alt+~
+    command: start_action
+    action_id: intent_preserving_dictation_editor

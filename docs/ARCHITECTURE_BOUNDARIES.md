@@ -40,6 +40,9 @@ tests/              # Unit sims 與 integration tests
 - 只有 composition root 可以讀取 API key environment variables；provider 只接收已解析且不可洩漏的 credential。
 - 所有 LLM/TTS operation 狀態由單一 `OperationLifecycleCoordinator` 管理；tray 不擁有 success/error timer。
 - Tray menu 只能 enqueue typed command，不得直接匯出檔案、讀 config 或執行 diagnostics。
+- Provider/model 選擇、設定驗證、reload 與 model catalog refresh 由單一 `ProviderConfigurationCoordinator` 擁有狀態與 operation identity；`AppRuntime` 只 dispatch、supervise worker 與投影狀態。
+- 所有 provider configuration mutation 共用一個 operation gate。設定儲存或 catalog refresh 進行中，不得由 tray 或其他入口同時寫入 provider 設定。
+- Provider environment mapping、credential resolution、concrete provider 建構與 `.env` persistence 屬於 app composition adapter；services 只依賴 typed backend contract。
 
 ## Core
 
@@ -304,3 +307,22 @@ UI 只負責：
 架構的目的不是把資料夾切漂亮。
 
 架構的目的，是讓每個真實世界接觸點都能被拔掉，換成假的測試接縫，讓核心邏輯可以快速、穩定、可預測地被驗證。
+
+## Action feedback ownership
+
+- Every Action referenced by a `start_action` Shortcut declares a typed, user-visible feedback contract describing the transformation, human space, verification question, and Recipe-specific reasons. Shortcut loading rejects incomplete coverage.
+- Feedback semantics belong to the resolved Action, not the Shortcut. A press variant may override the base feedback contract when short and long press perform meaningfully different tasks; otherwise it inherits the base contract.
+- Non-Action commands such as `speak_selection_or_clipboard` are explicitly outside this feedback lifecycle because they do not create an AI result step or Popup result.
+- `WorkflowController` owns the feedback projection for the currently displayed completed step. Feedback operation identity is separate from workflow revision, provider invocation identity, and output-operation identity.
+- UI emits `SubmitActionFeedback`; it never writes feedback files or mutates prompts, recipes, Action configuration, or shortcuts.
+- `services` validates feedback against the immutable completed `WorkflowStep`; a platform `ActionFeedbackStore` adapter performs append-only persistence.
+- Raw input and output are excluded from feedback records unless the user explicitly elects to preserve that positive or negative case.
+- Feedback never changes an Action automatically. A future prompt-improvement workflow must use a separate explicit user intent, candidate version, and regression check.
+
+## First-use guidance ownership
+
+- `GuidancePreferencesCoordinator` is the single owner of the enabled flag, seen Action ids, and preference-operation identity.
+- Tray emits typed preference intents and projects authoritative preferences; it never reads or writes JSON and never changes the checked state before persistence succeeds.
+- A platform `GuidancePreferencesStore` adapter owns `data/user_preferences.json` and writes it atomically. `.env` is not a user-interaction preference store.
+- A successful feedback-enabled Recipe may consume its first-use hint once per Action and press type. The Popup projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.
+- Reset clears only seen Action ids. It does not enable first-use hints or change any Recipe.

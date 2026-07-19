@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ClipAI.core.commands import ArchiveResult, CopyResult, PasteResult, TogglePin, ToggleSpeech
-from ClipAI.core.models import OutputOperationResult
+from ClipAI.core.commands import ArchiveResult, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, OutputOperationResult
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.result_dialog import PopupFocusLifecycle, ResultDialogPresenter, _SessionView, _content_render_key
 
@@ -15,8 +15,16 @@ class Root:
 
 
 class Dialog:
-    def __init__(self, events: list[str]) -> None:
+    def __init__(self, events: list[str], *, alive: bool = True) -> None:
         self.root = Root(events)
+        self.alive = alive
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+    def close(self) -> None:
+        self.alive = False
+        self.root.events.append("close")
 
 
 class Surface:
@@ -24,6 +32,7 @@ class Surface:
         self.selected = selected
         self.events = events
         self.overflow_expanded = False
+        self.feedback_available = False
 
     def selected_text(self) -> str | None:
         return self.selected
@@ -46,6 +55,26 @@ class Surface:
     def toggle_pin(self) -> bool:
         self.events.append("pin:toggled")
         return True
+
+    def configure_action_contract(self, contract, input_source: str) -> None:
+        self.events.append(("contract", contract, input_source))
+
+    def show_action_guidance_hint(self) -> None:
+        self.events.append("guidance:shown")
+
+    def configure_feedback(self, contract, state, message, on_submit) -> None:
+        self.feedback_submit = on_submit
+        self.events.append(("feedback", state, message))
+
+    def hide_feedback(self) -> None:
+        self.events.append("feedback:hidden")
+
+    def toggle_feedback_overlay(self) -> bool:
+        self.events.append("feedback:toggled")
+        return self.feedback_available
+
+    def close_feedback_overlay(self) -> None:
+        self.events.append("feedback:closed")
 
 
 def presenter_with_selection(selected: str | None):
@@ -81,6 +110,41 @@ def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:
     assert "archive:pulse:1000" in events
 
 
+def test_late_output_operation_evicts_dead_view_without_touching_surface() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._views["s1"].dialog.alive = False
+
+    presenter._apply_output_operation(OutputOperationResult("late", "s1", "archive", "pending"))
+
+    assert events == []
+    assert presenter._views == {}
+    assert presenter._active_workflow_id is None
+
+
+def test_late_completed_snapshot_evicts_dead_view_without_touching_surface() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._views["s1"].dialog.alive = False
+    snapshot = SessionSnapshot("s1", 1, SessionStatus.COMPLETED, "a", "A", "model", content="late")
+
+    presenter._apply(snapshot)
+
+    assert events == []
+    assert presenter._views == {}
+    assert presenter._active_workflow_id is None
+
+
+def test_closed_snapshot_cleanup_is_idempotent() -> None:
+    presenter, events = presenter_with_selection("selected")
+    snapshot = SessionSnapshot("s1", 1, SessionStatus.CLOSED, "a", "A", "model")
+
+    presenter._apply(snapshot)
+    presenter._apply(snapshot)
+
+    assert events == ["close"]
+    assert presenter._views == {}
+    assert presenter._active_workflow_id is None
+
+
 def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._toggle_speech("s1")
@@ -113,6 +177,38 @@ def test_pin_updates_visual_state_before_emitting_command() -> None:
     presenter, events = presenter_with_selection(None)
     presenter._toggle_pin("s1")
     assert events == ["pin:toggled", TogglePin("s1")]
+
+
+def test_feedback_submission_is_a_typed_identified_command() -> None:
+    presenter, events = presenter_with_selection(None)
+
+    presenter._submit_feedback("s1", "step-1", "needs_adjustment", "meaning_lost", "Too aggressive", True)
+
+    assert len(events) == 1
+    command = events[0]
+    assert isinstance(command, SubmitActionFeedback)
+    assert command.session_id == "s1"
+    assert command.step_id == "step-1"
+    assert command.operation_id
+    assert command.reason == "meaning_lost"
+    assert command.save_case is True
+
+
+def test_ctrl_r_feedback_request_reports_unsupported_recipe() -> None:
+    presenter, events = presenter_with_selection(None)
+
+    presenter._toggle_feedback("s1")
+
+    assert events == ["feedback:toggled", "message:此 Recipe 尚未啟用回饋:1000"]
+
+
+def test_ctrl_r_feedback_request_opens_supported_recipe_overlay() -> None:
+    presenter, events = presenter_with_selection(None)
+    presenter._views["s1"].surface.feedback_available = True
+
+    presenter._toggle_feedback("s1")
+
+    assert events == ["feedback:toggled"]
 
 
 def test_active_workflow_context_projects_selection_and_displayed_step() -> None:

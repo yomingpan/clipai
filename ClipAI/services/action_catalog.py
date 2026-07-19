@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from dataclasses import replace
+
 from ClipAI.core.models import ActionDefinition, PressType, ResolvedAction
 
 
@@ -18,7 +22,7 @@ class ActionCatalog:
     def resolve(self, action_id: str, press_type: PressType) -> ResolvedAction:
         action = self.get(action_id)
         variant = action.press_variants.get(press_type)
-        return ResolvedAction(
+        resolved = ResolvedAction(
             id=action.id,
             name=variant.name if variant else action.name,
             system_prompt=variant.system_prompt if variant else action.system_prompt,
@@ -29,7 +33,27 @@ class ActionCatalog:
             temperature=action.temperature,
             output_profile=variant.output_profile if variant and variant.output_profile else action.output_profile,
             external_fallback=action.external_fallback,
+            feedback_contract=(variant.feedback_contract if variant and variant.feedback_contract is not None else action.feedback_contract),
         )
+        version_payload = {
+            "id": resolved.id,
+            "press_type": resolved.press_type,
+            "system_prompt": resolved.system_prompt,
+            "prompt": resolved.prompt,
+            "input_mode": resolved.input_mode,
+            "output_mode": resolved.output_mode,
+            "temperature": resolved.temperature,
+            "output_profile": resolved.output_profile,
+            "external_fallback": resolved.external_fallback,
+            "feedback_contract": None if resolved.feedback_contract is None else {
+                "transform": resolved.feedback_contract.transform_label,
+                "human_space": resolved.feedback_contract.human_space_label,
+                "verify": resolved.feedback_contract.verification_label,
+                "reasons": [(reason.id, reason.label) for reason in resolved.feedback_contract.reasons],
+            },
+        }
+        version_id = hashlib.sha256(json.dumps(version_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+        return replace(resolved, version_id=version_id)
 
     def contains(self, action_id: str) -> bool:
         return action_id in self._actions

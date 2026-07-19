@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from ClipAI.core.state import CancellationToken
@@ -15,12 +15,15 @@ ExternalFallback = Literal["selection_or_clipboard", "clipboard"]
 ResultRoute = Literal["popup", "speech"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
 OperationKind = Literal["llm", "tts", "copy", "paste", "archive"]
+FeedbackOutcome = Literal["helpful", "needs_adjustment", "not_applicable"]
+FeedbackOperationState = Literal["idle", "pending", "succeeded", "failed"]
 PresentationBlockKind = Literal["paragraph", "heading", "unordered_item", "ordered_item"]
 InlineStyle = Literal["plain", "bold", "italic"]
 ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
+ProviderSettingsOperationKind = Literal["save", "refresh"]
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,15 @@ class ModelSelectionState:
     pending_model: str | None = None
     refreshing: bool = False
     custom_models: tuple[str, ...] = ()
+    configuration_pending: bool = False
+
+
+@dataclass(frozen=True)
+class ProviderCapabilities:
+    custom_endpoint: bool = False
+    credential_optional: bool = False
+    editable_model: bool = False
+    validation_may_incur_cost: bool = False
 
 
 @dataclass(frozen=True)
@@ -41,6 +53,8 @@ class ProviderOption:
     selected_model: str
     configured: bool
     custom_models: tuple[str, ...] = ()
+    credential_hint: str = ""
+    capabilities: ProviderCapabilities = ProviderCapabilities()
 
 
 @dataclass(frozen=True)
@@ -49,6 +63,7 @@ class ProviderSelectionState:
     selected_provider: str
     pending_provider: str | None = None
     reloading: bool = False
+    configuration_pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,13 +78,29 @@ class ProviderSettingsState:
     selected_provider: str
     selected_model: str
     operation_state: SettingsOperationState = "idle"
+    operation_kind: ProviderSettingsOperationKind | None = None
     message: str = ""
     operation_id: str = ""
-    gateway_name: str = ""
-    gateway_base_url: str = ""
-    gateway_key_optional: bool = False
-    model_editable: bool = False
-    test_may_incur_cost: bool = False
+    connection_name: str = ""
+    connection_base_url: str = ""
+
+
+@dataclass(frozen=True)
+class ProviderSettingsInput:
+    provider: str
+    model: str
+    api_key: str = field(default="", repr=False)
+    connection_name: str = ""
+    connection_base_url: str = field(default="", repr=False)
+
+
+@dataclass(frozen=True)
+class ModelCatalogConnection:
+    """Explicit, in-memory connection values for a model-catalog refresh."""
+
+    base_url: str = field(default="", repr=False)
+    api_key: str = field(default="", repr=False)
+    fallback_model: str = ""
 
 
 @dataclass(frozen=True)
@@ -139,11 +170,46 @@ class LLMResult:
 
 
 @dataclass(frozen=True)
+class FeedbackReason:
+    id: str
+    label: str
+
+
+@dataclass(frozen=True)
+class ActionFeedbackContract:
+    transform_label: str
+    human_space_label: str
+    verification_label: str
+    reasons: tuple[FeedbackReason, ...]
+
+
+@dataclass(frozen=True)
+class ActionFeedbackRecord:
+    record_schema_version: int
+    feedback_id: str
+    created_at: str
+    workflow_id: str
+    step_id: str
+    action_id: str
+    action_version: str
+    press_type: PressType
+    provider: str
+    model: str
+    input_source: str
+    outcome: FeedbackOutcome
+    reason: str = ""
+    note: str = ""
+    input_text: str | None = None
+    result_text: str | None = None
+
+
+@dataclass(frozen=True)
 class ActionVariant:
     name: str
     system_prompt: str
     prompt: str
     output_profile: str | None = None
+    feedback_contract: ActionFeedbackContract | None = None
 
 
 @dataclass(frozen=True)
@@ -159,6 +225,7 @@ class ActionDefinition:
     temperature: float | None = None
     output_profile: str = "plain_text"
     external_fallback: ExternalFallback = "selection_or_clipboard"
+    feedback_contract: ActionFeedbackContract | None = None
 
 
 @dataclass(frozen=True)
@@ -188,6 +255,8 @@ class ResolvedAction:
     temperature: float | None
     output_profile: str = "plain_text"
     external_fallback: ExternalFallback = "selection_or_clipboard"
+    feedback_contract: ActionFeedbackContract | None = None
+    version_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -218,6 +287,18 @@ class WorkflowStep:
     parent_step_id: str | None = None
     press_type: PressType = "short"
     presentation: PresentationDocument | None = None
+    input_source: str = ""
+    feedback_contract: ActionFeedbackContract | None = None
+    action_version: str = ""
+    provider: str = ""
+    model: str = ""
+
+
+@dataclass(frozen=True)
+class GuidancePreferences:
+    first_use_hints_enabled: bool = True
+    seen_action_ids: frozenset[str] = frozenset()
+    update_pending: bool = False
 
 
 @dataclass(frozen=True)

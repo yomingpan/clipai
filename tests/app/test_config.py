@@ -7,6 +7,7 @@ import pytest
 from ClipAI.app.config_loader import load_action_catalog, load_app_config, load_config_bundle, load_output_profiles, load_shortcut_catalog
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.core.errors import ConfigError
+from ClipAI.core.commands import SpeakSelectionOrClipboard, StartAction
 from ClipAI.providers.settings import ProviderCredential
 
 
@@ -30,7 +31,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "never substitute, infer, or invent" in action.system_prompt
     assert "記憶：" in action.prompt
     assert bundle.schema_versions.app == 1
-    assert bundle.schema_versions.actions == 4
+    assert bundle.schema_versions.actions == 7
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
@@ -63,10 +64,14 @@ def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input()
 
 
 def test_long_press_uses_variant_prompt() -> None:
-    resolved = load_action_catalog("config/actions.yaml").resolve("english_companion", "long")
+    catalog = load_action_catalog("config/actions.yaml")
+    resolved = catalog.resolve("english_companion", "long")
     assert resolved.name == "英文改善建議"
     assert "Improve the following English" in resolved.prompt
     assert resolved.output_profile == "english_improvement"
+    assert resolved.feedback_contract is not None
+    assert resolved.feedback_contract.transform_label == "找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型"
+    assert resolved.feedback_contract != catalog.resolve("english_companion", "short").feedback_contract
 
 
 def test_action_input_mode_defaults_to_selection_or_clipboard(tmp_path: Path) -> None:
@@ -196,9 +201,156 @@ def test_future_catalog_schema_version_is_rejected(tmp_path: Path, filename: str
 
 def test_future_actions_schema_version_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "actions.yaml"
-    path.write_text("schema_version: 5\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 5"):
+    path.write_text("schema_version: 8\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 8"):
         load_action_catalog(path)
+
+
+def test_feedback_contract_is_typed_for_enabled_actions() -> None:
+    catalog = load_action_catalog("config/actions.yaml")
+
+    translated = catalog.resolve("translate_to_english", "short")
+    shortened = catalog.resolve("shorten_content", "short")
+    dictation = catalog.resolve("intent_preserving_dictation_editor", "short")
+
+    assert translated.feedback_contract is not None
+    assert translated.feedback_contract.transform_label == "將內容翻譯成符合情境的自然英文"
+    assert translated.feedback_contract.human_space_label == "保留真正想表達的意思、立場、關係拿捏與最後選擇"
+    assert translated.feedback_contract.verification_label == "這個英文版本是否準確，而且適合真正要讀它的人？"
+    assert [(reason.id, reason.label) for reason in translated.feedback_contract.reasons] == [
+        ("meaning_inaccurate", "語意不準確"),
+        ("tone_or_formality_off", "語氣或正式程度不對"),
+        ("terms_names_or_numbers_wrong", "術語、姓名或數字翻錯"),
+        ("unnatural_or_wrong_audience", "說法不自然或不適合對象"),
+        ("other", "其他"),
+    ]
+    assert shortened.feedback_contract is not None
+    assert shortened.feedback_contract.transform_label == "縮短內容、移除重複，並維持原有結構"
+    assert shortened.feedback_contract.human_space_label == "保留原本的立場、事實、語氣與語言"
+    assert shortened.feedback_contract.verification_label == "這個版本是否仍然代表你，而且真的更容易使用？"
+    assert [(reason.id, reason.label) for reason in shortened.feedback_contract.reasons] == [
+        ("meaning_or_fact_lost", "核心意思或重要事實少了"),
+        ("key_detail_missing", "縮得太多，關鍵細節不夠"),
+        ("voice_or_language_changed", "語氣、立場或原本語言被改掉"),
+        ("length_or_structure_unusable", "長度或結構不適合直接使用"),
+        ("other", "其他"),
+    ]
+    assert shortened.version_id
+    assert dictation.feedback_contract is not None
+    assert dictation.feedback_contract.transform_label == "將語音轉錄整理成自然、可直接閱讀或傳送的文字"
+    assert dictation.feedback_contract.human_space_label == "保留最終意圖、獨特資訊、立場、不確定性與個人語氣"
+    assert dictation.feedback_contract.verification_label == "這個版本是否仍完整代表你原本想說的話，而且可以直接使用？"
+    assert [(reason.id, reason.label) for reason in dictation.feedback_contract.reasons] == [
+        ("meaning_or_detail_lost", "重要意思、細節或資訊被遺漏"),
+        ("correction_or_repetition_wrong", "改口、自我修正或重複內容處理錯誤"),
+        ("voice_stance_or_uncertainty_changed", "語氣、立場、猶豫或不確定性被改變"),
+        ("punctuation_or_structure_unusable", "標點、段落、清單或格式不適合直接使用"),
+        ("other", "其他"),
+    ]
+    companion_short = catalog.resolve("english_companion", "short").feedback_contract
+    companion_long = catalog.resolve("english_companion", "long").feedback_contract
+    assert companion_short is not None
+    assert companion_long is not None
+    assert companion_short != companion_long
+
+
+def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> None:
+    import yaml
+
+    bundle = load_config_bundle()
+    payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
+    start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
+
+    assert len(start_actions) == 13
+    assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
+        "translate_to_traditional_chinese": "ctrl+alt+1",
+        "translate_to_english": "ctrl+alt+2",
+        "name_idea": "ctrl+alt+3",
+        "illuminate_essence": "ctrl+alt+4",
+        "pyramid_position": "ctrl+alt+5",
+        "explain_like_friend": "ctrl+alt+6",
+        "article_structure": "ctrl+alt+7",
+        "english_companion": "ctrl+alt+8",
+        "reflective_question": "ctrl+alt+9",
+        "critical_thinking": "ctrl+alt+0",
+        "extract_keywords": "ctrl+alt+e",
+        "speak_selection_or_clipboard": "ctrl+alt+q",
+        "shorten_content": "ctrl+alt+x",
+        "intent_preserving_dictation_editor": "ctrl+alt+~",
+    }
+    for shortcut in start_actions:
+        for press_type in ("short", "long"):
+            command = bundle.shortcuts.resolve(shortcut["id"], press_type)
+            assert command == StartAction(shortcut["action_id"], press_type)
+            resolved = bundle.actions.resolve(shortcut["action_id"], press_type)
+            assert resolved.feedback_contract is not None, f"{shortcut['id']}:{press_type}"
+            assert resolved.feedback_contract.reasons[-1].id == "other"
+            assert 4 <= len(resolved.feedback_contract.reasons) <= 5
+
+    non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
+    assert [(item["id"], item["command"]) for item in non_action] == [
+        ("speak_selection_or_clipboard", "speak_selection_or_clipboard")
+    ]
+    assert bundle.shortcuts.resolve("speak_selection_or_clipboard", "short") == SpeakSelectionOrClipboard()
+
+
+def test_dictation_editor_uses_default_text_workflow_without_a_long_press_variant() -> None:
+    bundle = load_config_bundle()
+    action = bundle.actions.get("intent_preserving_dictation_editor")
+    shortcut = bundle.shortcuts.definition("intent_preserving_dictation_editor")
+
+    assert action.name == "語音成稿編輯器"
+    assert action.input_mode == "selection_or_clipboard"
+    assert action.external_fallback == "selection_or_clipboard"
+    assert action.output_mode == "popup"
+    assert action.stream is False
+    assert action.temperature == 0.1
+    assert action.output_profile == "plain_text"
+    assert action.press_variants == {}
+    assert shortcut.hotkey == "ctrl+alt+~"
+    assert shortcut.action_id == action.id
+    assert "Intent-Preserving Dictation Editor" in action.system_prompt
+    assert "後面的內容明確否定或取代前面的內容" in action.system_prompt
+    assert "應把它視為使用者正在輸入的文字" in action.system_prompt
+    assert "當無法確定" in action.system_prompt
+    assert "只輸出整理完成的文字" in action.system_prompt
+    assert "<原始轉錄>" in action.prompt
+
+
+@pytest.mark.parametrize(
+    ("original", "changed"),
+    [
+        ("將內容翻譯成符合情境的自然英文", "將內容翻成自然英文"),
+        ("保留真正想表達的意思、立場、關係拿捏與最後選擇", "保留真正想表達的意思"),
+        ("這個英文版本是否準確，而且適合真正要讀它的人？", "這個版本準確嗎？"),
+        ("說法不自然或不適合對象", "說法不自然"),
+    ],
+)
+def test_action_version_changes_with_every_feedback_contract_dimension(tmp_path: Path, original: str, changed: str) -> None:
+    source = Path("config/actions.yaml")
+    baseline = load_action_catalog(source).resolve("translate_to_english", "short").version_id
+    modified = tmp_path / "actions.yaml"
+    modified.write_text(source.read_text(encoding="utf-8").replace(original, changed, 1), encoding="utf-8")
+
+    assert load_action_catalog(modified).resolve("translate_to_english", "short").version_id != baseline
+
+
+def test_variant_feedback_changes_only_the_resolved_variant_version(tmp_path: Path) -> None:
+    source = Path("config/actions.yaml")
+    baseline = load_action_catalog(source)
+    modified = tmp_path / "actions.yaml"
+    modified.write_text(
+        source.read_text(encoding="utf-8").replace(
+            "找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型",
+            "找出英文問題並提供改寫",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    changed = load_action_catalog(modified)
+
+    assert changed.resolve("english_companion", "long").version_id != baseline.resolve("english_companion", "long").version_id
+    assert changed.resolve("english_companion", "short").version_id == baseline.resolve("english_companion", "short").version_id
 
 
 def test_action_external_fallback_is_typed() -> None:
@@ -251,6 +403,33 @@ def test_invalid_shortcut_is_rejected(tmp_path: Path, shortcut: dict, message: s
     actions = load_action_catalog("config/actions.yaml")
     with pytest.raises(ConfigError, match=message):
         load_shortcut_catalog(path, actions=actions)
+
+
+def test_start_action_shortcut_rejects_action_without_feedback(tmp_path: Path) -> None:
+    actions_path = tmp_path / "actions.yaml"
+    actions_path.write_text(
+        "schema_version: 7\nactions:\n  - id: no_feedback\n    name: No Feedback\n    system_prompt: system\n    prompt: '{input}'\n",
+        encoding="utf-8",
+    )
+    shortcuts_path = tmp_path / "shortcuts.yaml"
+    shortcuts_path.write_text(
+        "schema_version: 1\nshortcuts:\n  - id: no_feedback\n    hotkey: ctrl+alt+n\n    command: start_action\n    action_id: no_feedback\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="feedback enabled"):
+        load_shortcut_catalog(shortcuts_path, actions=load_action_catalog(actions_path))
+
+
+def test_duplicate_yaml_key_is_rejected_instead_of_silently_overwriting(tmp_path: Path) -> None:
+    path = tmp_path / "actions.yaml"
+    path.write_text(
+        "schema_version: 7\nactions:\n  - id: duplicate\n    name: First\n    name: Second\n    system_prompt: system\n    prompt: '{input}'\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="duplicate key: name"):
+        load_action_catalog(path)
 
 
 def test_duplicate_shortcut_hotkey_is_rejected(tmp_path: Path) -> None:

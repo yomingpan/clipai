@@ -7,7 +7,7 @@ from typing import Callable, Literal, Mapping
 
 import customtkinter as ctk
 
-from ClipAI.core.models import PresentationDocument
+from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PresentationDocument
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
@@ -24,6 +24,17 @@ def ellipsize_source_preview(text: str, limit: int = SOURCE_PREVIEW_MAX_CHARS) -
     if limit <= 3:
         return "." * max(limit, 0)
     return f"{compact[: limit - 3].rstrip()}..."
+
+
+def action_contract_tooltip_text(contract: ActionFeedbackContract) -> str:
+    return (
+        f"AI 幫你\n{contract.transform_label}\n\n"
+        f"你仍保留\n{contract.human_space_label}\n\n"
+        f"結果後確認\n{contract.verification_label}\n\n"
+        "Ctrl + R：Recipe 回饋"
+    )
+
+
 RGB = tuple[int, int, int]
 
 DEFAULT_STATE_COLORS: dict[DialogState, RGB] = {
@@ -74,6 +85,17 @@ PRESENTATION_TAG_FONTS: dict[str, tuple[str, int, str]] = {
 }
 
 
+def apply_widget_font_scaling(widget: object, font: tuple[str, int] | tuple[str, int, str]) -> tuple:
+    """Apply CustomTkinter's owning-widget font scale before crossing into Tk."""
+    apply_scaling = getattr(widget, "_apply_font_scaling", None)
+    if not callable(apply_scaling):
+        raise AttributeError("widget does not expose CustomTkinter font scaling")
+    scaled = apply_scaling(font)
+    if len(scaled) == 3 and isinstance(scaled[2], tuple):
+        return (*scaled[:2], *scaled[2])
+    return scaled
+
+
 def configure_presentation_typography(textbox: object) -> bool:
     """Apply font variants at the concrete Tk adapter seam."""
     tk_text = getattr(textbox, "_textbox", None)
@@ -81,10 +103,19 @@ def configure_presentation_typography(textbox: object) -> bool:
         return False
     try:
         for tag, font in PRESENTATION_TAG_FONTS.items():
-            tk_text.tag_configure(tag, font=font)
-    except (tk.TclError, ValueError):
+            tk_text.tag_configure(tag, font=apply_widget_font_scaling(textbox, font))
+    except (tk.TclError, ValueError, AttributeError):
         return False
     return True
+
+
+class _PresentationTextbox(ctk.CTkTextbox):
+    """CTk textbox that reapplies native Tk tag fonts after DPI changes."""
+
+    def _set_scaling(self, *args, **kwargs):
+        super()._set_scaling(*args, **kwargs)
+        if hasattr(self, "_textbox"):
+            configure_presentation_typography(self)
 
 
 def rgb_to_hex(color: RGB) -> str:
@@ -203,9 +234,13 @@ class RoundedSurfacePainter:
         )
         self._canvas.tag_lower("surface")
 
-    def resize(self, width: int, height: int) -> None:
+    def resize(self, width: int, height: int, *, radius: int | None = None, inset: int | None = None) -> None:
         self._width = width
         self._height = height
+        if radius is not None:
+            self._radius = radius
+        if inset is not None:
+            self._inset = inset
 
     def _draw_round_rect(self, x1: int, y1: int, x2: int, y2: int, radius: int, color: str) -> None:
         options = {"fill": color, "outline": color, "tags": "surface"}
@@ -275,13 +310,11 @@ class BaseDialog:
         self._drag_offset_y = 0
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
         self._surface_inset = surface_inset
+        self._corner_radius = corner_radius
+        self._border_inset = max(1, surface_inset // 3)
 
         try:
             self.root = ctk.CTkToplevel(master) if master is not None else ctk.CTk()
-            self._window_scale = self.root._get_window_scaling()
-            physical_width = round(width * self._window_scale)
-            physical_height = round(height * self._window_scale)
-            physical_inset = round(surface_inset * self._window_scale)
             self.root.title(title)
             self.root.geometry(f"{width}x{height}")
             self.root.minsize(minimum_width or min(width, 320), minimum_height or min(height, 180))
@@ -302,8 +335,6 @@ class BaseDialog:
 
             self.canvas = tk.Canvas(
                 self.root,
-                width=physical_width,
-                height=physical_height,
                 bg=background_color,
                 highlightthickness=0,
                 bd=0,
@@ -311,25 +342,26 @@ class BaseDialog:
             self.canvas.pack(fill="both", expand=True)
             self._painter = RoundedSurfacePainter(
                 self.canvas,
-                width=physical_width,
-                height=physical_height,
+                width=width,
+                height=height,
                 background_color=background_color,
                 surface_color=surface_color,
-                radius=round(corner_radius * self._window_scale),
-                inset=max(1, physical_inset//3),
+                radius=corner_radius,
+                inset=self._border_inset,
             )
             idle_color = border_color or self._state_colors.hex("idle")
             self._painter.draw(idle_color)
 
             self.surface = tk.Frame(self.canvas, bg=surface_color, bd=0, highlightthickness=0)
             self._surface_window = self.canvas.create_window(
-                physical_inset,
-                physical_inset,
+                surface_inset,
+                surface_inset,
                 anchor="nw",
                 window=self.surface,
-                width=physical_width - physical_inset * 2,
-                height=physical_height - physical_inset * 2,
+                width=max(1, width - surface_inset * 2),
+                height=max(1, height - surface_inset * 2),
             )
+            self.canvas.bind("<Configure>", self._on_canvas_configure, add="+")
             self.main_frame = self.surface
 
             self.lifecycle = DialogLifecycle(self.root, owns_mainloop=master is None)
@@ -349,6 +381,14 @@ class BaseDialog:
             raise
     def is_valid(self) -> bool:
         return self._valid
+
+    def is_alive(self) -> bool:
+        if not self._valid or self.lifecycle.is_closed:
+            return False
+        try:
+            return bool(self.root.winfo_exists())
+        except tk.TclError:
+            return False
 
     def flash(self, state: DialogState) -> None:
         self._flash_controller.flash(state)
@@ -386,15 +426,27 @@ class BaseDialog:
         target_x = self.root.winfo_x() if x is None else x
         target_y = self.root.winfo_y() if y is None else y
         self.root.geometry(f"{width}x{height}+{target_x}+{target_y}")
-        physical_width = round(width * self._window_scale)
-        physical_height = round(height * self._window_scale)
-        physical_inset = round(self._surface_inset * self._window_scale)
-        self.canvas.configure(width=physical_width, height=physical_height)
-        self._painter.resize(physical_width, physical_height)
+
+    def _on_canvas_configure(self, event) -> None:
+        actual_width = max(1, int(event.width))
+        actual_height = max(1, int(event.height))
+        width_scale = actual_width / self.width if self.width else 1.0
+        height_scale = actual_height / self.height if self.height else 1.0
+        observed_scale = max(0.1, min(width_scale, height_scale))
+        surface_inset = max(1, round(self._surface_inset * observed_scale))
+        corner_radius = max(1, round(self._corner_radius * observed_scale))
+        border_inset = max(1, round(self._border_inset * observed_scale))
+        self._painter.resize(
+            actual_width,
+            actual_height,
+            radius=corner_radius,
+            inset=border_inset,
+        )
+        self.canvas.coords(self._surface_window, surface_inset, surface_inset)
         self.canvas.itemconfigure(
             self._surface_window,
-            width=physical_width - physical_inset * 2,
-            height=physical_height - physical_inset * 2,
+            width=max(1, actual_width - surface_inset * 2),
+            height=max(1, actual_height - surface_inset * 2),
         )
         self._flash_controller.redraw()
 
@@ -455,7 +507,8 @@ class _Tooltip:
             fg="#FFFFFF",
             padx=8,
             pady=4,
-            font=(TC_FONT_FAMILY, 9),
+            font=apply_widget_font_scaling(self.widget, (TC_FONT_FAMILY, 9)),
+            justify="left",
         )
         label.pack()
 
@@ -635,6 +688,13 @@ class BaseResultSurface:
         self._action_tooltips: dict[str, _Tooltip] = {}
         self.follow_up_visible = False
         self.overflow_expanded = False
+        self._feedback_submit: Callable[[FeedbackOutcome, str, str, bool], None] | None = None
+        self._feedback_state: FeedbackOperationState = "idle"
+        self._feedback_overlay_open = False
+        self._feedback_contract: ActionFeedbackContract | None = None
+        self._feedback_success_job: str | None = None
+        self._feedback_pending_payload: tuple[FeedbackOutcome, str, str, bool] | None = None
+        self._guidance_job: str | None = None
         self._build()
 
     def _build(self) -> None:
@@ -662,6 +722,36 @@ class BaseResultSurface:
             text_color=MODEL_COLOR,
         )
         self.model_label.pack(side="left", padx=(0, 10))
+        self.info_button = ctk.CTkButton(
+            self.window_actions,
+            text="ⓘ",
+            width=18,
+            height=18,
+            corner_radius=9,
+            fg_color=SURFACE_BG,
+            hover_color="#3A3A3A",
+            text_color="#8A8A8A",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
+            command=self.toggle_feedback_overlay,
+        )
+        self._info_tooltip = _Tooltip(self.info_button, "", self.dialog.lifecycle)
+        self.guidance_coachmark = ctk.CTkFrame(
+            self.root,
+            fg_color="#0F172A",
+            border_width=1,
+            border_color="#36516F",
+            corner_radius=8,
+        )
+        self.guidance_coachmark_label = ctk.CTkLabel(
+            self.guidance_coachmark,
+            text="",
+            anchor="w",
+            justify="left",
+            wraplength=285,
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+        )
+        self.guidance_coachmark_label.pack(fill="x", padx=9, pady=7)
         self.close_button = ctk.CTkButton(
             self.window_actions,
             text="×",
@@ -713,7 +803,7 @@ class BaseResultSurface:
         )
         self.source_label.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 0))
 
-        self.content_text = ctk.CTkTextbox(
+        self.content_text = _PresentationTextbox(
             self.root,
             fg_color=SURFACE_BG,
             border_width=0,
@@ -734,6 +824,102 @@ class BaseResultSurface:
         for tag, style in PRESENTATION_TAG_STYLES.items():
             self.content_text.tag_config(tag, **style)
         configure_presentation_typography(self.content_text)
+
+        self.feedback_frame = ctk.CTkFrame(
+            self.root,
+            fg_color="#252525",
+            border_width=1,
+            border_color="#454545",
+            corner_radius=9,
+        )
+        feedback_header = ctk.CTkFrame(self.feedback_frame, fg_color="transparent")
+        feedback_header.pack(fill="x", padx=10, pady=(9, 4))
+        self.feedback_prompt = ctk.CTkLabel(
+            feedback_header,
+            text="這次結果符合預期嗎？",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10, weight="bold"),
+            text_color=CONTENT_COLOR,
+        )
+        self.feedback_prompt.pack(side="left")
+        self.feedback_close_button = ctk.CTkButton(
+            feedback_header,
+            text="×",
+            width=20,
+            height=20,
+            corner_radius=10,
+            fg_color="transparent",
+            hover_color="#3A3A3A",
+            text_color="#A9BACB",
+            command=self.close_feedback_overlay,
+        )
+        self.feedback_close_button.pack(side="right")
+        feedback_choices = ctk.CTkFrame(self.feedback_frame, fg_color="transparent")
+        feedback_choices.pack(fill="x", padx=10, pady=(2, 5))
+        self.feedback_buttons: list[ctk.CTkButton] = []
+        for label, outcome, width in (("符合預期", "helpful", 72), ("需要調整", "needs_adjustment", 72)):
+            button = ctk.CTkButton(
+                feedback_choices,
+                text=label,
+                height=22,
+                width=width,
+                corner_radius=6,
+                fg_color="#3A3A3A",
+                hover_color="#4A4A4A",
+                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+                command=(lambda selected=outcome: self._choose_feedback(selected)),
+            )
+            button.pack(side="left", padx=(0, 5))
+            self.feedback_buttons.append(button)
+        self.feedback_save_case = tk.BooleanVar(value=False)
+        self.feedback_case_checkbox = ctk.CTkCheckBox(
+            self.feedback_frame,
+            text="保留這次案例（包含原文與結果）",
+            variable=self.feedback_save_case,
+            text_color=CONTENT_COLOR,
+            border_color="#8A8A8A",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+        )
+        self.feedback_case_checkbox.pack(anchor="w", padx=10, pady=(2, 5))
+        self.feedback_status = ctk.CTkLabel(
+            self.feedback_frame,
+            text="",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            text_color=ANALYZING_COLOR,
+        )
+        self.feedback_status.pack(anchor="w", padx=10, pady=(0, 7))
+        self.feedback_retry_button = ctk.CTkButton(
+            self.feedback_frame,
+            text="重試",
+            width=48,
+            height=24,
+            command=self._retry_feedback,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+        )
+
+        self.feedback_detail = ctk.CTkFrame(self.feedback_frame, fg_color="transparent")
+        self.feedback_reason_buttons = ctk.CTkFrame(self.feedback_detail, fg_color="transparent")
+        self.feedback_reason_buttons.pack(fill="x")
+        self.feedback_other = ctk.CTkFrame(self.feedback_detail, fg_color="transparent")
+        self.feedback_note = ctk.CTkEntry(
+            self.feedback_other,
+            placeholder_text="請補充一句具體情況",
+            height=28,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+        )
+        self.feedback_note.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self.feedback_submit_button = ctk.CTkButton(
+            self.feedback_other,
+            text="送出",
+            width=48,
+            height=28,
+            command=self._submit_other,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+        )
+        self.feedback_submit_button.pack(side="left")
+
+        # Feedback is a transient layer. It must never consume a grid row or
+        # reduce the canonical result area's height.
+        self.dialog.root.bind("<Escape>", self._handle_escape)
 
         self.follow_row = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.follow_row.grid_columnconfigure(0, weight=1)
@@ -768,6 +954,163 @@ class BaseResultSurface:
 
     def set_model(self, model: str) -> None:
         self.model_label.configure(text=f"model: {model}")
+
+    def configure_action_contract(self, contract: ActionFeedbackContract | None, input_source: str) -> None:
+        if contract is None:
+            self.info_button.pack_forget()
+            self._feedback_contract = None
+            self.close_feedback_overlay()
+            return
+        self._feedback_contract = contract
+        self._info_tooltip.set_text(action_contract_tooltip_text(contract))
+        if not self.info_button.winfo_manager():
+            self.info_button.pack(side="left", padx=(0, 4), before=self.close_button)
+
+    def show_action_guidance_hint(self) -> None:
+        if self._feedback_contract is not None and self.info_button.winfo_manager():
+            if self._guidance_job is not None:
+                self.dialog.lifecycle.cancel(self._guidance_job)
+            self.guidance_coachmark_label.configure(text=action_contract_tooltip_text(self._feedback_contract))
+            self.guidance_coachmark.place(relx=0.97, y=30, anchor="ne", relwidth=0.82)
+            self.guidance_coachmark.lift()
+            self._guidance_job = self.dialog.lifecycle.schedule(3500, self.hide_action_guidance_hint)
+
+    def hide_action_guidance_hint(self) -> None:
+        self.guidance_coachmark.place_forget()
+        if self._guidance_job is not None:
+            self.dialog.lifecycle.cancel(self._guidance_job)
+            self._guidance_job = None
+
+    def configure_feedback(
+        self,
+        contract: ActionFeedbackContract | None,
+        state: FeedbackOperationState,
+        message: str,
+        on_submit: Callable[[FeedbackOutcome, str, str, bool], None] | None,
+    ) -> None:
+        if contract is None or on_submit is None:
+            self.hide_feedback()
+            return
+        self._feedback_submit = on_submit
+        self._feedback_contract = contract
+        self._feedback_state = state
+        for child in self.feedback_reason_buttons.winfo_children():
+            child.destroy()
+        for reason in contract.reasons:
+            button = ctk.CTkButton(
+                self.feedback_reason_buttons,
+                text=reason.label,
+                anchor="w",
+                height=25,
+                fg_color="#3A3A3A",
+                hover_color="#4A4A4A",
+                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+                command=lambda reason_id=reason.id: self._choose_reason(reason_id),
+            )
+            button.pack(fill="x", pady=(0, 4))
+        enabled = state not in {"pending", "succeeded"}
+        for button in self.feedback_buttons:
+            button.configure(state="normal" if enabled else "disabled")
+        for button in self.feedback_reason_buttons.winfo_children():
+            button.configure(state="normal" if enabled else "disabled")
+        self.feedback_submit_button.configure(state="normal" if enabled else "disabled")
+        self.feedback_case_checkbox.configure(state="normal" if enabled else "disabled")
+        self.feedback_status.configure(
+            text=message or ("正在儲存…" if state == "pending" else ""),
+            text_color="#00B04F" if state == "succeeded" else "#E81123" if state == "failed" else ANALYZING_COLOR,
+        )
+        self.feedback_retry_button.pack_forget()
+        if state == "failed" and self._feedback_pending_payload is not None:
+            self.feedback_retry_button.pack(anchor="w", padx=10, pady=(0, 8))
+        if state == "succeeded":
+            self.feedback_detail.pack_forget()
+            if self._feedback_overlay_open:
+                if self._feedback_success_job is not None:
+                    self.dialog.lifecycle.cancel(self._feedback_success_job)
+                self._feedback_success_job = self.dialog.lifecycle.schedule(700, self.close_feedback_overlay)
+
+    def hide_feedback(self) -> None:
+        self.close_feedback_overlay()
+        self._feedback_submit = None
+        self._feedback_state = "idle"
+
+    def toggle_feedback_overlay(self) -> bool:
+        if self._feedback_submit is None:
+            return False
+        if self._feedback_state == "succeeded":
+            self.show_action_message("已記錄回饋")
+            return True
+        self.hide_action_guidance_hint()
+        if self._feedback_overlay_open:
+            self.close_feedback_overlay()
+            return True
+        self.feedback_save_case.set(False)
+        self.feedback_note.delete(0, "end")
+        self.feedback_detail.pack_forget()
+        self.feedback_other.pack_forget()
+        self.feedback_retry_button.pack_forget()
+        if self._feedback_state not in {"pending", "failed", "succeeded"}:
+            self.feedback_status.configure(text="")
+        self.feedback_frame.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.9)
+        self.feedback_frame.lift()
+        self._feedback_overlay_open = True
+        return True
+
+    def close_feedback_overlay(self) -> None:
+        self.feedback_frame.place_forget()
+        self._feedback_overlay_open = False
+        if self._feedback_success_job is not None:
+            self.dialog.lifecycle.cancel(self._feedback_success_job)
+            self._feedback_success_job = None
+
+    def _handle_escape(self, _event=None) -> str:
+        if self._feedback_overlay_open:
+            self.close_feedback_overlay()
+        else:
+            self.dialog.close()
+        return "break"
+
+    def _choose_feedback(self, outcome: FeedbackOutcome) -> None:
+        if outcome == "needs_adjustment":
+            self.feedback_detail.pack(fill="x", padx=10, pady=(0, 7), before=self.feedback_case_checkbox)
+            return
+        self._send_feedback(outcome, "", "")
+
+    def _choose_reason(self, reason: str) -> None:
+        if reason == "other":
+            self.feedback_other.pack(fill="x", pady=(2, 0))
+            self.dialog.lifecycle.focus(self.feedback_note)
+            return
+        self._send_feedback("needs_adjustment", reason, "")
+
+    def _submit_other(self) -> None:
+        note = self.feedback_note.get().strip()
+        if not note:
+            self.feedback_status.configure(text="請補充一句具體情況", text_color="#E81123")
+            return
+        self._send_feedback("needs_adjustment", "other", note)
+
+    def _send_feedback(self, outcome: FeedbackOutcome, reason: str, note: str) -> None:
+        if self._feedback_submit is None:
+            return
+        payload = (outcome, reason, note, bool(self.feedback_save_case.get()))
+        self._feedback_pending_payload = payload
+        self._show_local_feedback_pending()
+        self._feedback_submit(*payload)
+
+    def _retry_feedback(self) -> None:
+        if self._feedback_submit is not None and self._feedback_pending_payload is not None:
+            self._show_local_feedback_pending()
+            self._feedback_submit(*self._feedback_pending_payload)
+
+    def _show_local_feedback_pending(self) -> None:
+        self._feedback_state = "pending"
+        for button in (*self.feedback_buttons, *self.feedback_reason_buttons.winfo_children()):
+            button.configure(state="disabled")
+        self.feedback_submit_button.configure(state="disabled")
+        self.feedback_case_checkbox.configure(state="disabled")
+        self.feedback_retry_button.pack_forget()
+        self.feedback_status.configure(text="正在儲存…", text_color=ANALYZING_COLOR)
 
     def configure_standard_actions(
         self,

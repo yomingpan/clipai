@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
+from ClipAI.core.models import ActionFeedbackContract, FeedbackReason
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 
 
@@ -20,8 +21,8 @@ class MockBaseDialogSurface:
 
         self.dialog = BaseDialog(
             title="ClipAI",
-            width=520,
-            height=350,
+            width=400,
+            height=420,
             position="center",
             state_colors=COLORS,
             background_color="#E9EDF3",
@@ -32,15 +33,27 @@ class MockBaseDialogSurface:
             corner_radius=18,
         )
         self.surface = BaseResultSurface(self.dialog)
+        self.feedback_contract = ActionFeedbackContract(
+            "縮短內容、移除重複，並維持原有結構",
+            "保留原本的立場、事實、語氣與語言",
+            "這個版本是否仍然代表你，而且真的更容易使用？",
+            (
+                FeedbackReason("meaning_or_fact_lost", "核心意思或重要事實少了"),
+                FeedbackReason("key_detail_missing", "縮得太多，關鍵細節不夠"),
+                FeedbackReason("other", "其他"),
+            ),
+        )
         self.speaking = False
         self.content_rendered = False
         self._build()
         self.dialog.lifecycle.schedule(700, self._show_result)
+        self.dialog.lifecycle.schedule(1100, self.surface.show_action_guidance_hint)
 
     def _build(self) -> None:
         self.surface.set_title("ClipAI - 改成口語可說出口版本")
         self.surface.set_source_preview("🔍 Analyzing: 這樣可以，還可以這樣。像這樣跟他講話。然後我修好的...")
         self.surface.set_model("gpt-5.4")
+        self.surface.configure_action_contract(self.feedback_contract, "selection")
         self.surface.configure_standard_actions(
             on_speak=self._toggle_speaker,
             on_copy=self._copy_visible_text,
@@ -71,7 +84,12 @@ class MockBaseDialogSurface:
             ]
         )
         self.content_rendered = True
+        self.surface.configure_feedback(self.feedback_contract, "idle", "", self._record_feedback)
         self.dialog.flash("success")
+
+    def _record_feedback(self, outcome, reason, note, save_case) -> None:
+        del outcome, reason, note, save_case
+        self.surface.configure_feedback(self.feedback_contract, "succeeded", "已記錄回饋", self._record_feedback)
 
     def _toggle_speaker(self) -> None:
         self.speaking = not self.speaking

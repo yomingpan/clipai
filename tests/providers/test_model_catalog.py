@@ -76,6 +76,14 @@ def test_gateway_catalog_falls_back_to_explicit_minimal_completion() -> None:
     assert [call[0] for call in transport.calls] == ["get", "post"]
 
 
+def test_gateway_catalog_requires_fallback_model_when_models_endpoint_is_unavailable() -> None:
+    transport = FakeTransport(HttpResponse(404, "", None))
+    settings = GatewaySettings("Local", "http://localhost:8000", "", 10)
+    with pytest.raises(ProviderResponseError, match="Enter a model ID"):
+        ProviderModelCatalogClient(transport).list_models("gateway", settings, "")
+    assert len(transport.calls) == 1
+
+
 def test_gemini_catalog_paginates_filters_and_deduplicates() -> None:
     class PagedTransport:
         def __init__(self) -> None:

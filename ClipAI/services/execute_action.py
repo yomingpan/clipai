@@ -10,6 +10,7 @@ from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.workflow_controller import WorkflowController
+from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
 
 
 class ActionExecutor:
@@ -23,6 +24,7 @@ class ActionExecutor:
         available_actions: tuple[str, ...] = ("copy", "follow_up"),
         operation_tracker: OperationTracker | None = None,
         result_router: ResultRouter | None = None,
+        guidance_preferences: GuidancePreferencesCoordinator | None = None,
     ) -> None:
         self._input_resolver = input_resolver
         self._prompt_builder = prompt_builder
@@ -31,6 +33,7 @@ class ActionExecutor:
         self._available_actions = available_actions
         self._operation_tracker = operation_tracker
         self._result_router = result_router or ResultRouter()
+        self._guidance_preferences = guidance_preferences
 
     def execute_invocation(
         self,
@@ -49,6 +52,7 @@ class ActionExecutor:
                 invocation.invocation_id,
                 SessionStatus.PREPARING_REQUEST,
                 status_text=f"Preparing {action.name}...",
+                input_source=document.source,
             ) is None:
                 return
             request = self._prompt_builder.build(
@@ -72,6 +76,7 @@ class ActionExecutor:
             ) is None:
                 return
             processed = self._result_processor.process(result.text, action.output_profile)
+            show_guidance_hint = self._consume_guidance_hint(action, invocation)
             self._result_router.route(
                 invocation.result_route,
                 processed,
@@ -84,10 +89,22 @@ class ActionExecutor:
                     routed.text,
                     self._available_actions,
                     routed.document,
+                    provider=result.provider,
+                    model=result.model,
+                    show_guidance_hint=show_guidance_hint,
                 ),
             )
             if invocation.result_route == "speech":
-                workflow.complete(invocation, action, document, processed.text, (), processed.document)
+                workflow.complete(
+                    invocation,
+                    action,
+                    document,
+                    processed.text,
+                    (),
+                    processed.document,
+                    provider=result.provider,
+                    model=result.model,
+                )
         except CancelledError:
             return
         except ClipAIError as exc:
@@ -130,6 +147,7 @@ class ActionExecutor:
             ) is None:
                 return
             processed = self._result_processor.process(result.text, action.output_profile)
+            show_guidance_hint = self._consume_guidance_hint(action, invocation)
             document = InputDocument(question, "workflow_result", workflow.snapshot.session_id, invocation.parent_step_id)
             self._result_router.route(
                 invocation.result_route,
@@ -143,12 +161,23 @@ class ActionExecutor:
                     routed.text,
                     self._available_actions,
                     routed.document,
+                    provider=result.provider,
+                    model=result.model,
+                    show_guidance_hint=show_guidance_hint,
                 ),
             )
         except CancelledError:
             return
         except ClipAIError as exc:
             workflow.fail(invocation.invocation_id, str(exc))
+
+    def _consume_guidance_hint(self, action: ResolvedAction, invocation: ActionInvocation) -> bool:
+        return bool(
+            invocation.result_route == "popup"
+            and action.feedback_contract is not None
+            and self._guidance_preferences is not None
+            and self._guidance_preferences.consume_first_use_hint(f"{action.id}:{action.press_type}")
+        )
 
     def _complete_provider_for_invocation(
         self,

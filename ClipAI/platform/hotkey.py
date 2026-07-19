@@ -27,6 +27,9 @@ _SHIFTED_DIGIT_MAP = {
 _VK_DIGIT_MAP = {code: str(code - 48) for code in range(48, 58)}
 _VK_NUMPAD_MAP = {code: str(code - 96) for code in range(96, 106)}
 _VK_ALPHA_MAP = {code: chr(code).lower() for code in range(65, 91)}
+_VK_OEM_3 = 192
+_GRAVE_KEY_TOKEN = "grave"
+_GRAVE_KEY_ALIASES = {"`", "~", _GRAVE_KEY_TOKEN}
 
 
 def _describe_key(key) -> str:
@@ -47,12 +50,17 @@ def _normalize_key(key) -> str | None:
             return "ctrl"
         return str(name).lower()
 
+    vk = getattr(key, "vk", None)
+    if vk == _VK_OEM_3:
+        return _GRAVE_KEY_TOKEN
+
     char = getattr(key, "char", None)
     if char:
         normalized = str(char).lower()
+        if normalized in _GRAVE_KEY_ALIASES:
+            return _GRAVE_KEY_TOKEN
         return _SHIFTED_DIGIT_MAP.get(normalized, normalized)
 
-    vk = getattr(key, "vk", None)
     if isinstance(vk, int):
         if vk in _VK_DIGIT_MAP:
             return _VK_DIGIT_MAP[vk]
@@ -64,7 +72,8 @@ def _normalize_key(key) -> str | None:
 
 
 def _parse_hotkey(hotkey: str) -> set[str]:
-    return {part.strip().lower() for part in hotkey.split("+") if part.strip()}
+    tokens = {part.strip().lower() for part in hotkey.split("+") if part.strip()}
+    return {_GRAVE_KEY_TOKEN if token in _GRAVE_KEY_ALIASES else token for token in tokens}
 
 
 def _canonicalize_modifier_prefix(hotkey: str, modifier_mode: str) -> str:

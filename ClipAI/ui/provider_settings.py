@@ -6,8 +6,8 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import RefreshProviderModels, ValidateAndSaveProviderSettings
-from ClipAI.core.models import ProviderOption, ProviderSettingsState
+from ClipAI.core.commands import OpenProviderSettings, RefreshProviderModels, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ModelCatalogConnection, ProviderOption, ProviderSettingsInput, ProviderSettingsState
 
 
 class ProviderSettingsDialog:
@@ -16,6 +16,8 @@ class ProviderSettingsDialog:
     def __init__(self, master, command_sink: Callable[[object], None]) -> None:
         self._command_sink = command_sink
         self._state: ProviderSettingsState | None = None
+        self._loaded_provider = ""
+        self._gateway_custom_mode = tk.BooleanVar(value=True)
         self._window = ctk.CTkToplevel(master)
         self._window.title("ClipAI Provider Settings")
         self._window.geometry("430x500")
@@ -44,13 +46,20 @@ class ProviderSettingsDialog:
         self._model_menu.grid(row=7, column=0, padx=24, sticky="ew")
         self._model_entry = ctk.CTkEntry(self._window, placeholder_text="Model ID")
         self._model_entry.grid(row=7, column=0, padx=24, sticky="ew")
+        self._custom_model = ctk.CTkCheckBox(
+            self._window,
+            text="Use custom model ID",
+            variable=self._gateway_custom_mode,
+            command=self._gateway_model_mode_changed,
+        )
+        self._custom_model.grid(row=8, column=0, padx=24, pady=(6, 0), sticky="w")
 
         self._message = ctk.CTkLabel(self._window, text="", anchor="w", wraplength=380, justify="left")
-        self._message.grid(row=8, column=0, padx=24, pady=(18, 8), sticky="ew")
+        self._message.grid(row=9, column=0, padx=24, pady=(18, 8), sticky="ew")
         self._save = ctk.CTkButton(self._window, text="Validate and Save", command=self._submit)
-        self._save.grid(row=9, column=0, padx=24, pady=(8, 22), sticky="ew")
+        self._save.grid(row=10, column=0, padx=24, pady=(8, 12), sticky="ew")
         self._refresh = ctk.CTkButton(self._window, text="Refresh Models", command=self._refresh_models)
-        self._refresh.grid(row=10, column=0, padx=24, pady=(0, 22), sticky="ew")
+        self._refresh.grid(row=11, column=0, padx=24, pady=(0, 22), sticky="ew")
         self._window.bind("<Escape>", lambda _event: self.close())
         self._window.bind("<Control-Return>", lambda _event: self._submit())
 
@@ -58,6 +67,7 @@ class ProviderSettingsDialog:
         self._state = state
         provider_ids = [option.provider_id for option in state.providers]
         self._provider_menu.configure(values=provider_ids)
+        provider_changed = self._loaded_provider != state.selected_provider
         self._provider.set(state.selected_provider)
         pending = state.operation_state == "pending"
         enabled = "disabled" if pending else "normal"
@@ -67,15 +77,25 @@ class ProviderSettingsDialog:
         self._gateway_name.configure(state="normal")
         self._gateway_url.configure(state="normal")
         self._model_entry.configure(state="normal")
-        self._apply_provider(state.selected_provider, selected_model=state.selected_model)
+        if provider_changed:
+            self._apply_provider(state.selected_provider, selected_model=state.selected_model, load_values=True)
+            self._loaded_provider = state.selected_provider
+        else:
+            self._apply_provider(state.selected_provider, selected_model=state.selected_model, load_values=False)
+            if state.operation_kind == "refresh" and state.operation_state == "succeeded":
+                option = self._option(state.selected_provider)
+                if option is not None and option.available_models:
+                    self._model.set(state.selected_model if state.selected_model in option.available_models else option.available_models[0])
+                self._gateway_custom_mode.set(False)
+                self._gateway_model_mode_changed()
         self._provider_menu.configure(state=enabled)
         self._model_menu.configure(state=enabled)
         self._api_key.configure(state=enabled)
         self._gateway_name.configure(state=enabled)
         self._gateway_url.configure(state=enabled)
         self._model_entry.configure(state=enabled)
-        self._save.configure(state=enabled, text="Validating..." if pending else "Validate and Save")
-        self._refresh.configure(state=enabled, text="Refreshing..." if pending and "model" in state.message.lower() else "Refresh Models")
+        self._save.configure(state=enabled, text="Validating..." if pending and state.operation_kind == "save" else "Validate and Save")
+        self._refresh.configure(state=enabled, text="Refreshing..." if pending and state.operation_kind == "refresh" else "Refresh Models")
         self._message.configure(text=state.message)
         if state.operation_state == "succeeded":
             self._api_key.delete(0, "end")
@@ -85,33 +105,63 @@ class ProviderSettingsDialog:
             self._api_key.focus_set()
 
     def _provider_changed(self, provider_id: str) -> None:
-        self._apply_provider(provider_id)
+        self._api_key.delete(0, "end")
+        self._apply_provider(provider_id, load_values=True)
+        self._credential_status.configure(text="Loading saved credentials...")
+        self._loaded_provider = ""
+        self._command_sink(OpenProviderSettings(provider_id))
 
-    def _apply_provider(self, provider_id: str, *, selected_model: str | None = None) -> None:
+    def _apply_provider(self, provider_id: str, *, selected_model: str | None = None, load_values: bool = False) -> None:
         option = self._option(provider_id)
         if option is None:
             return
         models = option.available_models or (option.selected_model,)
-        if provider_id == "gateway":
+        if option.capabilities.custom_endpoint:
             self._gateway_name.grid()
             self._gateway_url.grid()
-            self._model_menu.grid_remove()
-            self._model_entry.grid()
-            self._replace_entry(self._gateway_name, self._state.gateway_name if self._state else "")
-            self._replace_entry(self._gateway_url, self._state.gateway_base_url if self._state else "")
-            self._replace_entry(self._model_entry, selected_model or option.selected_model)
+            if load_values:
+                self._replace_entry(self._gateway_name, self._state.connection_name if self._state else "")
+                self._replace_entry(self._gateway_url, self._state.connection_base_url if self._state else "")
+                self._replace_entry(self._model_entry, selected_model or option.selected_model)
+            has_catalog = bool(option.available_models)
+            self._custom_model.grid()
+            if has_catalog:
+                self._model_menu.configure(values=list(option.available_models))
+                if load_values:
+                    self._gateway_custom_mode.set((selected_model or option.selected_model) not in option.available_models)
+                if not self._gateway_custom_mode.get():
+                    self._model.set(selected_model if selected_model in option.available_models else option.selected_model)
+            else:
+                self._gateway_custom_mode.set(True)
+            self._gateway_model_mode_changed()
         else:
             self._gateway_name.grid_remove()
             self._gateway_url.grid_remove()
             self._model_entry.grid_remove()
+            self._custom_model.grid_remove()
             self._model_menu.grid()
             self._model_menu.configure(values=list(models))
             self._model.set(selected_model if selected_model in models else option.selected_model)
-        if provider_id == "gateway":
-            status = "API key is optional. Saving may send a minimal test request if /v1/models is unavailable."
+        if option.capabilities.credential_optional:
+            status = _credential_status(option.credential_hint, optional=True)
         else:
-            status = "API key is configured. Enter a new key to replace it." if option.configured else "API key is not configured."
+            status = _credential_status(option.credential_hint) if option.configured else "API key is not configured."
         self._credential_status.configure(text=status)
+
+    def _gateway_model_mode_changed(self) -> None:
+        option = self._option(self._provider.get())
+        if option is None or not option.capabilities.editable_model:
+            return
+        if self._gateway_custom_mode.get():
+            self._model_menu.grid_remove()
+            self._model_entry.grid()
+        else:
+            self._model_entry.grid_remove()
+            self._model_menu.grid()
+
+    def _selected_model(self, provider: str) -> str:
+        option = self._option(provider)
+        return self._model_entry.get().strip() if option and option.capabilities.editable_model and self._gateway_custom_mode.get() else self._model.get().strip()
 
     @staticmethod
     def _replace_entry(entry, value: str) -> None:
@@ -128,18 +178,21 @@ class ProviderSettingsDialog:
             return
         provider = self._provider.get()
         api_key = self._api_key.get().strip()
-        if not api_key and provider != "gateway":
-            self._message.configure(text="Enter a new API key before saving.")
+        option = self._option(provider)
+        if not api_key and (option is None or (not option.configured and not option.capabilities.credential_optional)):
+            self._message.configure(text="Enter an API key before saving.")
             return
         operation_id = uuid.uuid4().hex
         self._command_sink(
             ValidateAndSaveProviderSettings(
-                provider=provider,
-                model=self._model_entry.get().strip() if provider == "gateway" else self._model.get(),
-                api_key=api_key,
+                settings=ProviderSettingsInput(
+                    provider=provider,
+                    model=self._selected_model(provider),
+                    api_key=api_key,
+                    connection_name=self._gateway_name.get().strip() if option and option.capabilities.custom_endpoint else "",
+                    connection_base_url=self._gateway_url.get().strip() if option and option.capabilities.custom_endpoint else "",
+                ),
                 operation_id=operation_id,
-                server_name=self._gateway_name.get().strip() if provider == "gateway" else "",
-                base_url=self._gateway_url.get().strip() if provider == "gateway" else "",
             )
         )
 
@@ -147,7 +200,18 @@ class ProviderSettingsDialog:
         state = self._state
         if state is None or state.operation_state == "pending":
             return
-        self._command_sink(RefreshProviderModels(self._provider.get(), uuid.uuid4().hex))
+        provider = self._provider.get()
+        option = self._option(provider)
+        connection = (
+            ModelCatalogConnection(
+                base_url=self._gateway_url.get().strip(),
+                api_key=self._api_key.get().strip(),
+                fallback_model=self._selected_model(provider),
+            )
+            if option and option.capabilities.custom_endpoint
+            else None
+        )
+        self._command_sink(RefreshProviderModels(provider, uuid.uuid4().hex, connection))
 
     def close(self) -> None:
         try:
@@ -160,3 +224,15 @@ class ProviderSettingsDialog:
             self._window.destroy()
         except tk.TclError:
             pass
+
+
+def _credential_status(hint: str, *, optional: bool = False) -> str:
+    if hint == "configured":
+        saved = "API key is configured."
+    elif hint:
+        saved = f"Using saved API key ending in {hint[-4:]}."
+    elif optional:
+        return "API key is optional. No saved key is configured."
+    else:
+        return "API key is not configured."
+    return f"{saved} Leave blank to keep it."

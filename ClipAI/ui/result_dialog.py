@@ -8,8 +8,8 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext, OutputOperationResult, ProviderSettingsState
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActiveWorkflowContext, FeedbackOutcome, OutputOperationResult, ProviderSettingsState
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
@@ -29,6 +29,7 @@ class _SessionView:
     flashed_completion_keys: set[str] = field(default_factory=set)
     output_operations: dict[str, str] = field(default_factory=dict)
     rendered_content_key: tuple[object, ...] | None = None
+    shown_guidance_keys: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -108,6 +109,9 @@ class ResultDialogPresenter:
     def _apply_output_operation(self, result: OutputOperationResult) -> None:
         view = self._views.get(result.workflow_id)
         if view is None:
+            return
+        if not view.dialog.is_alive():
+            self._evict_view(result.workflow_id, view)
             return
         slot_id = "speaker" if result.kind == "speech" else result.kind
         if result.state == "pending":
@@ -194,14 +198,15 @@ class ResultDialogPresenter:
 
     def _apply(self, snapshot: SessionSnapshot) -> None:
         view = self._views.get(snapshot.session_id)
+        if view is not None and not view.dialog.is_alive():
+            self._evict_view(snapshot.session_id, view)
+            return
         if view is not None and snapshot.revision <= view.revision:
             return
         if snapshot.status in {SessionStatus.CLOSED, SessionStatus.CANCELLED}:
             if view is not None:
                 view.dialog.close()
-                self._views.pop(snapshot.session_id, None)
-                if self._active_workflow_id == snapshot.session_id:
-                    self._active_workflow_id = None
+                self._evict_view(snapshot.session_id, view)
             return
         created = view is None
         if view is None:
@@ -211,13 +216,21 @@ class ResultDialogPresenter:
         view.revision = snapshot.revision
         if created or self._active_workflow_id is None:
             self._active_workflow_id = snapshot.session_id
+        previous_step_id = view.step_id
         view.content = snapshot.content
         if snapshot.displayed_step_index >= 0:
             view.step_id = snapshot.steps[snapshot.displayed_step_index].step_id
+        if previous_step_id is not None and view.step_id != previous_step_id:
+            view.surface.close_feedback_overlay()
         view.surface.set_pinned_state(snapshot.pinned)
         view.surface.set_title(snapshot.title)
         view.surface.set_source_preview(snapshot.source_preview)
         view.surface.set_model(snapshot.model)
+        view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
+        guidance_key = view.step_id or ""
+        if snapshot.status == SessionStatus.COMPLETED and snapshot.show_guidance_hint and guidance_key not in view.shown_guidance_keys:
+            view.shown_guidance_keys.add(guidance_key)
+            view.surface.show_action_guidance_hint()
         view.surface.close_button.configure(
             command=lambda sid=snapshot.session_id: self._command_sink(CloseSession(sid))
         )
@@ -267,6 +280,23 @@ class ResultDialogPresenter:
         )
         view.speaking = snapshot.speaking
         view.surface.set_speaker_active(snapshot.speaking)
+        if snapshot.status == SessionStatus.COMPLETED and snapshot.action_feedback_contract is not None and view.step_id is not None:
+            view.surface.configure_feedback(
+                snapshot.action_feedback_contract,
+                snapshot.feedback_state,
+                snapshot.feedback_message,
+                lambda outcome, reason, note, save_case, sid=snapshot.session_id, step=view.step_id: self._submit_feedback(
+                    sid, step, outcome, reason, note, save_case
+                ),
+            )
+        else:
+            view.surface.hide_feedback()
+
+    def _evict_view(self, session_id: str, view: _SessionView) -> None:
+        if self._views.get(session_id) is view:
+            self._views.pop(session_id, None)
+        if self._active_workflow_id == session_id:
+            self._active_workflow_id = None
 
     def _send_text_command(self, session_id: str, command_type) -> None:
         view = self._views.get(session_id)
@@ -309,6 +339,32 @@ class ResultDialogPresenter:
             return
         view.surface.toggle_pin()
         self._command_sink(TogglePin(session_id))
+
+    def _submit_feedback(
+        self,
+        session_id: str,
+        step_id: str,
+        outcome: FeedbackOutcome,
+        reason: str,
+        note: str,
+        save_case: bool,
+    ) -> None:
+        self._command_sink(SubmitActionFeedback(
+            session_id=session_id,
+            step_id=step_id,
+            operation_id=uuid.uuid4().hex,
+            outcome=outcome,
+            reason=reason,
+            note=note,
+            save_case=save_case,
+        ))
+
+    def _toggle_feedback(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None:
+            return
+        if not view.surface.toggle_feedback_overlay():
+            view.surface.show_action_message("此 Recipe 尚未啟用回饋")
 
     def _toggle_follow_up(self, session_id: str) -> None:
         view = self._views.get(session_id)
@@ -366,6 +422,7 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-q>", lambda _event, sid=session_id: self._shortcut(self._toggle_speech, sid), add="+")
         dialog.root.bind("<Control-c>", lambda _event, sid=session_id: self._shortcut(self._copy, sid), add="+")
         dialog.root.bind("<Control-s>", lambda _event, sid=session_id: self._shortcut(self._archive, sid), add="+")
+        dialog.root.bind("<Control-r>", lambda _event, sid=session_id: self._shortcut(self._toggle_feedback, sid), add="+")
         lifecycle.shown = True
 
         def establish_initial_focus() -> None:

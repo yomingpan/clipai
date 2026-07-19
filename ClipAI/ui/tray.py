@@ -7,7 +7,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from ClipAI.core.models import ApplicationStatus, ModelSelectionState, ProviderSelectionState
+from ClipAI.core.models import ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState
 
 logger = logging.getLogger("clipai.tray")
 
@@ -18,6 +18,15 @@ STATUS_COLORS: dict[ApplicationStatus, tuple[int, int, int]] = {
     "warning": (255, 215, 0),
     "error": (232, 17, 35),
     "paused": (107, 107, 107),
+}
+
+STATUS_LABELS: dict[ApplicationStatus, str] = {
+    "idle": "Ready",
+    "processing": "Processing",
+    "success": "Ready",
+    "warning": "Needs attention",
+    "error": "Needs attention",
+    "paused": "Paused",
 }
 
 
@@ -71,6 +80,9 @@ class TrayController:
         on_reload_configuration: Callable[[], None] | None = None,
         on_open_provider_settings: Callable[[], None] | None = None,
         on_refresh_models: Callable[[], None] | None = None,
+        guidance_preferences: GuidancePreferences | None = None,
+        on_set_first_use_hints: Callable[[bool], None] | None = None,
+        on_reset_first_use_hints: Callable[[], None] | None = None,
     ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
@@ -82,6 +94,9 @@ class TrayController:
         self._on_reload_configuration = on_reload_configuration
         self._on_open_provider_settings = on_open_provider_settings
         self._on_refresh_models = on_refresh_models
+        self._guidance_preferences = guidance_preferences
+        self._on_set_first_use_hints = on_set_first_use_hints
+        self._on_reset_first_use_hints = on_reset_first_use_hints
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -95,52 +110,57 @@ class TrayController:
             icon.stop()
             self._on_exit()
 
-        menu_items = []
-        provider_menu = self._build_provider_menu(pystray)
-        if provider_menu is not None:
-            menu_items.append(provider_menu)
-        model_menu = self._build_model_menu(pystray)
-        if model_menu is not None:
-            menu_items.append(model_menu)
-        if self._on_reload_configuration is not None:
-            menu_items.append(pystray.MenuItem("Reload Configuration", lambda _icon, _item: self._on_reload_configuration()))
+        menu_items = [
+            pystray.MenuItem(lambda _item: f"ClipAI — {STATUS_LABELS[self._status]}", None, enabled=False),
+            pystray.MenuItem(lambda _item: self._configuration_summary(), None, enabled=False),
+            pystray.Menu.SEPARATOR,
+        ]
         if self._on_open_provider_settings is not None:
-            menu_items.append(pystray.MenuItem("Provider Settings...", lambda _icon, _item: self._on_open_provider_settings()))
-        if self._on_refresh_models is not None:
-            menu_items.append(pystray.MenuItem("Refresh Models", lambda _icon, _item: self._on_refresh_models()))
-        if provider_menu is not None or model_menu is not None or self._on_reload_configuration is not None or self._on_open_provider_settings is not None or self._on_refresh_models is not None:
-            menu_items.append(pystray.Menu.SEPARATOR)
+            menu_items.append(pystray.MenuItem("Settings and Models...", lambda _icon, _item: self._on_open_provider_settings()))
+        guidance_menu = self._build_guidance_menu(pystray)
+        if guidance_menu is not None:
+            menu_items.append(guidance_menu)
+        support_items = []
         if self._on_show_last_error is not None:
-            menu_items.extend((pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()), pystray.Menu.SEPARATOR))
+            support_items.append(pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()))
         if self._on_export_diagnostics is not None:
-            menu_items.extend(
-                (
-                    pystray.MenuItem("Export Diagnostics", lambda _icon, _item: self._on_export_diagnostics()),
-                    pystray.Menu.SEPARATOR,
-                )
-            )
+            support_items.append(pystray.MenuItem("Export Diagnostics", lambda _icon, _item: self._on_export_diagnostics()))
+        if support_items:
+            menu_items.append(pystray.MenuItem("Support and Diagnostics", pystray.Menu(*support_items)))
+        menu_items.append(pystray.Menu.SEPARATOR)
         menu_items.append(pystray.MenuItem("Quit ClipAI", quit_app))
 
         self._icon = pystray.Icon(
             "clipai",
             create_tray_image(self._status, memory_active=self._memory_active),
-            "ClipAI",
+            self._tooltip(),
             menu=pystray.Menu(*menu_items),
         )
         self._thread = threading.Thread(target=self._run, daemon=True, name="ClipAITray")
         self._thread.start()
 
+    def _configuration_summary(self) -> str:
+        provider = ""
+        if self._provider_selection is not None:
+            selected = next((item for item in self._provider_selection.providers if item.provider_id == self._provider_selection.selected_provider), None)
+            provider = selected.display_name if selected is not None else self._provider_selection.selected_provider.title()
+        model = self._model_selection.selected_model if self._model_selection is not None else ""
+        return " · ".join(part for part in (provider, model) if part) or "No provider configured"
+
+    def _tooltip(self) -> str:
+        return f"ClipAI — {STATUS_LABELS[self._status]} · {self._configuration_summary()}"
+
     def _build_model_menu(self, pystray):
         selection = self._model_selection
         if selection is None or self._on_select_model is None:
             return None
-        label = "Model (refreshing)..." if selection.refreshing else (f"Model ({selection.pending_model})..." if selection.pending_model else f"Model: {selection.selected_model}")
+        label = "Model (refreshing)..." if selection.refreshing else ("Model (updating)..." if selection.configuration_pending else (f"Model ({selection.pending_model})..." if selection.pending_model else f"Model: {selection.selected_model}"))
         items = tuple(
             pystray.MenuItem(
                 f"{model} (custom/current)" if model in selection.custom_models else model,
                 self._model_action(model),
                 checked=lambda _item, chosen=model: self._model_selection is not None and self._model_selection.selected_model == chosen,
-                enabled=lambda _item: self._model_selection is not None and self._model_selection.pending_model is None and not self._model_selection.refreshing,
+                enabled=lambda _item: self._model_selection is not None and self._model_selection.pending_model is None and not self._model_selection.refreshing and not self._model_selection.configuration_pending,
             )
             for model in selection.available_models
         )
@@ -150,17 +170,41 @@ class TrayController:
         selection = self._provider_selection
         if selection is None or self._on_select_provider is None:
             return None
-        label = "Provider (reloading)..." if selection.reloading else (f"Provider ({selection.pending_provider})..." if selection.pending_provider else f"Provider: {selection.selected_provider}")
+        label = "Provider (reloading)..." if selection.reloading else ("Provider (updating)..." if selection.configuration_pending else (f"Provider ({selection.pending_provider})..." if selection.pending_provider else f"Provider: {selection.selected_provider}"))
         items = tuple(
             pystray.MenuItem(
                 option.display_name,
                 self._provider_action(option.provider_id),
                 checked=lambda _item, chosen=option.provider_id: self._provider_selection is not None and self._provider_selection.selected_provider == chosen,
-                enabled=lambda _item, chosen=option.provider_id: self._provider_selection is not None and self._provider_selection.pending_provider is None and not self._provider_selection.reloading and chosen != self._provider_selection.selected_provider,
+                enabled=lambda _item, chosen=option.provider_id: self._provider_selection is not None and self._provider_selection.pending_provider is None and not self._provider_selection.reloading and not self._provider_selection.configuration_pending and chosen != self._provider_selection.selected_provider,
             )
             for option in selection.providers
         )
         return pystray.MenuItem(label, pystray.Menu(*items))
+
+    def _build_guidance_menu(self, pystray):
+        if self._guidance_preferences is None or self._on_set_first_use_hints is None or self._on_reset_first_use_hints is None:
+            return None
+        return pystray.MenuItem(
+            "Usage Guidance",
+            pystray.Menu(
+                pystray.MenuItem(
+                    "Show tips the first time each Recipe is used",
+                    lambda _icon, _item: self._on_set_first_use_hints(not self._guidance_preferences.first_use_hints_enabled),
+                    checked=lambda _item: self._guidance_preferences.first_use_hints_enabled,
+                    enabled=lambda _item: not self._guidance_preferences.update_pending,
+                ),
+                pystray.MenuItem(
+                    "Show All Tips Again",
+                    lambda _icon, _item: self._on_reset_first_use_hints(),
+                    enabled=lambda _item: not self._guidance_preferences.update_pending,
+                ),
+            ),
+        )
+
+    def set_guidance_preferences(self, preferences: GuidancePreferences) -> None:
+        self._guidance_preferences = preferences
+        self._refresh_menu()
 
     def _provider_action(self, provider: str):
         def select(_icon, _item) -> None:
@@ -170,7 +214,7 @@ class TrayController:
 
     def _select_provider(self, provider: str) -> None:
         selection = self._provider_selection
-        if selection is None or self._on_select_provider is None or selection.pending_provider is not None or provider == selection.selected_provider:
+        if selection is None or self._on_select_provider is None or selection.pending_provider is not None or selection.configuration_pending or provider == selection.selected_provider:
             return
         self._provider_selection = ProviderSelectionState(selection.providers, selection.selected_provider, provider)
         self._refresh_menu()
@@ -179,6 +223,7 @@ class TrayController:
     def set_provider_selection(self, selection: ProviderSelectionState) -> None:
         self._provider_selection = selection
         self._refresh_menu()
+        self._update_title()
 
     def _model_action(self, model: str):
         def select(_icon, _item) -> None:
@@ -188,7 +233,7 @@ class TrayController:
 
     def _select_model(self, model: str) -> None:
         selection = self._model_selection
-        if selection is None or self._on_select_model is None or selection.pending_model is not None or model == selection.selected_model:
+        if selection is None or self._on_select_model is None or selection.pending_model is not None or selection.configuration_pending or model == selection.selected_model:
             return
         self._model_selection = ModelSelectionState(selection.provider, selection.available_models, selection.selected_model, model)
         self._refresh_menu()
@@ -197,6 +242,7 @@ class TrayController:
     def set_model_selection(self, selection: ModelSelectionState) -> None:
         self._model_selection = selection
         self._refresh_menu()
+        self._update_title()
 
     def _refresh_menu(self) -> None:
         if self._icon is not None:
@@ -211,6 +257,7 @@ class TrayController:
     def set_status(self, status: ApplicationStatus) -> None:
         self._status = status
         self._update_icon()
+        self._refresh_menu()
 
     def set_memory_active(self, active: bool) -> None:
         self._memory_active = active
@@ -244,6 +291,15 @@ class TrayController:
                     logger.exception("Tray icon update failed after retry")
             except Exception:
                 logger.exception("Tray icon update failed")
+        self._update_title()
+
+    def _update_title(self) -> None:
+        if self._icon is None:
+            return
+        try:
+            self._icon.title = self._tooltip()
+        except Exception:
+            logger.exception("Tray title update failed")
 
     def stop(self) -> None:
         if self._icon is not None:

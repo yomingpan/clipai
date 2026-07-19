@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from ClipAI.platform.hotkey import create_hotkey_dispatcher, expand_hotkeys
 
 
@@ -61,6 +63,35 @@ def test_short_press_triggers_action_once() -> None:
     dispatcher.on_release(FakeKey(name="ctrl_l"))
 
     assert events == [("explain_word", "short")]
+    assert len(FakeTimer.timers) == 1
+    assert FakeTimer.timers[0].cancelled is True
+
+
+@pytest.mark.parametrize(
+    "action_key",
+    [
+        pytest.param(FakeKey(char="`"), id="unshifted-character"),
+        pytest.param(FakeKey(char="~"), id="shifted-character"),
+        pytest.param(FakeKey(char="輸", vk=192), id="windows-oem-key-under-ime"),
+    ],
+)
+def test_grave_physical_key_triggers_tilde_shortcut_across_input_states(action_key: FakeKey) -> None:
+    events: list[tuple[str, str]] = []
+    dispatcher = create_hotkey_dispatcher(
+        {"dictation_editor": {"hotkey": "ctrl+alt+~"}},
+        lambda action_id, press_type: events.append((action_id, press_type)),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+    )
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(action_key)
+    dispatcher.on_release(action_key)
+    dispatcher.on_release(FakeKey(name="alt_l"))
+    dispatcher.on_release(FakeKey(name="ctrl_l"))
+
+    assert events == [("dictation_editor", "short")]
     assert len(FakeTimer.timers) == 1
     assert FakeTimer.timers[0].cancelled is True
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.models import ModelSelectionState, ProviderOption, ProviderSelectionState
+from ClipAI.core.models import GuidancePreferences, ModelSelectionState, ProviderOption, ProviderSelectionState
 from ClipAI.ui.tray import STATUS_COLORS, TrayController, create_tray_image
 
 
@@ -51,6 +51,18 @@ def test_tray_status_is_a_dumb_projection_without_reset_timer() -> None:
     tray.set_status("success")
     assert tray._status == "success"
     tray.stop()
+
+
+def test_tray_projects_status_and_current_configuration_as_compact_summaries() -> None:
+    tray = TrayController(
+        lambda: None,
+        model_selection=ModelSelectionState("openai", ("gpt-test",), "gpt-test"),
+        provider_selection=ProviderSelectionState((ProviderOption("openai", "OpenAI", ("gpt-test",), "gpt-test", True),), "openai"),
+    )
+    assert tray._configuration_summary() == "OpenAI · gpt-test"
+    tray.set_status("error")
+    assert tray._status == "error"
+    assert tray._tooltip() == "ClipAI — Needs attention · OpenAI · gpt-test"
 
 
 def test_tray_notification_uses_the_existing_icon() -> None:
@@ -145,3 +157,71 @@ def test_tray_marks_custom_current_model_and_disables_during_refresh() -> None:
     assert root.text == "Model (refreshing)..."
     assert root.action.items[0].text == "custom-model (custom/current)"
     assert root.action.items[0].enabled(None) is False
+
+
+def test_tray_disables_provider_and_model_mutations_during_configuration_operation() -> None:
+    events = []
+    providers = (
+        ProviderOption("openai", "OpenAI", ("small", "large"), "small", True),
+        ProviderOption("gemini", "Gemini", ("flash",), "flash", True),
+    )
+    tray = TrayController(
+        lambda: None,
+        model_selection=ModelSelectionState("openai", ("small", "large"), "small", configuration_pending=True),
+        provider_selection=ProviderSelectionState(providers, "openai", configuration_pending=True),
+        on_select_model=lambda provider, model: events.append((provider, model)),
+        on_select_provider=lambda provider: events.append(provider),
+    )
+
+    model_menu = tray._build_model_menu(Pystray)
+    provider_menu = tray._build_provider_menu(Pystray)
+    model_menu.action.items[1].action(None, None)
+    provider_menu.action.items[1].action(None, None)
+
+    assert model_menu.text == "Model (updating)..."
+    assert provider_menu.text == "Provider (updating)..."
+    assert all(item.enabled(None) is False for item in model_menu.action.items)
+    assert all(item.enabled(None) is False for item in provider_menu.action.items)
+    assert events == []
+
+
+def test_guidance_menu_emits_intents_without_optimistically_changing_checked_state() -> None:
+    events = []
+    tray = TrayController(
+        lambda: None,
+        guidance_preferences=GuidancePreferences(True, frozenset({"shorten"})),
+        on_set_first_use_hints=lambda enabled: events.append(("set", enabled)),
+        on_reset_first_use_hints=lambda: events.append(("reset",)),
+    )
+    menu = tray._build_guidance_menu(Pystray)
+    toggle, reset = menu.action.items
+
+    assert menu.text == "Usage Guidance"
+    assert toggle.text == "Show tips the first time each Recipe is used"
+    assert reset.text == "Show All Tips Again"
+
+    toggle.action(None, None)
+    reset.action(None, None)
+
+    assert events == [("set", False), ("reset",)]
+    assert toggle.checked(None) is True
+
+
+def test_guidance_menu_reflects_only_authoritative_saved_projection() -> None:
+    tray = TrayController(
+        lambda: None,
+        guidance_preferences=GuidancePreferences(True),
+        on_set_first_use_hints=lambda _enabled: None,
+        on_reset_first_use_hints=lambda: None,
+    )
+    pending = GuidancePreferences(True, update_pending=True)
+    tray.set_guidance_preferences(pending)
+    toggle, reset = tray._build_guidance_menu(Pystray).action.items
+    assert toggle.checked(None) is True
+    assert toggle.enabled(None) is False
+    assert reset.enabled(None) is False
+
+    tray.set_guidance_preferences(GuidancePreferences(False))
+    toggle = tray._build_guidance_menu(Pystray).action.items[0]
+    assert toggle.checked(None) is False
+    assert toggle.enabled(None) is True

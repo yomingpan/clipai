@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 import logging
 import queue
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.errors import ConfigError
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, NavigateWorkflowBack, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
-from ClipAI.core.models import ActionInvocation, EnvironmentSetting, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, ProviderOption, ProviderSelectionState, ProviderSettingsState
-from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, EnvironmentSettingsStore, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, ProviderSettingsPresenter, RuntimeComponent, Stoppable, UserNotifier
+from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, GuidancePreferencesCompleted, NavigateWorkflowBack, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, OutputOperationIntent
+from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, GuidancePreferencesPresenter, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, ProviderSettingsPresenter, RuntimeComponent, Stoppable, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
+from ClipAI.services.action_feedback import ActionFeedbackService
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.output_actions import OutputActions
-from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
+from ClipAI.services.provider_binding import ProviderExecutionBinding
+from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator, ProviderConfigurationResult, ProviderConfigurationUpdate
 from ClipAI.services.output_operation import OutputOperationCoordinator
 from ClipAI.services.input_target_resolver import InputTargetResolver
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -24,35 +24,10 @@ from ClipAI.services.shortcut_sequence import ShortcutSequenceCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.services.workflow_registry import WorkflowRegistry
+from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator, GuidancePreferencesUpdate
 from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime")
-
-
-@dataclass(frozen=True)
-class _ProviderSettingsSaved:
-    operation_id: str
-    snapshot: ProviderRuntimeSnapshot
-
-
-@dataclass(frozen=True)
-class _ProviderSettingsFailed:
-    operation_id: str
-    message: str
-
-
-@dataclass(frozen=True)
-class _ProviderModelsRefreshed:
-    operation_id: str
-    provider: str
-    models: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class _ProviderModelsRefreshFailed:
-    operation_id: str
-    provider: str
-    message: str
 
 
 class _HeadlessPresenter:
@@ -74,7 +49,7 @@ class AppRuntime:
         output_actions: OutputActions,
         view: ApplicationView,
         supervisor: TaskSupervisor,
-        provider_binding: ProviderExecutionBinding,
+        provider_configuration: ProviderConfigurationCoordinator,
         hotkey_registrar: Callable[[dict[str, dict[str, str]], Callable[[str, str], None]], Stoppable],
         tray_factory: Callable[[Callable[[], None]], RuntimeComponent] | None = None,
         operation_tracker: OperationTracker | None = None,
@@ -84,21 +59,14 @@ class AppRuntime:
         speech_coordinator: SpeechCoordinator | None = None,
         workflow_context_reader: ActiveWorkflowContextReader,
         output_operation_presenter: OutputOperationPresenter,
-        available_models: tuple[str, ...] = (),
-        settings_store: EnvironmentSettingsStore | None = None,
         model_selection_presenter: ModelSelectionPresenter | None = None,
-        provider_options: tuple[ProviderOption, ...] = (),
-        provider_bindings: tuple[ProviderExecutionBinding, ...] = (),
         provider_selection_presenter: ProviderSelectionPresenter | None = None,
-        reload_provider_settings: Callable[[], ProviderRuntimeSnapshot] | None = None,
         provider_settings_presenter: ProviderSettingsPresenter | None = None,
-        validate_provider_credential: Callable[[str, str, str, str], None] | None = None,
-        build_provider_candidate: Callable[[str, str, str, str, str], ProviderRuntimeSnapshot] | None = None,
-        gateway_name: str = "",
-        gateway_base_url: str = "",
-        discover_provider_models: Callable[[str], tuple[str, ...]] | None = None,
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         input_targets: InputTargetResolver | None = None,
+        action_feedback: ActionFeedbackService | None = None,
+        guidance_preferences: GuidancePreferencesCoordinator | None = None,
+        guidance_preferences_presenter: GuidancePreferencesPresenter | None = None,
     ) -> None:
         self._actions = actions
         self._shortcuts = shortcuts
@@ -106,28 +74,10 @@ class AppRuntime:
         self._output_actions = output_actions
         self._view = view
         self._supervisor = supervisor
-        self._active_provider_binding = provider_binding
-        self._model = provider_binding.model
-        self._provider_name = provider_binding.provider_id
-        self._available_models = available_models or (provider_binding.model,)
-        self._settings_store = settings_store
+        self._provider_configuration = provider_configuration
         self._model_selection_presenter = model_selection_presenter
-        self._provider_options = provider_options or (
-            ProviderOption(provider_binding.provider_id, provider_binding.provider_id.title(), self._available_models, provider_binding.model, not provider_binding.readiness_issues),
-        )
-        active_option = next((item for item in self._provider_options if item.provider_id == self._provider_name), None)
-        self._custom_models = active_option.custom_models if active_option is not None else ()
         self._provider_selection_presenter = provider_selection_presenter
-        self._provider_bindings = {item.provider_id: item for item in (provider_bindings or (provider_binding,))}
-        self._reload_provider_settings = reload_provider_settings
         self._provider_settings_presenter = provider_settings_presenter
-        self._validate_provider_credential = validate_provider_credential
-        self._build_provider_candidate = build_provider_candidate
-        self._gateway_name = gateway_name
-        self._gateway_base_url = gateway_base_url
-        self._provider_settings_operation_id = ""
-        self._discover_provider_models = discover_provider_models
-        self._model_refresh_operation_id = ""
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
         self._operation_tracker = operation_tracker
@@ -144,6 +94,9 @@ class AppRuntime:
             on_cancel_active=self._cancel_sequence,
         )
         self._input_targets = input_targets or InputTargetResolver()
+        self._action_feedback = action_feedback
+        self._guidance_preferences = guidance_preferences
+        self._guidance_preferences_presenter = guidance_preferences_presenter
         self._commands: queue.Queue[AppCommand] = queue.Queue()
         self._workflow_registry = WorkflowRegistry()
         self._workflows = self._workflow_registry.workflows
@@ -283,287 +236,140 @@ class AppRuntime:
             self._open_provider_settings(command.provider)
         elif isinstance(command, ValidateAndSaveProviderSettings):
             self._validate_and_save_provider_settings(command)
-        elif isinstance(command, _ProviderSettingsSaved):
-            self._provider_settings_saved(command)
-        elif isinstance(command, _ProviderSettingsFailed):
-            self._provider_settings_failed(command)
         elif isinstance(command, RefreshProviderModels):
             self._refresh_provider_models(command)
-        elif isinstance(command, _ProviderModelsRefreshed):
-            self._provider_models_refreshed(command)
-        elif isinstance(command, _ProviderModelsRefreshFailed):
-            self._provider_models_refresh_failed(command)
+        elif isinstance(command, ProviderConfigurationResult):
+            self._project_provider_update(self._provider_configuration.complete(command))
+        elif isinstance(command, SubmitActionFeedback):
+            self._submit_action_feedback(command)
+        elif isinstance(command, ActionFeedbackCompleted):
+            controller = self._workflows.get(command.session_id)
+            if controller is not None:
+                controller.complete_feedback(command.step_id, command.operation_id, command.error)
+        elif isinstance(command, SetFirstUseHintsEnabled):
+            self._begin_guidance_preferences_update("set", command.operation_id or uuid.uuid4().hex, command.enabled)
+        elif isinstance(command, ResetFirstUseHints):
+            self._begin_guidance_preferences_update("reset", command.operation_id or uuid.uuid4().hex)
+        elif isinstance(command, GuidancePreferencesCompleted):
+            if self._guidance_preferences is not None:
+                self._project_guidance_preferences_update(
+                    self._guidance_preferences.complete(command.operation_id, command.error)
+                )
 
-    def _model_selection(self, *, refreshing: bool = False) -> ModelSelectionState:
-        return ModelSelectionState(self._provider_name, self._available_models, self._model, refreshing=refreshing, custom_models=self._custom_models)
+    def _begin_guidance_preferences_update(self, kind: str, operation_id: str, enabled: bool = False) -> None:
+        if self._guidance_preferences is None:
+            return
+        update = (
+            self._guidance_preferences.begin_set_enabled(enabled, operation_id)
+            if kind == "set"
+            else self._guidance_preferences.begin_reset(operation_id)
+        )
+        self._project_guidance_preferences_update(update)
+        if update.work is None:
+            return
 
-    def _provider_selection(self, *, reloading: bool = False) -> ProviderSelectionState:
-        return ProviderSelectionState(self._provider_options, self._provider_name, reloading=reloading)
+        def save() -> None:
+            error = self._guidance_preferences.execute(update.work)
+            self.enqueue(GuidancePreferencesCompleted(operation_id, error))
+
+        self._supervisor.submit(
+            f"guidance-preferences:{operation_id}",
+            save,
+            lambda error: self.enqueue(GuidancePreferencesCompleted(
+                operation_id,
+                "無法儲存使用引導設定，請再試一次。",
+            )),
+        )
+
+    def _project_guidance_preferences_update(self, update: GuidancePreferencesUpdate) -> None:
+        if update.ignored:
+            return
+        if self._guidance_preferences_presenter is not None:
+            self._guidance_preferences_presenter.set_guidance_preferences(update.preferences)
+        if update.error and self._notifier is not None:
+            self._notifier.notify("ClipAI", update.error)
+
+    def _submit_action_feedback(self, command: SubmitActionFeedback) -> None:
+        if self._action_feedback is None:
+            return
+        controller = self._workflows.get(command.session_id)
+        if controller is None:
+            return
+        step = controller.begin_feedback(command.step_id, command.operation_id)
+        if step is None:
+            return
+
+        def save() -> None:
+            self._action_feedback.record(command.session_id, step, command)
+            self.enqueue(ActionFeedbackCompleted(command.session_id, command.step_id, command.operation_id))
+
+        self._supervisor.submit(
+            f"action-feedback:{command.operation_id}",
+            save,
+            lambda error: self.enqueue(ActionFeedbackCompleted(
+                command.session_id,
+                command.step_id,
+                command.operation_id,
+                "無法儲存回饋，請再試一次。",
+            )),
+        )
 
     def _select_provider_model(self, command: SelectProviderModel) -> None:
-        if self._model_selection_presenter is None or self._settings_store is None:
-            return
-        if command.provider != self._provider_name or command.model not in self._available_models:
-            self._model_selection_presenter.set_model_selection(self._model_selection())
-            if self._operation_tracker is not None:
-                self._operation_tracker.report_error("Model switch rejected.", "Choose a model listed for the active provider.")
-            return
-        if command.model == self._model:
-            self._model_selection_presenter.set_model_selection(self._model_selection())
-            return
-        try:
-            self._settings_store.save_settings((EnvironmentSetting(_model_env_name(self._provider_name), command.model),))
-        except OSError:
-            self._model_selection_presenter.set_model_selection(self._model_selection())
-            if self._operation_tracker is not None:
-                self._operation_tracker.report_error("Could not save the model selection.", "The previous model remains active. Check .env permissions and try again.")
-            return
-        self._model = command.model
-        self._active_provider_binding = ProviderExecutionBinding(
-            provider=self._active_provider_binding.provider,
-            provider_id=self._active_provider_binding.provider_id,
-            model=command.model,
-            readiness_issues=self._active_provider_binding.readiness_issues,
-        )
-        self._provider_bindings[self._provider_name] = self._active_provider_binding
-        self._provider_options = tuple(
-            ProviderOption(option.provider_id, option.display_name, option.available_models, command.model, option.configured, option.custom_models)
-            if option.provider_id == self._provider_name else option
-            for option in self._provider_options
-        )
-        self._model_selection_presenter.set_model_selection(self._model_selection())
-        if self._provider_selection_presenter is not None:
-            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
+        self._project_provider_update(self._provider_configuration.select_model(command.provider, command.model))
 
     def _select_provider(self, command: SelectProvider) -> None:
-        if self._provider_selection_presenter is None or self._settings_store is None:
-            return
-        binding = self._provider_bindings.get(command.provider)
-        option = next((item for item in self._provider_options if item.provider_id == command.provider), None)
-        if binding is None or option is None or binding.readiness_issues:
-            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
-            if self._operation_tracker is not None:
-                self._operation_tracker.report_error("Provider switch rejected.", "Configure this provider's API key and try again.")
-            self._open_provider_settings(command.provider)
-            return
-        if command.provider == self._provider_name:
-            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
-            return
-        try:
-            self._settings_store.save_settings((EnvironmentSetting("CLIPAI_PROVIDER", command.provider),))
-        except OSError:
-            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
-            if self._operation_tracker is not None:
-                self._operation_tracker.report_error("Could not save the provider selection.", "The previous provider remains active. Check .env permissions and try again.")
-            return
-        self._activate_provider(binding, option)
-
-    def _activate_provider(self, binding: ProviderExecutionBinding, option: ProviderOption) -> None:
-        self._active_provider_binding = binding
-        self._provider_name = binding.provider_id
-        self._model = binding.model
-        self._available_models = option.available_models
-        self._custom_models = option.custom_models
-        if self._provider_selection_presenter is not None:
-            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
-        if self._model_selection_presenter is not None:
-            self._model_selection_presenter.set_model_selection(self._model_selection())
+        self._project_provider_update(self._provider_configuration.select_provider(command.provider))
 
     def _reload_configuration(self) -> None:
-        if self._reload_provider_settings is None:
-            return
         if self._provider_selection_presenter is not None:
-            self._provider_selection_presenter.set_provider_selection(self._provider_selection(reloading=True))
-        try:
-            snapshot = self._reload_provider_settings()
-            bindings = {item.provider_id: item for item in snapshot.bindings}
-            active = bindings[snapshot.active_provider]
-            option = next(item for item in snapshot.options if item.provider_id == snapshot.active_provider)
-            if active.readiness_issues:
-                raise ValueError("active provider is not configured")
-        except (ConfigError, OSError, ValueError, KeyError):
-            if self._provider_selection_presenter is not None:
-                self._provider_selection_presenter.set_provider_selection(self._provider_selection())
-            if self._operation_tracker is not None:
-                self._operation_tracker.report_error("Could not reload provider configuration.", "The previous provider remains active. Check .env and try again.")
-            return
-        self._provider_bindings = bindings
-        self._provider_options = snapshot.options
-        self._activate_provider(active, option)
-
-    def _provider_settings_state(
-        self,
-        provider: str,
-        *,
-        operation_state: str = "idle",
-        message: str = "",
-        operation_id: str = "",
-    ) -> ProviderSettingsState:
-        option = next((item for item in self._provider_options if item.provider_id == provider), None)
-        if option is None:
-            option = next(item for item in self._provider_options if item.provider_id == self._provider_name)
-        return ProviderSettingsState(
-            self._provider_options,
-            option.provider_id,
-            option.selected_model,
-            operation_state,  # type: ignore[arg-type]
-            message,
-            operation_id,
-            self._gateway_name,
-            self._gateway_base_url,
-            option.provider_id == "gateway",
-            option.provider_id == "gateway",
-            option.provider_id == "gateway",
-        )
+            self._provider_selection_presenter.set_provider_selection(self._provider_configuration.provider_selection(reloading=True))
+        self._project_provider_update(self._provider_configuration.reload())
 
     def _open_provider_settings(self, provider: str | None = None) -> None:
         if self._provider_settings_presenter is None:
             return
-        selected = provider if provider and any(item.provider_id == provider for item in self._provider_options) else self._provider_name
-        self._provider_settings_presenter.show_provider_settings(self._provider_settings_state(selected))
+        self._project_provider_update(self._provider_configuration.open_settings(provider))
 
     def _validate_and_save_provider_settings(self, command: ValidateAndSaveProviderSettings) -> None:
-        if (
-            self._provider_settings_presenter is None
-            or self._settings_store is None
-            or self._validate_provider_credential is None
-            or self._build_provider_candidate is None
-        ):
-            return
-        option = next((item for item in self._provider_options if item.provider_id == command.provider), None)
         operation_id = command.operation_id or uuid.uuid4().hex
-        model_allowed = command.model in option.available_models if option and option.provider_id != "gateway" else bool(command.model.strip())
-        key_present = bool(command.api_key.strip()) or (option is not None and option.provider_id == "gateway")
-        gateway_fields_valid = option is None or option.provider_id != "gateway" or bool(command.server_name.strip() and command.base_url.strip())
-        if option is None or not model_allowed or not key_present or not gateway_fields_valid:
-            self._provider_settings_presenter.set_provider_settings(
-                self._provider_settings_state(command.provider, operation_state="failed", message="Provider, model, and API key are required.")
-            )
+        work, update = self._provider_configuration.begin_save(command.settings, operation_id)
+        self._project_provider_update(update)
+        if work is None:
             return
-        self._provider_settings_operation_id = operation_id
-        self._provider_settings_presenter.set_provider_settings(
-            self._provider_settings_state(command.provider, operation_state="pending", message="Validating provider credentials...", operation_id=operation_id)
-        )
-
-        def work() -> None:
-            try:
-                self._validate_provider_credential(command.provider, command.api_key, command.base_url, command.model)
-                candidate = self._build_provider_candidate(command.provider, command.model, command.api_key, command.server_name, command.base_url)
-                updates = (
-                        EnvironmentSetting("CLIPAI_PROVIDER", command.provider),
-                        EnvironmentSetting("CLIPAI_GATEWAY_NAME", command.server_name.strip()),
-                        EnvironmentSetting("CLIPAI_GATEWAY_BASE_URL", command.base_url.strip()),
-                        EnvironmentSetting("CLIPAI_GATEWAY_API_KEY", command.api_key.strip()),
-                        EnvironmentSetting("CLIPAI_GATEWAY_MODEL", command.model.strip()),
-                    ) if command.provider == "gateway" else (
-                        EnvironmentSetting("CLIPAI_PROVIDER", command.provider),
-                        EnvironmentSetting(f"{command.provider.upper()}_API_KEY", command.api_key),
-                        EnvironmentSetting(f"{command.provider.upper()}_MODEL", command.model),
-                    )
-                self._settings_store.save_settings(updates)
-            except BaseException as exc:
-                self.enqueue(_ProviderSettingsFailed(operation_id, _safe_provider_settings_error(exc)))
-                return
-            self.enqueue(_ProviderSettingsSaved(operation_id, candidate))
-
         self._supervisor.submit(
             f"provider-settings:{operation_id}",
-            work,
-            lambda error: self.enqueue(_ProviderSettingsFailed(operation_id, _safe_provider_settings_error(error))),
+            lambda: self.enqueue(self._provider_configuration.execute(work)),
+            lambda error: self.enqueue(ProviderConfigurationResult("save", operation_id, command.settings.provider, error="Provider validation failed unexpectedly. Try again.")),
         )
-
-    def _provider_settings_saved(self, command: _ProviderSettingsSaved) -> None:
-        if command.operation_id != self._provider_settings_operation_id:
-            return
-        self._provider_settings_operation_id = ""
-        self._provider_bindings = {item.provider_id: item for item in command.snapshot.bindings}
-        self._provider_options = command.snapshot.options
-        self._gateway_name = command.snapshot.gateway_name
-        self._gateway_base_url = command.snapshot.gateway_base_url
-        active = self._provider_bindings[command.snapshot.active_provider]
-        option = next(item for item in self._provider_options if item.provider_id == command.snapshot.active_provider)
-        self._activate_provider(active, option)
-        if self._provider_settings_presenter is not None:
-            self._provider_settings_presenter.set_provider_settings(
-                self._provider_settings_state(active.provider_id, operation_state="succeeded", message="Provider settings saved.")
-            )
-
-    def _provider_settings_failed(self, command: _ProviderSettingsFailed) -> None:
-        if command.operation_id != self._provider_settings_operation_id:
-            return
-        self._provider_settings_operation_id = ""
-        if self._provider_settings_presenter is not None:
-            self._provider_settings_presenter.set_provider_settings(
-                self._provider_settings_state(self._provider_name, operation_state="failed", message=command.message)
-            )
-        if self._operation_tracker is not None:
-            self._operation_tracker.report_error("Provider settings were not saved.", command.message)
 
     def _refresh_provider_models(self, command: RefreshProviderModels) -> None:
-        if self._discover_provider_models is None:
-            return
-        provider = command.provider or self._provider_name
-        option = next((item for item in self._provider_options if item.provider_id == provider), None)
-        if option is None:
-            return
+        provider = command.provider or self._provider_configuration.active_binding.provider_id
         operation_id = command.operation_id or uuid.uuid4().hex
-        self._model_refresh_operation_id = operation_id
-        if provider == self._provider_name and self._model_selection_presenter is not None:
-            self._model_selection_presenter.set_model_selection(self._model_selection(refreshing=True))
-        if self._provider_settings_presenter is not None:
-            self._provider_settings_presenter.set_provider_settings(
-                self._provider_settings_state(provider, operation_state="pending", message="Refreshing model catalog...", operation_id=operation_id)
-            )
-
-        def work() -> None:
-            try:
-                models = tuple(dict.fromkeys(model.strip() for model in self._discover_provider_models(provider) if model.strip()))
-                if not models:
-                    raise ValueError("provider returned no models")
-            except BaseException as exc:
-                self.enqueue(_ProviderModelsRefreshFailed(operation_id, provider, _safe_model_refresh_error(exc)))
-                return
-            self.enqueue(_ProviderModelsRefreshed(operation_id, provider, models))
-
+        work, update = self._provider_configuration.begin_refresh(provider, operation_id, command.connection)
+        self._project_provider_update(update)
+        if work is None:
+            return
         self._supervisor.submit(
             f"provider-models:{operation_id}",
-            work,
-            lambda error: self.enqueue(_ProviderModelsRefreshFailed(operation_id, provider, _safe_model_refresh_error(error))),
+            lambda: self.enqueue(self._provider_configuration.execute(work)),
+            lambda error: self.enqueue(ProviderConfigurationResult("refresh", operation_id, provider, error="The provider returned no usable models. The previous catalog remains active.")),
         )
 
-    def _provider_models_refreshed(self, command: _ProviderModelsRefreshed) -> None:
-        if command.operation_id != self._model_refresh_operation_id:
+    def _project_provider_update(self, update: ProviderConfigurationUpdate) -> None:
+        if update.ignored:
             return
-        self._model_refresh_operation_id = ""
-        option = next(item for item in self._provider_options if item.provider_id == command.provider)
-        models = command.models if option.selected_model in command.models else (option.selected_model, *command.models)
-        custom_models = (option.selected_model,) if option.selected_model not in command.models else ()
-        updated = ProviderOption(option.provider_id, option.display_name, models, option.selected_model, option.configured, custom_models)
-        self._provider_options = tuple(updated if item.provider_id == command.provider else item for item in self._provider_options)
-        if command.provider == self._provider_name:
-            self._available_models = models
-            self._custom_models = custom_models
-            if self._model_selection_presenter is not None:
-                self._model_selection_presenter.set_model_selection(self._model_selection())
         if self._provider_selection_presenter is not None:
-            self._provider_selection_presenter.set_provider_selection(self._provider_selection())
+            self._provider_selection_presenter.set_provider_selection(self._provider_configuration.provider_selection())
+        if self._model_selection_presenter is not None:
+            self._model_selection_presenter.set_model_selection(self._provider_configuration.model_selection())
         if self._provider_settings_presenter is not None:
-            self._provider_settings_presenter.set_provider_settings(
-                self._provider_settings_state(command.provider, operation_state="succeeded", message="Model catalog refreshed.")
-            )
-
-    def _provider_models_refresh_failed(self, command: _ProviderModelsRefreshFailed) -> None:
-        if command.operation_id != self._model_refresh_operation_id:
-            return
-        self._model_refresh_operation_id = ""
-        if command.provider == self._provider_name and self._model_selection_presenter is not None:
-            self._model_selection_presenter.set_model_selection(self._model_selection())
-        if self._provider_settings_presenter is not None:
-            self._provider_settings_presenter.set_provider_settings(
-                self._provider_settings_state(command.provider, operation_state="failed", message=command.message)
-            )
-        if self._operation_tracker is not None:
-            self._operation_tracker.report_error("Could not refresh models.", command.message)
+            if update.settings_state is not None:
+                if update.show_settings:
+                    self._provider_settings_presenter.show_provider_settings(update.settings_state)
+                else:
+                    self._provider_settings_presenter.set_provider_settings(update.settings_state)
+        if update.error is not None and self._operation_tracker is not None:
+            self._operation_tracker.report_error(update.error.message, update.error.suggestion)
 
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:
@@ -620,12 +426,12 @@ class AppRuntime:
                     status=SessionStatus.CREATED,
                     action_id=action.id,
                     title=action.name,
-                    model=self._model,
+                    model=self._provider_configuration.active_binding.model,
                 ),
                 self._view,
             )
             self._workflows[workflow_id] = controller
-            self._workflow_provider_bindings[workflow_id] = self._active_provider_binding
+            self._workflow_provider_bindings[workflow_id] = self._provider_configuration.active_binding
         invocation = ActionInvocation(
             invocation_id=uuid.uuid4().hex,
             action_id=action.id,
@@ -676,7 +482,7 @@ class AppRuntime:
         target = self._input_targets.resolve(context, action.external_fallback)
         workflow_id = uuid.uuid4().hex
         controller = WorkflowController(
-            SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._model),
+            SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
             _HeadlessPresenter(lambda message: self._sequence_error(message, "Check the active model and try again.")),
         )
         invocation = ActionInvocation(
@@ -689,7 +495,7 @@ class AppRuntime:
         )
         controller.begin_invocation(invocation, action)
         self._workflows[workflow_id] = controller
-        self._workflow_provider_bindings[workflow_id] = self._active_provider_binding
+        self._workflow_provider_bindings[workflow_id] = self._provider_configuration.active_binding
         self._sequence_workflow_id = workflow_id
         binding = self._workflow_provider_bindings[workflow_id]
         def execute() -> None:
@@ -876,32 +682,3 @@ class AppRuntime:
         incident_id = self._incident_reporter.report(error, context="diagnostics:export")
         if self._notifier is not None:
             self._notifier.notify("ClipAI Diagnostics", f"Export failed. Incident: {incident_id}")
-
-
-def _safe_provider_settings_error(error: BaseException) -> str:
-    from ClipAI.core.errors import ConfigError, ProviderAuthError, ProviderResponseError, ProviderTimeoutError, ProviderUnavailableError
-
-    if isinstance(error, ProviderAuthError):
-        return "The provider rejected this API key. Check the key and try again."
-    if isinstance(error, ProviderTimeoutError):
-        return "Provider validation timed out. Try again."
-    if isinstance(error, ProviderUnavailableError):
-        return "Could not connect to the provider. Check the network and try again."
-    if isinstance(error, ProviderResponseError):
-        return str(error)
-    if isinstance(error, ConfigError):
-        return str(error)
-    if isinstance(error, OSError):
-        return "Could not write .env. Check file permissions and try again."
-    return "Provider validation failed unexpectedly. Try again."
-
-
-def _safe_model_refresh_error(error: BaseException) -> str:
-    message = _safe_provider_settings_error(error)
-    if message == "Provider validation failed unexpectedly. Try again.":
-        return "The provider returned no usable models. The previous catalog remains active."
-    return message
-
-
-def _model_env_name(provider: str) -> str:
-    return "CLIPAI_GATEWAY_MODEL" if provider == "gateway" else f"{provider.upper()}_MODEL"
