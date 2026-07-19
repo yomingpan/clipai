@@ -520,16 +520,6 @@ class _Tooltip:
             if isinstance(child, tk.Label):
                 child.configure(text=text)
 
-    def show_temporarily(self, duration_ms: int = 3500) -> None:
-        self._cancel()
-
-        def show_and_schedule_hide() -> None:
-            self._job = None
-            self._show()
-            self._job = self.lifecycle.schedule(duration_ms, self._hide)
-
-        self._job = self.lifecycle.schedule(120, show_and_schedule_hide)
-
     def _hide(self, _event=None) -> None:
         self._cancel()
         if self._window is not None:
@@ -704,6 +694,7 @@ class BaseResultSurface:
         self._feedback_contract: ActionFeedbackContract | None = None
         self._feedback_success_job: str | None = None
         self._feedback_pending_payload: tuple[FeedbackOutcome, str, str, bool] | None = None
+        self._guidance_job: str | None = None
         self._build()
 
     def _build(self) -> None:
@@ -744,6 +735,23 @@ class BaseResultSurface:
             command=self.toggle_feedback_overlay,
         )
         self._info_tooltip = _Tooltip(self.info_button, "", self.dialog.lifecycle)
+        self.guidance_coachmark = ctk.CTkFrame(
+            self.root,
+            fg_color="#0F172A",
+            border_width=1,
+            border_color="#36516F",
+            corner_radius=8,
+        )
+        self.guidance_coachmark_label = ctk.CTkLabel(
+            self.guidance_coachmark,
+            text="",
+            anchor="w",
+            justify="left",
+            wraplength=285,
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+        )
+        self.guidance_coachmark_label.pack(fill="x", padx=9, pady=7)
         self.close_button = ctk.CTkButton(
             self.window_actions,
             text="×",
@@ -960,7 +968,18 @@ class BaseResultSurface:
 
     def show_action_guidance_hint(self) -> None:
         if self._feedback_contract is not None and self.info_button.winfo_manager():
-            self._info_tooltip.show_temporarily()
+            if self._guidance_job is not None:
+                self.dialog.lifecycle.cancel(self._guidance_job)
+            self.guidance_coachmark_label.configure(text=action_contract_tooltip_text(self._feedback_contract))
+            self.guidance_coachmark.place(relx=0.97, y=30, anchor="ne", relwidth=0.82)
+            self.guidance_coachmark.lift()
+            self._guidance_job = self.dialog.lifecycle.schedule(3500, self.hide_action_guidance_hint)
+
+    def hide_action_guidance_hint(self) -> None:
+        self.guidance_coachmark.place_forget()
+        if self._guidance_job is not None:
+            self.dialog.lifecycle.cancel(self._guidance_job)
+            self._guidance_job = None
 
     def configure_feedback(
         self,
@@ -1021,6 +1040,7 @@ class BaseResultSurface:
         if self._feedback_state == "succeeded":
             self.show_action_message("已記錄回饋")
             return True
+        self.hide_action_guidance_hint()
         if self._feedback_overlay_open:
             self.close_feedback_overlay()
             return True
