@@ -8,7 +8,7 @@ import warnings
 
 from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings, VoiceOpenAISettings
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, ActionVariant, ExternalFallback, FeedbackReason, InputMode, OutputMode, OutputProfile, PressType, ShortcutCommandKind, ShortcutDefinition
+from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, ActionVariant, ExternalFallback, FeedbackReason, InputMode, OutputMode, OutputProfile, PressType, ResultRoute, ShortcutCommandKind, ShortcutDefinition
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.output_profiles import OutputProfileCatalog
@@ -213,7 +213,7 @@ def load_action_catalog(path: str | Path, *, output_profiles: OutputProfileCatal
 def _parse_action(value: Any, index: int) -> ActionDefinition:
     path = f"actions.actions[{index}]"
     data = _mapping(value, path)
-    allowed = {"id", "name", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "input_policy", "external_fallback", "output_mode", "temperature", "output_profile", "feedback"}
+    allowed = {"id", "name", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "input_policy", "external_fallback", "output_mode", "temperature", "output_profile", "feedback", "result_routes"}
     _reject_unknown(data, allowed, path)
     variants: dict[PressType, ActionVariant] = {}
     raw_variants = _mapping(data.get("press_variants"), f"{path}.press_variants", allow_none=True)
@@ -247,6 +247,9 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         "clipboard" if data.get("input_mode") == "clipboard" else "selection_or_clipboard",
     )
     feedback_contract = _parse_feedback_contract(data.get("feedback"), path)
+    routes_raw = data.get("result_routes", ["popup", "speech"])
+    if not isinstance(routes_raw, list) or not routes_raw or any(item not in {"popup", "speech", "write"} for item in routes_raw):
+        raise ConfigError(f"{path}.result_routes must be a non-empty list of popup, speech, or write")
     return ActionDefinition(
         id=_string(data.get("id"), f"{path}.id"),
         name=_string(data.get("name"), f"{path}.name"),
@@ -260,6 +263,7 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         output_profile=_string(data.get("output_profile"), f"{path}.output_profile", default="plain_text"),
         external_fallback=cast(ExternalFallback, external_fallback),
         feedback_contract=feedback_contract,
+        result_routes=tuple(cast(ResultRoute, item) for item in routes_raw),
     )
 
 
@@ -307,7 +311,7 @@ def load_shortcut_catalog(path: str | Path, *, actions: ActionCatalog) -> Shortc
         _reject_unknown(data, {"id", "hotkey", "command", "action_id"}, shortcut_path)
         shortcut_id = _string(data.get("id"), f"{shortcut_path}.id")
         hotkey = _string(data.get("hotkey"), f"{shortcut_path}.hotkey").lower()
-        command = cast(ShortcutCommandKind, _choice(data.get("command"), f"{shortcut_path}.command", {"start_action", "speak_selection_or_clipboard"}, "start_action"))
+        command = cast(ShortcutCommandKind, _choice(data.get("command"), f"{shortcut_path}.command", {"start_action", "speak_selection_or_clipboard", "write_selection"}, "start_action"))
         action_id = _string(data.get("action_id"), f"{shortcut_path}.action_id", default="") or None
         if shortcut_id in ids:
             raise ConfigError(f"duplicate shortcut id: {shortcut_id}")

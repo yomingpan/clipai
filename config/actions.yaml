@@ -4,6 +4,7 @@ actions:
   - id: translate_to_traditional_chinese
     name: 翻譯成繁體中文
     stream: false
+    result_routes: [popup, speech, write]
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -34,6 +35,7 @@ actions:
   - id: translate_to_english
     name: Translate to English
     stream: false
+    result_routes: [popup, speech, write]
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -432,6 +434,7 @@ actions:
   - id: intent_preserving_dictation_editor
     name: 語音成稿編輯器
     stream: false
+    result_routes: [popup, speech, write]
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -507,6 +510,7 @@ actions:
   - id: shorten_content
     name: Shorten Content
     stream: false
+    result_routes: [popup, speech, write]
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup

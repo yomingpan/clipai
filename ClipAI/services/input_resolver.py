@@ -22,3 +22,11 @@ class InputResolver:
         if not clipboard_text:
             raise InputError("No text found. Select or copy text, then trigger ClipAI again.")
         return InputDocument(text=clipboard_text, source="clipboard")
+
+    def resolve_selection(self) -> InputDocument:
+        if self._selection is None:
+            raise InputError("Select text before using Write.")
+        selected = self._selection.read_text().strip()
+        if not selected:
+            raise InputError("Select text before using Write.")
+        return InputDocument(text=selected, source="selection")

@@ -275,6 +275,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "critical_thinking": "ctrl+alt+0",
         "extract_keywords": "ctrl+alt+e",
         "speak_selection_or_clipboard": "ctrl+alt+q",
+        "write_selection": "ctrl+alt+w",
         "shorten_content": "ctrl+alt+x",
         "intent_preserving_dictation_editor": "ctrl+alt+~",
     }
@@ -289,7 +290,8 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
 
     non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
     assert [(item["id"], item["command"]) for item in non_action] == [
-        ("speak_selection_or_clipboard", "speak_selection_or_clipboard")
+        ("speak_selection_or_clipboard", "speak_selection_or_clipboard"),
+        ("write_selection", "write_selection"),
     ]
     assert bundle.shortcuts.resolve("speak_selection_or_clipboard", "short") == SpeakSelectionOrClipboard()
 

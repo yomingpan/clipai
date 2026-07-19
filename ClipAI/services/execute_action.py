@@ -82,6 +82,7 @@ class ActionExecutor:
                 processed,
                 workflow_id=invocation.workflow_id or invocation.invocation_id,
                 cancellation=token,
+                write_target=invocation.write_target,
                 popup_sink=lambda routed: workflow.complete(
                     invocation,
                     action,
@@ -94,7 +95,7 @@ class ActionExecutor:
                     show_guidance_hint=show_guidance_hint,
                 ),
             )
-            if invocation.result_route == "speech":
+            if invocation.result_route in {"speech", "write"}:
                 workflow.complete(
                     invocation,
                     action,
@@ -109,6 +110,9 @@ class ActionExecutor:
             return
         except ClipAIError as exc:
             workflow.fail(invocation.invocation_id, str(exc))
+
+    def capture_write_input(self) -> InputDocument:
+        return self._input_resolver.resolve_selection()
 
     def execute_follow_up_invocation(
         self,

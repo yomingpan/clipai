@@ -24,6 +24,7 @@ from ClipAI.platform.dotenv_preferences import DotenvModelPreferenceStore
 from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
+from ClipAI.platform.foreground_target import WindowsForegroundTargetReader
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider
 from ClipAI.providers.anthropic import AnthropicProvider
@@ -39,6 +40,7 @@ from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
 from ClipAI.services.result_router import ResultRouter
+from ClipAI.services.write_result import WriteResultSink
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
@@ -126,7 +128,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         default_temperature=bundle.app.temperature,
         available_actions=("copy", "paste", "archive", "follow_up", "speaker") if speech is not None else ("copy", "paste", "archive", "follow_up"),
         operation_tracker=operation_tracker,
-        result_router=ResultRouter(speech_coordinator),
+        result_router=ResultRouter(speech_coordinator, WriteResultSink(WindowsForegroundTargetReader(), output_actions, operation_tracker)),
         guidance_preferences=guidance_preferences,
     )
 
@@ -160,6 +162,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         action_feedback=ActionFeedbackService(JsonlActionFeedbackStore()),
         guidance_preferences=guidance_preferences,
         guidance_preferences_presenter=tray,
+        foreground_target_reader=WindowsForegroundTargetReader(),
     )
     runtime_holder.append(runtime)
     return runtime

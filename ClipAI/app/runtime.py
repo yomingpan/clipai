@@ -8,7 +8,8 @@ import uuid
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, AppCommand, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, GuidancePreferencesCompleted, NavigateWorkflowBack, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, OutputOperationIntent
-from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, GuidancePreferencesPresenter, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, ProviderSettingsPresenter, RuntimeComponent, Stoppable, UserNotifier
+from ClipAI.core.errors import ClipAIError
+from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, DiagnosticsExporter, ForegroundTargetReader, GuidancePreferencesPresenter, ModelSelectionPresenter, OperationTracker, OutputOperationPresenter, ProviderSelectionPresenter, ProviderSettingsPresenter, RuntimeComponent, Stoppable, UserNotifier
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.action_feedback import ActionFeedbackService
@@ -67,6 +68,7 @@ class AppRuntime:
         action_feedback: ActionFeedbackService | None = None,
         guidance_preferences: GuidancePreferencesCoordinator | None = None,
         guidance_preferences_presenter: GuidancePreferencesPresenter | None = None,
+        foreground_target_reader: ForegroundTargetReader | None = None,
     ) -> None:
         self._actions = actions
         self._shortcuts = shortcuts
@@ -97,6 +99,7 @@ class AppRuntime:
         self._action_feedback = action_feedback
         self._guidance_preferences = guidance_preferences
         self._guidance_preferences_presenter = guidance_preferences_presenter
+        self._foreground_target_reader = foreground_target_reader
         self._commands: queue.Queue[AppCommand] = queue.Queue()
         self._workflow_registry = WorkflowRegistry()
         self._workflows = self._workflow_registry.workflows
@@ -390,7 +393,15 @@ class AppRuntime:
 
     def _start_action(self, command: StartAction) -> None:
         action = self._actions.resolve(command.action_id, command.press_type)
-        if command.result_route == "speech":
+        if command.result_route in {"speech", "write"}:
+            if command.result_route not in action.result_routes:
+                self._sequence_error("This Action does not support direct Write.", "Use the normal Action shortcut instead.")
+                return
+            if command.result_route == "write":
+                self._cancel_sequence()
+                if self._workflows:
+                    self._sequence_error("Close the ClipAI popup before using Write.", "Write only works with an external text selection.")
+                    return
             self._start_sequence_action(action, command)
             return
         context = self._workflow_context_reader.active_workflow_context()
@@ -476,10 +487,27 @@ class AppRuntime:
 
     def _start_sequence_action(self, action, command: StartAction) -> None:
         self._cancel_sequence()
+        write_target = None
+        target = None
+        if command.result_route == "write":
+            if self._foreground_target_reader is None:
+                self._sequence_error("Write is not available on this device.", "Use the normal Action shortcut instead.")
+                return
+            write_target = self._foreground_target_reader.current()
+            if write_target is None:
+                self._sequence_error("Write was not started because the target window could not be identified.", "Select text in a supported app and try again.")
+                return
+            try:
+                document = self._execute_action.capture_write_input()
+            except ClipAIError as exc:
+                self._sequence_error(str(exc), "Select text before using Write.")
+                return
+            target = InputTarget("external_text", document)
         context = self._workflow_context_reader.active_workflow_context()
         if context is not None and context.workflow_id not in self._workflows:
             context = None
-        target = self._input_targets.resolve(context, action.external_fallback)
+        if target is None:
+            target = self._input_targets.resolve(context, action.external_fallback)
         workflow_id = uuid.uuid4().hex
         controller = WorkflowController(
             SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
@@ -490,8 +518,9 @@ class AppRuntime:
             action_id=action.id,
             press_type=command.press_type,
             input_target=target,
-            result_route="speech",
+            result_route=command.result_route,
             workflow_id=workflow_id,
+            write_target=write_target,
         )
         controller.begin_invocation(invocation, action)
         self._workflows[workflow_id] = controller
@@ -504,6 +533,8 @@ class AppRuntime:
                 self._workflows.pop(workflow_id, None)
                 self._workflow_provider_bindings.pop(workflow_id, None)
                 self._sequence_workflow_id = None
+                if command.result_route == "write" and self._notifier is not None:
+                    self._notifier.notify("ClipAI", "Write completed.")
 
         self._supervisor.submit(invocation.invocation_id, execute, lambda error: self._handle_unhandled(workflow_id, error))
 

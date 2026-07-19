@@ -12,14 +12,14 @@ ImageSource = Literal["clipboard"]
 InputMode = Literal["clipboard", "selection_or_clipboard"]
 OutputMode = Literal["popup"]
 ExternalFallback = Literal["selection_or_clipboard", "clipboard"]
-ResultRoute = Literal["popup", "speech"]
+ResultRoute = Literal["popup", "speech", "write"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
 OperationKind = Literal["llm", "tts", "copy", "paste", "archive"]
 FeedbackOutcome = Literal["helpful", "needs_adjustment", "not_applicable"]
 FeedbackOperationState = Literal["idle", "pending", "succeeded", "failed"]
 PresentationBlockKind = Literal["paragraph", "heading", "unordered_item", "ordered_item"]
 InlineStyle = Literal["plain", "bold", "italic"]
-ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
+ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard", "write_selection"]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
@@ -226,6 +226,7 @@ class ActionDefinition:
     output_profile: str = "plain_text"
     external_fallback: ExternalFallback = "selection_or_clipboard"
     feedback_contract: ActionFeedbackContract | None = None
+    result_routes: tuple[ResultRoute, ...] = ("popup", "speech")
 
 
 @dataclass(frozen=True)
@@ -257,6 +258,12 @@ class ResolvedAction:
     external_fallback: ExternalFallback = "selection_or_clipboard"
     feedback_contract: ActionFeedbackContract | None = None
     version_id: str = ""
+    result_routes: tuple[ResultRoute, ...] = ("popup", "speech")
+
+
+@dataclass(frozen=True)
+class ForegroundTarget:
+    window_id: int
 
 
 @dataclass(frozen=True)
@@ -274,6 +281,7 @@ class ActionInvocation:
     result_route: ResultRoute = "popup"
     workflow_id: str | None = None
     parent_step_id: str | None = None
+    write_target: ForegroundTarget | None = None
 
 
 @dataclass(frozen=True)

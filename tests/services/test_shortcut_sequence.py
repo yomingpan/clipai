@@ -18,6 +18,7 @@ def make_sequence(events):
     catalog = ShortcutCatalog([
         ShortcutDefinition("action", "ctrl+alt+8", "start_action", "english"),
         ShortcutDefinition("speech", "ctrl+alt+q", "speak_selection_or_clipboard"),
+        ShortcutDefinition("write", "ctrl+alt+w", "write_selection"),
     ])
     coordinator = ShortcutSequenceCoordinator(
         catalog,
@@ -46,6 +47,13 @@ def test_timeout_reports_error_and_cancel_is_quiet():
     assert events[-1] == "Shortcut sequence timed out."
     coordinator.resolve(ShortcutTriggered("", "cancel"))
     assert events.count("Shortcut sequence timed out.") == 1
+
+
+def test_held_write_composer_then_action_routes_to_write():
+    events = []
+    coordinator, _ = make_sequence(events)
+    assert coordinator.resolve(ShortcutTriggered("write", "long")) is None
+    assert coordinator.resolve(ShortcutTriggered("action", "short")) == StartAction("english", "short", "write")
 
 
 def test_invalid_second_key_reports_immediately():

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, ProviderSelectionState, ProviderSettingsState, SpeechRequest, UserFacingError
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, ForegroundTarget, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, ProviderSelectionState, ProviderSettingsState, SpeechRequest, UserFacingError
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -36,6 +36,10 @@ class ClipboardTransactionStore(ClipboardStore, Protocol):
 
 class SelectionReader(Protocol):
     def read_text(self) -> str: ...
+
+
+class ForegroundTargetReader(Protocol):
+    def current(self) -> ForegroundTarget | None: ...
 
 
 class ResultPresenter(Protocol):

@@ -27,6 +27,7 @@ class ShortcutSequenceCoordinator:
         self._on_error = on_error
         self._on_cancel_active = on_cancel_active
         self._armed_shortcut: str | None = None
+        self._armed_route: str | None = None
         self._waiting = False
         self._timer: object | None = None
         self._generation = 0
@@ -48,11 +49,13 @@ class ShortcutSequenceCoordinator:
                 self._on_error("Invalid shortcut sequence.", "Choose an action shortcut after Ctrl+Alt+Q.")
             return None
         definition = self._shortcuts.definition(trigger.shortcut_id)
-        is_composer = definition.command == "speak_selection_or_clipboard"
+        route = {"speak_selection_or_clipboard": "speech", "write_selection": "write"}.get(definition.command)
+        is_composer = route is not None
         if is_composer and trigger.press_type == "long":
             self.cancel()
             self._on_cancel_active()
             self._armed_shortcut = trigger.shortcut_id
+            self._armed_route = route
             self._waiting = True
             self._on_waiting()
             self._start_timeout()
@@ -66,16 +69,19 @@ class ShortcutSequenceCoordinator:
         if self._waiting:
             self._cancel_timer()
             self._waiting = False
+            armed_route = self._armed_route
             self._armed_shortcut = None
+            self._armed_route = None
             if definition.command != "start_action" or definition.action_id is None:
-                self._on_error("Invalid shortcut sequence.", "Choose an action shortcut after Ctrl+Alt+Q.")
+                self._on_error("Invalid shortcut sequence.", "Choose an action shortcut after the prefix key.")
                 return None
-            return StartAction(definition.action_id, trigger.press_type, "speech")
+            return StartAction(definition.action_id, trigger.press_type, armed_route or "popup")  # type: ignore[arg-type]
         return self._shortcuts.resolve(trigger.shortcut_id, trigger.press_type)
 
     def cancel(self) -> None:
         self._cancel_timer()
         self._armed_shortcut = None
+        self._armed_route = None
         self._waiting = False
 
     def _start_timeout(self) -> None:
@@ -88,7 +94,8 @@ class ShortcutSequenceCoordinator:
                 return
             self._waiting = False
             self._armed_shortcut = None
-            self._on_error("Shortcut sequence timed out.", "Hold Ctrl+Alt+Q, then press an action shortcut within one second.")
+            self._armed_route = None
+            self._on_error("Shortcut sequence timed out.", "Hold the prefix key, then press an action shortcut within one second.")
 
         self._timer = self._schedule(self._timeout_sec, timeout)
 

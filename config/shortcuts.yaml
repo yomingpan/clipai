@@ -60,6 +60,10 @@ shortcuts:
     hotkey: ctrl+alt+q
     command: speak_selection_or_clipboard
 
+  - id: write_selection
+    hotkey: ctrl+alt+w
+    command: write_selection
+
   - id: shorten_content
     hotkey: ctrl+alt+x
     command: start_action
