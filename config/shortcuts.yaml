@@ -69,3 +69,8 @@ shortcuts:
     hotkey: ctrl+alt+~
     command: start_action
     action_id: intent_preserving_dictation_editor
+
+  - id: command_copilot
+    hotkey: ctrl+alt+c
+    command: start_action
+    action_id: command_copilot
