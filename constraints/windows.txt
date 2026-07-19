@@ -11,7 +11,7 @@ charset-normalizer==3.4.9
 clr_loader==0.3.1
 customtkinter==5.2.2
 darkdetect==0.8.0
-edge-tts==7.0.0
+edge-tts==7.2.8
 frozenlist==1.8.0
 idna==3.18
 langdetect==1.0.9
