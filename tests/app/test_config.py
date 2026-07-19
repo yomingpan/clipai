@@ -209,18 +209,46 @@ def test_feedback_contract_is_typed_and_only_enables_pilot_actions() -> None:
 
     assert translated.feedback_contract is not None
     assert translated.feedback_contract.transform_label == "將內容翻譯成符合情境的自然英文"
+    assert translated.feedback_contract.human_space_label == "保留真正想表達的意思、立場、關係拿捏與最後選擇"
     assert translated.feedback_contract.verification_label == "這個英文版本是否準確，而且適合真正要讀它的人？"
-    assert {reason.id for reason in translated.feedback_contract.reasons} == {
-        "meaning_inaccurate",
-        "tone_or_formality_off",
-        "terms_names_or_numbers_wrong",
-        "missing_context",
-        "other",
-    }
+    assert [(reason.id, reason.label) for reason in translated.feedback_contract.reasons] == [
+        ("meaning_inaccurate", "語意不準確"),
+        ("tone_or_formality_off", "語氣或正式程度不對"),
+        ("terms_names_or_numbers_wrong", "術語、姓名或數字翻錯"),
+        ("unnatural_or_wrong_audience", "說法不自然或不適合對象"),
+        ("other", "其他"),
+    ]
     assert shortened.feedback_contract is not None
+    assert shortened.feedback_contract.transform_label == "縮短內容、移除重複，並維持原有結構"
+    assert shortened.feedback_contract.human_space_label == "保留原本的立場、事實、語氣與語言"
     assert shortened.feedback_contract.verification_label == "這個版本是否仍然代表你，而且真的更容易使用？"
+    assert [(reason.id, reason.label) for reason in shortened.feedback_contract.reasons] == [
+        ("meaning_or_fact_lost", "核心意思或重要事實少了"),
+        ("key_detail_missing", "縮得太多，關鍵細節不夠"),
+        ("voice_or_language_changed", "語氣、立場或原本語言被改掉"),
+        ("length_or_structure_unusable", "長度或結構不適合直接使用"),
+        ("other", "其他"),
+    ]
     assert shortened.version_id
     assert catalog.resolve("english_companion", "short").feedback_contract is None
+
+
+@pytest.mark.parametrize(
+    ("original", "changed"),
+    [
+        ("將內容翻譯成符合情境的自然英文", "將內容翻成自然英文"),
+        ("保留真正想表達的意思、立場、關係拿捏與最後選擇", "保留真正想表達的意思"),
+        ("這個英文版本是否準確，而且適合真正要讀它的人？", "這個版本準確嗎？"),
+        ("說法不自然或不適合對象", "說法不自然"),
+    ],
+)
+def test_action_version_changes_with_every_feedback_contract_dimension(tmp_path: Path, original: str, changed: str) -> None:
+    source = Path("config/actions.yaml")
+    baseline = load_action_catalog(source).resolve("translate_to_english", "short").version_id
+    modified = tmp_path / "actions.yaml"
+    modified.write_text(source.read_text(encoding="utf-8").replace(original, changed, 1), encoding="utf-8")
+
+    assert load_action_catalog(modified).resolve("translate_to_english", "short").version_id != baseline
 
 
 def test_action_external_fallback_is_typed() -> None:

@@ -314,5 +314,13 @@ UI 只負責：
 - `WorkflowController` owns the feedback projection for the currently displayed completed step. Feedback operation identity is separate from workflow revision, provider invocation identity, and output-operation identity.
 - UI emits `SubmitActionFeedback`; it never writes feedback files or mutates prompts, recipes, Action configuration, or shortcuts.
 - `services` validates feedback against the immutable completed `WorkflowStep`; a platform `ActionFeedbackStore` adapter performs append-only persistence.
-- Raw input and output are excluded from feedback records unless the user explicitly elects to preserve an adjustment case.
+- Raw input and output are excluded from feedback records unless the user explicitly elects to preserve that positive or negative case.
 - Feedback never changes an Action automatically. A future prompt-improvement workflow must use a separate explicit user intent, candidate version, and regression check.
+
+## First-use guidance ownership
+
+- `GuidancePreferencesCoordinator` is the single owner of the enabled flag, seen Action ids, and preference-operation identity.
+- Tray emits typed preference intents and projects authoritative preferences; it never reads or writes JSON and never changes the checked state before persistence succeeds.
+- A platform `GuidancePreferencesStore` adapter owns `data/user_preferences.json` and writes it atomically. `.env` is not a user-interaction preference store.
+- A successful feedback-enabled Recipe may consume its first-use hint once. The Popup projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.
+- Reset clears only seen Action ids. It does not enable first-use hints or change any Recipe.

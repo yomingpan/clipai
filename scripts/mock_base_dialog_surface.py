@@ -34,12 +34,12 @@ class MockBaseDialogSurface:
         )
         self.surface = BaseResultSurface(self.dialog)
         self.feedback_contract = ActionFeedbackContract(
-            "在不改變原意下縮短文字",
+            "縮短內容、移除重複，並維持原有結構",
             "保留原本的立場、事實、語氣與語言",
             "這個版本是否仍然代表你，而且真的更容易使用？",
             (
-                FeedbackReason("meaning_lost", "核心意思少了"),
-                FeedbackReason("too_short", "縮得太多"),
+                FeedbackReason("meaning_or_fact_lost", "核心意思或重要事實少了"),
+                FeedbackReason("key_detail_missing", "縮得太多，關鍵細節不夠"),
                 FeedbackReason("other", "其他"),
             ),
         )

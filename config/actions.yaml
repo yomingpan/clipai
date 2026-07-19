@@ -34,9 +34,9 @@ actions:
         - id: tone_or_formality_off
           label: 語氣或正式程度不對
         - id: terms_names_or_numbers_wrong
-          label: 術語、姓名或數字錯誤
-        - id: missing_context
-          label: 缺少必要脈絡
+          label: 術語、姓名或數字翻錯
+        - id: unnatural_or_wrong_audience
+          label: 說法不自然或不適合對象
         - id: other
           label: 其他
     system_prompt: >
@@ -273,20 +273,18 @@ actions:
     temperature: 0.1
     output_profile: plain_text
     feedback:
-      transform: 在不改變原意下縮短文字
+      transform: 縮短內容、移除重複，並維持原有結構
       human_space: 保留原本的立場、事實、語氣與語言
       verify: 這個版本是否仍然代表你，而且真的更容易使用？
       reasons:
-        - id: meaning_lost
-          label: 核心意思少了
-        - id: too_short
-          label: 縮得太多
-        - id: too_long
-          label: 縮得不夠
-        - id: tone_or_stance_changed
-          label: 語氣或立場變了
-        - id: format_or_language_changed
-          label: 格式或語言變了
+        - id: meaning_or_fact_lost
+          label: 核心意思或重要事實少了
+        - id: key_detail_missing
+          label: 縮得太多，關鍵細節不夠
+        - id: voice_or_language_changed
+          label: 語氣、立場或原本語言被改掉
+        - id: length_or_structure_unusable
+          label: 長度或結構不適合直接使用
         - id: other
           label: 其他
     system_prompt: >
