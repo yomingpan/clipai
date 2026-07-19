@@ -186,16 +186,16 @@ class TrayController:
         if self._guidance_preferences is None or self._on_set_first_use_hints is None or self._on_reset_first_use_hints is None:
             return None
         return pystray.MenuItem(
-            "使用引導",
+            "Usage Guidance",
             pystray.Menu(
                 pystray.MenuItem(
-                    "在第一次使用新 Recipe 時顯示提示",
+                    "Show tips the first time each Recipe is used",
                     lambda _icon, _item: self._on_set_first_use_hints(not self._guidance_preferences.first_use_hints_enabled),
                     checked=lambda _item: self._guidance_preferences.first_use_hints_enabled,
                     enabled=lambda _item: not self._guidance_preferences.update_pending,
                 ),
                 pystray.MenuItem(
-                    "重新顯示所有提示",
+                    "Show All Tips Again",
                     lambda _icon, _item: self._on_reset_first_use_hints(),
                     enabled=lambda _item: not self._guidance_preferences.update_pending,
                 ),

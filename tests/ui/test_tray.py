@@ -196,6 +196,10 @@ def test_guidance_menu_emits_intents_without_optimistically_changing_checked_sta
     menu = tray._build_guidance_menu(Pystray)
     toggle, reset = menu.action.items
 
+    assert menu.text == "Usage Guidance"
+    assert toggle.text == "Show tips the first time each Recipe is used"
+    assert reset.text == "Show All Tips Again"
+
     toggle.action(None, None)
     reset.action(None, None)
 
