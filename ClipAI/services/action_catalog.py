@@ -33,7 +33,7 @@ class ActionCatalog:
             temperature=action.temperature,
             output_profile=variant.output_profile if variant and variant.output_profile else action.output_profile,
             external_fallback=action.external_fallback,
-            feedback_contract=action.feedback_contract,
+            feedback_contract=(variant.feedback_contract if variant and variant.feedback_contract is not None else action.feedback_contract),
         )
         version_payload = {
             "id": resolved.id,

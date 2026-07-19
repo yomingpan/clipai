@@ -17,7 +17,32 @@ from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 
 T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
-ACTIONS_SCHEMA_VERSION = 6
+ACTIONS_SCHEMA_VERSION = 7
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_unique_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+    mapping: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key: {key}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
 
 
 def load_config_bundle(
@@ -198,12 +223,13 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
             continue
         variant_path = f"{path}.press_variants.{press_type}"
         variant = _mapping(raw_variants[press_type], variant_path)
-        _reject_unknown(variant, {"name", "system_prompt", "prompt", "output_profile"}, variant_path)
+        _reject_unknown(variant, {"name", "system_prompt", "prompt", "output_profile", "feedback"}, variant_path)
         variants[cast(PressType, press_type)] = ActionVariant(
             name=_string(variant.get("name"), f"{variant_path}.name"),
             system_prompt=_string(variant.get("system_prompt"), f"{variant_path}.system_prompt"),
             prompt=_string(variant.get("prompt"), f"{variant_path}.prompt"),
             output_profile=_string(variant.get("output_profile"), f"{variant_path}.output_profile", default="") or None,
+            feedback_contract=_parse_feedback_contract(variant.get("feedback"), variant_path),
         )
     temperature = data.get("temperature")
     legacy_policy = data.get("input_policy")
@@ -292,6 +318,8 @@ def load_shortcut_catalog(path: str | Path, *, actions: ActionCatalog) -> Shortc
                 raise ConfigError(f"{shortcut_path}.action_id is required for start_action")
             if not actions.contains(action_id):
                 raise ConfigError(f"{shortcut_path}.action_id references unknown action: {action_id}")
+            if actions.get(action_id).feedback_contract is None:
+                raise ConfigError(f"{shortcut_path}.action_id must reference an action with feedback enabled")
         elif action_id is not None:
             raise ConfigError(f"{shortcut_path}.action_id is only supported for start_action")
         ids.add(shortcut_id)
@@ -378,7 +406,7 @@ def _model_catalog(value: Any, path: str, default_model: str) -> tuple[str, ...]
 def _load_yaml_mapping(path: str | Path) -> dict[str, Any]:
     try:
         with Path(path).open("r", encoding="utf-8") as handle:
-            return _mapping(yaml.safe_load(handle) or {}, str(path))
+            return _mapping(yaml.load(handle, Loader=_UniqueKeyLoader) or {}, str(path))
     except OSError as exc:
         raise ConfigError(f"cannot read config {path}: {exc}") from exc
     except yaml.YAMLError as exc:

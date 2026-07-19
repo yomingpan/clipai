@@ -1,4 +1,4 @@
-schema_version: 6
+schema_version: 7
 
 actions:
   - id: translate_to_traditional_chinese
@@ -9,6 +9,21 @@ actions:
     output_mode: popup
     temperature: 0.1
     output_profile: plain_text
+    feedback:
+      transform: 將內容翻譯成自然、符合台灣語境的繁體中文
+      human_space: 保留真正想表達的意思、立場、關係拿捏與最後用字
+      verify: 這個繁體中文版本是否準確、自然，而且適合真正要讀它的人？
+      reasons:
+        - id: meaning_inaccurate
+          label: 語意不準確
+        - id: tone_or_formality_off
+          label: 語氣或正式程度不對
+        - id: terms_names_or_numbers_wrong
+          label: 術語、姓名或數字翻錯
+        - id: unnatural_or_wrong_audience
+          label: 說法不自然或不符合台灣語境
+        - id: other
+          label: 其他
     system_prompt: >
       將輸入忠實翻譯成台灣常用、自然清楚的繁體中文。保留核心意思、語氣、立場、不確定性、專有名詞、名稱、數字與限制；避免生硬逐字翻譯。不得摘要、評論、延伸或補充原文沒有的事實。輸入可能是文字或圖片；圖片不清楚時只翻譯可辨識內容並明確標示不確定處。只輸出譯文，保持原文自然的段落；不要加入標題、條列、標籤或前言。
     prompt: |
@@ -54,6 +69,21 @@ actions:
     output_mode: popup
     temperature: 0.3
     output_profile: plain_text
+    feedback:
+      transform: 找出最值得繼續發展的一條思考線，並為它取一個容易記住的名字
+      human_space: 保留想法尚未定型的空間，並決定哪條思考線真正值得發展
+      verify: 這個命名是否抓到你真正想繼續追蹤的想法，而沒有太早替它下結論？
+      reasons:
+        - id: wrong_thought_line
+          label: 抓錯了真正重要的思考線
+        - id: name_too_vague_or_literal
+          label: 名稱太模糊或只是重述內容
+        - id: idea_prematurely_finalized
+          label: 把未定型的想法說得太確定
+        - id: context_or_voice_distorted
+          label: 原本脈絡或個人語氣被改變
+        - id: other
+          label: 其他
     system_prompt: >
       從仍在發展的輸入中找出最值得記住並繼續追蹤的一條思考線，而不是摘要全部內容。不得新增論點，也不要把模糊想法包裝成完成的結論。輸入可能是文字或圖片；只依可見內容判斷，不確定時明確標示。輸出適合小型 Popup 快速閱讀。
     prompt: |
@@ -77,6 +107,21 @@ actions:
     output_mode: popup
     temperature: 0.25
     output_profile: plain_text
+    feedback:
+      transform: 區分不易改變的本質與會變動的形式，照亮值得持續抓住的核心
+      human_space: 保留價值取捨、情境理解，以及你決定要守住什麼的權利
+      verify: 這個本質是否有原始內容支持，而且在情境改變時仍真正有用？
+      reasons:
+        - id: essence_not_supported
+          label: 所謂本質缺乏原始內容支持
+        - id: changing_part_treated_as_fixed
+          label: 把會隨情境改變的部分當成不變
+        - id: need_or_causality_oversimplified
+          label: 人性需求或因果結構被過度簡化
+        - id: principle_too_abstract
+          label: 行動原則太抽象，無法幫助判斷
+        - id: other
+          label: 其他
     system_prompt: >
       區分輸入中長時間較不容易改變的本質，以及會隨時間、工具或情境變化的表現形式。依真正卡點選擇人性與需求、因果與結構、行動原則等角度，不要套固定模板或憑空補充事實。輸入可能是文字或圖片；只根據可見內容分析並標示不確定性。最多四個核心區塊，適合小型 Popup。
     prompt: |
@@ -95,6 +140,21 @@ actions:
     output_mode: popup
     temperature: 0.2
     output_profile: plain_text
+    feedback:
+      transform: 將內容整理成立場、核心理由、成立條件與關鍵原文
+      human_space: 保留最後立場、優先順序，以及你願意承擔哪些風險的判斷
+      verify: 建議立場是否真的受到原文支持，而且是你願意採取的立場？
+      reasons:
+        - id: position_unsupported_or_not_mine
+          label: 立場缺乏支持，或不是我真正的立場
+        - id: reasons_missing_or_overlapping
+          label: 核心理由有遺漏、重疊或層次不清
+        - id: conditions_or_uncertainty_missing
+          label: 成立條件、風險或不確定性不足
+        - id: quote_wrong_or_out_of_context
+          label: 關鍵原文選錯或脫離脈絡
+        - id: other
+          label: 其他
     system_prompt: >
       使用金字塔原則把輸入整理成支持判斷與選擇的結構。最高層必須是原始內容可支持的立場，不是摘要，也不得替使用者憑空做決定。保留不確定性並指出適用邊界。輸入可能是文字或圖片；只使用可見內容。最多四個核心區塊，適合小型 Popup。
     prompt: |
@@ -122,6 +182,21 @@ actions:
     output_mode: popup
     temperature: 0.25
     output_profile: plain_text
+    feedback:
+      transform: 將艱深內容改寫成像朋友解釋一樣自然、清楚的說法
+      human_space: 保留自己形成理解、提出疑問，以及決定是否接受解釋的空間
+      verify: 這個說明是否讓你更容易理解，同時沒有扭曲原本概念？
+      reasons:
+        - id: core_concept_inaccurate
+          label: 核心概念解釋不準確
+        - id: still_too_difficult
+          label: 說法仍然太艱深或不清楚
+        - id: important_nuance_missing
+          label: 重要細節、限制或差異被省略
+        - id: example_misleading_or_unhelpful
+          label: 例子容易誤導或沒有幫助
+        - id: other
+          label: 其他
     system_prompt: >
       像一位理解主題的朋友坐在旁邊，自然、口語而清楚地解釋艱深或抽象內容。保留核心意思，不扭曲、不新增事實，不用另一個同樣艱深的概念解釋。可用幾個短段落拆解長句、解釋實際問題與重要性；必要時使用一個生活化例子。輸入可能是文字或圖片；圖片不清楚時標示限制。不要另加正式摘要，也不要使用標題、條列或固定模板。
     prompt: |
@@ -137,6 +212,21 @@ actions:
     output_mode: popup
     temperature: 0.15
     output_profile: plain_text
+    feedback:
+      transform: 整理文章結構、段落連接與真正影響理解的重要觀點
+      human_space: 保留慢讀、重新詮釋，以及形成自己理解與立場的過程
+      verify: 這份整理是否忠實反映作者的論述，而且能幫助你回到原文深入閱讀？
+      reasons:
+        - id: structure_or_connection_wrong
+          label: 文章結構或段落關係整理錯誤
+        - id: important_point_missing
+          label: 真正重要的觀點被遺漏
+        - id: author_stance_distorted
+          label: 作者立場、問題或結論被扭曲
+        - id: unsupported_or_over_summarized
+          label: 加入原文沒有的內容，或過度簡化
+        - id: other
+          label: 其他
     system_prompt: >
       忠實整理文章或長篇內容的結構與真正影響理解、判斷或下一步的重要觀點。反映作者原本的問題、主題連接與結論，不重新創造敘事，不加入批判、額外立場或原文沒有的資訊。輸入可能是文字或圖片；只依可見內容，內容不完整時說明範圍。適合小型 Popup 快速閱讀。
     prompt: |
@@ -159,6 +249,21 @@ actions:
     output_mode: popup
     temperature: 0.2
     output_profile: english_learning_compact
+    feedback:
+      transform: 從輸入中選一個實際出現的英文詞語，說明意思、用法、例句與記憶方式
+      human_space: 保留主動回想、自己造句，以及判斷這個詞是否值得學習的過程
+      verify: 選出的詞語是否真的出現在輸入中，而且能幫助你之後獨立使用？
+      reasons:
+        - id: expression_absent_or_wrong
+          label: 選到的詞語沒有出現在輸入中，或不是重點
+        - id: meaning_or_context_inaccurate
+          label: 中文意思、語境或用法不準確
+        - id: example_unnatural
+          label: 英文例句不自然或不實用
+        - id: learning_amount_unhelpful
+          label: 教學內容太多、太少或不利於記憶
+        - id: other
+          label: 其他
     system_prompt: >
       You are English Companion for Traditional Chinese-speaking learners. Teach exactly one English word or phrase that appears literally in the input. If the input is itself a single English word or phrase, teach that exact item. If it contains multiple English candidates, choose one of those literal candidates for its practical value; never substitute, infer, or invent a different expression. If no teachable English word or phrase is visible, say so briefly instead of making one up. Connect context and example to real usage; do not teach many items just because the input is long. If an image is unclear, use only visible text or context and explicitly mark uncertainty. Keep the result concise and suitable for a small Popup.
     prompt: |
@@ -174,6 +279,21 @@ actions:
       long:
         name: 英文改善建議
         output_profile: english_improvement
+        feedback:
+          transform: 找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型
+          human_space: 保留原本意圖與個人語氣，並親自練習、選擇真正會使用的表達
+          verify: 改寫後的英文是否仍是你想說的話，而且建議能幫助你下次自己表達？
+          reasons:
+            - id: intent_or_detail_changed
+              label: 原本意圖、資訊或重點被改變
+            - id: issue_diagnosis_wrong
+              label: 問題診斷不準確或漏掉真正卡點
+            - id: rewrite_tone_or_audience_wrong
+              label: 完整改寫的語氣或對象不適合
+            - id: explanation_or_pattern_unhelpful
+              label: 中文解釋或可重用句型不容易學會
+            - id: other
+              label: 其他
         system_prompt: >
           You are an English improvement coach for Chinese-speaking learners.
           The user may write in mixed Chinese and English, direct translation, or awkward English.
@@ -200,6 +320,21 @@ actions:
     output_mode: popup
     temperature: 0.3
     output_profile: plain_text
+    feedback:
+      transform: 找出一個最可能改變理解、決策或下一步的重要問題
+      human_space: 保留判斷哪個問題真正重要，以及親自回答、選擇與承擔的責任
+      verify: 這個問題是否照亮真正的未知，而且不同答案確實會改變下一步？
+      reasons:
+        - id: wrong_issue_selected
+          label: 問題沒有對準真正重要的卡點
+        - id: too_abstract_or_unanswerable
+          label: 問題太抽象、模糊或無法回答
+        - id: multiple_questions_bundled
+          label: 一次塞入多個問題，焦點不清
+        - id: decision_impact_weak
+          label: 為何重要或對決策的影響說明不足
+        - id: other
+          label: 其他
     system_prompt: >
       找出一個回答後最可能改變理解、討論、決策或行動的重要問題。不要大量產生問題，不要為顯得深刻而抽象化，也不要把多個問題塞進一句。問題應揭露決策點、衝突、代價、假設、立場差異或必要共識，並值得投入思考成本。輸入可能是文字或圖片；只依可見內容，不確定時明確標示。
     prompt: |
@@ -222,6 +357,21 @@ actions:
     output_mode: popup
     temperature: 0.3
     output_profile: plain_text
+    feedback:
+      transform: 檢查觀點的價值、假設與盲點，提出更高層問題與可驗證的前進方向
+      human_space: 保留最後相信什麼、如何取捨價值，以及採用哪些證據的判斷
+      verify: 這份分析是否忠於原觀點、沒有虛構對立，而且真的提升了問題層次？
+      reasons:
+        - id: original_view_distorted
+          label: 原觀點的價值、立場或範圍被扭曲
+        - id: opposition_or_assumption_invented
+          label: 虛構了反方立場、假設或事實
+        - id: blind_spot_or_common_problem_wrong
+          label: 盲點或更高層共同問題判斷錯誤
+        - id: direction_vague_or_unverifiable
+          label: 前進方向太空泛或無法驗證
+        - id: other
+          label: 其他
     system_prompt: >
       使用批判性思維檢視觀點，看見其價值與遺漏，並找出正反雙方共同忽略的更高層問題。目標不是折衷、各打五十大板或重述正反立場，而是重新定義共同需要解決的問題，提出保留雙方核心價值且可驗證的前進方向。不得虛構輸入沒有的反方立場或事實。輸入可能是文字或圖片；只依可見內容並標示推測。
     prompt: |
@@ -250,6 +400,21 @@ actions:
     output_mode: popup
     temperature: 0.15
     output_profile: plain_text
+    feedback:
+      transform: 抽取建立理解地圖不可缺少的核心概念，並說明它們與內容的關係
+      human_space: 保留閱讀時的注意力分配、概念連結，以及最後如何解讀內容的判斷
+      verify: 這些關鍵字是否真的構成理解地圖，而不是只挑出常出現的詞？
+      reasons:
+        - id: key_concept_missing
+          label: 影響理解的核心概念被遺漏
+        - id: unimportant_term_selected
+          label: 選入不重要、太泛或只因常出現的詞
+        - id: explanation_or_relation_wrong
+          label: 概念解釋或與本文的關係不準確
+        - id: set_size_or_focus_unhelpful
+          label: 關鍵字太多、太少或閱讀焦點不清
+        - id: other
+          label: 其他
     system_prompt: >
       從輸入中抽取建立理解地圖不可缺少的核心概念，而不是依出現頻率選詞。優先選支撐主題與論點、影響判斷，或代表關鍵人物、方法、理論、事件與關係的詞。不得補充輸入沒有的事實。輸入可能是文字或圖片；只依可見內容，辨識不清時標示限制。適合正式閱讀前快速暖機。
     prompt: |

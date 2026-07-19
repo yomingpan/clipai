@@ -176,7 +176,7 @@ class ActionExecutor:
             invocation.result_route == "popup"
             and action.feedback_contract is not None
             and self._guidance_preferences is not None
-            and self._guidance_preferences.consume_first_use_hint(action.id)
+            and self._guidance_preferences.consume_first_use_hint(f"{action.id}:{action.press_type}")
         )
 
     def _complete_provider_for_invocation(

@@ -190,7 +190,9 @@ Recipe 回饋與使用引導應測：
 - Ctrl+R 僅作用於聚焦的 Popup；不支援的 Recipe 必須顯示明確狀態。
 - 正負案例都只有在使用者明確勾選時保存原文與結果。
 - 回饋 pending、成功、失敗與重試反映真實 operation identity。
-- 首次提示預設開啟、每個試行 Recipe 只顯示一次，重啟後仍保留 seen 狀態。
+- 每個 `start_action` Shortcut 的短按與長按 resolved Action 都必須有完整回饋契約；非 Action Shortcut 必須明確列為例外。
+- 不同任務的 press variant 必須能覆寫回饋契約，且契約內容納入 Action version。
+- 首次提示預設開啟、每個 Action／press type 只顯示一次，重啟後仍保留 seen 狀態。
 - Tray checked state 只能在原子保存成功後改變；保存失敗維持舊值。
 - 重新顯示所有提示只清空 seen Action，不改變全域開關。
 

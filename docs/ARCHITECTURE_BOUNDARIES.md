@@ -310,7 +310,9 @@ UI 只負責：
 
 ## Action feedback ownership
 
-- An Action may declare a typed, user-visible feedback contract describing the transformation and the human space it must preserve. Actions without that contract do not expose feedback UI.
+- Every Action referenced by a `start_action` Shortcut declares a typed, user-visible feedback contract describing the transformation, human space, verification question, and Recipe-specific reasons. Shortcut loading rejects incomplete coverage.
+- Feedback semantics belong to the resolved Action, not the Shortcut. A press variant may override the base feedback contract when short and long press perform meaningfully different tasks; otherwise it inherits the base contract.
+- Non-Action commands such as `speak_selection_or_clipboard` are explicitly outside this feedback lifecycle because they do not create an AI result step or Popup result.
 - `WorkflowController` owns the feedback projection for the currently displayed completed step. Feedback operation identity is separate from workflow revision, provider invocation identity, and output-operation identity.
 - UI emits `SubmitActionFeedback`; it never writes feedback files or mutates prompts, recipes, Action configuration, or shortcuts.
 - `services` validates feedback against the immutable completed `WorkflowStep`; a platform `ActionFeedbackStore` adapter performs append-only persistence.
@@ -322,5 +324,5 @@ UI 只負責：
 - `GuidancePreferencesCoordinator` is the single owner of the enabled flag, seen Action ids, and preference-operation identity.
 - Tray emits typed preference intents and projects authoritative preferences; it never reads or writes JSON and never changes the checked state before persistence succeeds.
 - A platform `GuidancePreferencesStore` adapter owns `data/user_preferences.json` and writes it atomically. `.env` is not a user-interaction preference store.
-- A successful feedback-enabled Recipe may consume its first-use hint once. The Popup projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.
+- A successful feedback-enabled Recipe may consume its first-use hint once per Action and press type. The Popup projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.
 - Reset clears only seen Action ids. It does not enable first-use hints or change any Recipe.

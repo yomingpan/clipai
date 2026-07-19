@@ -209,6 +209,7 @@ class ActionVariant:
     system_prompt: str
     prompt: str
     output_profile: str | None = None
+    feedback_contract: ActionFeedbackContract | None = None
 
 
 @dataclass(frozen=True)

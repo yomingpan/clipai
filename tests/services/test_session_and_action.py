@@ -112,8 +112,8 @@ def run_invocation(
         SessionSnapshot("w1", 0, SessionStatus.CREATED, "english", "English", "model"),
         presenter,
     )
-    invocation = ActionInvocation(invocation_id, "english", "short", InputTarget("external_text"), workflow_id="w1")
     resolved = resolved_action or action()
+    invocation = ActionInvocation(invocation_id, "english", resolved.press_type, InputTarget("external_text"), workflow_id="w1")
     controller.begin_invocation(invocation, resolved)
     use_case.execute_invocation(
         resolved,
@@ -148,9 +148,17 @@ def test_first_successful_feedback_recipe_projects_guidance_once() -> None:
 
     first = run_invocation(executor, invocation_id="first", resolved_action=resolved)
     second = run_invocation(executor, invocation_id="second", resolved_action=resolved)
+    long_resolved = replace(resolved, press_type="long", feedback_contract=replace(
+        resolved.feedback_contract,
+        transform_label="Improve English",
+    ))
+    long_first = run_invocation(executor, invocation_id="long-first", resolved_action=long_resolved)
+    long_second = run_invocation(executor, invocation_id="long-second", resolved_action=long_resolved)
 
     assert first.snapshot.show_guidance_hint is True
     assert second.snapshot.show_guidance_hint is False
+    assert long_first.snapshot.show_guidance_hint is True
+    assert long_second.snapshot.show_guidance_hint is False
 
 
 def test_execute_action_uses_selection_before_clipboard() -> None:
