@@ -186,6 +186,44 @@ def test_release_then_timer_fire_does_not_trigger_long_after_short() -> None:
     assert events == [("explain_word", "short")]
 
 
+def test_secure_desktop_transition_discards_stale_modifiers_before_next_key() -> None:
+    events: list[tuple[str, str]] = []
+    physical_modifiers = {"ctrl": True, "alt": True, "shift": False}
+    dispatcher = create_hotkey_dispatcher(
+        {"explain_word": {"hotkey": "ctrl+alt+8"}},
+        lambda action_id, press_type: events.append((action_id, press_type)),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+        modifier_is_pressed=physical_modifiers.get,
+    )
+
+    # Ctrl+Alt+Delete moves to the secure desktop, where the listener may not
+    # receive releases for this in-progress chord.
+    press_ctrl_alt_8(dispatcher)
+    physical_modifiers["ctrl"] = False
+    physical_modifiers["alt"] = False
+
+    dispatcher.on_press(FakeKey(char="8"))
+    dispatcher.on_release(FakeKey(char="8"))
+
+    assert events == []
+    assert FakeTimer.timers[0].cancelled is True
+
+    # The next genuine shortcut still works after the stale state is cleared.
+    physical_modifiers["ctrl"] = True
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    physical_modifiers["alt"] = True
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="8"))
+    dispatcher.on_release(FakeKey(char="8"))
+    physical_modifiers["alt"] = False
+    dispatcher.on_release(FakeKey(name="alt_l"))
+    physical_modifiers["ctrl"] = False
+    dispatcher.on_release(FakeKey(name="ctrl_l"))
+
+    assert events == [("explain_word", "short")]
+
+
 def test_listener_stop_calls_underlying_listener_and_marks_not_running() -> None:
     underlying = FakeListener()
     listener = HotkeyListener(underlying)

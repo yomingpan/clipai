@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 from dataclasses import dataclass
 from typing import Callable
@@ -30,6 +31,29 @@ _VK_ALPHA_MAP = {code: chr(code).lower() for code in range(65, 91)}
 _VK_OEM_3 = 192
 _GRAVE_KEY_TOKEN = "grave"
 _GRAVE_KEY_ALIASES = {"`", "~", _GRAVE_KEY_TOKEN}
+_MODIFIER_VIRTUAL_KEYS = {
+    "alt": 0x12,  # VK_MENU
+    "ctrl": 0x11,  # VK_CONTROL
+    "shift": 0x10,  # VK_SHIFT
+}
+
+
+def _windows_modifier_is_pressed(modifier: str) -> bool | None:
+    """Return the physical modifier state, when Windows can report it.
+
+    Secure desktop transitions (for example Ctrl+Alt+Delete) can prevent the
+    keyboard hook from receiving matching release events.  The dispatcher uses
+    this probe to discard those stale events before matching a later key.
+    """
+    virtual_key = _MODIFIER_VIRTUAL_KEYS.get(modifier)
+    if virtual_key is None or sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.user32.GetAsyncKeyState(virtual_key) & 0x8000)
+    except (AttributeError, OSError):
+        return None
 
 
 def _describe_key(key) -> str:
@@ -134,12 +158,14 @@ class _HotkeyDispatcher:
         long_press_sec: float = LONG_PRESS_SEC,
         timer_factory: Callable[..., threading.Timer] = threading.Timer,
         diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
+        modifier_is_pressed: Callable[[str], bool | None] | None = None,
     ) -> None:
         self._hotkeys = hotkeys
         self._on_trigger = on_trigger
         self._long_press_sec = long_press_sec
         self._timer_factory = timer_factory
         self._diagnostics_enabled = diagnostics_enabled
+        self._modifier_is_pressed = modifier_is_pressed
         self._pressed: set[str] = set()
         self._active: dict[str, _HotkeyState] = {}
         self._pending_release: dict[str, HotkeyEventType] = {}
@@ -160,6 +186,30 @@ class _HotkeyDispatcher:
             # order of held-key shortcut sequences (Q, then an action key).
             self._fire(action_id, "long")
 
+    def _discard_stale_modifier_state(self) -> bool:
+        if self._modifier_is_pressed is None:
+            return False
+        stale_modifiers = {
+            modifier
+            for modifier in self._pressed & set(_MODIFIER_VIRTUAL_KEYS)
+            if self._modifier_is_pressed(modifier) is False
+        }
+        if not stale_modifiers:
+            return False
+
+        logger.info(
+            "[clipai] Discarding stale hotkey state after missing modifier releases: modifiers=%s pressed=%s",
+            sorted(stale_modifiers),
+            sorted(self._pressed),
+        )
+        for state in self._active.values():
+            if state.timer:
+                state.timer.cancel()
+        self._pressed.clear()
+        self._active.clear()
+        self._pending_release.clear()
+        return True
+
     def on_press(self, key) -> None:
         token = _normalize_key(key)
         if not token:
@@ -168,8 +218,13 @@ class _HotkeyDispatcher:
             return
 
         with self._lock:
+            stale_state_discarded = self._discard_stale_modifier_state()
             if token == "esc":
                 self._fire("", "cancel")
+                return
+            if stale_state_discarded:
+                # Do not reinterpret the key that exposed the stale state as a
+                # new shortcut. The user can begin a fresh chord immediately.
                 return
             if token in self._pressed:
                 return
@@ -254,6 +309,7 @@ def create_hotkey_dispatcher(
     long_press_sec: float = LONG_PRESS_SEC,
     timer_factory: Callable[..., threading.Timer] = threading.Timer,
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
+    modifier_is_pressed: Callable[[str], bool | None] | None = None,
 ) -> _HotkeyDispatcher:
     return _HotkeyDispatcher(
         build_hotkey_bindings(action_map, modifier_mode=modifier_mode),
@@ -261,6 +317,7 @@ def create_hotkey_dispatcher(
         long_press_sec=long_press_sec,
         timer_factory=timer_factory,
         diagnostics_enabled=diagnostics_enabled,
+        modifier_is_pressed=modifier_is_pressed,
     )
 
 
@@ -283,7 +340,13 @@ def register_hotkeys_with_long_press(
 
     logger.info("[clipai] Hotkey listener modifier_mode=%s long_press_sec=%s", modifier_mode, long_press_sec)
 
-    dispatcher = _HotkeyDispatcher(hotkeys, on_trigger, long_press_sec=long_press_sec, diagnostics_enabled=diagnostics_enabled)
+    dispatcher = _HotkeyDispatcher(
+        hotkeys,
+        on_trigger,
+        long_press_sec=long_press_sec,
+        diagnostics_enabled=diagnostics_enabled,
+        modifier_is_pressed=_windows_modifier_is_pressed,
+    )
     listener = keyboard.Listener(on_press=dispatcher.on_press, on_release=dispatcher.on_release)
     listener.start()
     return HotkeyListener(listener)
