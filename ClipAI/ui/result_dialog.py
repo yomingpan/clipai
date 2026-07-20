@@ -423,6 +423,7 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-c>", lambda _event, sid=session_id: self._shortcut(self._copy, sid), add="+")
         dialog.root.bind("<Control-s>", lambda _event, sid=session_id: self._shortcut(self._archive, sid), add="+")
         dialog.root.bind("<Control-r>", lambda _event, sid=session_id: self._shortcut(self._toggle_feedback, sid), add="+")
+        dialog.root.bind("<Control-slash>", lambda _event, sid=session_id: self._shortcut(self._toggle_follow_up, sid), add="+")
         lifecycle.shown = True
 
         def establish_initial_focus() -> None:
