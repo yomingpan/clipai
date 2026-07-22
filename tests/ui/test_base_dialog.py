@@ -37,6 +37,7 @@ from ClipAI.ui.base_dialog import (
     hide_window_from_task_switcher,
     rgb_to_hex,
     configure_presentation_typography,
+    configure_hanging_indent,
     configure_tooltip_layer,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
@@ -493,6 +494,37 @@ def test_presentation_textbox_reapplies_tags_after_scaling(monkeypatch) -> None:
 
 def test_presentation_typography_safely_degrades_without_tk_text_widget() -> None:
     assert configure_presentation_typography(object()) is False
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.33, 2.0])
+def test_hanging_indent_tracks_measured_prefix_width_at_each_dpi_scale(monkeypatch, scale) -> None:
+    class TkText:
+        def __init__(self) -> None:
+            self.configured = {}
+
+        def tag_configure(self, tag, **options) -> None:
+            self.configured[tag] = options
+
+    class Textbox:
+        _textbox = TkText()
+
+        def _apply_font_scaling(self, font):
+            return (font[0], -round(font[1] * scale))
+
+    class Font:
+        def __init__(self, *, root, font) -> None:
+            self.font = font
+
+        def measure(self, prefix: str) -> int:
+            return len(prefix) * abs(self.font[1])
+
+    monkeypatch.setattr("ClipAI.ui.base_dialog.tkfont.Font", Font)
+    textbox = Textbox()
+    assert configure_hanging_indent(textbox, "item", "12. ") is True
+    assert textbox._textbox.configured["item"] == {
+        "lmargin1": 0,
+        "lmargin2": len("12. ") * round(12 * scale),
+    }
 
 
 def test_tooltip_layer_is_transient_and_above_popup() -> None:

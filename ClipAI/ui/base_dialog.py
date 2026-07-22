@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+import tkinter.font as tkfont
 import sys
 from dataclasses import dataclass
 from typing import Callable, Literal, Mapping
@@ -10,6 +11,7 @@ import customtkinter as ctk
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PresentationDocument
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
+from ClipAI.ui.text_layout import add_display_break_hints, display_break_opportunity, strip_display_break_hints
 
 DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
@@ -73,7 +75,7 @@ PRESENTATION_TAG_STYLES: dict[str, dict[str, object]] = {
     "bold": {"foreground": "#FFFFFF"},
     "italic": {"foreground": "#AFC0D2"},
     "paragraph": {"spacing3": 10},
-    "list": {"lmargin1": 14, "lmargin2": 30, "spacing1": 1, "spacing3": 4},
+    "list": {"spacing1": 1, "spacing3": 4},
 }
 
 PRESENTATION_TAG_FONTS: dict[str, tuple[str, int, str]] = {
@@ -109,6 +111,19 @@ def configure_presentation_typography(textbox: object) -> bool:
     return True
 
 
+def configure_hanging_indent(textbox: object, tag: str, prefix: str) -> bool:
+    """Measure the actual scaled marker prefix for list continuation lines."""
+    tk_text = getattr(textbox, "_textbox", None)
+    if tk_text is None or not hasattr(tk_text, "tag_configure"):
+        return False
+    try:
+        font = tkfont.Font(root=tk_text, font=apply_widget_font_scaling(textbox, (TC_FONT_FAMILY, 12)))
+        tk_text.tag_configure(tag, lmargin1=0, lmargin2=font.measure(prefix))
+    except (tk.TclError, ValueError, AttributeError):
+        return False
+    return True
+
+
 class _PresentationTextbox(ctk.CTkTextbox):
     """CTk textbox that reapplies native Tk tag fonts after DPI changes."""
 
@@ -116,6 +131,9 @@ class _PresentationTextbox(ctk.CTkTextbox):
         super()._set_scaling(*args, **kwargs)
         if hasattr(self, "_textbox"):
             configure_presentation_typography(self)
+            callback = getattr(self, "_on_scaling_changed", None)
+            if callable(callback):
+                callback()
 
 
 def rgb_to_hex(color: RGB) -> str:
@@ -824,6 +842,8 @@ class BaseResultSurface:
         for tag, style in PRESENTATION_TAG_STYLES.items():
             self.content_text.tag_config(tag, **style)
         configure_presentation_typography(self.content_text)
+        self._list_indent_prefixes: dict[str, str] = {}
+        self.content_text._on_scaling_changed = self._reapply_list_indents
 
         self.feedback_frame = ctk.CTkFrame(
             self.root,
@@ -1216,14 +1236,16 @@ class BaseResultSurface:
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         for text, tag in chunks:
-            self.content_text.insert("end", text, tag)
+            self.content_text.insert("end", add_display_break_hints(text), tag)
         self.content_text.configure(state="disabled")
 
     def set_presentation_document(self, document: PresentationDocument) -> None:
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
+        self._list_indent_prefixes.clear()
         try:
-            for block in document.blocks:
+            for block_index, block in enumerate(document.blocks):
+                previous_last_char = ""
                 block_tag = "paragraph"
                 prefix = ""
                 if block.kind == "heading":
@@ -1232,20 +1254,35 @@ class BaseResultSurface:
                     block_tag, prefix = "list", "• "
                 elif block.kind == "ordered_item":
                     block_tag, prefix = "list", f"{block.ordinal or 1}. "
+                indent_tag: str | None = None
                 if prefix:
-                    self.content_text.insert("end", prefix, block_tag)
+                    indent_tag = f"list_indent_{block_index}"
+                    self._list_indent_prefixes[indent_tag] = prefix
+                    configure_hanging_indent(self.content_text, indent_tag, prefix)
+                if prefix:
+                    self.content_text.insert("end", add_display_break_hints(prefix), (block_tag, indent_tag))
                 for span in block.spans:
-                    tags = (block_tag,) if span.style == "plain" else (block_tag, span.style)
-                    self.content_text.insert("end", span.text, tags)
-                self.content_text.insert("end", "\n", block_tag)
+                    tags = ((block_tag,) if span.style == "plain" else (block_tag, span.style))
+                    if indent_tag is not None:
+                        tags += (indent_tag,)
+                    if previous_last_char and span.text and display_break_opportunity(previous_last_char, span.text[0]):
+                        self.content_text.insert("end", "\u200b", tags)
+                    self.content_text.insert("end", add_display_break_hints(span.text), tags)
+                    if span.text:
+                        previous_last_char = span.text[-1]
+                self.content_text.insert("end", "\n", (block_tag,) if indent_tag is None else (block_tag, indent_tag))
         except (tk.TclError, ValueError):
             self.content_text.delete("1.0", "end")
-            self.content_text.insert("end", document.fallback_text, "body")
+            self.content_text.insert("end", add_display_break_hints(document.fallback_text), "body")
         self.content_text.configure(state="disabled")
+
+    def _reapply_list_indents(self) -> None:
+        for tag, prefix in self._list_indent_prefixes.items():
+            configure_hanging_indent(self.content_text, tag, prefix)
 
     def selected_text(self) -> str | None:
         try:
-            selected = self.content_text.get("sel.first", "sel.last").strip()
+            selected = strip_display_break_hints(self.content_text.get("sel.first", "sel.last")).strip()
         except (tk.TclError, AttributeError):
             return None
         return selected or None
