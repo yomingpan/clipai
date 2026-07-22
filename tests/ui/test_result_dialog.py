@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.commands import ArchiveResult, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, OutputOperationResult
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.result_dialog import PopupFocusLifecycle, ResultDialogPresenter, _SessionView, _content_render_key
@@ -211,6 +211,31 @@ def test_ctrl_r_feedback_request_opens_supported_recipe_overlay() -> None:
     assert events == ["feedback:toggled"]
 
 
+def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    presenter._toggle_follow_up = lambda session_id: events.append(f"follow-up:{session_id}")
+
+    presenter._register_view("s1", view)
+    result = view.dialog.root.bindings["<Control-slash>"](None)
+
+    assert result == "break"
+    assert events == ["follow-up:s1"]
+
+
 def test_active_workflow_context_projects_selection_and_displayed_step() -> None:
     presenter, _events = presenter_with_selection("selected")
     presenter._views["s1"].content = "full result"
@@ -220,6 +245,19 @@ def test_active_workflow_context_projects_selection_and_displayed_step() -> None
     assert context.step_id == "step-1"
     assert context.content == "full result"
     assert context.selected_text == "selected"
+
+
+def test_native_close_request_immediately_excludes_popup_content_and_emits_close_intent() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._views["s1"].content = "full result"
+    presenter._views["s1"].step_id = "step-1"
+
+    presenter._request_close("s1")
+    presenter._copy("s1")
+    presenter._send_text_command("s1", CopyResult)
+
+    assert events == [CloseSession("s1")]
+    assert presenter.active_workflow_context() is None
 
 
 def test_focus_lifecycle_ignores_focus_out_until_registered_shown_and_focused() -> None:

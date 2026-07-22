@@ -13,7 +13,9 @@ from ClipAI.ui.base_dialog import (
     CONTENT_COLOR,
     CHECK_ICON,
     COPY_ICON,
+    DISPLAY_BREAK_TAG,
     PASTE_ICON,
+    POPUP_FONT_SIZES,
     PRESENTATION_TAG_FONTS,
     PRESENTATION_TAG_STYLES,
     PIN_ICON,
@@ -28,6 +30,7 @@ from ClipAI.ui.base_dialog import (
     STANDARD_RESULT_ACTIONS,
     STOP_ICON,
     TC_FONT_FAMILY,
+    TITLE_COLOR,
     StandardResultActions,
     SurfaceFlashController,
     SurfaceStateColors,
@@ -37,7 +40,10 @@ from ClipAI.ui.base_dialog import (
     hide_window_from_task_switcher,
     rgb_to_hex,
     configure_presentation_typography,
+    configure_display_break_typography,
+    configure_hanging_indent,
     configure_tooltip_layer,
+    insert_display_text,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
@@ -384,6 +390,16 @@ def test_dialog_lifecycle_exposes_closed_state() -> None:
     assert lifecycle.is_closed is True
 
 
+def test_native_close_request_uses_callback_instead_of_destroying_the_dialog() -> None:
+    events: list[str] = []
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog._on_close_request = lambda: events.append("close-requested")
+    dialog.close = lambda: events.append("destroyed")
+
+    assert dialog.request_close() == "break"
+    assert events == ["close-requested"]
+
+
 def test_drag_position_calculation_uses_recorded_offsets() -> None:
     class DialogLike:
         _drag_offset_x = 12
@@ -424,12 +440,28 @@ def test_presentation_tags_avoid_customtkinter_forbidden_font_option() -> None:
 
 
 def test_presentation_typography_creates_clear_heading_and_inline_hierarchy() -> None:
+    assert POPUP_FONT_SIZES == {
+        "auxiliary": 11,
+        "model": 9,
+        "interface": 12,
+        "content": 14,
+        "heading_3": 15,
+        "heading_2": 16,
+        "heading_1": 18,
+        "tooltip": 12,
+    }
+    assert PRESENTATION_TAG_FONTS["bold"][1] == POPUP_FONT_SIZES["content"]
+    assert PRESENTATION_TAG_FONTS["italic"][1] == POPUP_FONT_SIZES["content"]
     assert PRESENTATION_TAG_FONTS["heading_1"][1] > PRESENTATION_TAG_FONTS["heading_2"][1]
     assert PRESENTATION_TAG_FONTS["heading_2"][1] > PRESENTATION_TAG_FONTS["heading_3"][1]
     assert PRESENTATION_TAG_FONTS["heading_1"][2] == "bold"
     assert PRESENTATION_TAG_FONTS["bold"][2] == "bold"
     assert PRESENTATION_TAG_FONTS["italic"][2] == "italic"
     assert PRESENTATION_TAG_STYLES["heading_1"]["foreground"] != PRESENTATION_TAG_STYLES["italic"]["foreground"]
+
+
+def test_popup_title_uses_the_primary_content_heading_color() -> None:
+    assert TITLE_COLOR == PRESENTATION_TAG_STYLES["heading_1"]["foreground"]
 
 
 def test_presentation_typography_is_applied_at_tk_adapter_seam() -> None:
@@ -450,7 +482,7 @@ def test_presentation_typography_is_applied_at_tk_adapter_seam() -> None:
     textbox = Textbox()
 
     assert configure_presentation_typography(textbox) is True
-    assert tk_text.configured["heading_1"]["font"] == (TC_FONT_FAMILY, -30, "bold")
+    assert tk_text.configured["heading_1"]["font"] == (TC_FONT_FAMILY, -36, "bold")
     assert tk_text.configured["bold"]["font"][-1] == "bold"
     assert tk_text.configured["italic"]["font"][-1] == "italic"
 
@@ -493,6 +525,63 @@ def test_presentation_textbox_reapplies_tags_after_scaling(monkeypatch) -> None:
 
 def test_presentation_typography_safely_degrades_without_tk_text_widget() -> None:
     assert configure_presentation_typography(object()) is False
+
+
+def test_display_break_spaces_are_inserted_with_a_one_pixel_adapter_tag() -> None:
+    class TkText:
+        def __init__(self) -> None:
+            self.configured = {}
+
+        def tag_configure(self, tag, **options) -> None:
+            self.configured[tag] = options
+
+    class Textbox:
+        _textbox = TkText()
+
+        def __init__(self) -> None:
+            self.insertions = []
+
+        def insert(self, index, text, tags) -> None:
+            self.insertions.append((index, text, tags))
+
+    textbox = Textbox()
+    assert configure_display_break_typography(textbox) is True
+    insert_display_text(textbox, "end", "中文", "body")
+
+    assert textbox._textbox.configured[DISPLAY_BREAK_TAG]["font"] == (TC_FONT_FAMILY, -1)
+    assert textbox.insertions[1][2] == ("body", DISPLAY_BREAK_TAG)
+    assert " " in textbox.insertions[1][1]
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.33, 2.0])
+def test_hanging_indent_tracks_measured_prefix_width_at_each_dpi_scale(monkeypatch, scale) -> None:
+    class TkText:
+        def __init__(self) -> None:
+            self.configured = {}
+
+        def tag_configure(self, tag, **options) -> None:
+            self.configured[tag] = options
+
+    class Textbox:
+        _textbox = TkText()
+
+        def _apply_font_scaling(self, font):
+            return (font[0], -round(font[1] * scale))
+
+    class Font:
+        def __init__(self, *, root, font) -> None:
+            self.font = font
+
+        def measure(self, prefix: str) -> int:
+            return len(prefix) * abs(self.font[1])
+
+    monkeypatch.setattr("ClipAI.ui.base_dialog.tkfont.Font", Font)
+    textbox = Textbox()
+    assert configure_hanging_indent(textbox, "item", "12. ") is True
+    assert textbox._textbox.configured["item"] == {
+        "lmargin1": 0,
+        "lmargin2": len("12. ") * round(POPUP_FONT_SIZES["content"] * scale),
+    }
 
 
 def test_tooltip_layer_is_transient_and_above_popup() -> None:
@@ -599,12 +688,18 @@ def test_pin_icons_use_stable_icon_font_glyphs() -> None:
 
 
 def test_source_preview_stays_on_one_line_and_ellipsizes_over_limit() -> None:
-    from ClipAI.ui.base_dialog import SOURCE_PREVIEW_MAX_CHARS, ellipsize_source_preview
+    from ClipAI.ui.base_dialog import SOURCE_PREVIEW_MAX_CHARS, BaseResultSurface, ellipsize_source_preview
 
+    assert SOURCE_PREVIEW_MAX_CHARS == 36
     text = "Clipboard: " + "a" * SOURCE_PREVIEW_MAX_CHARS
     preview = ellipsize_source_preview(text)
     assert len(preview) == SOURCE_PREVIEW_MAX_CHARS
     assert preview.endswith("...")
+    source = inspect.getsource(BaseResultSurface._build)
+    assert "wraplength=0" in source
+    assert 'self.model_label.grid(row=5, column=0, sticky="e"' in source
+    assert 'height=11' in source
+    assert 'size=POPUP_FONT_SIZES["model"]' in source
     assert "\n" not in preview
 
 

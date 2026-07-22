@@ -10,10 +10,14 @@ from ClipAI.core.errors import ConfigError
 from ClipAI.app.provider_configuration import AppProviderConfigurationBackend, build_provider_snapshot
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
+from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
+from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
+from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
+from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
-from ClipAI.core.models import ModelSelectionState, ProviderSelectionState
+from ClipAI.core.models import HotkeyEventType, ModelSelectionState, ProviderSelectionState
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.ports import LLMProvider
+from ClipAI.core.ports import LLMProvider, Stoppable
 from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.action_feedback import JsonlActionFeedbackStore
 from ClipAI.platform.guidance_preferences import JsonGuidancePreferencesStore
@@ -33,6 +37,7 @@ from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.action_feedback import ActionFeedbackService
 from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
+from ClipAI.services.workflow_registry import WorkflowRegistry
 from ClipAI.services.provider_binding import ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.input_resolver import InputResolver
@@ -46,6 +51,7 @@ from ClipAI.ui.result_dialog import ResultDialogPresenter
 from ClipAI.ui.tray import TrayController
 from ClipAI.support.logging_setup import configure_logging
 from ClipAI.support.diagnostics import SafeDiagnosticsExporter
+from ClipAI.support.diagnostics import IncidentReporter
 
 
 def build_runtime(bundle: ConfigBundle) -> AppRuntime:
@@ -130,36 +136,73 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         guidance_preferences=guidance_preferences,
     )
 
-    def register(action_map: dict[str, dict[str, str]], callback: Callable[[str, str], None]) -> object:
+    def register(action_map: dict[str, dict[str, str]], callback: Callable[[str, HotkeyEventType], None]) -> Stoppable:
         return register_hotkeys_with_long_press(
             action_map,
-            callback,  # type: ignore[arg-type]
+            callback,
             modifier_mode=bundle.app.modifier_mode,
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
         )
 
-    runtime = AppRuntime(
+    supervisor = TaskSupervisor(bundle.runtime.max_workers)
+    registry = WorkflowRegistry()
+    incident_reporter = IncidentReporter()
+    enqueue = lambda command: runtime_holder[0].enqueue(command)
+    workflow_module = WorkflowRuntimeModule(
         actions=bundle.actions,
         shortcuts=bundle.shortcuts,
         execute_action=execute_action,
-        output_actions=output_actions,
         view=view,
-        supervisor=TaskSupervisor(bundle.runtime.max_workers),
+        supervisor=supervisor,
         provider_configuration=provider_configuration,
-        hotkey_registrar=register,
-        tray_factory=lambda _on_exit: tray,
+        workflow_context_reader=view,
+        incident_reporter=incident_reporter,
+        operation_tracker=operation_tracker,
+        notifier=tray,
+        speech_coordinator=speech_coordinator,
+        registry=registry,
+    )
+    result_output_module = ResultOutputRuntimeModule(
+        output_actions=output_actions,
+        supervisor=supervisor,
+        registry=registry,
+        output_operation_presenter=view,
+        enqueue=enqueue,
+        incident_reporter=incident_reporter,
         operation_tracker=operation_tracker,
         diagnostics_exporter=diagnostics_exporter,
         notifier=tray,
         speech_coordinator=speech_coordinator,
-        workflow_context_reader=view,
-        output_operation_presenter=view,
+    )
+    provider_configuration_module = ProviderConfigurationRuntimeModule(
+        coordinator=provider_configuration,
+        supervisor=supervisor,
+        enqueue=enqueue,
+        operation_tracker=operation_tracker,
         model_selection_presenter=tray,
         provider_selection_presenter=tray,
         provider_settings_presenter=view,
+    )
+    user_persistence_module = UserPersistenceRuntimeModule(
+        supervisor=supervisor,
+        registry=registry,
+        enqueue=enqueue,
         action_feedback=ActionFeedbackService(JsonlActionFeedbackStore()),
         guidance_preferences=guidance_preferences,
         guidance_preferences_presenter=tray,
+        notifier=tray,
+    )
+    runtime = AppRuntime(
+        shortcuts=bundle.shortcuts,
+        view=view,
+        supervisor=supervisor,
+        workflows=workflow_module,
+        result_output=result_output_module,
+        provider_configuration=provider_configuration_module,
+        user_persistence=user_persistence_module,
+        hotkey_registrar=register,
+        tray_factory=lambda _on_exit: tray,
+        operation_tracker=operation_tracker,
     )
     runtime_holder.append(runtime)
     return runtime

@@ -9,3 +9,4 @@ dist/
 *.egg-info/
 diagnostics/
 data/
+.agents/

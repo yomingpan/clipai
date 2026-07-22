@@ -1,19 +1,26 @@
 from __future__ import annotations
 
 import tkinter as tk
+import tkinter.font as tkfont
 import sys
 from dataclasses import dataclass
-from typing import Callable, Literal, Mapping
+from typing import Callable, Literal, Mapping, Protocol
 
 import customtkinter as ctk
 
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PresentationDocument
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
+from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hints
 
 DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
-SOURCE_PREVIEW_MAX_CHARS = 64
+SOURCE_PREVIEW_MAX_CHARS = 36
+DISPLAY_BREAK_TAG = "display_break_hint"
+
+
+class _TextInserter(Protocol):
+    def insert(self, index: str, text: str, tags: tuple[str, ...]) -> object: ...
 
 
 def ellipsize_source_preview(text: str, limit: int = SOURCE_PREVIEW_MAX_CHARS) -> str:
@@ -45,7 +52,6 @@ DEFAULT_STATE_COLORS: dict[DialogState, RGB] = {
 }
 
 SURFACE_BG = "#2B2B2B"
-TITLE_COLOR = "#305B9C"
 ACTION_COLOR = "#1F6AA5"
 ACTION_HOVER_COLOR = "#2879B8"
 SPEAKER_ACTIVE_COLOR = "#7F1D1D"
@@ -56,6 +62,16 @@ MODEL_COLOR = "#6E6C69"
 CONTENT_COLOR = "#D8E0E8"
 TC_FONT_FAMILY = "Microsoft JhengHei UI"
 ACTION_ICON_FONT_FAMILY = "Segoe MDL2 Assets"
+POPUP_FONT_SIZES: Mapping[str, int] = {
+    "auxiliary": 11,
+    "model": 9,
+    "interface": 12,
+    "content": 14,
+    "heading_3": 15,
+    "heading_2": 16,
+    "heading_1": 18,
+    "tooltip": 12,
+}
 SPEAKER_ICON = "\uE767"
 STOP_ICON = "\uE71A"
 COPY_ICON = "\uE77F"
@@ -73,15 +89,16 @@ PRESENTATION_TAG_STYLES: dict[str, dict[str, object]] = {
     "bold": {"foreground": "#FFFFFF"},
     "italic": {"foreground": "#AFC0D2"},
     "paragraph": {"spacing3": 10},
-    "list": {"lmargin1": 14, "lmargin2": 30, "spacing1": 1, "spacing3": 4},
+    "list": {"spacing1": 1, "spacing3": 4},
 }
+TITLE_COLOR = PRESENTATION_TAG_STYLES["heading_1"]["foreground"]
 
 PRESENTATION_TAG_FONTS: dict[str, tuple[str, int, str]] = {
-    "heading_1": (TC_FONT_FAMILY, 15, "bold"),
-    "heading_2": (TC_FONT_FAMILY, 14, "bold"),
-    "heading_3": (TC_FONT_FAMILY, 13, "bold"),
-    "bold": (TC_FONT_FAMILY, 12, "bold"),
-    "italic": (TC_FONT_FAMILY, 12, "italic"),
+    "heading_1": (TC_FONT_FAMILY, POPUP_FONT_SIZES["heading_1"], "bold"),
+    "heading_2": (TC_FONT_FAMILY, POPUP_FONT_SIZES["heading_2"], "bold"),
+    "heading_3": (TC_FONT_FAMILY, POPUP_FONT_SIZES["heading_3"], "bold"),
+    "bold": (TC_FONT_FAMILY, POPUP_FONT_SIZES["content"], "bold"),
+    "italic": (TC_FONT_FAMILY, POPUP_FONT_SIZES["content"], "italic"),
 }
 
 
@@ -109,6 +126,42 @@ def configure_presentation_typography(textbox: object) -> bool:
     return True
 
 
+def configure_display_break_typography(textbox: object) -> bool:
+    """Keep Tk-recognized ASCII break spaces visually negligible."""
+    tk_text = getattr(textbox, "_textbox", None)
+    if tk_text is None or not hasattr(tk_text, "tag_configure"):
+        return False
+    try:
+        tk_text.tag_configure(DISPLAY_BREAK_TAG, font=(TC_FONT_FAMILY, -1))
+    except (tk.TclError, ValueError, AttributeError):
+        return False
+    return True
+
+
+def insert_display_text(textbox: _TextInserter, index: str, text: str, tags: str | tuple[str, ...]) -> None:
+    """Insert transformed text while tagging only its synthetic break spaces."""
+    base_tags = (tags,) if isinstance(tags, str) else tags
+    parts = add_display_break_hints(text).split(DISPLAY_BREAK_HINT)
+    for part_index, part in enumerate(parts):
+        if part:
+            textbox.insert(index, part, base_tags)
+        if part_index + 1 < len(parts):
+            textbox.insert(index, DISPLAY_BREAK_HINT, (*base_tags, DISPLAY_BREAK_TAG))
+
+
+def configure_hanging_indent(textbox: object, tag: str, prefix: str) -> bool:
+    """Measure the actual scaled marker prefix for list continuation lines."""
+    tk_text = getattr(textbox, "_textbox", None)
+    if tk_text is None or not hasattr(tk_text, "tag_configure"):
+        return False
+    try:
+        font = tkfont.Font(root=tk_text, font=apply_widget_font_scaling(textbox, (TC_FONT_FAMILY, POPUP_FONT_SIZES["content"])))
+        tk_text.tag_configure(tag, lmargin1=0, lmargin2=font.measure(prefix))
+    except (tk.TclError, ValueError, AttributeError):
+        return False
+    return True
+
+
 class _PresentationTextbox(ctk.CTkTextbox):
     """CTk textbox that reapplies native Tk tag fonts after DPI changes."""
 
@@ -116,6 +169,10 @@ class _PresentationTextbox(ctk.CTkTextbox):
         super()._set_scaling(*args, **kwargs)
         if hasattr(self, "_textbox"):
             configure_presentation_typography(self)
+            configure_display_break_typography(self)
+            callback = getattr(self, "_on_scaling_changed", None)
+            if callable(callback):
+                callback()
 
 
 def rgb_to_hex(color: RGB) -> str:
@@ -299,6 +356,7 @@ class BaseDialog:
         minimum_width: int | None = None,
         minimum_height: int | None = None,
         hide_from_task_switcher: bool = False,
+        on_close_request: Callable[[], None] | None = None,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
@@ -308,6 +366,7 @@ class BaseDialog:
         self.pinned = False
         self._drag_offset_x = 0
         self._drag_offset_y = 0
+        self._on_close_request = on_close_request
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
         self._surface_inset = surface_inset
         self._corner_radius = corner_radius
@@ -371,8 +430,8 @@ class BaseDialog:
                 schedule=self.lifecycle.schedule,
                 cancel=self.lifecycle.cancel,
             )
-            self.root.protocol("WM_DELETE_WINDOW", self.lifecycle.close)
-            self.root.bind("<Escape>", lambda _event: self.lifecycle.close())
+            self.root.protocol("WM_DELETE_WINDOW", self.request_close)
+            self.root.bind("<Escape>", lambda _event: self.request_close())
             self.enable_drag(self.canvas, self.surface)
             if hide_from_task_switcher:
                 self.root.after_idle(lambda: hide_window_from_task_switcher(self.root))
@@ -402,6 +461,14 @@ class BaseDialog:
 
     def close(self) -> None:
         self.lifecycle.close()
+
+    def request_close(self) -> str:
+        """Emit the semantic close request; only the presenter destroys views."""
+        if self._on_close_request is not None:
+            self._on_close_request()
+        else:
+            self.close()
+        return "break"
 
     def enable_drag(self, *widgets) -> None:
         for widget in widgets:
@@ -507,7 +574,7 @@ class _Tooltip:
             fg="#FFFFFF",
             padx=8,
             pady=4,
-            font=apply_widget_font_scaling(self.widget, (TC_FONT_FAMILY, 9)),
+            font=apply_widget_font_scaling(self.widget, (TC_FONT_FAMILY, POPUP_FONT_SIZES["tooltip"])),
             justify="left",
         )
         label.pack()
@@ -707,7 +774,7 @@ class BaseResultSurface:
         self.title_label = ctk.CTkLabel(
             title_area,
             text="",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10, weight="bold"),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"], weight="bold"),
             text_color=TITLE_COLOR,
             wraplength=330,
         )
@@ -715,13 +782,6 @@ class BaseResultSurface:
 
         self.window_actions = ctk.CTkFrame(self.header, fg_color=SURFACE_BG)
         self.window_actions.grid(row=0, column=1, sticky="ne")
-        self.model_label = ctk.CTkLabel(
-            self.window_actions,
-            text="",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
-            text_color=MODEL_COLOR,
-        )
-        self.model_label.pack(side="left", padx=(0, 10))
         self.info_button = ctk.CTkButton(
             self.window_actions,
             text="ⓘ",
@@ -731,7 +791,7 @@ class BaseResultSurface:
             fg_color=SURFACE_BG,
             hover_color="#3A3A3A",
             text_color="#8A8A8A",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
             command=self.toggle_feedback_overlay,
         )
         self._info_tooltip = _Tooltip(self.info_button, "", self.dialog.lifecycle)
@@ -749,7 +809,7 @@ class BaseResultSurface:
             justify="left",
             wraplength=285,
             text_color="#FFFFFF",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
         self.guidance_coachmark_label.pack(fill="x", padx=9, pady=7)
         self.close_button = ctk.CTkButton(
@@ -779,7 +839,7 @@ class BaseResultSurface:
         )
         self.pin_button.pack(side="left")
         self._pin_tooltip = _Tooltip(self.pin_button, "Keep open", self.dialog.lifecycle)
-        self.dialog.enable_drag(self.header, title_area, self.title_label, self.model_label)
+        self.dialog.enable_drag(self.header, title_area, self.title_label)
 
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 0))
@@ -789,7 +849,7 @@ class BaseResultSurface:
         self.standard_actions = StandardResultActions(self)
         self._overflow_button = self.add_action_slot("overflow", "▶", self.toggle_overflow, width=24, tooltip="More actions")
         self._overflow_button.pack_configure(side="right", padx=(12, 0))
-        self.action_status_label = ctk.CTkLabel(self.actions, text="", text_color="#8A8A8A", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9))
+        self.action_status_label = ctk.CTkLabel(self.actions, text="", text_color="#8A8A8A", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]))
         self.action_status_label.pack(side="right", padx=(8, 0))
 
         self.source_label = ctk.CTkLabel(
@@ -797,9 +857,9 @@ class BaseResultSurface:
             text="",
             anchor="w",
             justify="left",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
             text_color=ANALYZING_COLOR,
-            wraplength=390,
+            wraplength=0,
         )
         self.source_label.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 0))
 
@@ -810,20 +870,33 @@ class BaseResultSurface:
             border_spacing=0,
             corner_radius=0,
             wrap="word",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=12),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["content"]),
             text_color=CONTENT_COLOR,
             scrollbar_button_color="#4A4A4A",
             scrollbar_button_hover_color="#5A5A5A",
             height=170,
             pady=0,
         )
-        self.content_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        self.content_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 2))
         self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
         self.content_text.tag_config("body", foreground=CONTENT_COLOR)
         self.content_text.tag_config("loading", foreground=ANALYZING_COLOR)
         for tag, style in PRESENTATION_TAG_STYLES.items():
             self.content_text.tag_config(tag, **style)
         configure_presentation_typography(self.content_text)
+        configure_display_break_typography(self.content_text)
+        self._list_indent_prefixes: dict[str, str] = {}
+        self.content_text._on_scaling_changed = self._reapply_list_indents
+
+        self.model_label = ctk.CTkLabel(
+            self.root,
+            text="",
+            anchor="e",
+            height=11,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["model"]),
+            text_color=MODEL_COLOR,
+        )
+        self.model_label.grid(row=5, column=0, sticky="e", padx=12, pady=(0, 2))
 
         self.feedback_frame = ctk.CTkFrame(
             self.root,
@@ -837,7 +910,7 @@ class BaseResultSurface:
         self.feedback_prompt = ctk.CTkLabel(
             feedback_header,
             text="這次結果符合預期嗎？",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10, weight="bold"),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"], weight="bold"),
             text_color=CONTENT_COLOR,
         )
         self.feedback_prompt.pack(side="left")
@@ -865,7 +938,7 @@ class BaseResultSurface:
                 corner_radius=6,
                 fg_color="#3A3A3A",
                 hover_color="#4A4A4A",
-                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
                 command=(lambda selected=outcome: self._choose_feedback(selected)),
             )
             button.pack(side="left", padx=(0, 5))
@@ -877,13 +950,13 @@ class BaseResultSurface:
             variable=self.feedback_save_case,
             text_color=CONTENT_COLOR,
             border_color="#8A8A8A",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
         self.feedback_case_checkbox.pack(anchor="w", padx=10, pady=(2, 5))
         self.feedback_status = ctk.CTkLabel(
             self.feedback_frame,
             text="",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
             text_color=ANALYZING_COLOR,
         )
         self.feedback_status.pack(anchor="w", padx=10, pady=(0, 7))
@@ -893,7 +966,7 @@ class BaseResultSurface:
             width=48,
             height=24,
             command=self._retry_feedback,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
 
         self.feedback_detail = ctk.CTkFrame(self.feedback_frame, fg_color="transparent")
@@ -904,7 +977,7 @@ class BaseResultSurface:
             self.feedback_other,
             placeholder_text="請補充一句具體情況",
             height=28,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
         self.feedback_note.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self.feedback_submit_button = ctk.CTkButton(
@@ -913,7 +986,7 @@ class BaseResultSurface:
             width=48,
             height=28,
             command=self._submit_other,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
         self.feedback_submit_button.pack(side="left")
 
@@ -931,7 +1004,7 @@ class BaseResultSurface:
             border_color="#4A4A4A",
             fg_color=SURFACE_BG,
             text_color=CONTENT_COLOR,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
         )
         self.follow_entry.grid(row=0, column=0, sticky="ew", padx=(0, 7))
         self.follow_send_button = ctk.CTkButton(
@@ -942,7 +1015,7 @@ class BaseResultSurface:
             corner_radius=9,
             fg_color=ACTION_COLOR,
             hover_color=ACTION_HOVER_COLOR,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
         )
         self.follow_send_button.grid(row=0, column=1, sticky="e")
 
@@ -1004,7 +1077,7 @@ class BaseResultSurface:
                 height=25,
                 fg_color="#3A3A3A",
                 hover_color="#4A4A4A",
-                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
                 command=lambda reason_id=reason.id: self._choose_reason(reason_id),
             )
             button.pack(fill="x", pady=(0, 4))
@@ -1067,7 +1140,7 @@ class BaseResultSurface:
         if self._feedback_overlay_open:
             self.close_feedback_overlay()
         else:
-            self.dialog.close()
+            self.dialog.request_close()
         return "break"
 
     def _choose_feedback(self, outcome: FeedbackOutcome) -> None:
@@ -1216,14 +1289,16 @@ class BaseResultSurface:
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         for text, tag in chunks:
-            self.content_text.insert("end", text, tag)
+            insert_display_text(self.content_text, "end", text, tag)
         self.content_text.configure(state="disabled")
 
     def set_presentation_document(self, document: PresentationDocument) -> None:
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
+        self._list_indent_prefixes.clear()
         try:
-            for block in document.blocks:
+            for block_index, block in enumerate(document.blocks):
+                previous_last_char = ""
                 block_tag = "paragraph"
                 prefix = ""
                 if block.kind == "heading":
@@ -1232,20 +1307,36 @@ class BaseResultSurface:
                     block_tag, prefix = "list", "• "
                 elif block.kind == "ordered_item":
                     block_tag, prefix = "list", f"{block.ordinal or 1}. "
+                indent_tag: str | None = None
                 if prefix:
-                    self.content_text.insert("end", prefix, block_tag)
+                    indent_tag = f"list_indent_{block_index}"
+                    self._list_indent_prefixes[indent_tag] = prefix
+                    configure_hanging_indent(self.content_text, indent_tag, prefix)
+                if prefix:
+                    assert indent_tag is not None
+                    insert_display_text(self.content_text, "end", prefix, (block_tag, indent_tag))
                 for span in block.spans:
-                    tags = (block_tag,) if span.style == "plain" else (block_tag, span.style)
-                    self.content_text.insert("end", span.text, tags)
-                self.content_text.insert("end", "\n", block_tag)
+                    tags: tuple[str, ...] = ((block_tag,) if span.style == "plain" else (block_tag, span.style))
+                    if indent_tag is not None:
+                        tags += (indent_tag,)
+                    if previous_last_char and span.text and display_break_opportunity(previous_last_char, span.text[0]):
+                        self.content_text.insert("end", DISPLAY_BREAK_HINT, (*tags, DISPLAY_BREAK_TAG))
+                    insert_display_text(self.content_text, "end", span.text, tags)
+                    if span.text:
+                        previous_last_char = span.text[-1]
+                self.content_text.insert("end", "\n", (block_tag,) if indent_tag is None else (block_tag, indent_tag))
         except (tk.TclError, ValueError):
             self.content_text.delete("1.0", "end")
-            self.content_text.insert("end", document.fallback_text, "body")
+            insert_display_text(self.content_text, "end", document.fallback_text, "body")
         self.content_text.configure(state="disabled")
+
+    def _reapply_list_indents(self) -> None:
+        for tag, prefix in self._list_indent_prefixes.items():
+            configure_hanging_indent(self.content_text, tag, prefix)
 
     def selected_text(self) -> str | None:
         try:
-            selected = self.content_text.get("sel.first", "sel.last").strip()
+            selected = strip_display_break_hints(self.content_text.get("sel.first", "sel.last")).strip()
         except (tk.TclError, AttributeError):
             return None
         return selected or None
