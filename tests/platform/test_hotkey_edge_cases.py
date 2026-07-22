@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 
 from ClipAI.platform.hotkey import HotkeyListener, create_hotkey_dispatcher
 
@@ -173,6 +174,68 @@ def test_timer_fire_then_release_does_not_trigger_short_after_long() -> None:
     release_ctrl_alt_8(dispatcher)
 
     assert events == [("explain_word", "long"), ("explain_word", "long_release")]
+
+
+def test_injected_selection_copy_does_not_trigger_another_hotkey() -> None:
+    events: list[tuple[str, str]] = []
+    dispatcher = create_hotkey_dispatcher(
+        {
+            "english_companion": {"hotkey": "ctrl+alt+8"},
+            "command_copilot": {"hotkey": "ctrl+alt+c"},
+        },
+        lambda action_id, press_type: events.append((action_id, press_type)),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+    )
+
+    press_ctrl_alt_8(dispatcher)
+    FakeTimer.timers[0].fire()
+
+    # Selection capture sends a synthetic Ctrl+C while the user's physical
+    # Ctrl and Alt keys are still held for the original long press.
+    dispatcher.on_press(FakeKey(name="ctrl_l"), injected=True)
+    dispatcher.on_press(FakeKey(char="c"), injected=True)
+    dispatcher.on_release(FakeKey(char="c"), injected=True)
+    dispatcher.on_release(FakeKey(name="ctrl_l"), injected=True)
+
+    release_ctrl_alt_8(dispatcher)
+
+    assert events == [("english_companion", "long"), ("english_companion", "long_release")]
+    assert len(FakeTimer.timers) == 1
+
+
+def test_injected_keys_do_not_change_physical_hotkey_state_or_cancel(caplog) -> None:
+    events: list[tuple[str, str]] = []
+    dispatcher = create_hotkey_dispatcher(
+        {"command_copilot": {"hotkey": "ctrl+alt+c"}},
+        lambda action_id, press_type: events.append((action_id, press_type)),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+        diagnostics_enabled=lambda flag: flag == "hotkey_raw_events",
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="clipai.hotkey"):
+        dispatcher.on_press(FakeKey(name="ctrl_l"), injected=True)
+        dispatcher.on_press(FakeKey(name="alt_l"), injected=True)
+        dispatcher.on_press(FakeKey(char="c"), injected=True)
+        dispatcher.on_release(FakeKey(char="c"), injected=True)
+        dispatcher.on_press(FakeKey(name="esc"), injected=True)
+        dispatcher.on_release(FakeKey(name="alt_l"), injected=True)
+        dispatcher.on_release(FakeKey(name="ctrl_l"), injected=True)
+
+    assert events == []
+    assert FakeTimer.timers == []
+    assert "Ignored injected key press" in caplog.text
+    assert "Ignored injected key release" in caplog.text
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="c"))
+    dispatcher.on_release(FakeKey(char="c"))
+    dispatcher.on_release(FakeKey(name="alt_l"))
+    dispatcher.on_release(FakeKey(name="ctrl_l"))
+
+    assert events == [("command_copilot", "short")]
 
 
 def test_release_then_timer_fire_does_not_trigger_long_after_short() -> None:

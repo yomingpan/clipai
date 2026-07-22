@@ -67,6 +67,61 @@ def test_selection_capture_restores_original_non_text_content() -> None:
     assert clipboard.image == image
 
 
+def test_selection_capture_waits_for_physical_hotkey_modifiers_to_be_released() -> None:
+    clipboard = Clipboard("original")
+    physical_modifiers = {"ctrl": True, "alt": True, "shift": False}
+    checks = 0
+
+    def modifier_is_pressed(modifier: str) -> bool:
+        nonlocal checks
+        checks += 1
+        if checks > 3:
+            physical_modifiers["ctrl"] = False
+            physical_modifiers["alt"] = False
+        return physical_modifiers[modifier]
+
+    def copy_selection() -> None:
+        if any(physical_modifiers.values()):
+            return
+        clipboard.value = "selected text"
+        clipboard.sequence += 1
+
+    reader = SystemSelectionReader(
+        clipboard,
+        copy_selection=copy_selection,
+        modifier_is_pressed=modifier_is_pressed,
+        modifier_release_timeout_sec=0.01,
+        timeout_sec=0.01,
+        poll_sec=0,
+    )
+
+    assert reader.read_text() == "selected text"
+    assert clipboard.value == "original"
+
+
+def test_selection_capture_does_not_copy_or_mutate_clipboard_when_modifiers_stay_pressed() -> None:
+    clipboard = Clipboard("original")
+    copy_calls = 0
+
+    def copy_selection() -> None:
+        nonlocal copy_calls
+        copy_calls += 1
+
+    reader = SystemSelectionReader(
+        clipboard,
+        copy_selection=copy_selection,
+        modifier_is_pressed=lambda modifier: modifier == "alt",
+        modifier_release_timeout_sec=0,
+        timeout_sec=0.01,
+        poll_sec=0,
+    )
+
+    assert reader.read_text() == ""
+    assert copy_calls == 0
+    assert clipboard.value == "original"
+    assert clipboard.writes == []
+
+
 def test_selection_capture_does_not_overwrite_later_external_clipboard_update() -> None:
     clipboard = Clipboard("original")
 

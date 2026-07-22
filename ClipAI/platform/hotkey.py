@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
-import sys
 import threading
 from dataclasses import dataclass
 from typing import Callable
 
 from ClipAI.core.models import HotkeyEventType
+from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_modifier_is_pressed
 
 logger = logging.getLogger("clipai.hotkey")
 
@@ -31,31 +31,6 @@ _VK_ALPHA_MAP = {code: chr(code).lower() for code in range(65, 91)}
 _VK_OEM_3 = 192
 _GRAVE_KEY_TOKEN = "grave"
 _GRAVE_KEY_ALIASES = {"`", "~", _GRAVE_KEY_TOKEN}
-_MODIFIER_VIRTUAL_KEYS = {
-    "alt": 0x12,  # VK_MENU
-    "ctrl": 0x11,  # VK_CONTROL
-    "shift": 0x10,  # VK_SHIFT
-}
-
-
-def _windows_modifier_is_pressed(modifier: str) -> bool | None:
-    """Return the physical modifier state, when Windows can report it.
-
-    Secure desktop transitions (for example Ctrl+Alt+Delete) can prevent the
-    keyboard hook from receiving matching release events.  The dispatcher uses
-    this probe to discard those stale events before matching a later key.
-    """
-    virtual_key = _MODIFIER_VIRTUAL_KEYS.get(modifier)
-    if virtual_key is None or sys.platform != "win32":
-        return None
-    try:
-        import ctypes
-
-        return bool(ctypes.windll.user32.GetAsyncKeyState(virtual_key) & 0x8000)
-    except (AttributeError, OSError):
-        return None
-
-
 def _describe_key(key) -> str:
     name = getattr(key, "name", None)
     char = getattr(key, "char", None)
@@ -191,7 +166,7 @@ class _HotkeyDispatcher:
             return False
         stale_modifiers = {
             modifier
-            for modifier in self._pressed & set(_MODIFIER_VIRTUAL_KEYS)
+            for modifier in self._pressed & set(MODIFIER_KEYS)
             if self._modifier_is_pressed(modifier) is False
         }
         if not stale_modifiers:
@@ -210,7 +185,16 @@ class _HotkeyDispatcher:
         self._pending_release.clear()
         return True
 
-    def on_press(self, key) -> None:
+    def on_press(self, key, injected: bool = False) -> None:
+        # Windows low-level keyboard hooks identify events created through
+        # SendInput (including pynput.Controller and external macro tools).
+        # Synthetic input must never become a ClipAI user intent or mutate the
+        # physical-key state used to resolve short and long presses.
+        if injected:
+            if self._diagnostics_enabled("hotkey_raw_events"):
+                logger.debug("[clipai] Ignored injected key press: %s", _describe_key(key))
+            return
+
         token = _normalize_key(key)
         if not token:
             if self._diagnostics_enabled("hotkey_raw_events"):
@@ -251,7 +235,12 @@ class _HotkeyDispatcher:
             if not matched and token not in {"ctrl", "alt", "shift"}:
                 self._fire("", "invalid")
 
-    def on_release(self, key) -> None:
+    def on_release(self, key, injected: bool = False) -> None:
+        if injected:
+            if self._diagnostics_enabled("hotkey_raw_events"):
+                logger.debug("[clipai] Ignored injected key release: %s", _describe_key(key))
+            return
+
         token = _normalize_key(key)
         if not token:
             if self._diagnostics_enabled("hotkey_raw_events"):
@@ -345,7 +334,7 @@ def register_hotkeys_with_long_press(
         on_trigger,
         long_press_sec=long_press_sec,
         diagnostics_enabled=diagnostics_enabled,
-        modifier_is_pressed=_windows_modifier_is_pressed,
+        modifier_is_pressed=windows_modifier_is_pressed,
     )
     listener = keyboard.Listener(on_press=dispatcher.on_press, on_release=dispatcher.on_release)
     listener.start()

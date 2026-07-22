@@ -6,6 +6,7 @@ import threading
 import uuid
 
 from ClipAI.core.ports import ClipboardTransactionStore
+from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_modifier_is_pressed
 
 
 class SystemSelectionReader:
@@ -16,11 +17,15 @@ class SystemSelectionReader:
         clipboard: ClipboardTransactionStore,
         *,
         copy_selection: Callable[[], None] | None = None,
+        modifier_is_pressed: Callable[[str], bool | None] = windows_modifier_is_pressed,
+        modifier_release_timeout_sec: float = 1.0,
         timeout_sec: float = 0.35,
         poll_sec: float = 0.02,
     ) -> None:
         self._clipboard = clipboard
         self._copy_selection = copy_selection or _send_copy_shortcut
+        self._modifier_is_pressed = modifier_is_pressed
+        self._modifier_release_timeout_sec = modifier_release_timeout_sec
         self._timeout_sec = timeout_sec
         self._poll_sec = poll_sec
         self._capture_lock = threading.Lock()
@@ -30,6 +35,9 @@ class SystemSelectionReader:
             return self._capture_text()
 
     def _capture_text(self) -> str:
+        if not self._wait_for_modifiers_released():
+            return ""
+
         original = self._clipboard.snapshot()
         marker = f"__CLIPAI_SELECTION_{uuid.uuid4().hex}__"
         owned_sequence: int | None = None
@@ -58,6 +66,15 @@ class SystemSelectionReader:
                     self._clipboard.restore_if_unchanged(original, owned_sequence)
                 except Exception:
                     pass
+
+    def _wait_for_modifiers_released(self) -> bool:
+        deadline = time.monotonic() + self._modifier_release_timeout_sec
+        while True:
+            if not any(self._modifier_is_pressed(modifier) is True for modifier in MODIFIER_KEYS):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(self._poll_sec)
 
 
 class NoopSelectionReader:
