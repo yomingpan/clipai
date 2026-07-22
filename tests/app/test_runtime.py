@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime import AppRuntime
+from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
+from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
+from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
+from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -10,6 +14,8 @@ from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
+from ClipAI.services.workflow_registry import WorkflowRegistry
+from ClipAI.support.diagnostics import IncidentReporter
 
 
 class FakeView:
@@ -386,31 +392,73 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         build_provider_candidate,
         discover_provider_models,
     )
-    runtime = AppRuntime(
-        actions=ActionCatalog([action, shorten]),
-        shortcuts=ShortcutCatalog([
-            ShortcutDefinition("a", "ctrl+alt+8", "start_action", "a"),
-            ShortcutDefinition("speech", "ctrl+alt+q", "speak_selection_or_clipboard"),
-            ShortcutDefinition("shorten", "ctrl+alt+x", "start_action", "shorten"),
-        ]),
-        execute_action=FakeExecute(),
-        output_actions=outputs,
+    shortcuts = ShortcutCatalog([
+        ShortcutDefinition("a", "ctrl+alt+8", "start_action", "a"),
+        ShortcutDefinition("speech", "ctrl+alt+q", "speak_selection_or_clipboard"),
+        ShortcutDefinition("shorten", "ctrl+alt+x", "start_action", "shorten"),
+    ])
+    actions = ActionCatalog([action, shorten])
+    execute_action = FakeExecute()
+    provider_configuration = ProviderConfigurationCoordinator(snapshot, backend)
+    registry = WorkflowRegistry()
+    incident_reporter = IncidentReporter()
+    runtime_holder = []
+    enqueue = lambda command: runtime_holder[0].enqueue(command)
+    workflow_module = WorkflowRuntimeModule(
+        actions=actions,
+        shortcuts=shortcuts,
+        execute_action=execute_action,
         view=view,
         supervisor=supervisor,
-        provider_configuration=ProviderConfigurationCoordinator(snapshot, backend),
-        hotkey_registrar=lambda _map, _callback: listener,
-        tray_factory=Tray if with_tray else None,
+        provider_configuration=provider_configuration,
+        workflow_context_reader=view,
+        incident_reporter=incident_reporter,
+        operation_tracker=operation_tracker,
+        notifier=notifier,
+        speech_coordinator=speech_coordinator,
+        registry=registry,
+    )
+    output_module = ResultOutputRuntimeModule(
+        output_actions=outputs,
+        supervisor=supervisor,
+        registry=registry,
+        output_operation_presenter=view,
+        enqueue=enqueue,
+        incident_reporter=incident_reporter,
         operation_tracker=operation_tracker,
         diagnostics_exporter=diagnostics_exporter,
         notifier=notifier,
         speech_coordinator=speech_coordinator,
-        workflow_context_reader=view,
-        output_operation_presenter=view,
+    )
+    provider_module = ProviderConfigurationRuntimeModule(
+        coordinator=provider_configuration,
+        supervisor=supervisor,
+        enqueue=enqueue,
+        operation_tracker=operation_tracker,
         provider_settings_presenter=view,
+    )
+    persistence_module = UserPersistenceRuntimeModule(
+        supervisor=supervisor,
+        registry=registry,
+        enqueue=enqueue,
         action_feedback=action_feedback,
         guidance_preferences=guidance_preferences,
         guidance_preferences_presenter=guidance_preferences_presenter,
+        notifier=notifier,
     )
+    runtime = AppRuntime(
+        shortcuts=shortcuts,
+        view=view,
+        supervisor=supervisor,
+        workflows=workflow_module,
+        result_output=output_module,
+        provider_configuration=provider_module,
+        user_persistence=persistence_module,
+        hotkey_registrar=lambda _map, _callback: listener,
+        tray_factory=Tray if with_tray else None,
+        operation_tracker=operation_tracker,
+    )
+    runtime_holder.append(runtime)
     runtime._provider_backend = backend
     return runtime, view, supervisor, outputs, listener
 
