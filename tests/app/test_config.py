@@ -19,9 +19,9 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.providers.gemini.available_models == ("gemini-3.1-flash-lite", "gemini-2.5-flash")
     assert bundle.runtime.max_workers == 2
     assert bundle.app.modifier_mode == "ctrl_alt"
-    assert "1-2 秒內掃讀完" in bundle.app.system_prompt
-    assert "預設總長不超過 5 行" in bundle.app.system_prompt
-    assert "不要主動附加例子" in bundle.app.system_prompt
+    assert "1–2 秒看懂" in bundle.app.system_prompt
+    assert "預設不超過 5 行或 120 字" in bundle.app.system_prompt
+    assert "不主動加例子" in bundle.app.system_prompt
     action = bundle.actions.get("english_companion")
     assert action.input_mode == "selection_or_clipboard"
     assert action.output_mode == "popup"

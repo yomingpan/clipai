@@ -15,6 +15,7 @@ from ClipAI.ui.base_dialog import (
     COPY_ICON,
     DISPLAY_BREAK_TAG,
     PASTE_ICON,
+    POPUP_FONT_SIZES,
     PRESENTATION_TAG_FONTS,
     PRESENTATION_TAG_STYLES,
     PIN_ICON,
@@ -438,6 +439,18 @@ def test_presentation_tags_avoid_customtkinter_forbidden_font_option() -> None:
 
 
 def test_presentation_typography_creates_clear_heading_and_inline_hierarchy() -> None:
+    assert POPUP_FONT_SIZES == {
+        "auxiliary": 11,
+        "model": 9,
+        "interface": 12,
+        "content": 14,
+        "heading_3": 15,
+        "heading_2": 16,
+        "heading_1": 18,
+        "tooltip": 12,
+    }
+    assert PRESENTATION_TAG_FONTS["bold"][1] == POPUP_FONT_SIZES["content"]
+    assert PRESENTATION_TAG_FONTS["italic"][1] == POPUP_FONT_SIZES["content"]
     assert PRESENTATION_TAG_FONTS["heading_1"][1] > PRESENTATION_TAG_FONTS["heading_2"][1]
     assert PRESENTATION_TAG_FONTS["heading_2"][1] > PRESENTATION_TAG_FONTS["heading_3"][1]
     assert PRESENTATION_TAG_FONTS["heading_1"][2] == "bold"
@@ -464,7 +477,7 @@ def test_presentation_typography_is_applied_at_tk_adapter_seam() -> None:
     textbox = Textbox()
 
     assert configure_presentation_typography(textbox) is True
-    assert tk_text.configured["heading_1"]["font"] == (TC_FONT_FAMILY, -30, "bold")
+    assert tk_text.configured["heading_1"]["font"] == (TC_FONT_FAMILY, -36, "bold")
     assert tk_text.configured["bold"]["font"][-1] == "bold"
     assert tk_text.configured["italic"]["font"][-1] == "italic"
 
@@ -562,7 +575,7 @@ def test_hanging_indent_tracks_measured_prefix_width_at_each_dpi_scale(monkeypat
     assert configure_hanging_indent(textbox, "item", "12. ") is True
     assert textbox._textbox.configured["item"] == {
         "lmargin1": 0,
-        "lmargin2": len("12. ") * round(12 * scale),
+        "lmargin2": len("12. ") * round(POPUP_FONT_SIZES["content"] * scale),
     }
 
 
@@ -670,12 +683,18 @@ def test_pin_icons_use_stable_icon_font_glyphs() -> None:
 
 
 def test_source_preview_stays_on_one_line_and_ellipsizes_over_limit() -> None:
-    from ClipAI.ui.base_dialog import SOURCE_PREVIEW_MAX_CHARS, ellipsize_source_preview
+    from ClipAI.ui.base_dialog import SOURCE_PREVIEW_MAX_CHARS, BaseResultSurface, ellipsize_source_preview
 
+    assert SOURCE_PREVIEW_MAX_CHARS == 36
     text = "Clipboard: " + "a" * SOURCE_PREVIEW_MAX_CHARS
     preview = ellipsize_source_preview(text)
     assert len(preview) == SOURCE_PREVIEW_MAX_CHARS
     assert preview.endswith("...")
+    source = inspect.getsource(BaseResultSurface._build)
+    assert "wraplength=0" in source
+    assert 'self.model_label.grid(row=5, column=0, sticky="e"' in source
+    assert 'height=11' in source
+    assert 'size=POPUP_FONT_SIZES["model"]' in source
     assert "\n" not in preview
 
 

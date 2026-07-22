@@ -15,7 +15,7 @@ from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, d
 
 DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
-SOURCE_PREVIEW_MAX_CHARS = 64
+SOURCE_PREVIEW_MAX_CHARS = 36
 DISPLAY_BREAK_TAG = "display_break_hint"
 
 
@@ -63,6 +63,16 @@ MODEL_COLOR = "#6E6C69"
 CONTENT_COLOR = "#D8E0E8"
 TC_FONT_FAMILY = "Microsoft JhengHei UI"
 ACTION_ICON_FONT_FAMILY = "Segoe MDL2 Assets"
+POPUP_FONT_SIZES: Mapping[str, int] = {
+    "auxiliary": 11,
+    "model": 9,
+    "interface": 12,
+    "content": 14,
+    "heading_3": 15,
+    "heading_2": 16,
+    "heading_1": 18,
+    "tooltip": 12,
+}
 SPEAKER_ICON = "\uE767"
 STOP_ICON = "\uE71A"
 COPY_ICON = "\uE77F"
@@ -84,11 +94,11 @@ PRESENTATION_TAG_STYLES: dict[str, dict[str, object]] = {
 }
 
 PRESENTATION_TAG_FONTS: dict[str, tuple[str, int, str]] = {
-    "heading_1": (TC_FONT_FAMILY, 15, "bold"),
-    "heading_2": (TC_FONT_FAMILY, 14, "bold"),
-    "heading_3": (TC_FONT_FAMILY, 13, "bold"),
-    "bold": (TC_FONT_FAMILY, 12, "bold"),
-    "italic": (TC_FONT_FAMILY, 12, "italic"),
+    "heading_1": (TC_FONT_FAMILY, POPUP_FONT_SIZES["heading_1"], "bold"),
+    "heading_2": (TC_FONT_FAMILY, POPUP_FONT_SIZES["heading_2"], "bold"),
+    "heading_3": (TC_FONT_FAMILY, POPUP_FONT_SIZES["heading_3"], "bold"),
+    "bold": (TC_FONT_FAMILY, POPUP_FONT_SIZES["content"], "bold"),
+    "italic": (TC_FONT_FAMILY, POPUP_FONT_SIZES["content"], "italic"),
 }
 
 
@@ -145,7 +155,7 @@ def configure_hanging_indent(textbox: object, tag: str, prefix: str) -> bool:
     if tk_text is None or not hasattr(tk_text, "tag_configure"):
         return False
     try:
-        font = tkfont.Font(root=tk_text, font=apply_widget_font_scaling(textbox, (TC_FONT_FAMILY, 12)))
+        font = tkfont.Font(root=tk_text, font=apply_widget_font_scaling(textbox, (TC_FONT_FAMILY, POPUP_FONT_SIZES["content"])))
         tk_text.tag_configure(tag, lmargin1=0, lmargin2=font.measure(prefix))
     except (tk.TclError, ValueError, AttributeError):
         return False
@@ -564,7 +574,7 @@ class _Tooltip:
             fg="#FFFFFF",
             padx=8,
             pady=4,
-            font=apply_widget_font_scaling(self.widget, (TC_FONT_FAMILY, 9)),
+            font=apply_widget_font_scaling(self.widget, (TC_FONT_FAMILY, POPUP_FONT_SIZES["tooltip"])),
             justify="left",
         )
         label.pack()
@@ -764,7 +774,7 @@ class BaseResultSurface:
         self.title_label = ctk.CTkLabel(
             title_area,
             text="",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10, weight="bold"),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"], weight="bold"),
             text_color=TITLE_COLOR,
             wraplength=330,
         )
@@ -772,13 +782,6 @@ class BaseResultSurface:
 
         self.window_actions = ctk.CTkFrame(self.header, fg_color=SURFACE_BG)
         self.window_actions.grid(row=0, column=1, sticky="ne")
-        self.model_label = ctk.CTkLabel(
-            self.window_actions,
-            text="",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
-            text_color=MODEL_COLOR,
-        )
-        self.model_label.pack(side="left", padx=(0, 10))
         self.info_button = ctk.CTkButton(
             self.window_actions,
             text="ⓘ",
@@ -788,7 +791,7 @@ class BaseResultSurface:
             fg_color=SURFACE_BG,
             hover_color="#3A3A3A",
             text_color="#8A8A8A",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
             command=self.toggle_feedback_overlay,
         )
         self._info_tooltip = _Tooltip(self.info_button, "", self.dialog.lifecycle)
@@ -806,7 +809,7 @@ class BaseResultSurface:
             justify="left",
             wraplength=285,
             text_color="#FFFFFF",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
         self.guidance_coachmark_label.pack(fill="x", padx=9, pady=7)
         self.close_button = ctk.CTkButton(
@@ -836,7 +839,7 @@ class BaseResultSurface:
         )
         self.pin_button.pack(side="left")
         self._pin_tooltip = _Tooltip(self.pin_button, "Keep open", self.dialog.lifecycle)
-        self.dialog.enable_drag(self.header, title_area, self.title_label, self.model_label)
+        self.dialog.enable_drag(self.header, title_area, self.title_label)
 
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 0))
@@ -846,7 +849,7 @@ class BaseResultSurface:
         self.standard_actions = StandardResultActions(self)
         self._overflow_button = self.add_action_slot("overflow", "▶", self.toggle_overflow, width=24, tooltip="More actions")
         self._overflow_button.pack_configure(side="right", padx=(12, 0))
-        self.action_status_label = ctk.CTkLabel(self.actions, text="", text_color="#8A8A8A", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9))
+        self.action_status_label = ctk.CTkLabel(self.actions, text="", text_color="#8A8A8A", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]))
         self.action_status_label.pack(side="right", padx=(8, 0))
 
         self.source_label = ctk.CTkLabel(
@@ -854,9 +857,9 @@ class BaseResultSurface:
             text="",
             anchor="w",
             justify="left",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
             text_color=ANALYZING_COLOR,
-            wraplength=390,
+            wraplength=0,
         )
         self.source_label.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 0))
 
@@ -867,14 +870,14 @@ class BaseResultSurface:
             border_spacing=0,
             corner_radius=0,
             wrap="word",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=12),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["content"]),
             text_color=CONTENT_COLOR,
             scrollbar_button_color="#4A4A4A",
             scrollbar_button_hover_color="#5A5A5A",
             height=170,
             pady=0,
         )
-        self.content_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        self.content_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 2))
         self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
         self.content_text.tag_config("body", foreground=CONTENT_COLOR)
         self.content_text.tag_config("loading", foreground=ANALYZING_COLOR)
@@ -884,6 +887,16 @@ class BaseResultSurface:
         configure_display_break_typography(self.content_text)
         self._list_indent_prefixes: dict[str, str] = {}
         self.content_text._on_scaling_changed = self._reapply_list_indents
+
+        self.model_label = ctk.CTkLabel(
+            self.root,
+            text="",
+            anchor="e",
+            height=11,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["model"]),
+            text_color=MODEL_COLOR,
+        )
+        self.model_label.grid(row=5, column=0, sticky="e", padx=12, pady=(0, 2))
 
         self.feedback_frame = ctk.CTkFrame(
             self.root,
@@ -897,7 +910,7 @@ class BaseResultSurface:
         self.feedback_prompt = ctk.CTkLabel(
             feedback_header,
             text="這次結果符合預期嗎？",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10, weight="bold"),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"], weight="bold"),
             text_color=CONTENT_COLOR,
         )
         self.feedback_prompt.pack(side="left")
@@ -925,7 +938,7 @@ class BaseResultSurface:
                 corner_radius=6,
                 fg_color="#3A3A3A",
                 hover_color="#4A4A4A",
-                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
                 command=(lambda selected=outcome: self._choose_feedback(selected)),
             )
             button.pack(side="left", padx=(0, 5))
@@ -937,13 +950,13 @@ class BaseResultSurface:
             variable=self.feedback_save_case,
             text_color=CONTENT_COLOR,
             border_color="#8A8A8A",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
         self.feedback_case_checkbox.pack(anchor="w", padx=10, pady=(2, 5))
         self.feedback_status = ctk.CTkLabel(
             self.feedback_frame,
             text="",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
             text_color=ANALYZING_COLOR,
         )
         self.feedback_status.pack(anchor="w", padx=10, pady=(0, 7))
@@ -953,7 +966,7 @@ class BaseResultSurface:
             width=48,
             height=24,
             command=self._retry_feedback,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
 
         self.feedback_detail = ctk.CTkFrame(self.feedback_frame, fg_color="transparent")
@@ -964,7 +977,7 @@ class BaseResultSurface:
             self.feedback_other,
             placeholder_text="請補充一句具體情況",
             height=28,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
         self.feedback_note.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self.feedback_submit_button = ctk.CTkButton(
@@ -973,7 +986,7 @@ class BaseResultSurface:
             width=48,
             height=28,
             command=self._submit_other,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
         self.feedback_submit_button.pack(side="left")
 
@@ -991,7 +1004,7 @@ class BaseResultSurface:
             border_color="#4A4A4A",
             fg_color=SURFACE_BG,
             text_color=CONTENT_COLOR,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
         )
         self.follow_entry.grid(row=0, column=0, sticky="ew", padx=(0, 7))
         self.follow_send_button = ctk.CTkButton(
@@ -1002,7 +1015,7 @@ class BaseResultSurface:
             corner_radius=9,
             fg_color=ACTION_COLOR,
             hover_color=ACTION_HOVER_COLOR,
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10),
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
         )
         self.follow_send_button.grid(row=0, column=1, sticky="e")
 
@@ -1064,7 +1077,7 @@ class BaseResultSurface:
                 height=25,
                 fg_color="#3A3A3A",
                 hover_color="#4A4A4A",
-                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=9),
+                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
                 command=lambda reason_id=reason.id: self._choose_reason(reason_id),
             )
             button.pack(fill="x", pady=(0, 4))
