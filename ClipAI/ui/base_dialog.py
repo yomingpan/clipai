@@ -4,18 +4,23 @@ import tkinter as tk
 import tkinter.font as tkfont
 import sys
 from dataclasses import dataclass
-from typing import Callable, Literal, Mapping
+from typing import Callable, Literal, Mapping, Protocol
 
 import customtkinter as ctk
 
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PresentationDocument
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
-from ClipAI.ui.text_layout import add_display_break_hints, display_break_opportunity, strip_display_break_hints
+from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hints
 
 DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
 SOURCE_PREVIEW_MAX_CHARS = 64
+DISPLAY_BREAK_TAG = "display_break_hint"
+
+
+class _TextInserter(Protocol):
+    def insert(self, index: str, text: str, tags: tuple[str, ...]) -> object: ...
 
 
 def ellipsize_source_preview(text: str, limit: int = SOURCE_PREVIEW_MAX_CHARS) -> str:
@@ -111,6 +116,29 @@ def configure_presentation_typography(textbox: object) -> bool:
     return True
 
 
+def configure_display_break_typography(textbox: object) -> bool:
+    """Keep Tk-recognized ASCII break spaces visually negligible."""
+    tk_text = getattr(textbox, "_textbox", None)
+    if tk_text is None or not hasattr(tk_text, "tag_configure"):
+        return False
+    try:
+        tk_text.tag_configure(DISPLAY_BREAK_TAG, font=(TC_FONT_FAMILY, -1))
+    except (tk.TclError, ValueError, AttributeError):
+        return False
+    return True
+
+
+def insert_display_text(textbox: _TextInserter, index: str, text: str, tags: str | tuple[str, ...]) -> None:
+    """Insert transformed text while tagging only its synthetic break spaces."""
+    base_tags = (tags,) if isinstance(tags, str) else tags
+    parts = add_display_break_hints(text).split(DISPLAY_BREAK_HINT)
+    for part_index, part in enumerate(parts):
+        if part:
+            textbox.insert(index, part, base_tags)
+        if part_index + 1 < len(parts):
+            textbox.insert(index, DISPLAY_BREAK_HINT, (*base_tags, DISPLAY_BREAK_TAG))
+
+
 def configure_hanging_indent(textbox: object, tag: str, prefix: str) -> bool:
     """Measure the actual scaled marker prefix for list continuation lines."""
     tk_text = getattr(textbox, "_textbox", None)
@@ -131,6 +159,7 @@ class _PresentationTextbox(ctk.CTkTextbox):
         super()._set_scaling(*args, **kwargs)
         if hasattr(self, "_textbox"):
             configure_presentation_typography(self)
+            configure_display_break_typography(self)
             callback = getattr(self, "_on_scaling_changed", None)
             if callable(callback):
                 callback()
@@ -852,6 +881,7 @@ class BaseResultSurface:
         for tag, style in PRESENTATION_TAG_STYLES.items():
             self.content_text.tag_config(tag, **style)
         configure_presentation_typography(self.content_text)
+        configure_display_break_typography(self.content_text)
         self._list_indent_prefixes: dict[str, str] = {}
         self.content_text._on_scaling_changed = self._reapply_list_indents
 
@@ -1246,7 +1276,7 @@ class BaseResultSurface:
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         for text, tag in chunks:
-            self.content_text.insert("end", add_display_break_hints(text), tag)
+            insert_display_text(self.content_text, "end", text, tag)
         self.content_text.configure(state="disabled")
 
     def set_presentation_document(self, document: PresentationDocument) -> None:
@@ -1270,20 +1300,21 @@ class BaseResultSurface:
                     self._list_indent_prefixes[indent_tag] = prefix
                     configure_hanging_indent(self.content_text, indent_tag, prefix)
                 if prefix:
-                    self.content_text.insert("end", add_display_break_hints(prefix), (block_tag, indent_tag))
+                    assert indent_tag is not None
+                    insert_display_text(self.content_text, "end", prefix, (block_tag, indent_tag))
                 for span in block.spans:
                     tags: tuple[str, ...] = ((block_tag,) if span.style == "plain" else (block_tag, span.style))
                     if indent_tag is not None:
                         tags += (indent_tag,)
                     if previous_last_char and span.text and display_break_opportunity(previous_last_char, span.text[0]):
-                        self.content_text.insert("end", "\u200b", tags)
-                    self.content_text.insert("end", add_display_break_hints(span.text), tags)
+                        self.content_text.insert("end", DISPLAY_BREAK_HINT, (*tags, DISPLAY_BREAK_TAG))
+                    insert_display_text(self.content_text, "end", span.text, tags)
                     if span.text:
                         previous_last_char = span.text[-1]
                 self.content_text.insert("end", "\n", (block_tag,) if indent_tag is None else (block_tag, indent_tag))
         except (tk.TclError, ValueError):
             self.content_text.delete("1.0", "end")
-            self.content_text.insert("end", add_display_break_hints(document.fallback_text), "body")
+            insert_display_text(self.content_text, "end", document.fallback_text, "body")
         self.content_text.configure(state="disabled")
 
     def _reapply_list_indents(self) -> None:

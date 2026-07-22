@@ -5,6 +5,19 @@ import random
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, strip_display_break_hints
 
 
+def test_display_hint_contains_the_ascii_whitespace_tk_word_wrap_requires() -> None:
+    assert " " in DISPLAY_BREAK_HINT
+    assert strip_display_break_hints(f"左{DISPLAY_BREAK_HINT}右") == "左右"
+
+
+def test_screenshot_regression_gives_tk_a_real_break_after_bullet_and_ai_island() -> None:
+    bullet = add_display_break_hints("• 總體經濟風險")
+    condition = add_display_break_hints("若 AI相關企業能提出具體模式")
+
+    assert f"•{DISPLAY_BREAK_HINT} {DISPLAY_BREAK_HINT}總" in bullet
+    assert f"AI{DISPLAY_BREAK_HINT}相" in condition
+
+
 def _headless_wrap(text: str, available_width: int) -> list[str]:
     """A Tk-independent harness: hints are the only soft-wrap boundaries."""
     lines: list[str] = []

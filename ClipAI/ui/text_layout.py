@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 import unicodedata
 
-DISPLAY_BREAK_HINT = "\u200b"
+# Tk's ``word`` wrapping on Windows only treats ASCII whitespace as a reliable
+# break. Invisible separators make that space reversible in canonical text.
+DISPLAY_BREAK_HINT = "\u2063 \u2063"
 LATIN_ISLAND_MAX_CHARS = 12
 _ASCII_TOKEN = frozenset("._-:/?&=#%@+~")
 _OPENING_PUNCTUATION = frozenset("([{<（〔［｛〈《「『【〖")
