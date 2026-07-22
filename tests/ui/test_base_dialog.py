@@ -30,6 +30,7 @@ from ClipAI.ui.base_dialog import (
     STANDARD_RESULT_ACTIONS,
     STOP_ICON,
     TC_FONT_FAMILY,
+    TITLE_COLOR,
     StandardResultActions,
     SurfaceFlashController,
     SurfaceStateColors,
@@ -457,6 +458,10 @@ def test_presentation_typography_creates_clear_heading_and_inline_hierarchy() ->
     assert PRESENTATION_TAG_FONTS["bold"][2] == "bold"
     assert PRESENTATION_TAG_FONTS["italic"][2] == "italic"
     assert PRESENTATION_TAG_STYLES["heading_1"]["foreground"] != PRESENTATION_TAG_STYLES["italic"]["foreground"]
+
+
+def test_popup_title_uses_the_primary_content_heading_color() -> None:
+    assert TITLE_COLOR == PRESENTATION_TAG_STYLES["heading_1"]["foreground"]
 
 
 def test_presentation_typography_is_applied_at_tk_adapter_seam() -> None:

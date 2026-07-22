@@ -52,7 +52,6 @@ DEFAULT_STATE_COLORS: dict[DialogState, RGB] = {
 }
 
 SURFACE_BG = "#2B2B2B"
-TITLE_COLOR = "#305B9C"
 ACTION_COLOR = "#1F6AA5"
 ACTION_HOVER_COLOR = "#2879B8"
 SPEAKER_ACTIVE_COLOR = "#7F1D1D"
@@ -92,6 +91,7 @@ PRESENTATION_TAG_STYLES: dict[str, dict[str, object]] = {
     "paragraph": {"spacing3": 10},
     "list": {"spacing1": 1, "spacing3": 4},
 }
+TITLE_COLOR = PRESENTATION_TAG_STYLES["heading_1"]["foreground"]
 
 PRESENTATION_TAG_FONTS: dict[str, tuple[str, int, str]] = {
     "heading_1": (TC_FONT_FAMILY, POPUP_FONT_SIZES["heading_1"], "bold"),
