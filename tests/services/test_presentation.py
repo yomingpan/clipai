@@ -1,4 +1,21 @@
+import pytest
+
 from ClipAI.services.presentation import MarkdownPresentationParser
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("- First\n  continuation\n\nParagraph", [("unordered_item", "First\ncontinuation", None), ("paragraph", "Paragraph", None)]),
+        ("- First\n  continuation\n- Second", [("unordered_item", "First\ncontinuation", None), ("unordered_item", "Second", None)]),
+        ("1. First\n   continuation\n2. Second", [("ordered_item", "First\ncontinuation", 1), ("ordered_item", "Second", 2)]),
+        ("- First\n  continuation\nParagraph", [("unordered_item", "First\ncontinuation", None), ("paragraph", "Paragraph", None)]),
+        ("- First\n- Second", [("unordered_item", "First", None), ("unordered_item", "Second", None)]),
+    ],
+)
+def test_list_item_buffer_flushes_at_each_block_boundary(source, expected) -> None:
+    document = MarkdownPresentationParser().parse(source)
+    assert [(block.kind, "".join(span.text for span in block.spans), block.ordinal) for block in document.blocks] == expected
 
 
 def test_supported_markdown_becomes_typed_blocks_and_spans() -> None:

@@ -317,6 +317,7 @@ class BaseDialog:
         minimum_width: int | None = None,
         minimum_height: int | None = None,
         hide_from_task_switcher: bool = False,
+        on_close_request: Callable[[], None] | None = None,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
@@ -326,6 +327,7 @@ class BaseDialog:
         self.pinned = False
         self._drag_offset_x = 0
         self._drag_offset_y = 0
+        self._on_close_request = on_close_request
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
         self._surface_inset = surface_inset
         self._corner_radius = corner_radius
@@ -389,8 +391,8 @@ class BaseDialog:
                 schedule=self.lifecycle.schedule,
                 cancel=self.lifecycle.cancel,
             )
-            self.root.protocol("WM_DELETE_WINDOW", self.lifecycle.close)
-            self.root.bind("<Escape>", lambda _event: self.lifecycle.close())
+            self.root.protocol("WM_DELETE_WINDOW", self.request_close)
+            self.root.bind("<Escape>", lambda _event: self.request_close())
             self.enable_drag(self.canvas, self.surface)
             if hide_from_task_switcher:
                 self.root.after_idle(lambda: hide_window_from_task_switcher(self.root))
@@ -420,6 +422,14 @@ class BaseDialog:
 
     def close(self) -> None:
         self.lifecycle.close()
+
+    def request_close(self) -> str:
+        """Emit the semantic close request; only the presenter destroys views."""
+        if self._on_close_request is not None:
+            self._on_close_request()
+        else:
+            self.close()
+        return "break"
 
     def enable_drag(self, *widgets) -> None:
         for widget in widgets:
@@ -1087,7 +1097,7 @@ class BaseResultSurface:
         if self._feedback_overlay_open:
             self.close_feedback_overlay()
         else:
-            self.dialog.close()
+            self.dialog.request_close()
         return "break"
 
     def _choose_feedback(self, outcome: FeedbackOutcome) -> None:
@@ -1262,7 +1272,7 @@ class BaseResultSurface:
                 if prefix:
                     self.content_text.insert("end", add_display_break_hints(prefix), (block_tag, indent_tag))
                 for span in block.spans:
-                    tags = ((block_tag,) if span.style == "plain" else (block_tag, span.style))
+                    tags: tuple[str, ...] = ((block_tag,) if span.style == "plain" else (block_tag, span.style))
                     if indent_tag is not None:
                         tags += (indent_tag,)
                     if previous_last_char and span.text and display_break_opportunity(previous_last_char, span.text[0]):

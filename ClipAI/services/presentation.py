@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from ClipAI.core.models import InlineSpan, PresentationBlock, PresentationDocument
 
@@ -16,34 +17,52 @@ class MarkdownPresentationParser:
     def parse(self, text: str) -> PresentationDocument:
         blocks: list[PresentationBlock] = []
         paragraph: list[str] = []
+        pending_list_item: tuple[Literal["unordered_item", "ordered_item"], int | None, list[str]] | None = None
 
         def flush_paragraph() -> None:
             if paragraph:
                 blocks.append(PresentationBlock("paragraph", self._inline("\n".join(paragraph))))
                 paragraph.clear()
 
+        def flush_list_item() -> None:
+            nonlocal pending_list_item
+            if pending_list_item is None:
+                return
+            kind, ordinal, lines = pending_list_item
+            blocks.append(PresentationBlock(kind, self._inline("\n".join(lines)), ordinal=ordinal))
+            pending_list_item = None
+
         for raw_line in text.splitlines():
             line = raw_line.rstrip()
             if not line.strip():
+                flush_list_item()
                 flush_paragraph()
                 continue
             if line[:1].isspace():
-                paragraph.append(line.strip())
+                if pending_list_item is not None:
+                    pending_list_item[2].append(line.strip())
+                else:
+                    paragraph.append(line.strip())
                 continue
             heading = _HEADING.match(line)
             unordered = _UNORDERED.match(line)
             ordered = _ORDERED.match(line)
             if heading:
+                flush_list_item()
                 flush_paragraph()
                 blocks.append(PresentationBlock("heading", self._inline(heading.group(2)), len(heading.group(1))))
             elif unordered:
+                flush_list_item()
                 flush_paragraph()
-                blocks.append(PresentationBlock("unordered_item", self._inline(unordered.group(2))))
+                pending_list_item = ("unordered_item", None, [unordered.group(2)])
             elif ordered:
+                flush_list_item()
                 flush_paragraph()
-                blocks.append(PresentationBlock("ordered_item", self._inline(ordered.group(2)), ordinal=int(ordered.group(1))))
+                pending_list_item = ("ordered_item", int(ordered.group(1)), [ordered.group(2)])
             else:
+                flush_list_item()
                 paragraph.append(line)
+        flush_list_item()
         flush_paragraph()
         if not blocks and text:
             blocks.append(PresentationBlock("paragraph", (InlineSpan(text),)))

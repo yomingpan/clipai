@@ -385,6 +385,16 @@ def test_dialog_lifecycle_exposes_closed_state() -> None:
     assert lifecycle.is_closed is True
 
 
+def test_native_close_request_uses_callback_instead_of_destroying_the_dialog() -> None:
+    events: list[str] = []
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog._on_close_request = lambda: events.append("close-requested")
+    dialog.close = lambda: events.append("destroyed")
+
+    assert dialog.request_close() == "break"
+    assert events == ["close-requested"]
+
+
 def test_drag_position_calculation_uses_recorded_offsets() -> None:
     class DialogLike:
         _drag_offset_x = 12

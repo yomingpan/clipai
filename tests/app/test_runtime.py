@@ -1091,6 +1091,26 @@ def test_copy_and_close_are_commands() -> None:
     assert session_id not in runtime._workflows
 
 
+def test_closed_popup_context_cannot_supply_a_new_action_input() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    first_id = view.snapshots[-1].session_id
+    view.context = ActiveWorkflowContext(first_id, "step-a", "stale popup result", None)
+
+    runtime.enqueue(CloseSession(first_id))
+    runtime.drain_commands()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+
+    second_id = next(workflow_id for workflow_id in runtime._workflows if workflow_id != first_id)
+    second = runtime._workflows[second_id]
+    supervisor.work[second.snapshot.active_invocation_id]()
+    invocation = runtime._workflow_module._execute_action.invocations[-1]
+    assert first_id not in runtime._workflows
+    assert invocation.input_target.kind == "external_text"
+
+
 def test_copy_prefers_selected_command_text() -> None:
     runtime, view, _supervisor, outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))

@@ -30,6 +30,7 @@ class _SessionView:
     output_operations: dict[str, str] = field(default_factory=dict)
     rendered_content_key: tuple[object, ...] | None = None
     shown_guidance_keys: set[str] = field(default_factory=set)
+    close_requested: bool = False
 
 
 @dataclass
@@ -81,7 +82,7 @@ class ResultDialogPresenter:
         workflow_id = self._active_workflow_id
         if workflow_id is None:
             return None
-        view = self._views.get(workflow_id)
+        view = self._interactive_view(workflow_id)
         if view is None or view.step_id is None or not view.content.strip():
             return None
         return ActiveWorkflowContext(
@@ -232,7 +233,7 @@ class ResultDialogPresenter:
             view.shown_guidance_keys.add(guidance_key)
             view.surface.show_action_guidance_hint()
         view.surface.close_button.configure(
-            command=lambda sid=snapshot.session_id: self._command_sink(CloseSession(sid))
+            command=lambda sid=snapshot.session_id: self._request_close(sid)
         )
         view.surface.pin_button.configure(
             command=lambda sid=snapshot.session_id: self._toggle_pin(sid)
@@ -298,13 +299,28 @@ class ResultDialogPresenter:
         if self._active_workflow_id == session_id:
             self._active_workflow_id = None
 
-    def _send_text_command(self, session_id: str, command_type) -> None:
+    def _request_close(self, session_id: str) -> None:
         view = self._views.get(session_id)
-        text = view.surface.selected_text() if view is not None else None
-        self._command_sink(command_type(session_id, text))
+        if view is None or view.close_requested:
+            return
+        view.close_requested = True
+        if self._active_workflow_id == session_id:
+            self._active_workflow_id = None
+        self._command_sink(CloseSession(session_id))
+
+    def _interactive_view(self, session_id: str) -> _SessionView | None:
+        view = self._views.get(session_id)
+        if view is None or view.close_requested or not view.dialog.is_alive():
+            return None
+        return view
+
+    def _send_text_command(self, session_id: str, command_type) -> None:
+        view = self._interactive_view(session_id)
+        if view is not None:
+            self._command_sink(command_type(session_id, view.surface.selected_text()))
 
     def _copy(self, session_id: str) -> None:
-        view = self._views.get(session_id)
+        view = self._interactive_view(session_id)
         if view is None:
             return
         operation_id = uuid.uuid4().hex
@@ -313,14 +329,14 @@ class ResultDialogPresenter:
         self._command_sink(CopyResult(session_id, text, operation_id))
 
     def _toggle_speech(self, session_id: str) -> None:
-        view = self._views.get(session_id)
+        view = self._interactive_view(session_id)
         if view is None:
             return
         text = view.surface.selected_text()
         self._command_sink(ToggleSpeech(session_id, text, uuid.uuid4().hex))
 
     def _archive(self, session_id: str) -> None:
-        view = self._views.get(session_id)
+        view = self._interactive_view(session_id)
         if view is None:
             return
         operation_id = uuid.uuid4().hex
@@ -328,7 +344,7 @@ class ResultDialogPresenter:
         self._command_sink(ArchiveResult(session_id, view.surface.selected_text(), operation_id))
 
     def _paste(self, session_id: str) -> None:
-        view = self._views.get(session_id)
+        view = self._interactive_view(session_id)
         if view is None:
             return
         self._command_sink(PasteResult(session_id, view.surface.selected_text(), uuid.uuid4().hex))
@@ -406,6 +422,7 @@ class ResultDialogPresenter:
             minimum_width=340,
             minimum_height=220,
             hide_from_task_switcher=True,
+            on_close_request=lambda sid=session_id: self._request_close(sid),
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
@@ -460,11 +477,11 @@ class ResultDialogPresenter:
                 focused_inside = focused is not None and focused.winfo_toplevel() is view.dialog.root
                 if lifecycle.finish_outside_check(pinned=view.dialog.pinned, focused_inside=focused_inside):
                     view.surface.collapse_overflow()
-                    self._command_sink(CloseSession(session_id))
+                    self._request_close(session_id)
             except tk.TclError:
                 if lifecycle.finish_outside_check(pinned=view.dialog.pinned, focused_inside=False):
                     view.surface.collapse_overflow()
-                    self._command_sink(CloseSession(session_id))
+                    self._request_close(session_id)
 
         self._root.after(100, check)
 
