@@ -12,12 +12,14 @@ Popup 是可連續處理的 workflow surface，不只是單次 action 的輸出�
 
 ## Input Resolution
 
+Runtime owns the semantic Foreground Workflow identity. UI supplies a read-only
+`WorkflowContextReader` that returns content and selection for the workflow ID
+chosen by runtime policy; toolkit focus only reports activation candidates.
+
 - 所有 text-capable action 固定優先使用最後互動 popup 的非空 selection。
 - 沒有 selection 時使用 displayed successful step 的 canonical content。
 - 沒有有效 popup context 時才套用 action 的 `external_fallback`：`selection_or_clipboard` 或 `clipboard`。
 - 舊 `input_policy` 只保留一個 release 的 config-loader 相容期，不進入 domain model。
-
-UI 透過 read-only `ActiveWorkflowContext` port 提供 workflow、step、content 與 selection。Services 不讀 Tk widget，platform hotkey listener 不理解 popup context。
 
 ## History
 
@@ -27,6 +29,24 @@ UI 透過 read-only `ActiveWorkflowContext` port 提供 workflow、step、conten
 - Back 只切換已完成 step，不呼叫 provider。
 - 從歷史 step 成功產生新結果時，捨棄該 step 之後的 forward history；失敗不得修改 history。
 - History 僅存在於 popup workflow lifetime，關閉後不持久化。
+
+## Workflow Lifetime
+
+- `WorkflowRuntimeModule` is the single owner of workflow membership, the
+  semantic Foreground Workflow identity, and each workflow's captured provider
+  binding.
+- A workflow keeps the provider and model binding captured when it starts;
+  follow-ups do not switch when runtime configuration changes.
+- Visible and headless workflows share the same identity rules. Headless
+  workflows are never foreground, but the lifetime model does not impose a
+  global headless singleton.
+- Duplicate workflow registration is rejected. Ending an unknown or
+  already-ended workflow is an idempotent no-op.
+- Cancellation and close release the workflow record. Visible completion keeps
+  the record available for follow-up until close; headless completion releases
+  it immediately.
+- Worker completion and failure re-enter the runtime through typed commands
+  before lifetime state changes.
 
 ## Routing
 

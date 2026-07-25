@@ -78,10 +78,7 @@ class ResultDialogPresenter:
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
 
-    def active_workflow_context(self) -> ActiveWorkflowContext | None:
-        workflow_id = self._active_workflow_id
-        if workflow_id is None:
-            return None
+    def workflow_context(self, workflow_id: str) -> ActiveWorkflowContext | None:
         view = self._interactive_view(workflow_id)
         if view is None or view.step_id is None or not view.content.strip():
             return None

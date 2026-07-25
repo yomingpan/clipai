@@ -13,7 +13,6 @@ from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.output_operation import OutputOperationCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
 from ClipAI.services.workflow_controller import WorkflowController
-from ClipAI.services.workflow_registry import WorkflowRegistry
 from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime.outputs")
@@ -29,7 +28,8 @@ class ResultOutputRuntimeModule:
         *,
         output_actions: OutputActions,
         supervisor: TaskSupervisor,
-        registry: WorkflowRegistry,
+        workflow_controller: Callable[[str], WorkflowController | None],
+        has_foreground_workflow: Callable[[], bool],
         output_operation_presenter: OutputOperationPresenter,
         enqueue: Callable[[object], None],
         incident_reporter: IncidentReporter,
@@ -40,7 +40,8 @@ class ResultOutputRuntimeModule:
     ) -> None:
         self._output_actions = output_actions
         self._supervisor = supervisor
-        self._registry = registry
+        self._workflow_controller = workflow_controller
+        self._has_foreground_workflow = has_foreground_workflow
         self._enqueue = enqueue
         self._incident_reporter = incident_reporter
         self._operation_tracker = operation_tracker
@@ -78,14 +79,14 @@ class ResultOutputRuntimeModule:
             self._speech_coordinator.cancel_current()
 
     def _copy(self, command: CopyResult) -> None:
-        controller = self._registry.get(command.session_id)
+        controller = self._workflow_controller(command.session_id)
         if controller and controller.snapshot.content:
             text = _selected_or_result(command.text, controller)
             intent = OutputOperationIntent(command.operation_id or uuid.uuid4().hex, command.session_id, "copy", text)
             self._run_output_action(intent, lambda: self._output_actions.copy(text))
 
     def _paste(self, command: PasteResult) -> None:
-        controller = self._registry.get(command.session_id)
+        controller = self._workflow_controller(command.session_id)
         if controller and controller.snapshot.content and self._output_actions.can_paste:
             text = _selected_or_result(command.text, controller)
             intent = OutputOperationIntent(command.operation_id or uuid.uuid4().hex, command.session_id, "paste", text)
@@ -97,7 +98,7 @@ class ResultOutputRuntimeModule:
             )
 
     def _archive(self, command: ArchiveResult) -> None:
-        controller = self._registry.get(command.session_id)
+        controller = self._workflow_controller(command.session_id)
         if controller and controller.snapshot.content and self._output_actions.can_archive:
             text = _selected_or_result(command.text, controller)
             intent = OutputOperationIntent(command.operation_id or uuid.uuid4().hex, command.session_id, "archive", text)
@@ -133,7 +134,7 @@ class ResultOutputRuntimeModule:
             return
         if self._cancel_current_speech_projection():
             return
-        job = self._speech_coordinator.create_job(clipboard_only=bool(self._registry.workflows))
+        job = self._speech_coordinator.create_job(clipboard_only=self._has_foreground_workflow())
         intent = OutputOperationIntent(job.operation_id, job.workflow_id, "speech", "")
         operation = self._operations.begin(intent)
         self._supervisor.submit(
@@ -143,7 +144,7 @@ class ResultOutputRuntimeModule:
         )
 
     def _toggle_speech(self, session_id: str, selected_text: str | None, requested_operation_id: str) -> None:
-        controller = self._registry.get(session_id)
+        controller = self._workflow_controller(session_id)
         if controller is None or not controller.snapshot.content or self._speech_coordinator is None:
             return
         if controller.snapshot.speaking:
@@ -190,14 +191,14 @@ class ResultOutputRuntimeModule:
             return False
         self._supervisor.cancel(operation_id)
         self._operations.cancel(OutputOperationIntent(operation_id, workflow_id, "speech", ""))
-        previous = self._registry.get(workflow_id)
+        previous = self._workflow_controller(workflow_id)
         if previous is not None:
             previous.set_speaking(False)
         return True
 
     def _handle_speech_error(self, session_id: str, error: BaseException) -> None:
         self._incident_reporter.report(error, context=f"speech:{session_id}")
-        controller = self._registry.get(session_id)
+        controller = self._workflow_controller(session_id)
         if controller:
             controller.set_speaking(False)
 
