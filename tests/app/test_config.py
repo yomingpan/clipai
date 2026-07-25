@@ -324,12 +324,12 @@ def test_dictation_editor_uses_default_text_workflow_without_a_long_press_varian
     assert "<原始轉錄>" in action.prompt
 
 
-def test_concept_diagnosis_selects_a_natural_mode_and_preserves_uncertainty() -> None:
+def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
     bundle = load_config_bundle()
     action = bundle.actions.get("name_concept_carefully")
     shortcut = bundle.shortcuts.definition("name_concept_carefully")
 
-    assert action.name == "概念診斷"
+    assert action.name == "概念命名"
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
@@ -338,19 +338,18 @@ def test_concept_diagnosis_selects_a_natural_mode_and_preserves_uncertainty() ->
     assert action.press_variants == {}
     assert shortcut.hotkey == "ctrl+alt+n"
     assert shortcut.action_id == action.id
-    assert "素材找概念" in action.system_prompt
-    assert "概念解釋" in action.system_prompt
-    assert "概念檢查素材" in action.system_prompt
-    assert "即使沒有固定格式" in action.system_prompt
-    assert "總長嚴格少於 200 個字元" in action.prompt
-    assert "複雜專業情境才可少於 300 個字元" in action.prompt
-    assert "暫不命名" in action.prompt
-    assert "沒有素材時，說明概念的通用邊界" in action.prompt
-    assert "第 1 行一律以「結論：」開始" in action.prompt
-    assert "第 2 行一律以「依據：」開始" in action.prompt
-    assert "第 3 行一律以「下一步：」開始" in action.prompt
-    assert "不用斜線、項目符號、密集縮寫或輸入模式名稱" in action.prompt
-    assert "這個詞讓我更靠近真實經驗與下一步行動" in action.prompt
+    assert "找到、驗證或暫時探索" in action.system_prompt
+    assert "已有詞彙，需要解釋" in action.system_prompt
+    assert "已成熟的想法" in action.system_prompt
+    assert "尚模糊的想法" in action.system_prompt
+    assert "正式術語／慣用說法／流行用語" in action.system_prompt
+    assert "未確認候選" in action.system_prompt
+    assert "前三行嚴格少於 180 個中文字" in action.prompt
+    assert "暫不命名" in action.system_prompt
+    assert "核心詞：" in action.prompt
+    assert "說明：" in action.prompt
+    assert "提醒：" in action.prompt
+    assert "活用：" in action.prompt
 
 
 def test_command_copilot_combines_command_generation_and_risk_review() -> None:
