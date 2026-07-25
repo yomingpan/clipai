@@ -543,6 +543,45 @@ actions:
 
           {input}
 
+  - id: extract_screenshot_text
+    name: 擷取截圖文字
+    stream: false
+    input_mode: clipboard_image
+    external_fallback: clipboard
+    output_mode: popup
+    temperature: 0.0
+    output_profile: plain_text
+    feedback:
+      transform: 從截圖精確擷取文字，或在需要時整理成可直接使用的格式
+      human_space: 保留原始內容、語言、結構與最後採用何種排版的判斷
+      verify: 文字是否完整可讀，且短按保留格式、長按的整理沒有改變原意？
+      reasons:
+        - id: text_missing_or_incorrect
+          label: 漏字、錯字或辨識不正確
+        - id: original_format_not_preserved
+          label: 原本的段落、清單或版面沒有保留
+        - id: formatting_not_useful
+          label: 整理後的格式不適合直接使用
+        - id: meaning_or_language_changed
+          label: 原意或原本語言被改變
+        - id: other
+          label: 其他
+    system_prompt: >
+      你是精確的 OCR 文字擷取器。只轉錄圖片中可辨識的文字；不可翻譯、摘要、修正內容、補充圖片外資訊或加入前言。保留原本的語言、標點、大小寫、段落、換行、清單與表格結構，盡可能忠實重現原始格式。遇到無法辨識的字，使用 [無法辨識]，不要猜測。只輸出擷取結果。
+    prompt: |
+      從這張截圖擷取所有可辨識文字，忠實保留原始格式。只輸出文字：
+
+      {input}
+    press_variants:
+      long:
+        name: 整理截圖文字
+        system_prompt: >
+          你是 OCR 文字擷取與排版整理器。先忠實擷取圖片中所有可辨識的文字，再整理成最適合直接閱讀、複製與使用的格式。不可翻譯、摘要、刪除資訊、補充圖片外資訊或改變原意。保留原本語言、標點、名稱、數字與清單層級。若連續換行屬於同一句或同一段的斷行，將它們合併為自然的一句或一段；例如「你覺得這樣設計好嗎\n如果你是產品經理」要合併成「你覺得這樣設計好嗎 如果你是產品經理」。真正的段落、標題、清單、表格與程式碼則保留並整理成清楚格式。遇到無法辨識的字，使用 [無法辨識]，不要猜測。只輸出整理後文字。
+        prompt: |
+          從這張截圖擷取文字，並整理成可直接閱讀與使用的格式。合併同一句被截斷的換行，但保留真正的結構。只輸出文字：
+
+          {input}
+
   - id: command_copilot
     name: Command Copilot｜指令轉譯與風險審查
     stream: false

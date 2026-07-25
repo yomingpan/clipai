@@ -56,6 +56,11 @@ shortcuts:
     command: start_action
     action_id: extract_keywords
 
+  - id: extract_screenshot_text
+    hotkey: ctrl+alt+g
+    command: start_action
+    action_id: extract_screenshot_text
+
   - id: speak_selection_or_clipboard
     hotkey: ctrl+alt+q
     command: speak_selection_or_clipboard

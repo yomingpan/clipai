@@ -244,7 +244,7 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         data.get("external_fallback"),
         f"{path}.external_fallback",
         {"selection_or_clipboard", "clipboard"},
-        "clipboard" if data.get("input_mode") == "clipboard" else "selection_or_clipboard",
+        "clipboard" if data.get("input_mode") in {"clipboard", "clipboard_image"} else "selection_or_clipboard",
     )
     feedback_contract = _parse_feedback_contract(data.get("feedback"), path)
     return ActionDefinition(
@@ -254,7 +254,7 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         prompt=_string(data.get("prompt"), f"{path}.prompt"),
         press_variants=variants,
         stream=_boolean(data.get("stream"), f"{path}.stream", default=False),
-        input_mode=cast(InputMode, _choice(data.get("input_mode"), f"{path}.input_mode", {"clipboard", "selection_or_clipboard"}, "selection_or_clipboard")),
+        input_mode=cast(InputMode, _choice(data.get("input_mode"), f"{path}.input_mode", {"clipboard", "clipboard_image", "selection_or_clipboard"}, "selection_or_clipboard")),
         output_mode=cast(OutputMode, _choice(data.get("output_mode"), f"{path}.output_mode", {"popup"}, "popup")),
         temperature=None if temperature is None else _number(temperature, f"{path}.temperature"),
         output_profile=_string(data.get("output_profile"), f"{path}.output_profile", default="plain_text"),

@@ -264,7 +264,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 14
+    assert len(start_actions) == 15
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -277,6 +277,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "reflective_question": "ctrl+alt+9",
         "critical_thinking": "ctrl+alt+0",
         "extract_keywords": "ctrl+alt+e",
+        "extract_screenshot_text": "ctrl+alt+g",
         "speak_selection_or_clipboard": "ctrl+alt+q",
         "shorten_content": "ctrl+alt+x",
         "intent_preserving_dictation_editor": "ctrl+alt+~",
