@@ -55,8 +55,8 @@ class OutputOperationPresenter(Protocol):
     def present_output_operation(self, result: OutputOperationResult) -> None: ...
 
 
-class ActiveWorkflowContextReader(Protocol):
-    def active_workflow_context(self) -> ActiveWorkflowContext | None: ...
+class WorkflowContextReader(Protocol):
+    def workflow_context(self, workflow_id: str) -> ActiveWorkflowContext | None: ...
 
 
 class ArchiveStore(Protocol):

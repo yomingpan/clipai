@@ -46,6 +46,7 @@ def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input()
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
         "name_idea": "ctrl+alt+3",
+        "name_concept_carefully": "ctrl+alt+n",
         "illuminate_essence": "ctrl+alt+4",
         "pyramid_position": "ctrl+alt+5",
         "explain_like_friend": "ctrl+alt+6",
@@ -264,11 +265,12 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 14
+    assert len(start_actions) == 16
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
         "name_idea": "ctrl+alt+3",
+        "name_concept_carefully": "ctrl+alt+n",
         "illuminate_essence": "ctrl+alt+4",
         "pyramid_position": "ctrl+alt+5",
         "explain_like_friend": "ctrl+alt+6",
@@ -277,6 +279,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "reflective_question": "ctrl+alt+9",
         "critical_thinking": "ctrl+alt+0",
         "extract_keywords": "ctrl+alt+e",
+        "extract_screenshot_text": "ctrl+alt+g",
         "speak_selection_or_clipboard": "ctrl+alt+q",
         "shorten_content": "ctrl+alt+x",
         "intent_preserving_dictation_editor": "ctrl+alt+~",
@@ -319,6 +322,34 @@ def test_dictation_editor_uses_default_text_workflow_without_a_long_press_varian
     assert "當無法確定" in action.system_prompt
     assert "只輸出整理完成的文字" in action.system_prompt
     assert "<原始轉錄>" in action.prompt
+
+
+def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
+    bundle = load_config_bundle()
+    action = bundle.actions.get("name_concept_carefully")
+    shortcut = bundle.shortcuts.definition("name_concept_carefully")
+
+    assert action.name == "概念命名"
+    assert action.input_mode == "selection_or_clipboard"
+    assert action.external_fallback == "selection_or_clipboard"
+    assert action.output_mode == "popup"
+    assert action.stream is False
+    assert action.temperature == 0.2
+    assert action.press_variants == {}
+    assert shortcut.hotkey == "ctrl+alt+n"
+    assert shortcut.action_id == action.id
+    assert "找到、驗證或暫時探索" in action.system_prompt
+    assert "已有詞彙，需要解釋" in action.system_prompt
+    assert "已成熟的想法" in action.system_prompt
+    assert "尚模糊的想法" in action.system_prompt
+    assert "正式術語／慣用說法／流行用語" in action.system_prompt
+    assert "未確認候選" in action.system_prompt
+    assert "前三行嚴格少於 180 個中文字" in action.prompt
+    assert "暫不命名" in action.system_prompt
+    assert "核心詞：" in action.prompt
+    assert "說明：" in action.prompt
+    assert "提醒：" in action.prompt
+    assert "活用：" in action.prompt
 
 
 def test_command_copilot_combines_command_generation_and_risk_review() -> None:

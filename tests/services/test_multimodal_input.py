@@ -1,4 +1,7 @@
+import pytest
+
 from ClipAI.core.models import ImageContent, ResolvedAction
+from ClipAI.core.errors import InputError
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
@@ -47,6 +50,21 @@ def test_clipboard_image_wins_over_clipboard_text_without_selection():
     document = InputResolver(Clipboard(image), selection).resolve("selection_or_clipboard")
     assert document.image == image
     assert document.text == ""
+
+
+def test_clipboard_image_mode_requires_and_marks_a_screenshot():
+    image = ImageContent(b"png", "image/png")
+
+    document = InputResolver(Clipboard(image=image, text="not used"), Selection()).resolve("clipboard_image")
+
+    assert document.image == image
+    assert document.text == ""
+    assert document.source == "screenshot"
+
+
+def test_clipboard_image_mode_rejects_plain_text():
+    with pytest.raises(InputError, match="No screenshot found"):
+        InputResolver(Clipboard(image=None, text="plain text"), Selection()).resolve("clipboard_image")
 
 
 def test_openai_multimodal_payload_uses_data_url():

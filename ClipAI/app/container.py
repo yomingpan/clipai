@@ -37,7 +37,6 @@ from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.action_feedback import ActionFeedbackService
 from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
-from ClipAI.services.workflow_registry import WorkflowRegistry
 from ClipAI.services.provider_binding import ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.input_resolver import InputResolver
@@ -145,7 +144,6 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         )
 
     supervisor = TaskSupervisor(bundle.runtime.max_workers)
-    registry = WorkflowRegistry()
     incident_reporter = IncidentReporter()
     enqueue = lambda command: runtime_holder[0].enqueue(command)
     workflow_module = WorkflowRuntimeModule(
@@ -154,18 +152,19 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         execute_action=execute_action,
         view=view,
         supervisor=supervisor,
+        enqueue=enqueue,
         provider_configuration=provider_configuration,
         workflow_context_reader=view,
         incident_reporter=incident_reporter,
         operation_tracker=operation_tracker,
         notifier=tray,
         speech_coordinator=speech_coordinator,
-        registry=registry,
     )
     result_output_module = ResultOutputRuntimeModule(
         output_actions=output_actions,
         supervisor=supervisor,
-        registry=registry,
+        workflow_controller=workflow_module.controller_for,
+        has_foreground_workflow=workflow_module.has_foreground_workflow,
         output_operation_presenter=view,
         enqueue=enqueue,
         incident_reporter=incident_reporter,
@@ -185,7 +184,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
     user_persistence_module = UserPersistenceRuntimeModule(
         supervisor=supervisor,
-        registry=registry,
+        workflow_controller=workflow_module.controller_for,
         enqueue=enqueue,
         action_feedback=ActionFeedbackService(JsonlActionFeedbackStore()),
         guidance_preferences=guidance_preferences,

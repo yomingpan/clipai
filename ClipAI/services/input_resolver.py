@@ -11,6 +11,11 @@ class InputResolver:
         self._selection = selection
 
     def resolve(self, mode: InputMode) -> InputDocument:
+        if mode == "clipboard_image":
+            image = self._clipboard.read_image()
+            if image is None:
+                raise InputError("No screenshot found. Copy a screenshot to the clipboard, then trigger ClipAI again.")
+            return InputDocument(text="", source="screenshot", image=image)
         if mode == "selection_or_clipboard" and self._selection is not None:
             selected = self._selection.read_text().strip()
             if selected:

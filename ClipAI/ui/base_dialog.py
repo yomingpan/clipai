@@ -838,7 +838,7 @@ class BaseResultSurface:
             command=self.toggle_pin,
         )
         self.pin_button.pack(side="left")
-        self._pin_tooltip = _Tooltip(self.pin_button, "Keep open", self.dialog.lifecycle)
+        self._pin_tooltip = _Tooltip(self.pin_button, "Keep open (Ctrl+E)", self.dialog.lifecycle)
         self.dialog.enable_drag(self.header, title_area, self.title_label)
 
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
@@ -1349,7 +1349,7 @@ class BaseResultSurface:
             hover_color="#2F8DCE" if pinned else "#3A3A3A",
             text_color=CONTENT_COLOR if pinned else "#8A8A8A",
         )
-        self._pin_tooltip.set_text("Unpin" if pinned else "Keep open")
+        self._pin_tooltip.set_text("Unpin (Ctrl+E)" if pinned else "Keep open (Ctrl+E)")
 
     def toggle_pin(self) -> bool:
         pinned = self.dialog.toggle_pin()

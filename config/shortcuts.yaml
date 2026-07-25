@@ -16,6 +16,11 @@ shortcuts:
     command: start_action
     action_id: name_idea
 
+  - id: name_concept_carefully
+    hotkey: ctrl+alt+n
+    command: start_action
+    action_id: name_concept_carefully
+
   - id: illuminate_essence
     hotkey: ctrl+alt+4
     command: start_action
@@ -55,6 +60,11 @@ shortcuts:
     hotkey: ctrl+alt+e
     command: start_action
     action_id: extract_keywords
+
+  - id: extract_screenshot_text
+    hotkey: ctrl+alt+g
+    command: start_action
+    action_id: extract_screenshot_text
 
   - id: speak_selection_or_clipboard
     hotkey: ctrl+alt+q

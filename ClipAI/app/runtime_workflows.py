@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeAlias
+from dataclasses import dataclass
+from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, ShortcutTriggered, StartAction, TogglePin
 from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget
-from ClipAI.core.ports import ActiveWorkflowContextReader, ApplicationView, OperationTracker, UserNotifier
+from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
@@ -19,11 +20,41 @@ from ClipAI.services.shortcut_intent import ShortcutIntentCoordinator
 from ClipAI.services.shortcut_sequence import ShortcutSequenceCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
 from ClipAI.services.workflow_controller import WorkflowController
-from ClipAI.services.workflow_registry import WorkflowRegistry
 from ClipAI.support.diagnostics import IncidentReporter
 
 
-WorkflowRuntimeCommand: TypeAlias = StartAction | CloseSession | CancelSession | TogglePin | FollowUp | ActivateWorkflow | NavigateWorkflowBack
+WorkflowPresentation: TypeAlias = Literal["visible", "headless"]
+
+
+@dataclass(frozen=True)
+class WorkflowInvocationFailed:
+    workflow_id: str
+    error: BaseException
+
+
+@dataclass(frozen=True)
+class HeadlessWorkflowFinished:
+    workflow_id: str
+
+
+WorkflowRuntimeCommand: TypeAlias = (
+    StartAction
+    | CloseSession
+    | CancelSession
+    | TogglePin
+    | FollowUp
+    | ActivateWorkflow
+    | NavigateWorkflowBack
+    | WorkflowInvocationFailed
+    | HeadlessWorkflowFinished
+)
+
+
+@dataclass(frozen=True)
+class _WorkflowRecord:
+    controller: WorkflowController
+    binding: ProviderExecutionBinding
+    presentation: WorkflowPresentation
 
 
 class _HeadlessPresenter:
@@ -46,20 +77,21 @@ class WorkflowRuntimeModule:
         execute_action: ActionExecutor,
         view: ApplicationView,
         supervisor: TaskSupervisor,
+        enqueue: Callable[[object], None],
         provider_configuration: ProviderConfigurationCoordinator,
-        workflow_context_reader: ActiveWorkflowContextReader,
+        workflow_context_reader: WorkflowContextReader,
         incident_reporter: IncidentReporter,
         operation_tracker: OperationTracker | None = None,
         notifier: UserNotifier | None = None,
         speech_coordinator: SpeechCoordinator | None = None,
         input_targets: InputTargetResolver | None = None,
         shortcut_intents: ShortcutIntentCoordinator | None = None,
-        registry: WorkflowRegistry | None = None,
     ) -> None:
         self._actions = actions
         self._execute_action = execute_action
         self._view = view
         self._supervisor = supervisor
+        self._enqueue = enqueue
         self._provider_configuration = provider_configuration
         self._workflow_context_reader = workflow_context_reader
         self._incident_reporter = incident_reporter
@@ -67,30 +99,21 @@ class WorkflowRuntimeModule:
         self._notifier = notifier
         self._speech_coordinator = speech_coordinator
         self._input_targets = input_targets or InputTargetResolver()
-        self._registry = registry or WorkflowRegistry()
-        self._provider_bindings: dict[str, ProviderExecutionBinding] = {}
+        self._records: dict[str, _WorkflowRecord] = {}
+        self._foreground_id: str | None = None
         self._shortcut_intents = shortcut_intents or ShortcutSequenceCoordinator(
             shortcuts,
             on_waiting=self._sequence_waiting,
             on_error=self._sequence_error,
-            on_cancel_active=self._cancel_sequence,
+            on_cancel_active=self._cancel_headless_workflows,
         )
 
-    @property
-    def registry(self) -> WorkflowRegistry:
-        return self._registry
+    def controller_for(self, workflow_id: str) -> WorkflowController | None:
+        record = self._records.get(workflow_id)
+        return record.controller if record is not None else None
 
-    @property
-    def workflows(self) -> dict[str, WorkflowController]:
-        return self._registry.workflows
-
-    @property
-    def foreground_id(self) -> str | None:
-        return self._registry.foreground_id
-
-    @property
-    def sequence_id(self) -> str | None:
-        return self._registry.sequence_id
+    def has_foreground_workflow(self) -> bool:
+        return self._foreground_id in self._records
 
     def resolve_shortcut(self, command: ShortcutTriggered) -> AppCommand | None:
         return self._shortcut_intents.resolve(command)
@@ -103,23 +126,29 @@ class WorkflowRuntimeModule:
         elif isinstance(command, CancelSession):
             self._cancel(command.session_id)
         elif isinstance(command, TogglePin):
-            controller = self.workflows.get(command.session_id)
+            controller = self.controller_for(command.session_id)
             if controller and controller.snapshot.status not in {SessionStatus.CANCELLED, SessionStatus.CLOSED}:
                 controller.toggle_pin()
         elif isinstance(command, FollowUp):
             self._follow_up(command)
         elif isinstance(command, ActivateWorkflow):
-            self._registry.activate(command.workflow_id)
+            record = self._records.get(command.workflow_id)
+            if record is not None and record.presentation == "visible":
+                self._foreground_id = command.workflow_id
         elif isinstance(command, NavigateWorkflowBack):
-            controller = self.workflows.get(command.workflow_id)
+            controller = self.controller_for(command.workflow_id)
             if controller is not None:
                 controller.navigate_back()
+        elif isinstance(command, WorkflowInvocationFailed):
+            self._handle_unhandled(command.workflow_id, command.error)
+        elif isinstance(command, HeadlessWorkflowFinished):
+            self._finish_headless(command.workflow_id)
 
     def stop(self) -> None:
         self._shortcut_intents.cancel()
-        self._cancel_sequence()
-        for controller in list(self.workflows.values()):
-            controller.cancel()
+        self._cancel_headless_workflows()
+        for workflow_id in tuple(self._records):
+            self._end(workflow_id, "cancel")
 
     def show_last_error(self) -> None:
         error = self._operation_tracker.last_error if self._operation_tracker is not None else None
@@ -129,32 +158,25 @@ class WorkflowRuntimeModule:
     def _start_action(self, command: StartAction) -> None:
         action = self._actions.resolve(command.action_id, command.press_type)
         if command.result_route == "speech":
-            self._start_sequence_action(action, command)
+            self._start_headless_action(action, command)
             return
-        context = self._workflow_context_reader.active_workflow_context()
-        if context is not None and context.workflow_id not in self.workflows:
-            context = None
+        context = self._foreground_context()
         target = self._input_targets.resolve(context, action.external_fallback)
         contextual = target.kind == "workflow_result" and target.document is not None
         if contextual:
             assert context is not None
             workflow_id = context.workflow_id
-            controller = self.workflows[workflow_id]
+            record = self._records[workflow_id]
+            controller = record.controller
             parent_step_id = context.step_id
             active_id = controller.snapshot.active_invocation_id
             if active_id is not None:
                 controller.cancel_active()
                 self._supervisor.cancel(active_id)
         else:
-            previous = self._registry.get(self._registry.foreground_id)
+            previous = self.controller_for(self._foreground_id or "")
             if previous is not None and not previous.snapshot.pinned:
-                previous_id = previous.snapshot.session_id
-                active_id = previous.snapshot.active_invocation_id
-                previous.cancel()
-                if active_id is not None:
-                    self._supervisor.cancel(active_id)
-                self._registry.remove(previous_id)
-                self._provider_bindings.pop(previous_id, None)
+                self._end(previous.snapshot.session_id, "cancel")
             workflow_id = uuid.uuid4().hex
             target = InputTarget("external_text")
             parent_step_id = None
@@ -162,8 +184,12 @@ class WorkflowRuntimeModule:
                 SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
                 self._view,
             )
-            self._registry.add(workflow_id, controller)
-            self._provider_bindings[workflow_id] = self._provider_configuration.active_binding
+            record = self._register(
+                workflow_id,
+                controller,
+                self._provider_configuration.active_binding,
+                "visible",
+            )
         invocation = ActionInvocation(
             uuid.uuid4().hex,
             action.id,
@@ -173,19 +199,15 @@ class WorkflowRuntimeModule:
             parent_step_id=parent_step_id,
         )
         controller.begin_invocation(invocation, action)
-        self._registry.foreground_id = workflow_id
-        binding = self._provider_bindings[workflow_id]
-        self._supervisor.submit(
+        self._foreground_id = workflow_id
+        self._submit_invocation(
+            workflow_id,
             invocation.invocation_id,
-            lambda: self._execute_action.execute_invocation(action, invocation, controller, binding=binding),
-            lambda error: self._handle_unhandled(workflow_id, error),
+            lambda: self._execute_action.execute_invocation(action, invocation, controller, binding=record.binding),
         )
 
-    def _start_sequence_action(self, action, command: StartAction) -> None:
-        self._cancel_sequence()
-        context = self._workflow_context_reader.active_workflow_context()
-        if context is not None and context.workflow_id not in self.workflows:
-            context = None
+    def _start_headless_action(self, action, command: StartAction) -> None:
+        context = self._foreground_context()
         target = self._input_targets.resolve(context, action.external_fallback)
         workflow_id = uuid.uuid4().hex
         controller = WorkflowController(
@@ -201,38 +223,36 @@ class WorkflowRuntimeModule:
             workflow_id=workflow_id,
         )
         controller.begin_invocation(invocation, action)
-        self._registry.add(workflow_id, controller)
-        self._provider_bindings[workflow_id] = self._provider_configuration.active_binding
-        self._registry.sequence_id = workflow_id
-        binding = self._provider_bindings[workflow_id]
+        record = self._register(
+            workflow_id,
+            controller,
+            self._provider_configuration.active_binding,
+            "headless",
+        )
 
         def execute() -> None:
-            self._execute_action.execute_invocation(action, invocation, controller, binding=binding)
-            if controller.snapshot.status == SessionStatus.COMPLETED and self._registry.sequence_id == workflow_id:
-                self._registry.remove(workflow_id)
-                self._provider_bindings.pop(workflow_id, None)
+            self._execute_action.execute_invocation(action, invocation, controller, binding=record.binding)
+            if controller.snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED}:
+                self._enqueue(HeadlessWorkflowFinished(workflow_id))
 
-        self._supervisor.submit(invocation.invocation_id, execute, lambda error: self._handle_unhandled(workflow_id, error))
+        self._submit_invocation(workflow_id, invocation.invocation_id, execute)
 
-    def _cancel_sequence(self) -> None:
-        workflow_id = self._registry.sequence_id
-        self._registry.sequence_id = None
-        if workflow_id is None:
-            return
-        controller = self._registry.remove(workflow_id)
-        self._provider_bindings.pop(workflow_id, None)
-        if controller is not None:
-            active_id = controller.snapshot.active_invocation_id
-            controller.cancel()
-            if active_id:
-                self._supervisor.cancel(active_id)
-        if self._speech_coordinator is not None:
-            self._speech_coordinator.cancel_workflow(workflow_id)
+    def _cancel_headless_workflows(self) -> None:
+        workflow_ids = tuple(
+            workflow_id
+            for workflow_id, record in self._records.items()
+            if record.presentation == "headless"
+        )
+        for workflow_id in workflow_ids:
+            self._end(workflow_id, "cancel")
+            if self._speech_coordinator is not None:
+                self._speech_coordinator.cancel_workflow(workflow_id)
 
     def _follow_up(self, command: FollowUp) -> None:
-        controller = self.workflows.get(command.session_id)
-        if controller is None or not command.text.strip():
+        record = self._records.get(command.session_id)
+        if record is None or record.presentation != "visible" or not command.text.strip():
             return
+        controller = record.controller
         previous = controller.snapshot
         if previous.displayed_step_index < 0:
             return
@@ -247,8 +267,8 @@ class WorkflowRuntimeModule:
             parent_step_id=parent.step_id,
         )
         controller.begin_invocation(invocation, action)
-        binding = self._provider_bindings[command.session_id]
-        self._supervisor.submit(
+        self._submit_invocation(
+            command.session_id,
             invocation.invocation_id,
             lambda: self._execute_action.execute_follow_up_invocation(
                 action,
@@ -257,35 +277,84 @@ class WorkflowRuntimeModule:
                 controller,
                 original_input=previous.original_input,
                 previous_result=parent.result_text,
-                binding=binding,
+                binding=record.binding,
             ),
-            lambda error: self._handle_unhandled(command.session_id, error),
         )
 
     def _cancel(self, session_id: str) -> None:
-        controller = self.workflows.get(session_id)
-        if controller:
-            active_id = controller.snapshot.active_invocation_id
-            controller.cancel()
-            if active_id is not None:
-                self._supervisor.cancel(active_id)
+        self._end(session_id, "cancel")
 
     def _close(self, session_id: str) -> None:
-        controller = self._registry.remove(session_id)
-        self._provider_bindings.pop(session_id, None)
-        if controller:
-            active_id = controller.snapshot.active_invocation_id
-            controller.close()
-            if active_id is not None:
-                self._supervisor.cancel(active_id)
+        self._end(session_id, "close")
 
     def _handle_unhandled(self, session_id: str, error: BaseException) -> None:
         incident_id = self._incident_reporter.report(error, context=f"session:{session_id}")
-        controller = self.workflows.get(session_id)
+        record = self._records.get(session_id)
+        controller = record.controller if record is not None else None
         if controller:
             active_id = controller.snapshot.active_invocation_id
             if active_id is not None:
                 controller.fail(active_id, f"ClipAI encountered an unexpected error. Incident: {incident_id}")
+            if record is not None and record.presentation == "headless":
+                self._end(session_id, "release")
+
+    def _submit_invocation(
+        self,
+        workflow_id: str,
+        invocation_id: str,
+        work: Callable[[], None],
+    ) -> None:
+        try:
+            self._supervisor.submit(
+                invocation_id,
+                work,
+                lambda error: self._enqueue(WorkflowInvocationFailed(workflow_id, error)),
+            )
+        except BaseException as error:
+            self._handle_unhandled(workflow_id, error)
+
+    def _finish_headless(self, workflow_id: str) -> None:
+        record = self._records.get(workflow_id)
+        if record is not None and record.presentation == "headless":
+            self._end(workflow_id, "release")
+
+    def _foreground_context(self):
+        workflow_id = self._foreground_id
+        if workflow_id is None:
+            return None
+        record = self._records.get(workflow_id)
+        if record is None or record.presentation != "visible":
+            self._foreground_id = None
+            return None
+        context = self._workflow_context_reader.workflow_context(workflow_id)
+        return context if context is not None and context.workflow_id == workflow_id else None
+
+    def _register(
+        self,
+        workflow_id: str,
+        controller: WorkflowController,
+        binding: ProviderExecutionBinding,
+        presentation: WorkflowPresentation,
+    ) -> _WorkflowRecord:
+        if workflow_id in self._records:
+            raise RuntimeError(f"workflow identity is already registered: {workflow_id}")
+        record = _WorkflowRecord(controller, binding, presentation)
+        self._records[workflow_id] = record
+        return record
+
+    def _end(self, workflow_id: str, disposition: Literal["cancel", "close", "release"]) -> None:
+        record = self._records.pop(workflow_id, None)
+        if record is None:
+            return
+        if self._foreground_id == workflow_id:
+            self._foreground_id = None
+        active_id = record.controller.snapshot.active_invocation_id
+        if disposition == "cancel":
+            record.controller.cancel()
+        elif disposition == "close":
+            record.controller.close()
+        if active_id is not None:
+            self._supervisor.cancel(active_id)
 
     def _sequence_waiting(self) -> None:
         if self._operation_tracker is not None:

@@ -7,7 +7,7 @@ import queue
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeCommand, ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule, ProviderRuntimeCommand
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeCommand, UserPersistenceRuntimeModule
-from ClipAI.app.runtime_workflows import WorkflowRuntimeCommand, WorkflowRuntimeModule
+from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvocationFailed, WorkflowRuntimeCommand, WorkflowRuntimeModule
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, GuidancePreferencesCompleted, NavigateWorkflowBack, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import HotkeyEventType
@@ -16,7 +16,7 @@ from ClipAI.services.provider_configuration import ProviderConfigurationResult
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 
 
-_WORKFLOW_COMMANDS = (StartAction, CloseSession, CancelSession, TogglePin, FollowUp, ActivateWorkflow, NavigateWorkflowBack)
+_WORKFLOW_COMMANDS = (StartAction, CloseSession, CancelSession, TogglePin, FollowUp, ActivateWorkflow, NavigateWorkflowBack, WorkflowInvocationFailed, HeadlessWorkflowFinished)
 _OUTPUT_COMMANDS = (CopyResult, PasteResult, ArchiveResult, ToggleSpeech, SpeakSelectionOrClipboard, ExportDiagnostics)
 _PROVIDER_COMMANDS = (SelectProviderModel, SelectProvider, ReloadConfiguration, OpenProviderSettings, ValidateAndSaveProviderSettings, RefreshProviderModels, ProviderConfigurationResult)
 _USER_PERSISTENCE_COMMANDS = (SubmitActionFeedback, ActionFeedbackCompleted, SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted)
@@ -55,20 +55,9 @@ class AppRuntime:
         self._stopping = False
         self._view.set_command_sink(self.enqueue)
 
-        # Transitional read-only test probes. Lifecycle ownership remains in the modules.
-        self._workflows = workflows.workflows
-        self._actions = workflows._actions
-        self._execute_action = workflows._execute_action
+        # Provider configuration compatibility probes remain until that module's
+        # tests migrate to constructor-injected presenters.
         self._provider_configuration = provider_configuration.coordinator
-        self._speech_coordinator = result_output._speech_coordinator
-
-    @property
-    def _foreground_id(self) -> str | None:
-        return self._workflow_module.foreground_id
-
-    @property
-    def _sequence_workflow_id(self) -> str | None:
-        return self._workflow_module.sequence_id
 
     @property
     def _model_selection_presenter(self):

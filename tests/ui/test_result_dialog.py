@@ -236,11 +236,42 @@ def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:
     assert events == ["follow-up:s1"]
 
 
-def test_active_workflow_context_projects_selection_and_displayed_step() -> None:
+def test_ctrl_e_toggles_pin_for_active_popup() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+
+    presenter._register_view("s1", view)
+    result = view.dialog.root.bindings["<Control-e>"](None)
+
+    assert result == "break"
+    assert events == ["pin:toggled", TogglePin("s1")]
+
+    events.clear()
+    presenter._active_workflow_id = "other"
+    result = view.dialog.root.bindings["<Control-e>"](None)
+
+    assert result == "break"
+    assert events == []
+
+
+def test_workflow_context_projects_selection_and_displayed_step() -> None:
     presenter, _events = presenter_with_selection("selected")
     presenter._views["s1"].content = "full result"
     presenter._views["s1"].step_id = "step-1"
-    context = presenter.active_workflow_context()
+    context = presenter.workflow_context("s1")
     assert context.workflow_id == "s1"
     assert context.step_id == "step-1"
     assert context.content == "full result"
@@ -257,7 +288,7 @@ def test_native_close_request_immediately_excludes_popup_content_and_emits_close
     presenter._send_text_command("s1", CopyResult)
 
     assert events == [CloseSession("s1")]
-    assert presenter.active_workflow_context() is None
+    assert presenter.workflow_context("s1") is None
 
 
 def test_focus_lifecycle_ignores_focus_out_until_registered_shown_and_focused() -> None:

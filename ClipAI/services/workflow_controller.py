@@ -44,7 +44,11 @@ class WorkflowController:
                 active_invocation_id=invocation.invocation_id,
                 speaking=False,
                 action_feedback_contract=action.feedback_contract,
-                input_source="selection or clipboard" if action.input_mode == "selection_or_clipboard" else "clipboard",
+                input_source=(
+                    "selection or clipboard" if action.input_mode == "selection_or_clipboard"
+                    else "clipboard screenshot" if action.input_mode == "clipboard_image"
+                    else "clipboard"
+                ),
                 feedback_state="idle",
                 feedback_step_id="",
                 feedback_operation_id="",

@@ -78,10 +78,7 @@ class ResultDialogPresenter:
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
 
-    def active_workflow_context(self) -> ActiveWorkflowContext | None:
-        workflow_id = self._active_workflow_id
-        if workflow_id is None:
-            return None
+    def workflow_context(self, workflow_id: str) -> ActiveWorkflowContext | None:
         view = self._interactive_view(workflow_id)
         if view is None or view.step_id is None or not view.content.strip():
             return None
@@ -437,6 +434,7 @@ class ResultDialogPresenter:
         dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._activate(sid), add="+")
         dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
         dialog.root.bind("<Control-q>", lambda _event, sid=session_id: self._shortcut(self._toggle_speech, sid), add="+")
+        dialog.root.bind("<Control-e>", lambda _event, sid=session_id: self._shortcut(self._toggle_pin, sid), add="+")
         dialog.root.bind("<Control-c>", lambda _event, sid=session_id: self._shortcut(self._copy, sid), add="+")
         dialog.root.bind("<Control-s>", lambda _event, sid=session_id: self._shortcut(self._archive, sid), add="+")
         dialog.root.bind("<Control-r>", lambda _event, sid=session_id: self._shortcut(self._toggle_feedback, sid), add="+")

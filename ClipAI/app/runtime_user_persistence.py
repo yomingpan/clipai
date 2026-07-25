@@ -9,7 +9,7 @@ from ClipAI.core.commands import ActionFeedbackCompleted, GuidancePreferencesCom
 from ClipAI.core.ports import GuidancePreferencesPresenter, UserNotifier
 from ClipAI.services.action_feedback import ActionFeedbackService
 from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator, GuidancePreferencesUpdate
-from ClipAI.services.workflow_registry import WorkflowRegistry
+from ClipAI.services.workflow_controller import WorkflowController
 
 
 UserPersistenceRuntimeCommand: TypeAlias = SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted
@@ -22,7 +22,7 @@ class UserPersistenceRuntimeModule:
         self,
         *,
         supervisor: TaskSupervisor,
-        registry: WorkflowRegistry,
+        workflow_controller: Callable[[str], WorkflowController | None],
         enqueue: Callable[[object], None],
         action_feedback: ActionFeedbackService | None = None,
         guidance_preferences: GuidancePreferencesCoordinator | None = None,
@@ -30,7 +30,7 @@ class UserPersistenceRuntimeModule:
         notifier: UserNotifier | None = None,
     ) -> None:
         self._supervisor = supervisor
-        self._registry = registry
+        self._workflow_controller = workflow_controller
         self._enqueue = enqueue
         self._action_feedback = action_feedback
         self._guidance_preferences = guidance_preferences
@@ -41,7 +41,7 @@ class UserPersistenceRuntimeModule:
         if isinstance(command, SubmitActionFeedback):
             self._submit_feedback(command)
         elif isinstance(command, ActionFeedbackCompleted):
-            controller = self._registry.get(command.session_id)
+            controller = self._workflow_controller(command.session_id)
             if controller is not None:
                 controller.complete_feedback(command.step_id, command.operation_id, command.error)
         elif isinstance(command, SetFirstUseHintsEnabled):
@@ -89,7 +89,7 @@ class UserPersistenceRuntimeModule:
     def _submit_feedback(self, command: SubmitActionFeedback) -> None:
         if self._action_feedback is None:
             return
-        controller = self._registry.get(command.session_id)
+        controller = self._workflow_controller(command.session_id)
         if controller is None:
             return
         step = controller.begin_feedback(command.step_id, command.operation_id)
