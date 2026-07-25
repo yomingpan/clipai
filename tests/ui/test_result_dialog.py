@@ -236,6 +236,37 @@ def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:
     assert events == ["follow-up:s1"]
 
 
+def test_ctrl_e_toggles_pin_for_active_popup() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+
+    presenter._register_view("s1", view)
+    result = view.dialog.root.bindings["<Control-e>"](None)
+
+    assert result == "break"
+    assert events == ["pin:toggled", TogglePin("s1")]
+
+    events.clear()
+    presenter._active_workflow_id = "other"
+    result = view.dialog.root.bindings["<Control-e>"](None)
+
+    assert result == "break"
+    assert events == []
+
+
 def test_active_workflow_context_projects_selection_and_displayed_step() -> None:
     presenter, _events = presenter_with_selection("selected")
     presenter._views["s1"].content = "full result"

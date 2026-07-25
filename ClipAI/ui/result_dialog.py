@@ -437,6 +437,7 @@ class ResultDialogPresenter:
         dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._activate(sid), add="+")
         dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
         dialog.root.bind("<Control-q>", lambda _event, sid=session_id: self._shortcut(self._toggle_speech, sid), add="+")
+        dialog.root.bind("<Control-e>", lambda _event, sid=session_id: self._shortcut(self._toggle_pin, sid), add="+")
         dialog.root.bind("<Control-c>", lambda _event, sid=session_id: self._shortcut(self._copy, sid), add="+")
         dialog.root.bind("<Control-s>", lambda _event, sid=session_id: self._shortcut(self._archive, sid), add="+")
         dialog.root.bind("<Control-r>", lambda _event, sid=session_id: self._shortcut(self._toggle_feedback, sid), add="+")

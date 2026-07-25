@@ -35,6 +35,7 @@ from ClipAI.ui.base_dialog import (
     SurfaceFlashController,
     SurfaceStateColors,
     BaseDialog,
+    BaseResultSurface,
     _PresentationTextbox,
     apply_widget_font_scaling,
     hide_window_from_task_switcher,
@@ -685,6 +686,44 @@ def test_copy_and_archive_feedback_use_green_check_icon() -> None:
 def test_pin_icons_use_stable_icon_font_glyphs() -> None:
     assert PIN_ICON == "\uE718"
     assert UNPIN_ICON == "\uE77A"
+
+
+def test_pin_state_updates_icon_and_shortcut_tooltip() -> None:
+    class Dialog:
+        def __init__(self) -> None:
+            self.pinned = None
+
+        def set_pinned(self, pinned: bool) -> None:
+            self.pinned = pinned
+
+    class Button:
+        def __init__(self) -> None:
+            self.configuration = {}
+
+        def configure(self, **configuration) -> None:
+            self.configuration = configuration
+
+    class Tooltip:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def set_text(self, text: str) -> None:
+            self.text = text
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.dialog = Dialog()
+    surface.pin_button = Button()
+    surface._pin_tooltip = Tooltip()
+
+    surface.set_pinned_state(True)
+    assert surface.dialog.pinned is True
+    assert surface.pin_button.configuration["text"] == UNPIN_ICON
+    assert surface._pin_tooltip.text == "Unpin (Ctrl+E)"
+
+    surface.set_pinned_state(False)
+    assert surface.dialog.pinned is False
+    assert surface.pin_button.configuration["text"] == PIN_ICON
+    assert surface._pin_tooltip.text == "Keep open (Ctrl+E)"
 
 
 def test_source_preview_stays_on_one_line_and_ellipsizes_over_limit() -> None:
