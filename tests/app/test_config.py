@@ -46,6 +46,7 @@ def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input()
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
         "name_idea": "ctrl+alt+3",
+        "name_concept_carefully": "ctrl+alt+n",
         "illuminate_essence": "ctrl+alt+4",
         "pyramid_position": "ctrl+alt+5",
         "explain_like_friend": "ctrl+alt+6",
@@ -264,11 +265,12 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 15
+    assert len(start_actions) == 16
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
         "name_idea": "ctrl+alt+3",
+        "name_concept_carefully": "ctrl+alt+n",
         "illuminate_essence": "ctrl+alt+4",
         "pyramid_position": "ctrl+alt+5",
         "explain_like_friend": "ctrl+alt+6",
@@ -320,6 +322,35 @@ def test_dictation_editor_uses_default_text_workflow_without_a_long_press_varian
     assert "當無法確定" in action.system_prompt
     assert "只輸出整理完成的文字" in action.system_prompt
     assert "<原始轉錄>" in action.prompt
+
+
+def test_concept_diagnosis_selects_a_natural_mode_and_preserves_uncertainty() -> None:
+    bundle = load_config_bundle()
+    action = bundle.actions.get("name_concept_carefully")
+    shortcut = bundle.shortcuts.definition("name_concept_carefully")
+
+    assert action.name == "概念診斷"
+    assert action.input_mode == "selection_or_clipboard"
+    assert action.external_fallback == "selection_or_clipboard"
+    assert action.output_mode == "popup"
+    assert action.stream is False
+    assert action.temperature == 0.2
+    assert action.press_variants == {}
+    assert shortcut.hotkey == "ctrl+alt+n"
+    assert shortcut.action_id == action.id
+    assert "素材找概念" in action.system_prompt
+    assert "概念解釋" in action.system_prompt
+    assert "概念檢查素材" in action.system_prompt
+    assert "即使沒有固定格式" in action.system_prompt
+    assert "總長嚴格少於 200 個字元" in action.prompt
+    assert "複雜專業情境才可少於 300 個字元" in action.prompt
+    assert "暫不命名" in action.prompt
+    assert "沒有素材時，說明概念的通用邊界" in action.prompt
+    assert "第 1 行一律以「結論：」開始" in action.prompt
+    assert "第 2 行一律以「依據：」開始" in action.prompt
+    assert "第 3 行一律以「下一步：」開始" in action.prompt
+    assert "不用斜線、項目符號、密集縮寫或輸入模式名稱" in action.prompt
+    assert "這個詞讓我更靠近真實經驗與下一步行動" in action.prompt
 
 
 def test_command_copilot_combines_command_generation_and_risk_review() -> None:

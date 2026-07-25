@@ -16,6 +16,11 @@ shortcuts:
     command: start_action
     action_id: name_idea
 
+  - id: name_concept_carefully
+    hotkey: ctrl+alt+n
+    command: start_action
+    action_id: name_concept_carefully
+
   - id: illuminate_essence
     hotkey: ctrl+alt+4
     command: start_action
