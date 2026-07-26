@@ -31,6 +31,8 @@ class _SessionView:
     rendered_content_key: tuple[object, ...] | None = None
     shown_guidance_keys: set[str] = field(default_factory=set)
     close_requested: bool = False
+    paste_transition_id: str | None = None
+    paste_transition_pinned: bool = False
 
 
 @dataclass
@@ -55,6 +57,9 @@ class PopupFocusLifecycle:
     def finish_outside_check(self, *, pinned: bool, focused_inside: bool) -> bool:
         self.outside_check_pending = False
         return self.ready and not pinned and not focused_inside
+
+    def cancel_outside_check(self) -> None:
+        self.outside_check_pending = False
 
 
 class ResultDialogPresenter:
@@ -113,6 +118,8 @@ class ResultDialogPresenter:
             return
         slot_id = "speaker" if result.kind == "speech" else result.kind
         if result.state == "pending":
+            if result.kind == "paste" and view.paste_transition_id not in {None, result.operation_id}:
+                return
             view.output_operations[result.kind] = result.operation_id
             if result.kind in {"copy", "paste", "archive"}:
                 view.surface.set_standard_action_enabled(slot_id, False)
@@ -122,6 +129,15 @@ class ResultDialogPresenter:
         view.output_operations.pop(result.kind, None)
         if result.kind in {"copy", "paste", "archive"}:
             view.surface.set_standard_action_enabled(slot_id, True)
+        if result.kind == "paste" and view.paste_transition_id == result.operation_id:
+            pinned = view.paste_transition_pinned
+            view.paste_transition_id = None
+            view.paste_transition_pinned = False
+            if result.state == "succeeded":
+                if pinned:
+                    view.dialog.restore_after_external_output(activate=False)
+            else:
+                view.dialog.restore_after_external_output(activate=not pinned)
         if result.state == "succeeded":
             view.surface.pulse_standard_action(slot_id)
             if result.kind == "archive" and not view.surface.overflow_expanded:
@@ -342,9 +358,14 @@ class ResultDialogPresenter:
 
     def _paste(self, session_id: str) -> None:
         view = self._interactive_view(session_id)
-        if view is None:
+        if view is None or view.paste_transition_id is not None:
             return
-        self._command_sink(PasteResult(session_id, view.surface.selected_text(), uuid.uuid4().hex))
+        operation_id = uuid.uuid4().hex
+        text = view.surface.selected_text()
+        view.paste_transition_id = operation_id
+        view.paste_transition_pinned = view.dialog.pinned
+        view.dialog.hide_for_external_output()
+        self._command_sink(PasteResult(session_id, text, operation_id))
 
     def _toggle_pin(self, session_id: str) -> None:
         view = self._views.get(session_id)
@@ -438,6 +459,7 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-c>", lambda _event, sid=session_id: self._shortcut(self._copy, sid), add="+")
         dialog.root.bind("<Control-s>", lambda _event, sid=session_id: self._shortcut(self._archive, sid), add="+")
         dialog.root.bind("<Control-r>", lambda _event, sid=session_id: self._shortcut(self._toggle_feedback, sid), add="+")
+        dialog.root.bind("<Control-w>", lambda _event, sid=session_id: self._shortcut(self._paste, sid), add="+")
         dialog.root.bind("<Control-slash>", lambda _event, sid=session_id: self._shortcut(self._toggle_follow_up, sid), add="+")
         lifecycle.shown = True
 
@@ -469,6 +491,9 @@ class ResultDialogPresenter:
         def check() -> None:
             view = self._views.get(session_id)
             if view is None:
+                return
+            if view.paste_transition_id is not None:
+                lifecycle.cancel_outside_check()
                 return
             try:
                 focused = view.dialog.root.focus_get()

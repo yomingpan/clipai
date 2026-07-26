@@ -42,6 +42,9 @@ py-modules = ["main"]
 [tool.setuptools.packages.find]
 include = ["ClipAI*"]
 
+[tool.setuptools.package-data]
+"ClipAI.ui" = ["assets/*.ico"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

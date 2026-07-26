@@ -9,7 +9,7 @@ Before changing this repository, read:
 ## Product interaction principles
 
 1. Every user action must produce an immediate, visible response. A control must show a pending, active, success, or failure state as appropriate; examples include Speak changing to Stop while active and Copy or Archive briefly confirming completion.
-2. UI feedback must reflect the real lifecycle. Do not show success before the operation succeeds, and do not infer external API activity from unrelated UI or session revisions.
+2. UI feedback must reflect the real lifecycle. Do not show success before the operation succeeds, and do not infer external API activity from unrelated UI or workflow snapshot revisions.
 3. Accessibility and clarity take priority over decorative effects. Use a stable icon vocabulary, tooltips, enabled/disabled states, and state changes that remain understandable without animation.
 
 ## Architecture-first rule
@@ -38,11 +38,11 @@ unless the user explicitly asks for implementation.
 
 ## Intent and lifecycle rules
 
-1. Side effects require an explicit typed user intent. Speech, paste, archive, clipboard mutation, provider calls, and diagnostics export must not be inferred from popup creation, render, focus, activation, navigation, provider completion, or session revision.
-2. Session identity, provider invocation identity, output-operation identity, selection-capture identity, and view lifecycle are separate concepts. Do not substitute one identity or a session revision for another.
+1. Side effects require an explicit typed user intent. Speech, paste, archive, clipboard mutation, provider calls, and diagnostics export must not be inferred from view creation, render, focus, activation, navigation, provider completion, or workflow snapshot revision.
+2. Workflow identity, provider invocation identity, output-operation identity, selection-capture identity, and view lifecycle are separate concepts. Do not substitute one identity or a workflow snapshot revision for another. Existing `session_id` fields and `SessionSnapshot` are compatibility names for Workflow identity and projection; do not introduce a second Session domain concept or add new session-named surfaces.
 3. Cancellation, cleanup, clipboard restoration, and late completion are scoped to the operation identity that created them. An older operation must never cancel, overwrite, restore into, or report completion for a newer operation.
-4. Every popup workflow has exactly one authoritative state owner. Currently this is `WorkflowController`; widgets, workers, and adapters may project or report state but must not independently own workflow state.
-5. Operation-specific state such as speaking, copying, archiving, or provider activity must reflect the real operation lifecycle. Do not derive it from general popup visibility or workflow revisions.
+4. Every Workflow has exactly one authoritative state owner: `WorkflowController` owns its snapshot, active invocation, cancellation, successful-step history, and feedback projection. `WorkflowRuntimeModule` separately owns Workflow membership, semantic Foreground Workflow identity, visible/headless lifetime, and the provider binding captured at Workflow start. Widgets, workers, and adapters may project or report state but must not duplicate either ownership role.
+5. Operation-specific state such as speaking, copying, archiving, or provider activity must reflect the real operation lifecycle. Do not derive it from view visibility or workflow snapshot revisions.
 6. For every text-capable Action, prefer text explicitly selected at the instant the user triggers the Action; when no valid selection can be captured, fall back to the clipboard. Selection capture must not permanently change the user's previous clipboard content.
 
 ## Dependency boundaries
@@ -50,7 +50,7 @@ unless the user explicitly asks for implementation.
 - `core` depends only on the Python standard library.
 - `services` depends on `core`.
 - `platform`, `providers`, and `ui` depend on `core` plus their adapter libraries.
-- Only `app` composes concrete services, platform adapters, providers, and UI.
+- Only `app` composes concrete services, platform adapters, providers, and UI. `app/container.py` is the assembly entry point; focused app composition adapters may construct or rebuild concrete dependencies behind typed service contracts.
 - Cross-thread UI input uses the typed command queue, not a global Event Bus.
 - Provider workers never mutate Tkinter; UI changes happen on the UI thread.
 - Use typed immutable models between layers instead of raw dictionaries.

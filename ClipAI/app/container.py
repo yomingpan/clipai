@@ -107,7 +107,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         else None
     )
     selection_reader = SystemSelectionReader(clipboard)
-    voice_selector = SpeechVoiceSelector(bundle.tts.english_voice)
+    voice_selector = SpeechVoiceSelector(
+        bundle.tts.english_voice,
+        japanese_voice=bundle.tts.japanese_voice,
+    )
     speech_coordinator = (
         SpeechCoordinator(
             clipboard=clipboard,

@@ -63,6 +63,7 @@ tts:
   enabled: true
   voice: zh-TW-HsiaoChenNeural
   english_voice: en-US-AndrewNeural
+  japanese_voice: ja-JP-NanamiNeural
   rate: "+0%"
   volume: "+0%"
 

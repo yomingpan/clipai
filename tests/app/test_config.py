@@ -19,6 +19,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.providers.gemini.available_models == ("gemini-3.1-flash-lite", "gemini-2.5-flash")
     assert bundle.runtime.max_workers == 2
     assert bundle.app.modifier_mode == "ctrl_alt"
+    assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
     assert "預設不超過 5 行或 120 字" in bundle.app.system_prompt
     assert "不主動加例子" in bundle.app.system_prompt
@@ -30,8 +31,11 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert action.output_profile == "english_learning_compact"
     assert bundle.output_profiles.get(action.output_profile).required_markers == ()
     assert bundle.output_profiles.get(action.output_profile).presentation == "plain_text"
-    assert "appears literally in the input" in action.system_prompt
-    assert "never substitute, infer, or invent" in action.system_prompt
+    assert "When the input contains English" in action.system_prompt
+    assert "When the input is Chinese-only" in action.system_prompt
+    assert "do not refuse merely because no English is present" in action.system_prompt
+    assert "concrete real-life situation" in action.system_prompt
+    assert "Avoid formulaic wording" in action.prompt
     assert "記憶：" in action.prompt
     assert bundle.schema_versions.app == 1
     assert bundle.schema_versions.actions == 7
@@ -54,6 +58,9 @@ def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input()
         "english_companion": "ctrl+alt+8",
         "reflective_question": "ctrl+alt+9",
         "critical_thinking": "ctrl+alt+0",
+        "mece_decomposition": "ctrl+alt+s",
+        "minimum_action": "ctrl+alt+a",
+        "tradeoff_perspective": "ctrl+alt+d",
         "extract_keywords": "ctrl+alt+e",
     }
 
@@ -73,9 +80,29 @@ def test_long_press_uses_variant_prompt() -> None:
     assert resolved.name == "英文改善建議"
     assert "Improve the following English" in resolved.prompt
     assert resolved.output_profile == "english_improvement"
+    assert resolved.prompt.index("Start with one polished full rewrite") < resolved.prompt.index("Then focus on")
+    assert "do not invent a complete sentence or unsupported context" in resolved.prompt
     assert resolved.feedback_contract is not None
     assert resolved.feedback_contract.transform_label == "找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型"
     assert resolved.feedback_contract != catalog.resolve("english_companion", "short").feedback_contract
+
+
+def test_long_press_ctrl_alt_2_translates_to_japanese() -> None:
+    bundle = load_config_bundle()
+
+    shortcut = bundle.shortcuts.definition("translate_to_english")
+    short_action = bundle.actions.resolve(shortcut.action_id, "short")
+    long_action = bundle.actions.resolve(shortcut.action_id, "long")
+
+    assert shortcut.hotkey == "ctrl+alt+2"
+    assert short_action.name == "Translate to English"
+    assert "natural English" in short_action.prompt
+    assert long_action.name == "翻譯成日文"
+    assert "natural Japanese" in long_action.prompt
+    assert "Output only the Japanese translation" in long_action.system_prompt
+    assert long_action.feedback_contract is not None
+    assert long_action.feedback_contract.transform_label == "將內容翻譯成符合情境與關係的自然日文"
+    assert long_action.feedback_contract != short_action.feedback_contract
 
 
 def test_action_input_mode_defaults_to_selection_or_clipboard(tmp_path: Path) -> None:
@@ -265,7 +292,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 16
+    assert len(start_actions) == 19
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -278,6 +305,9 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "english_companion": "ctrl+alt+8",
         "reflective_question": "ctrl+alt+9",
         "critical_thinking": "ctrl+alt+0",
+        "mece_decomposition": "ctrl+alt+s",
+        "minimum_action": "ctrl+alt+a",
+        "tradeoff_perspective": "ctrl+alt+d",
         "extract_keywords": "ctrl+alt+e",
         "extract_screenshot_text": "ctrl+alt+g",
         "speak_selection_or_clipboard": "ctrl+alt+q",
@@ -350,6 +380,54 @@ def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
     assert "說明：" in action.prompt
     assert "提醒：" in action.prompt
     assert "活用：" in action.prompt
+
+
+def test_thinking_actions_have_distinct_outputs_and_human_space() -> None:
+    bundle = load_config_bundle()
+
+    expected = {
+        "mece_decomposition": {
+            "name": "MECE 拆解",
+            "hotkey": "ctrl+alt+s",
+            "prompt_markers": ("## 推薦切面", "## MECE 拆解", "## 邊界與缺少資訊"),
+            "human_space": "保留真正想理解的問題、拆解邊界，以及是否接受這個切面的判斷",
+        },
+        "minimum_action": {
+            "name": "最小行動",
+            "hotkey": "ctrl+alt+a",
+            "prompt_markers": ("## 最小行動", "## 為什麼是這一步", "## 完成條件"),
+            "human_space": "保留是否採用、何時投入、如何修改，以及決定不行動的權利",
+        },
+        "tradeoff_perspective": {
+            "name": "權衡透視",
+            "hotkey": "ctrl+alt+d",
+            "prompt_markers": ("## 觀點", "## 價值與取捨", "## 兩邊的代價", "## 需要你判斷"),
+            "human_space": "保留價值排序、可接受代價，以及最後選擇與負責的判斷",
+        },
+    }
+
+    for action_id, contract in expected.items():
+        action = bundle.actions.get(action_id)
+        shortcut = bundle.shortcuts.definition(action_id)
+
+        assert action.name == contract["name"]
+        assert shortcut.hotkey == contract["hotkey"]
+        assert shortcut.action_id == action_id
+        assert action.input_mode == "selection_or_clipboard"
+        assert action.external_fallback == "selection_or_clipboard"
+        assert action.output_mode == "popup"
+        assert action.output_profile == "plain_text"
+        assert action.press_variants == {}
+        assert "圖片" in action.system_prompt
+        assert all(marker in action.prompt for marker in contract["prompt_markers"])
+        assert action.feedback_contract is not None
+        assert action.feedback_contract.human_space_label == contract["human_space"]
+        assert len(action.feedback_contract.reasons) == 5
+        assert action.feedback_contract.reasons[-1].id == "other"
+
+    assert "不要先列出多套框架" in bundle.actions.get("mece_decomposition").system_prompt
+    assert "只提出一個行動" in bundle.actions.get("minimum_action").system_prompt
+    assert "不替使用者排序價值" in bundle.actions.get("tradeoff_perspective").system_prompt
 
 
 def test_command_copilot_combines_command_generation_and_risk_review() -> None:

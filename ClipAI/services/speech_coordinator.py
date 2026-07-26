@@ -12,10 +12,20 @@ from ClipAI.services.speech_text import SpeechTextPreprocessor
 
 
 class SpeechVoiceSelector:
-    def __init__(self, english_voice: str) -> None:
+    _JAPANESE_RANGES = (
+        ("\u3040", "\u309f"),  # Hiragana
+        ("\u30a0", "\u30ff"),  # Katakana
+        ("\u31f0", "\u31ff"),  # Katakana phonetic extensions
+        ("\uff66", "\uff9d"),  # Half-width Katakana
+    )
+
+    def __init__(self, english_voice: str, *, japanese_voice: str = "ja-JP-NanamiNeural") -> None:
         self._english_voice = english_voice
+        self._japanese_voice = japanese_voice
 
     def select(self, text: str) -> str | None:
+        if any(start <= char <= end for char in text for start, end in self._JAPANESE_RANGES):
+            return self._japanese_voice
         if any("\u4e00" <= char <= "\u9fff" for char in text):
             return None
         return self._english_voice

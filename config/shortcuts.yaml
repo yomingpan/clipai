@@ -56,6 +56,21 @@ shortcuts:
     command: start_action
     action_id: critical_thinking
 
+  - id: mece_decomposition
+    hotkey: ctrl+alt+s
+    command: start_action
+    action_id: mece_decomposition
+
+  - id: minimum_action
+    hotkey: ctrl+alt+a
+    command: start_action
+    action_id: minimum_action
+
+  - id: tradeoff_perspective
+    hotkey: ctrl+alt+d
+    command: start_action
+    action_id: tradeoff_perspective
+
   - id: extract_keywords
     hotkey: ctrl+alt+e
     command: start_action

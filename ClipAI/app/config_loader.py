@@ -111,13 +111,14 @@ def load_app_config(path: str | Path) -> tuple[AppSettings, RuntimeSettings, Pro
 def _parse_tts(value: Any) -> TTSSettings:
     path = "config.tts"
     data = _mapping(value, path, allow_none=True)
-    _reject_unknown(data, {"enabled", "voice", "english_voice", "rate", "volume"}, path)
+    _reject_unknown(data, {"enabled", "voice", "english_voice", "japanese_voice", "rate", "volume"}, path)
     return TTSSettings(
         enabled=_boolean(data.get("enabled"), f"{path}.enabled", default=False),
         voice=_string(data.get("voice"), f"{path}.voice", default=""),
         rate=_string(data.get("rate"), f"{path}.rate", default="+0%"),
         volume=_string(data.get("volume"), f"{path}.volume", default="+0%"),
         english_voice=_string(data.get("english_voice"), f"{path}.english_voice", default="en-US-AndrewNeural"),
+        japanese_voice=_string(data.get("japanese_voice"), f"{path}.japanese_voice", default="ja-JP-NanamiNeural"),
     )
 
 

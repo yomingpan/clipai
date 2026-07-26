@@ -15,9 +15,10 @@ ClipAI 一開始就要把系統切成幾個好替換的接縫。像家電插頭�
 業務邏輯只依賴抽象介面，例如：
 
 - `LLMProvider`
-- `UIGateway`
+- `ApplicationView` / `ResultPresenter`
 - typed command queue
 - `WorkflowController`（包含 invocation identity、cancellation 與 successful-step history）
+- `WorkflowRuntimeModule`（包含 Workflow membership、Foreground Workflow、visible/headless lifetime 與 captured provider binding）
 - Clipboard/Input abstraction
 - Output abstraction
 
@@ -105,7 +106,7 @@ tests/
     core/
     services/
     platform/
-    provider/
+    providers/
     ui/
     config/
   integration/
@@ -153,12 +154,16 @@ Unit / Sims 應測：
 - top-row digits / numpad digits / letters 正確 normalize。
 - 多個 action hotkey 彼此隔離。
 - 重複 press/release 不造成多次誤觸。
+- 已取消但排程中的舊 timer callback 不得完成新的 gesture operation。
+- listener stop 必須取消 active timers、清除 dispatcher state，並使 late
+  keyboard/timer callbacks 保持無效。
 
 Integration 應測：
 
 - 真實 listener 可註冊與釋放。
 - 快速連按不殘留狀態。
-- app stop 後 listener 被確實停止。
+- app stop 後 listener、dispatcher state 與 active timers 被確實停止，
+  且不得再 enqueue Shortcut intent。
 
 ## Popup 測試重點
 
@@ -171,7 +176,7 @@ Unit / Sims 應測：
 - finalize result。
 - copy/archive/speak button。
 - follow-up toggle。
-- close session cleanup。
+- close Workflow cleanup。
 - presenter unsubscribe event。
 - selection 優先於 full output。
 
@@ -198,21 +203,26 @@ Recipe 回饋與使用引導應測：
 
 ## Runtime 與 concurrency 測試重點
 
-- 新 hotkey 取消舊的未 pin session。
-- closed/cancelled session 忽略晚到 provider result。
-- revision 較舊的 UI update 不可覆蓋新狀態。
+- 新的外部 Action 取消舊的未 pin visible Workflow；pinned Workflow 保留但不自動成為 Foreground Workflow。
+- visible 與 headless Workflow 使用相同 identity／registration 規則；headless Workflow 不得成為 Foreground Workflow，也不得被強制成全域 singleton。
+- close/cancel 釋放 Workflow membership；visible completion 保留 membership 供 follow-up，headless completion 立即釋放。
+- Workflow 在建立時 capture provider/model binding；後續 configuration change 不得改變既有 Workflow 的 binding。
+- 被取代 invocation 的晚到 provider result 由 active invocation ID 與 cancellation token 拒絕。
+- revision 較舊的 Workflow snapshot projection 不可覆蓋較新的 UI 狀態；revision 不得作為 provider invocation 或 output-operation identity。
+- Worker completion 與 failure 必須先透過 typed command 回到 runtime，再修改 Workflow lifetime state。
 - Provider worker 不直接呼叫 Tkinter。
-- shutdown 會停止 listener、取消 sessions 並關閉 thread pool。
+- shutdown 會停止 listener、取消 Workflows 並關閉 thread pool。
 - 程式生命週期只建立一個 Tk root/mainloop。
 
 ## Architecture tests
 
-以 AST 掃描 imports，不額外依賴 lint plugin：
+以 AST 掃描 package-qualified imports，不額外依賴 lint plugin：
 
 - `core` 不得 import 其他 ClipAI layer。
 - `services` 只能 import `core`。
 - `platform`、`providers`、`ui` 不得彼此或反向 import `services/app`。
 - 只有 `app` 可以同時知道 concrete adapters 與 services。
+- `app/container.py` 是 assembly entry point；runtime provider rebuild 可位於 focused app composition adapter，但不得下沉到 `services` 或 `providers`。
 - 不得存在 global Event Bus 或未設移除期限的 compatibility shim。
 
 ## Marker 規則
