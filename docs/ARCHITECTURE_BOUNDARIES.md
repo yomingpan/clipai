@@ -16,27 +16,26 @@ clipai/
   core/             # 核心抽象、事件、domain contract
   platform/         # 作業系統與裝置接縫
   providers/        # AI provider adapter
-  services/         # 業務流程與 pipeline orchestration
-  services/input/   # 輸入解析與輸入 session
+  services/         # 業務流程、輸入解析與 pipeline orchestration
   ui/               # 使用者介面
   support/          # logging、diagnostics 與純通用工具
 config/             # 使用者設定，放在 package 外部
-  prompts/          # prompt template 與可調整的語意內容
 tests/              # Unit sims 與 integration tests
 ```
 
-`app` 是唯一 composition root。依賴方向固定為：`app -> services/platform/providers/ui -> core`；`support` 不得知道 ClipAI 業務模型。
+`app` 是唯一 composition layer。`app/container.py` 是組裝入口；focused app composition adapters 可以在 typed service contract 背後建立或重建 concrete dependency。依賴方向固定為：`app -> services/platform/providers/ui -> core`；`support` 不得知道 ClipAI 業務模型。
 
 ## Runtime 與協調契約
 
 - 整個程式只有一個 `AppRuntime`、一個 Tk root 與一個 Tk mainloop。
 - 主流程使用直接 method call；跨 thread 使用 typed command queue。
-- 禁止 global Event Bus。Event Bus 不得用來指揮 action pipeline 或修改 session。
-- 每個 composable popup workflow 只有一個 `WorkflowController`，由它擁有狀態、active invocation 與成功 step history。
+- 禁止 global Event Bus。Event Bus 不得用來指揮 action pipeline 或修改 Workflow。
+- 每個 Workflow 只有一個 `WorkflowController`，由它擁有 snapshot、active invocation、cancellation、成功 step history 與 feedback projection。
+- `WorkflowRuntimeModule` 是 Workflow membership、semantic Foreground Workflow、visible/headless lifetime 與 captured provider binding 的唯一 owner。Window focus 只能提出 activation candidate，不得自行決定 Foreground Workflow。
 - Provider 採同步 contract，由單一有界 `ThreadPoolExecutor` 執行；Provider 自己不得建立 thread。
 - Hotkey callback 只能 enqueue command；worker 不得直接碰 Tkinter。
-- 新的未 pin action 取代舊 action；取消後晚到的結果必須依 session id/revision 丟棄。
-- 所有 concrete dependency 只在 `app/container.py` 建立並注入。
+- 新的外部 Action 取代舊的未 pin visible Workflow；被取代或取消的 invocation 晚到時，必須依 Workflow ID、active invocation ID 與 cancellation token 丟棄。Workflow snapshot revision 只用於拒絕過時的 UI projection，不得代替 operation identity。
+- `app/container.py` 負責 assembly；需要在 runtime reload 或設定變更後重建的 concrete dependency，可由 focused app composition adapter 建立並透過 typed backend contract 注入 services。
 - 只有 composition root 可以讀取 API key environment variables；provider 只接收已解析且不可洩漏的 credential。
 - 所有 LLM/TTS operation 狀態由單一 `OperationLifecycleCoordinator` 管理；tray 不擁有 success/error timer。
 - Tray menu 只能 enqueue typed command，不得直接匯出檔案、讀 config 或執行 diagnostics。
@@ -51,8 +50,8 @@ tests/              # Unit sims 與 integration tests
 應放入：
 
 - 產品規則與領域模型。
-- 抽象介面，例如 `LLMProvider`, `UIGateway`, `MemoryStore`。
-- 事件名稱、事件 payload contract。
+- 抽象介面，例如 `LLMProvider`, `ApplicationView`, `ResultPresenter`, `ArchiveStore`。
+- Typed command 與跨層 payload contract。
 - 取消機制與跨層共用 contract。
 
 不得放入：
@@ -64,7 +63,7 @@ tests/              # Unit sims 與 integration tests
 
 依賴規則：
 
-- `core` 不得 import `app`, `services`, `ui`, `platform`, `provider`。
+- `core` 不得 import `app`, `services`, `ui`, `platform`, `providers`。
 - `core` 可以被所有其他層依賴。
 
 ## Support
@@ -115,7 +114,7 @@ tests/              # Unit sims 與 integration tests
 依賴規則：
 
 - `platform` 可依賴 `core` 的 contract 或常數。
-- `platform` 不得依賴 `ui` 或 `provider`。
+- `platform` 不得依賴 `ui` 或 `providers`。
 - `platform` 不應主動驅動業務流程，只提供可替換的外部能力。
 
 ## Providers
@@ -148,7 +147,7 @@ tests/              # Unit sims 與 integration tests
 
 - `providers` 可依賴 `core` 的 `LLMProvider` contract。
 - `providers` 不得依賴 `ui`, `platform`, `services`, `app`。
-- Provider 選擇與實例建立屬於 `app/container.py`。
+- Provider 選擇狀態屬於 `ProviderConfigurationCoordinator`；concrete provider 建構屬於 `app` composition adapter，`app/container.py` 負責初始組裝。
 
 ## Services
 
@@ -166,11 +165,11 @@ tests/              # Unit sims 與 integration tests
 - Model manager。
 - Voice transcription workflow。
 
-`services/input/` 應放入：
+輸入相關 service 目前直接放在 `services/`，包括：
 
 - Input resolver。
-- Clipboard session。
-- Runtime input context。
+- Input target resolver。
+- Clipboard transaction coordinator。
 
 Services 負責把能力串起來，例如：
 
@@ -189,7 +188,7 @@ hotkey -> input -> safety/config -> prompt -> provider -> postprocess -> output
 
 - `services` 只能依賴 `core` 的 models 與 ports；外部能力由 `app` 注入。
 - `services` 不得 import `ui`。
-- 需要通知 UI 時，呼叫注入的 `ResultPresenter.render(SessionSnapshot)`。
+- 需要通知 UI 時，呼叫注入的 `ResultPresenter.render(...)`。目前 projection type 名為 `SessionSnapshot`，它是 Workflow projection 的相容名稱，不代表另一個 Session identity。
 
 ## UI
 
@@ -220,10 +219,10 @@ UI 只負責：
 
 依賴規則：
 
-- `ui` 可依賴 `core` commands、ports 與 session snapshot。
-- `ui` 不得 import concrete `provider`。
+- `ui` 可依賴 `core` commands、ports 與 Workflow snapshot projection。
+- `ui` 不得 import concrete `providers`。
 - UI 操作只能送出 typed command，不得直接呼叫 service 或 concrete adapter。
-- Tray 是由 `app` 注入的 `StatusIndicator` UI adapter；session status 只能透過明確 snapshot projection 更新，禁止使用 global Event Bus 或由 provider 更新 tray。
+- Tray 是由 `app` 注入的 `StatusIndicator` UI adapter；Workflow 與 operation status 只能透過明確 projection 更新，禁止使用 global Event Bus 或由 provider 更新 tray。
 
 ## App
 
@@ -252,13 +251,14 @@ UI 只負責：
 
 - `config/config.yaml`
 - `config/actions.yaml`
-- `config/prompts/`
+- `config/shortcuts.yaml`
+- `config/output_profiles.yaml`
 
 目標是避免把產品行為硬寫進程式。程式可以定義 schema、預設值、validation，但可調整內容應盡量外部化。
 
 ### Prompts
 
-`config/prompts/` 是 prompt template 與可調整語意內容的外部化位置。
+Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 Action definition。未來若引入 `config/prompts/`，必須由同一個 config-loader boundary 載入，不得形成第二套 prompt ownership。
 
 應放入：
 
@@ -276,22 +276,22 @@ UI 只負責：
 
 依賴與讀取規則：
 
-- `app/config.py` 或 action config loader 可負責載入 prompt template。
+- `app/config_loader.py` 負責載入 Action 與 prompt template。
 - `services` 可根據 action definition 選擇並 render prompt。
-- `provider` 只能接收已組好的 request，不得自行讀取 `config/prompts/`。
+- `providers` 只能接收已組好的 request，不得自行讀取 Action config 或 prompt template。
 - `platform` 與 `ui` 不得根據 prompt template 改變自己的行為。
 - prompt template 可以承載產品語意，但不應成為隱性的流程控制語言。
 
 ## 常見判斷範例
 
-- 新增 Gemini 串接：放 `provider/`。
+- 新增 Gemini 串接：放 `providers/`。
 - 新增 popup button：放 `ui/`。
 - 新增 action pipeline step：放 `services/`。
 - 新增 LLM 抽象 method：放 `core/`。
 - 新增 hotkey 行為：放 `platform/`。
-- 新增 logging context helper：放 `utils/`。
-- 新增 prompt template file：放 `config/prompts/`。
-- 新增 config 欄位解析：放 `app/config.py` 或 `services/actions.py`。
+- 新增 logging context helper：放 `support/`，前提是它不知道 ClipAI 業務模型。
+- 新增 prompt template：放 `config/actions.yaml`；若引入獨立檔案，仍由 `app/config_loader.py` 載入。
+- 新增 config 欄位解析：放 `app/config_loader.py`；可測的 Action policy 放 `services/action_catalog.py`。
 
 ## 禁止案例
 
@@ -312,7 +312,7 @@ UI 只負責：
 
 - Every Action referenced by a `start_action` Shortcut declares a typed, user-visible feedback contract describing the transformation, human space, verification question, and Recipe-specific reasons. Shortcut loading rejects incomplete coverage.
 - Feedback semantics belong to the resolved Action, not the Shortcut. A press variant may override the base feedback contract when short and long press perform meaningfully different tasks; otherwise it inherits the base contract.
-- Non-Action commands such as `speak_selection_or_clipboard` are explicitly outside this feedback lifecycle because they do not create an AI result step or Popup result.
+- Non-Action commands such as `speak_selection_or_clipboard` are explicitly outside this feedback lifecycle because they do not create an AI result step or visible Workflow result.
 - `WorkflowController` owns the feedback projection for the currently displayed completed step. Feedback operation identity is separate from workflow revision, provider invocation identity, and output-operation identity.
 - UI emits `SubmitActionFeedback`; it never writes feedback files or mutates prompts, recipes, Action configuration, or shortcuts.
 - `services` validates feedback against the immutable completed `WorkflowStep`; a platform `ActionFeedbackStore` adapter performs append-only persistence.
@@ -324,5 +324,5 @@ UI 只負責：
 - `GuidancePreferencesCoordinator` is the single owner of the enabled flag, seen Action ids, and preference-operation identity.
 - Tray emits typed preference intents and projects authoritative preferences; it never reads or writes JSON and never changes the checked state before persistence succeeds.
 - A platform `GuidancePreferencesStore` adapter owns `data/user_preferences.json` and writes it atomically. `.env` is not a user-interaction preference store.
-- A successful feedback-enabled Recipe may consume its first-use hint once per Action and press type. The Popup projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.
+- A successful feedback-enabled Recipe may consume its first-use hint once per Action and press type. The visible Workflow surface projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.
 - Reset clears only seen Action ids. It does not enable first-use hints or change any Recipe.
