@@ -24,4 +24,8 @@
 
 新增非 LLM 快捷功能時，必須新增 typed command 與明確的 shortcut command kind，不得在 Runtime 以 shortcut/action ID 字串特判。
 
-Hotkey callback 必須先 enqueue atomic `ShortcutTriggered(shortcut_id, press_type)`；command resolution 在 app command pump 內由 `ShortcutIntentCoordinator` 執行。這個 seam 是未來 shortcut sequence state machine 的唯一接點。
+Hotkey callback 必須先 enqueue atomic `ShortcutTriggered(shortcut_id, press_type)`；
+command resolution 在 app command pump 內由 `ShortcutSequenceCoordinator`
+執行。Coordinator 擁有 sequence waiting、timeout 與 cancellation policy；
+`ShortcutCatalog` 保持 atomic trigger 到 typed command 的 mapping，platform
+listener 不保存 sequence state。

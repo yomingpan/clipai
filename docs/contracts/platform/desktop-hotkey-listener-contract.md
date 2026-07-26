@@ -41,12 +41,15 @@ Desktop hotkey listener 的核心意圖是讓使用者能快速啟動已定義�
 
 Hotkey listener 不「選擇」業務行為。它只在註冊時把某個 hotkey token set 綁定到 `shortcut_id`，並在觸發時回報該 `shortcut_id`；上層 `ShortcutCatalog` 才解析 typed command。
 
-### Press Type
+### Hotkey Event Type
 
-`press_type` 只能是：
+`press_type` 使用 typed `HotkeyEventType`：
 
 - `short`：一般短按，代表一般執行。
 - `long`：按住超過 long press threshold 的長按事件。
+- `long_release`：已觸發 long gesture 後的 release lifecycle event。
+- `invalid`：sequence waiting 期間收到無效 chord。
+- `cancel`：使用者要求取消 shortcut sequence。
 
 目前 long press threshold 是 `500ms`，對應 `LONG_PRESS_SEC = 0.5`。
 
@@ -79,7 +82,11 @@ on_trigger(shortcut_id, press_type)
 其中：
 
 - `shortcut_id` 是 shortcut definition 的 `id`。
-- `press_type` 只能是 `short` 或 `long`。
+- `press_type` 是 typed `HotkeyEventType`：`short`、`long`、
+  `long_release`、`invalid` 或 `cancel`。
+- `short` 與 `long` 表示完成的 Shortcut press intent；
+  `long_release` 表示已觸發 long gesture 的 release；
+  `invalid` 與 `cancel` 是 shortcut sequence control events。
 
 ## Behavior Guarantees
 
@@ -127,7 +134,12 @@ Hotkey listener 必須保證：
 
 ## Testing Links
 
-已存在測試：`tests/platform/test_hotkey.py`
+已存在測試：
+
+- `tests/platform/test_hotkey.py`
+- `tests/platform/test_hotkey_edge_cases.py`
+- `tests/platform/test_keyboard_state.py`
+- `tests/app/test_hotkey_shortcut_recovery.py`
 
 目前覆蓋：
 
@@ -140,9 +152,6 @@ Hotkey listener 必須保證：
 - short press 只觸發 short。
 - long press 不在 release 時再觸發 short。
 - 多個 shortcut hotkey 彼此隔離。
-
-應補 unit / sims 測試：
-
 - 重複 press 不造成重複 timer 或多次觸發。
 - 重複 release 不造成多次觸發。
 - modifier release 順序改變仍能清理 active state。
@@ -150,7 +159,9 @@ Hotkey listener 必須保證：
 - 無法 normalize 的 key event 不觸發 action。
 - 快速連按同一 hotkey 不殘留 pressed 或 active state。
 - timer fire 與 release 接近同時發生時不觸發 short + long 雙重事件。
-- listener stop 後呼叫底層 listener stop，且 `running` 狀態變成 false。
+- 已取消但排程中的舊 timer callback 不得完成同 Shortcut 的新 gesture。
+- stale physical-key recovery 不得污染後續 shortcut sequence。
+- listener stop 後取消 active timers、清除 dispatcher state，並阻止 late callbacks。
 
 ## Manual / Integration Scenarios
 

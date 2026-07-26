@@ -154,12 +154,16 @@ Unit / Sims 應測：
 - top-row digits / numpad digits / letters 正確 normalize。
 - 多個 action hotkey 彼此隔離。
 - 重複 press/release 不造成多次誤觸。
+- 已取消但排程中的舊 timer callback 不得完成新的 gesture operation。
+- listener stop 必須取消 active timers、清除 dispatcher state，並使 late
+  keyboard/timer callbacks 保持無效。
 
 Integration 應測：
 
 - 真實 listener 可註冊與釋放。
 - 快速連按不殘留狀態。
-- app stop 後 listener 被確實停止。
+- app stop 後 listener、dispatcher state 與 active timers 被確實停止，
+  且不得再 enqueue Shortcut intent。
 
 ## Popup 測試重點
 
