@@ -459,7 +459,7 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-c>", lambda _event, sid=session_id: self._shortcut(self._copy, sid), add="+")
         dialog.root.bind("<Control-s>", lambda _event, sid=session_id: self._shortcut(self._archive, sid), add="+")
         dialog.root.bind("<Control-r>", lambda _event, sid=session_id: self._shortcut(self._toggle_feedback, sid), add="+")
-        dialog.root.bind("<Control-w>", lambda _event, sid=session_id: self._shortcut(self._paste, sid), add="+")
+        dialog.root.bind("<Control-v>", lambda event, sid=session_id: self._paste_shortcut(event, sid), add="+")
         dialog.root.bind("<Control-slash>", lambda _event, sid=session_id: self._shortcut(self._toggle_follow_up, sid), add="+")
         lifecycle.shown = True
 
@@ -475,6 +475,11 @@ class ResultDialogPresenter:
         if self._active_workflow_id == session_id:
             action(session_id)
         return "break"
+
+    def _paste_shortcut(self, event, session_id: str) -> str | None:
+        if _accepts_native_paste(getattr(event, "widget", None)):
+            return None
+        return self._shortcut(self._paste, session_id)
 
     def _activate(self, session_id: str) -> None:
         self._active_workflow_id = session_id
@@ -516,3 +521,12 @@ def _content_render_key(snapshot: SessionSnapshot) -> tuple[object, ...]:
     if snapshot.status == SessionStatus.COMPLETED:
         return (snapshot.status, snapshot.content, snapshot.presentation)
     return (snapshot.status, snapshot.content, snapshot.status_text, snapshot.presentation)
+
+
+def _accepts_native_paste(widget: object | None) -> bool:
+    if widget is None:
+        return False
+    try:
+        return widget.winfo_class() in {"Entry", "TEntry", "Text", "Spinbox"} and str(widget.cget("state")) == "normal"  # type: ignore[attr-defined]
+    except (AttributeError, tk.TclError):
+        return False
