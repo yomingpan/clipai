@@ -116,12 +116,16 @@ class _HotkeyState:
 
 
 class HotkeyListener:
-    def __init__(self, listener) -> None:
+    def __init__(self, listener, dispatcher: _HotkeyDispatcher) -> None:
         self._listener = listener
+        self._dispatcher = dispatcher
         self.running = True
 
     def stop(self) -> None:
+        if not self.running:
+            return
         self.running = False
+        self._dispatcher.stop()
         self._listener.stop()
 
 
@@ -147,13 +151,31 @@ class _HotkeyDispatcher:
         self._pending_release: dict[str, HotkeyEventType] = {}
         self._gesture_generation = 0
         self._lock = threading.RLock()
+        self._stopped = False
 
     def _fire(self, action_id: str, press_type: HotkeyEventType) -> None:
-        logger.info("[clipai] Hotkey triggered: action_id=%s press_type=%s", action_id, press_type)
-        self._on_trigger(action_id, press_type)
+        with self._lock:
+            if self._stopped:
+                return
+            logger.info("[clipai] Hotkey triggered: action_id=%s press_type=%s", action_id, press_type)
+            self._on_trigger(action_id, press_type)
+
+    def stop(self) -> None:
+        with self._lock:
+            if self._stopped:
+                return
+            self._stopped = True
+            for state in self._active.values():
+                if state.timer:
+                    state.timer.cancel()
+            self._pressed.clear()
+            self._active.clear()
+            self._pending_release.clear()
 
     def _fire_long(self, action_id: str, gesture_id: int) -> None:
         with self._lock:
+            if self._stopped:
+                return
             state = self._active.get(action_id)
             if state is None or state.gesture_id != gesture_id:
                 return
@@ -210,6 +232,8 @@ class _HotkeyDispatcher:
             return
 
         with self._lock:
+            if self._stopped:
+                return
             stale_tokens = self._discard_stale_pressed_state()
             if token == "esc":
                 self._fire("", "cancel")
@@ -257,6 +281,8 @@ class _HotkeyDispatcher:
 
         callbacks: list[Callable[[], None]] = []
         with self._lock:
+            if self._stopped:
+                return
             if self._diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
                 logger.debug(
                     "[clipai] Key release token=%s raw=(%s) pressed_before=%s",
@@ -349,4 +375,4 @@ def register_hotkeys_with_long_press(
     )
     listener = keyboard.Listener(on_press=dispatcher.on_press, on_release=dispatcher.on_release)
     listener.start()
-    return HotkeyListener(listener)
+    return HotkeyListener(listener, dispatcher)

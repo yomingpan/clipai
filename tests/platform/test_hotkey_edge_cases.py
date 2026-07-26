@@ -379,9 +379,30 @@ def test_physical_or_unknown_key_state_preserves_active_lifecycle(
 
 def test_listener_stop_calls_underlying_listener_and_marks_not_running() -> None:
     underlying = FakeListener()
-    listener = HotkeyListener(underlying)
+    listener = HotkeyListener(underlying, make_dispatcher([]))
 
     listener.stop()
 
     assert listener.running is False
     assert underlying.stopped is True
+
+
+def test_listener_stop_cancels_gestures_and_blocks_late_callbacks() -> None:
+    events: list[tuple[str, str]] = []
+    dispatcher = make_dispatcher(events)
+    underlying = FakeListener()
+    listener = HotkeyListener(underlying, dispatcher)
+
+    press_ctrl_alt_8(dispatcher)
+    active_timer = FakeTimer.timers[-1]
+
+    listener.stop()
+    active_timer.callback()
+    press_ctrl_alt_8(dispatcher)
+    release_ctrl_alt_8(dispatcher)
+
+    assert listener.running is False
+    assert underlying.stopped is True
+    assert active_timer.cancelled is True
+    assert events == []
+    assert FakeTimer.timers == [active_timer]
