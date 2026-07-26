@@ -110,6 +110,7 @@ def build_hotkey_bindings(action_map: dict[str, dict], *, modifier_mode: str = "
 
 @dataclass
 class _HotkeyState:
+    gesture_id: int
     timer: threading.Timer | None = None
     long_fired: bool = False
 
@@ -144,16 +145,17 @@ class _HotkeyDispatcher:
         self._pressed: set[str] = set()
         self._active: dict[str, _HotkeyState] = {}
         self._pending_release: dict[str, HotkeyEventType] = {}
+        self._gesture_generation = 0
         self._lock = threading.RLock()
 
     def _fire(self, action_id: str, press_type: HotkeyEventType) -> None:
         logger.info("[clipai] Hotkey triggered: action_id=%s press_type=%s", action_id, press_type)
         self._on_trigger(action_id, press_type)
 
-    def _fire_long(self, action_id: str) -> None:
+    def _fire_long(self, action_id: str, gesture_id: int) -> None:
         with self._lock:
             state = self._active.get(action_id)
-            if state is None:
+            if state is None or state.gesture_id != gesture_id:
                 return
             state.long_fired = True
             # Long press is a complete typed intent as soon as its threshold is
@@ -229,8 +231,12 @@ class _HotkeyDispatcher:
                         sorted(tokens),
                         sorted(self._pressed),
                     )
-                    state = _HotkeyState()
-                    state.timer = self._timer_factory(self._long_press_sec, lambda aid=action_id: self._fire_long(aid))
+                    self._gesture_generation += 1
+                    state = _HotkeyState(self._gesture_generation)
+                    state.timer = self._timer_factory(
+                        self._long_press_sec,
+                        lambda aid=action_id, gid=state.gesture_id: self._fire_long(aid, gid),
+                    )
                     state.timer.daemon = True
                     state.timer.start()
                     self._active[action_id] = state

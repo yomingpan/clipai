@@ -253,6 +253,35 @@ def test_release_then_timer_fire_does_not_trigger_long_after_short() -> None:
     assert events == [("explain_word", "short")]
 
 
+def test_cancelled_timer_callback_cannot_complete_a_new_gesture() -> None:
+    events: list[tuple[str, str]] = []
+    dispatcher = make_dispatcher(events)
+
+    press_ctrl_alt_8(dispatcher)
+    first_timer = FakeTimer.timers[-1]
+    dispatcher.on_release(FakeKey(char="8"))
+
+    dispatcher.on_press(FakeKey(char="8"))
+    second_timer = FakeTimer.timers[-1]
+
+    # A real threading.Timer callback may already be queued when cancel()
+    # returns. Simulate that race by invoking the old callback directly.
+    first_timer.callback()
+
+    assert events == [("explain_word", "short")]
+
+    second_timer.fire()
+    dispatcher.on_release(FakeKey(char="8"))
+    dispatcher.on_release(FakeKey(name="alt_l"))
+    dispatcher.on_release(FakeKey(name="ctrl_l"))
+
+    assert events == [
+        ("explain_word", "short"),
+        ("explain_word", "long"),
+        ("explain_word", "long_release"),
+    ]
+
+
 def test_secure_desktop_transition_discards_stale_modifiers_before_next_key() -> None:
     events: list[tuple[str, str]] = []
     physical_modifiers = {"ctrl": True, "alt": True, "shift": False}
