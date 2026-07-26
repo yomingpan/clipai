@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 
+import pytest
+
 from ClipAI.platform.hotkey import HotkeyListener, create_hotkey_dispatcher
 
 
@@ -257,7 +259,7 @@ def test_secure_desktop_transition_discards_stale_modifiers_before_next_key() ->
         lambda action_id, press_type: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
-        modifier_is_pressed=physical_modifiers.get,
+        key_is_pressed=physical_modifiers.get,
     )
 
     # Ctrl+Alt+Delete moves to the secure desktop, where the listener may not
@@ -285,6 +287,63 @@ def test_secure_desktop_transition_discards_stale_modifiers_before_next_key() ->
     dispatcher.on_release(FakeKey(name="ctrl_l"))
 
     assert events == [("explain_word", "short")]
+
+
+def test_stale_cleanup_does_not_emit_invalid_for_the_revealing_key() -> None:
+    events: list[tuple[str, str]] = []
+    physical_keys = {"ctrl": True, "alt": True, "x": True, "b": False}
+    dispatcher = create_hotkey_dispatcher(
+        {"shorten": {"hotkey": "ctrl+alt+x"}},
+        lambda action_id, press_type: events.append((action_id, press_type)),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+        key_is_pressed=physical_keys.get,
+    )
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="x"))
+    dispatcher.on_release(FakeKey(name="alt_l"))
+    dispatcher.on_release(FakeKey(name="ctrl_l"))
+    physical_keys["ctrl"] = False
+    physical_keys["alt"] = False
+    physical_keys["x"] = False
+    physical_keys["b"] = True
+
+    dispatcher.on_press(FakeKey(char="b"))
+
+    assert events == []
+
+
+@pytest.mark.parametrize("physical_x_state", [True, None])
+def test_physical_or_unknown_key_state_preserves_active_lifecycle(
+    physical_x_state: bool | None,
+) -> None:
+    events: list[tuple[str, str]] = []
+
+    def key_is_pressed(token: str) -> bool | None:
+        return physical_x_state if token == "x" else True
+
+    dispatcher = create_hotkey_dispatcher(
+        {
+            "shorten": {"hotkey": "ctrl+alt+x"},
+            "speech": {"hotkey": "ctrl+alt+q"},
+        },
+        lambda action_id, press_type: events.append((action_id, press_type)),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+        key_is_pressed=key_is_pressed,
+    )
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="x"))
+    active_timer = FakeTimer.timers[-1]
+    dispatcher.on_press(FakeKey(char="q"))
+
+    assert active_timer.cancelled is False
+    active_timer.fire()
+    assert events == [("shorten", "long")]
 
 
 def test_listener_stop_calls_underlying_listener_and_marks_not_running() -> None:

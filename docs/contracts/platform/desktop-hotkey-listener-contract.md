@@ -166,7 +166,28 @@ Hotkey listener 必須保證：
 - 短按低於 `500ms` 只觸發 short，不觸發 long。
 - OS focus 切換或 modifier key 異常 release 後，不得因殘留狀態觸發 action。
 
+## Stale physical-key recovery
+
+- The listener reconciles every normalized pressed token against the physical
+  Windows key state before matching a new non-injected key-down event.
+- Only tokens explicitly reported as released are stale. An unavailable or
+  unsupported physical-state query returns unknown and preserves the token.
+- Recovery removes stale tokens and cancels only active timers or pending
+  releases whose Shortcut bindings contain those tokens.
+- The key-down event that reveals stale state continues through normal matching,
+  so a fresh Shortcut chord works on its first attempt.
+- When recovery occurred and the revealing key does not match a Shortcut, the
+  listener does not emit an additional `invalid` trigger.
+- Top-row and numpad digits share normalized tokens. Either physical key keeps
+  that token active.
+- Tests must cover a missed ordinary-key release followed by a held speech
+  composition sequence and assert that no unrelated popup Action is emitted.
+
 ## Decision Log
+
+- 2026-07-26: Generalized stale-state recovery from modifiers to every supported
+  normalized hotkey token. The platform listener remains the single owner of
+  physical keyboard reconciliation.
 
 - 2026-06-07：建立 platform desktop hotkey listener contract。
 - Hotkey listener 的核心意圖是快速啟動 action，且穩定區分 short / long press。
