@@ -460,11 +460,18 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         FOLLOW_UP_ICON,
     ]
     assert [spec.tooltip for spec in STANDARD_RESULT_ACTIONS] == [
-        "Speak result",
-        "Copy result",
-        "Paste result (Ctrl+W)",
-        "Archive result",
-        "Ask follow-up",
+        "Speak result (Ctrl+Q)",
+        "Copy result (Ctrl+C)",
+        "Paste result (Ctrl+V)",
+        "Archive result (Ctrl+S)",
+        "Ask follow-up (Ctrl+/)",
+    ]
+    assert [spec.active_tooltip for spec in STANDARD_RESULT_ACTIONS] == [
+        "Stop speaking (Ctrl+Q)",
+        "Copy accepted (Ctrl+C)",
+        None,
+        "Archive accepted (Ctrl+S)",
+        "Close follow-up (Ctrl+/)",
     ]
 
 

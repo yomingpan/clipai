@@ -288,7 +288,7 @@ def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:
     assert events == ["follow-up:s1"]
 
 
-def test_ctrl_w_pastes_only_for_active_popup() -> None:
+def test_ctrl_v_pastes_only_for_active_popup() -> None:
     class ShortcutRoot:
         def __init__(self) -> None:
             self.bindings = {}
@@ -307,16 +307,34 @@ def test_ctrl_w_pastes_only_for_active_popup() -> None:
     presenter._paste = lambda session_id: events.append(f"paste:{session_id}")
 
     presenter._register_view("s1", view)
-    result = view.dialog.root.bindings["<Control-w>"](None)
+    result = view.dialog.root.bindings["<Control-v>"](None)
 
     assert result == "break"
     assert events == ["paste:s1"]
 
     events.clear()
     presenter._active_workflow_id = "other"
-    result = view.dialog.root.bindings["<Control-w>"](None)
+    result = view.dialog.root.bindings["<Control-v>"](None)
 
     assert result == "break"
+    assert events == []
+
+
+def test_ctrl_v_preserves_native_paste_in_editable_popup_fields() -> None:
+    class EditableWidget:
+        def winfo_class(self) -> str:
+            return "Entry"
+
+        def cget(self, option: str) -> str:
+            assert option == "state"
+            return "normal"
+
+    presenter, events = presenter_with_selection(None)
+    presenter._paste = lambda session_id: events.append(f"paste:{session_id}")
+
+    result = presenter._paste_shortcut(type("Event", (), {"widget": EditableWidget()})(), "s1")
+
+    assert result is None
     assert events == []
 
 
