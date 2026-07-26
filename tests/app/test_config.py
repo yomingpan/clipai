@@ -54,6 +54,9 @@ def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input()
         "english_companion": "ctrl+alt+8",
         "reflective_question": "ctrl+alt+9",
         "critical_thinking": "ctrl+alt+0",
+        "mece_decomposition": "ctrl+alt+s",
+        "minimum_action": "ctrl+alt+a",
+        "tradeoff_perspective": "ctrl+alt+d",
         "extract_keywords": "ctrl+alt+e",
     }
 
@@ -265,7 +268,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 16
+    assert len(start_actions) == 19
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -278,6 +281,9 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "english_companion": "ctrl+alt+8",
         "reflective_question": "ctrl+alt+9",
         "critical_thinking": "ctrl+alt+0",
+        "mece_decomposition": "ctrl+alt+s",
+        "minimum_action": "ctrl+alt+a",
+        "tradeoff_perspective": "ctrl+alt+d",
         "extract_keywords": "ctrl+alt+e",
         "extract_screenshot_text": "ctrl+alt+g",
         "speak_selection_or_clipboard": "ctrl+alt+q",
@@ -350,6 +356,54 @@ def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
     assert "說明：" in action.prompt
     assert "提醒：" in action.prompt
     assert "活用：" in action.prompt
+
+
+def test_thinking_actions_have_distinct_outputs_and_human_space() -> None:
+    bundle = load_config_bundle()
+
+    expected = {
+        "mece_decomposition": {
+            "name": "MECE 拆解",
+            "hotkey": "ctrl+alt+s",
+            "prompt_markers": ("## 推薦切面", "## MECE 拆解", "## 邊界與缺少資訊"),
+            "human_space": "保留真正想理解的問題、拆解邊界，以及是否接受這個切面的判斷",
+        },
+        "minimum_action": {
+            "name": "最小行動",
+            "hotkey": "ctrl+alt+a",
+            "prompt_markers": ("## 最小行動", "## 為什麼是這一步", "## 完成條件"),
+            "human_space": "保留是否採用、何時投入、如何修改，以及決定不行動的權利",
+        },
+        "tradeoff_perspective": {
+            "name": "權衡透視",
+            "hotkey": "ctrl+alt+d",
+            "prompt_markers": ("## 觀點", "## 價值與取捨", "## 兩邊的代價", "## 需要你判斷"),
+            "human_space": "保留價值排序、可接受代價，以及最後選擇與負責的判斷",
+        },
+    }
+
+    for action_id, contract in expected.items():
+        action = bundle.actions.get(action_id)
+        shortcut = bundle.shortcuts.definition(action_id)
+
+        assert action.name == contract["name"]
+        assert shortcut.hotkey == contract["hotkey"]
+        assert shortcut.action_id == action_id
+        assert action.input_mode == "selection_or_clipboard"
+        assert action.external_fallback == "selection_or_clipboard"
+        assert action.output_mode == "popup"
+        assert action.output_profile == "plain_text"
+        assert action.press_variants == {}
+        assert "圖片" in action.system_prompt
+        assert all(marker in action.prompt for marker in contract["prompt_markers"])
+        assert action.feedback_contract is not None
+        assert action.feedback_contract.human_space_label == contract["human_space"]
+        assert len(action.feedback_contract.reasons) == 5
+        assert action.feedback_contract.reasons[-1].id == "other"
+
+    assert "不要先列出多套框架" in bundle.actions.get("mece_decomposition").system_prompt
+    assert "只提出一個行動" in bundle.actions.get("minimum_action").system_prompt
+    assert "不替使用者排序價值" in bundle.actions.get("tradeoff_perspective").system_prompt
 
 
 def test_command_copilot_combines_command_generation_and_risk_review() -> None:

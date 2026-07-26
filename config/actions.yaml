@@ -439,6 +439,141 @@ actions:
       輸入：
       {input}
 
+  - id: mece_decomposition
+    name: MECE 拆解
+    stream: false
+    input_mode: selection_or_clipboard
+    external_fallback: selection_or_clipboard
+    output_mode: popup
+    temperature: 0.2
+    output_profile: plain_text
+    feedback:
+      transform: 依當下目的選擇一個合適切面，將內容整理成互斥且盡量完整的結構
+      human_space: 保留真正想理解的問題、拆解邊界，以及是否接受這個切面的判斷
+      verify: 這個切面是否符合我的目的，分類彼此清楚且沒有遺漏關鍵面向？
+      reasons:
+        - id: wrong_lens
+          label: 推薦切面沒有對準我想理解的問題
+        - id: categories_overlap
+          label: 分類彼此重疊或界線不清
+        - id: key_dimension_missing
+          label: 遺漏了關鍵面向
+        - id: unsupported_certainty
+          label: 把推測或不完整資訊說得太確定
+        - id: other
+          label: 其他
+    system_prompt: |
+      你是清晰、務實的 MECE 思考助手。先根據輸入推斷使用者此刻最可能想理解的問題，再選擇一個最合適的拆解切面；不要先列出多套框架要求使用者選擇。
+
+      使用同一個分類原則拆解，讓各分類盡量互斥、合起來足以回答當下問題。分類以 2～5 個為限；不要為了形式完整而硬湊類別，也不要混用不同抽象層級。若資訊不足以宣稱完整，應清楚說明邊界或缺少的資訊，不可虛構事實。
+
+      拆解的目的在於降低認知負荷，而不是展示術語。每一類都要有清楚名稱與一句有用說明。輸入可能是文字或圖片；只依可見內容分析，圖片不清楚或內容包含推測時明確標示不確定性。使用輸入的主要語言回答。
+    prompt: |
+      請依以下格式拆解輸入：
+
+      ## 推薦切面
+      用一句話說明選擇的拆解角度，以及它為何最適合目前內容。
+
+      ## MECE 拆解
+      以 2～5 個編號項目呈現。每項包含簡短類別名稱與一句說明；各項使用同一分類原則、彼此盡量不重疊。
+
+      ## 邊界與缺少資訊
+      只指出會實質影響理解的未知、分類邊界或不確定性；若沒有，寫「目前未發現影響拆解的明顯缺口」。
+
+      輸入：
+      {input}
+
+  - id: minimum_action
+    name: 最小行動
+    stream: false
+    input_mode: selection_or_clipboard
+    external_fallback: selection_or_clipboard
+    output_mode: popup
+    temperature: 0.2
+    output_profile: plain_text
+    feedback:
+      transform: 把內容轉成一個低成本、具體且能帶來新資訊的最小下一步
+      human_space: 保留是否採用、何時投入、如何修改，以及決定不行動的權利
+      verify: 這一步是否小到能開始、具體可完成，而且真的能讓我知道更多？
+      reasons:
+        - id: wrong_goal
+          label: 行動沒有對準內容真正涉及的問題
+        - id: action_not_small_enough
+          label: 行動仍然太大或成本太高
+        - id: completion_unclear
+          label: 做法或完成條件不夠具體
+        - id: action_adds_no_information
+          label: 行動無法帶來有用的新資訊
+        - id: other
+          label: 其他
+    system_prompt: |
+      你是務實的最小行動助手。把輸入中仍停留在觀點、擔憂、洞察、預測或模糊意圖的內容，轉成一個現在可以採取的最小下一步。
+
+      只提出一個行動，不要產生完整計畫、待辦清單或批判性檢驗。優先選擇低成本、可逆、可在短時間開始，並能產生真實回饋或新資訊的行動。行動必須具體到知道第一個動作，並有可觀察的完成條件。
+
+      不要把每個觀點包裝成必須執行的義務，也不要自動替使用者承諾、排程或執行。若直接改變現況缺乏依據，最小行動可以是一次觀察、查證、小型實驗、記錄，或有明確邊界的暫不行動；仍須寫成具體可完成的動作。輸入可能是文字或圖片；只依可見內容，不確定時明確標示。使用輸入的主要語言回答。
+    prompt: |
+      請依以下格式，將輸入轉成一個最小下一步：
+
+      ## 最小行動
+      用一句祈使句寫出一個具體動作；包含必要的對象、範圍或時間上限。
+
+      ## 為什麼是這一步
+      用 1～2 句說明它如何降低不確定性或帶來真實回饋，不評斷使用者是否必須採用。
+
+      ## 完成條件
+      用一句話描述可觀察的完成狀態；不要延伸成後續計畫。
+
+      輸入：
+      {input}
+
+  - id: tradeoff_perspective
+    name: 權衡透視
+    stream: false
+    input_mode: selection_or_clipboard
+    external_fallback: selection_or_clipboard
+    output_mode: popup
+    temperature: 0.25
+    output_profile: plain_text
+    feedback:
+      transform: 忠實指出觀點所保護的價值、必要取捨、採納與不採納的代價
+      human_space: 保留價值排序、可接受代價，以及最後選擇與負責的判斷
+      verify: 這份透視是否照亮真正的權衡，而沒有替我決定或虛構對立？
+      reasons:
+        - id: original_view_distorted
+          label: 原觀點或它重視的價值被扭曲
+        - id: important_tradeoff_missing
+          label: 遺漏了重要價值或取捨
+        - id: costs_inaccurate_or_one_sided
+          label: 代價判斷不準確或只呈現單邊
+        - id: human_judgment_unclear
+          label: 真正需要我判斷的部分不清楚
+        - id: other
+          label: 其他
+    system_prompt: |
+      你是審慎的權衡透視助手。你的任務是照亮觀點、方案或行動背後的價值、取捨與代價，讓使用者看見真正需要自己負責的價值判斷。
+
+      先忠實陳述輸入主張，不把它改寫成稻草人，也不虛構反方立場、利害關係人或事實。指出它優先保護或創造的價值，以及為此可能犧牲、延後或暴露於風險的事物。分別說明採納與不採納的主要代價；只列真正重要且有輸入依據的內容。
+
+      不替使用者排序價值、選邊、給出唯一答案或強行提出折衷方案。最後只指出必須由使用者承擔的價值判斷。輸入可能是文字或圖片；推測必須標示，不確定時說明需要哪些資訊。使用輸入的主要語言回答，最多四個核心區塊。
+    prompt: |
+      請依以下格式分析輸入：
+
+      ## 觀點
+      用一句話忠實說明它主張什麼。
+
+      ## 價值與取捨
+      指出它保護或創造的主要價值，以及這個選擇會犧牲、延後或增加風險的部分。
+
+      ## 兩邊的代價
+      分別說明採納與不採納的主要代價；避免假裝所有代價都同等重要。
+
+      ## 需要你判斷
+      用一個具體問題指出不能交給 AI、必須由使用者決定並負責的價值判斷。
+
+      輸入：
+      {input}
+
   - id: extract_keywords
     name: 抽取核心關鍵字
     stream: false
