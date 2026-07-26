@@ -105,21 +105,23 @@ def test_modifier_release_before_digit_cleans_active_state() -> None:
     press_ctrl_alt_8(dispatcher)
     dispatcher.on_release(FakeKey(name="alt_l"))
     dispatcher.on_release(FakeKey(char="8"))
+    assert events == [("explain_word", "short")]
+
     dispatcher.on_release(FakeKey(name="ctrl_l"))
     dispatcher.on_release(FakeKey(char="8"))
 
     assert events == [("explain_word", "short")]
 
 
-def test_action_waits_until_every_hotkey_key_is_released() -> None:
+def test_action_fires_when_action_key_is_released_with_modifiers_held() -> None:
     events: list[tuple[str, str]] = []
     dispatcher = make_dispatcher(events)
 
     press_ctrl_alt_8(dispatcher)
     dispatcher.on_release(FakeKey(char="8"))
-    dispatcher.on_release(FakeKey(name="alt_l"))
-    assert events == []
+    assert events == [("explain_word", "short")]
 
+    dispatcher.on_release(FakeKey(name="alt_l"))
     dispatcher.on_release(FakeKey(name="ctrl_l"))
     assert events == [("explain_word", "short")]
 

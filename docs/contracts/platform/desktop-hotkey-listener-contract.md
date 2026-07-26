@@ -166,6 +166,17 @@ Hotkey listener 必須保證：
 - 短按低於 `500ms` 只觸發 short，不觸發 long。
 - OS focus 切換或 modifier key 異常 release 後，不得因殘留狀態觸發 action。
 
+## Trigger release timing
+
+- A short Shortcut dispatches as soon as all of its non-modifier trigger keys
+  are released. Ctrl, Alt, or Shift may remain physically held.
+- Releasing a modifier first ends long-press timing but does not dispatch the
+  pending Shortcut until its non-modifier trigger keys are released.
+- A fired long press emits `long_release` when its non-modifier trigger keys
+  are released. Later modifier releases must not emit duplicate events.
+- Held speech composition follows the same rule: releasing the selected Action
+  key dispatches its speech-routed command without waiting for Q or modifiers.
+
 ## Stale physical-key recovery
 
 - The listener reconciles every normalized pressed token against the physical
@@ -185,6 +196,8 @@ Hotkey listener 必須保證：
 
 ## Decision Log
 
+- 2026-07-26: Changed pending Shortcut dispatch from all-chord release to
+  non-modifier trigger-key release for immediate user feedback.
 - 2026-07-26: Generalized stale-state recovery from modifiers to every supported
   normalized hotkey token. The platform listener remains the single owner of
   physical keyboard reconciliation.

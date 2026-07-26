@@ -92,6 +92,8 @@ def test_stale_action_key_does_not_create_popup_during_speech_sequence() -> None
         timer.fire()
     press("6", FakeKey(char="6"))
     release("6", FakeKey(char="6"))
+    assert commands == [StartAction("explain_like_friend", "short", "speech")]
+
     release("q", FakeKey(char="q"))
     release("alt", FakeKey(name="alt_l"))
     release("ctrl", FakeKey(name="ctrl_l"))

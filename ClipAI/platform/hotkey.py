@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ClipAI.core.models import HotkeyEventType
-from ClipAI.platform.keyboard_state import windows_key_is_pressed
+from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_key_is_pressed
 
 logger = logging.getLogger("clipai.hotkey")
 
@@ -280,7 +280,10 @@ class _HotkeyDispatcher:
 
             for action_id, tokens in self._hotkeys:
                 press_type = self._pending_release.get(action_id)
-                if press_type is None or not tokens.isdisjoint(self._pressed):
+                # Modifiers may remain held; the user's gesture completes when
+                # every non-modifier trigger key has been released.
+                trigger_tokens = tokens.difference(MODIFIER_KEYS)
+                if press_type is None or not trigger_tokens.isdisjoint(self._pressed):
                     continue
                 self._pending_release.pop(action_id, None)
                 if press_type == "long_release":
