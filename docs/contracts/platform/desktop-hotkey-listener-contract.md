@@ -166,6 +166,27 @@ Hotkey listener 必須保證：
 - 短按低於 `500ms` 只觸發 short，不觸發 long。
 - OS focus 切換或 modifier key 異常 release 後，不得因殘留狀態觸發 action。
 
+## Gesture operation identity and shutdown ownership
+
+- Every matched physical Shortcut press creates a distinct gesture operation
+  identity. This identity is separate from the Shortcut id and press type.
+- A long-press timer may complete only the gesture operation that created it.
+  A cancelled or released timer callback must not mutate or report completion
+  for a later gesture of the same Shortcut.
+- Gesture operation identity is internal to the platform listener
+  implementation. The listener continues to emit only typed Shortcut events
+  across its external seam.
+- The returned stoppable hotkey module owns both the OS listener and dispatcher
+  lifecycle. `stop()` is idempotent, cancels active timers, clears pressed and
+  pending state, and prevents queued callbacks from emitting later intents.
+- After `stop()` returns, keyboard callbacks and timer callbacks must not emit
+  another Shortcut event.
+- Tests must simulate a cancelled timer callback that was already queued, then
+  start the same Shortcut again and prove the old callback cannot complete the
+  new gesture.
+- Tests must stop an active gesture and prove that direct late timer callbacks
+  and later keyboard events remain inert.
+
 ## Trigger release timing
 
 - A short Shortcut dispatches as soon as all of its non-modifier trigger keys
@@ -196,6 +217,10 @@ Hotkey listener 必須保證：
 
 ## Decision Log
 
+- 2026-07-26: Made each matched press a distinct gesture operation so timer
+  completion is scoped to the state that created it.
+- 2026-07-26: Made the returned stoppable hotkey module the single owner of OS
+  listener shutdown, dispatcher state cleanup, and active timer cancellation.
 - 2026-07-26: Changed pending Shortcut dispatch from all-chord release to
   non-modifier trigger-key release for immediate user feedback.
 - 2026-07-26: Generalized stale-state recovery from modifiers to every supported
