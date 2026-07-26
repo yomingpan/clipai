@@ -30,8 +30,11 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert action.output_profile == "english_learning_compact"
     assert bundle.output_profiles.get(action.output_profile).required_markers == ()
     assert bundle.output_profiles.get(action.output_profile).presentation == "plain_text"
-    assert "appears literally in the input" in action.system_prompt
-    assert "never substitute, infer, or invent" in action.system_prompt
+    assert "When the input contains English" in action.system_prompt
+    assert "When the input is Chinese-only" in action.system_prompt
+    assert "do not refuse merely because no English is present" in action.system_prompt
+    assert "concrete real-life situation" in action.system_prompt
+    assert "Avoid formulaic wording" in action.prompt
     assert "記憶：" in action.prompt
     assert bundle.schema_versions.app == 1
     assert bundle.schema_versions.actions == 7
@@ -76,6 +79,8 @@ def test_long_press_uses_variant_prompt() -> None:
     assert resolved.name == "英文改善建議"
     assert "Improve the following English" in resolved.prompt
     assert resolved.output_profile == "english_improvement"
+    assert resolved.prompt.index("Start with one polished full rewrite") < resolved.prompt.index("Then focus on")
+    assert "do not invent a complete sentence or unsupported context" in resolved.prompt
     assert resolved.feedback_contract is not None
     assert resolved.feedback_contract.transform_label == "找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型"
     assert resolved.feedback_contract != catalog.resolve("english_companion", "short").feedback_contract
