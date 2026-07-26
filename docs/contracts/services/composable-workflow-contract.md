@@ -54,4 +54,8 @@ Action execution 產生 `ProcessedResult`，再由 typed `ResultRoute` 決定 vi
 
 ## Shortcut Sequence Seam
 
-Platform 只輸出 atomic `shortcut_id + press_type`。Runtime enqueue `ShortcutTriggered`，再由 `ShortcutIntentCoordinator` 解析。未來 sequence coordinator 必須替換此 policy seam，不得把 timeout/sequence state 放進 platform listener。
+Platform 只輸出 atomic `shortcut_id + press_type`。Runtime enqueue
+`ShortcutTriggered`，再由 `ShortcutSequenceCoordinator` 解析。
+Coordinator 是 shortcut sequence policy 與 lifecycle 的單一 owner；
+timeout、waiting、cancellation 與 speech routing state 不得放進 platform
+listener。
