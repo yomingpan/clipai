@@ -34,6 +34,7 @@ class TTSSettings:
     rate: str
     volume: str
     english_voice: str = "en-US-AndrewNeural"
+    japanese_voice: str = "ja-JP-NanamiNeural"
 
 
 @dataclass(frozen=True)

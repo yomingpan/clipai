@@ -19,6 +19,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.providers.gemini.available_models == ("gemini-3.1-flash-lite", "gemini-2.5-flash")
     assert bundle.runtime.max_workers == 2
     assert bundle.app.modifier_mode == "ctrl_alt"
+    assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
     assert "預設不超過 5 行或 120 字" in bundle.app.system_prompt
     assert "不主動加例子" in bundle.app.system_prompt

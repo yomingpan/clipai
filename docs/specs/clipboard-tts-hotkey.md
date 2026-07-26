@@ -13,7 +13,7 @@
 - `Ctrl+Alt+Q` 能從任何應用程式觸發 TTS。
 - 一般桌面情境採用「selection 優先、clipboard fallback」。
 - ClipAI 有 active session 時只讀 clipboard。
-- 英文文字使用英文 voice；含 CJK 字元的文字沿用預設 voice。
+- 英文文字使用英文 voice；日文文字使用日文 voice；中文文字沿用預設 voice。
 - 重複觸發會停止前一次朗讀並開始新工作。
 - 整個流程不開啟新 popup、不呼叫 LLM，也不阻塞 UI thread。
 - 成功或失敗狀態必須反映真實 TTS 生命週期。
@@ -85,8 +85,9 @@ selection 與 clipboard 都沒有有效文字時，系統不播放語音，也�
 
 ### 5.4 Voice 選擇規則
 
-- 文字包含 `U+4E00` 至 `U+9FFF` 任一字元時，不指定 voice override，交由 adapter 使用設定中的預設 voice。
-- 不包含上述字元時，使用 `tts.english_voice`，預設為 `en-US-AndrewNeural`。
+- 文字包含平假名、片假名、片假名語音擴充或半形片假名時，使用 `tts.japanese_voice`，預設為 `ja-JP-NanamiNeural`。
+- 非日文文字若包含 `U+4E00` 至 `U+9FFF` 任一字元，不指定 voice override，交由 adapter 使用設定中的預設 voice。
+- 其餘文字使用 `tts.english_voice`，預設為 `en-US-AndrewNeural`。
 - Speech port 接受 immutable `SpeechRequest(text, voice_override, cancellation)`。
 
 ### 5.5 工作生命週期規則
@@ -165,19 +166,25 @@ Given 要朗讀的文字為 `Hello world`
 When TTS 執行
 Then speech adapter 收到 `en-US-AndrewNeural`。
 
-### AC-6：重複觸發
+### AC-6：日文使用日文 voice
+
+Given 要朗讀的文字為 `これは日本語です。`
+When TTS 執行
+Then speech adapter 收到 `ja-JP-NanamiNeural`。
+
+### AC-7：重複觸發
 
 Given 使用者連續觸發兩次快捷鍵
 When runtime 建立兩次 TTS 工作
 Then 兩個 supervisor work key 必須不同，且每次皆先要求停止既有朗讀。
 
-### AC-7：空內容
+### AC-8：空內容
 
 Given 最終文字經 preprocessing 後為空
 When TTS 工作執行
 Then speech adapter 不得被呼叫。
 
-### AC-8：失敗狀態
+### AC-9：失敗狀態
 
 Given speech adapter 執行失敗
 When worker 回報例外
@@ -206,6 +213,6 @@ Then operation 標記 failed，且不得提前顯示 success。
 
 ## 9. 已知限制
 
-- CJK 判斷只涵蓋 `U+4E00` 至 `U+9FFF`，不等同完整的中文、日文或韓文語言偵測。
-- 所有非上述 CJK 文字都使用英文 voice，包括其他非英文語言。
+- 日文判斷依賴平假名或片假名；只有漢字的短字串無法與中文可靠區分，仍沿用預設 voice。
+- 所有未命中日文或 CJK 規則的文字都使用英文 voice，包括其他非英文語言。
 - Active session 的判斷是 runtime session collection 非空，不限於目前可見的 popup。

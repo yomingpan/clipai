@@ -88,6 +88,36 @@ def test_clipboard_only_does_not_read_selection_and_cjk_uses_default_voice() -> 
     assert speech.requests[0].voice_override is None
 
 
+@pytest.mark.parametrize(
+    "text",
+    (
+        "これは日本語です。",
+        "ひらがなだけ",
+        "カタカナ",
+        "ﾊﾝｶｸｶﾀｶﾅ",
+    ),
+)
+def test_japanese_text_uses_configured_japanese_voice(text: str) -> None:
+    speech = Speech()
+    coordinator = SpeechCoordinator(
+        clipboard=Reader(""),
+        selection_reader=Reader(""),
+        speech=speech,
+        voice_selector=SpeechVoiceSelector(
+            "en-GB-TestVoice",
+            japanese_voice="ja-JP-NanamiNeural",
+        ),
+    )
+
+    coordinator.create_text_job(
+        operation_id="japanese-speech",
+        workflow_id="workflow",
+        text=text,
+    ).run()
+
+    assert speech.requests[0].voice_override == "ja-JP-NanamiNeural"
+
+
 def test_empty_preprocessed_text_is_successful_noop() -> None:
     coordinator, _clipboard, _selection, speech, tracker = make_coordinator(clipboard="```py\npass\n```", selection="")
     coordinator.create_job(clipboard_only=False).run()
