@@ -13,11 +13,15 @@ class Root:
     def withdraw(self) -> None:
         self.events.append("withdraw")
 
+    def deiconify(self) -> None:
+        self.events.append("deiconify")
+
 
 class Dialog:
     def __init__(self, events: list[str], *, alive: bool = True) -> None:
         self.root = Root(events)
         self.alive = alive
+        self.pinned = False
 
     def is_alive(self) -> bool:
         return self.alive
@@ -25,6 +29,12 @@ class Dialog:
     def close(self) -> None:
         self.alive = False
         self.root.events.append("close")
+
+    def hide_for_external_output(self) -> None:
+        self.root.events.append("hide")
+
+    def restore_after_external_output(self, *, activate: bool) -> None:
+        self.root.events.append(f"restore:{activate}")
 
 
 class Surface:
@@ -169,8 +179,50 @@ def test_speech_failure_projects_to_speaker_slot() -> None:
 def test_paste_emits_identified_command_and_waits_for_pending_projection() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._paste("s1")
-    assert len(events) == 1
-    assert isinstance(events[0], PasteResult) and events[0].text == "selected" and events[0].operation_id
+    assert len(events) == 2
+    assert events[0] == "hide"
+    assert isinstance(events[1], PasteResult) and events[1].text == "selected" and events[1].operation_id
+    assert presenter._views["s1"].paste_transition_id == events[1].operation_id
+
+
+def test_pinned_paste_success_restores_without_activation() -> None:
+    presenter, events = presenter_with_selection("selected")
+    view = presenter._views["s1"]
+    view.dialog.pinned = True
+
+    presenter._paste("s1")
+    operation_id = events[-1].operation_id
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "pending"))
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "succeeded"))
+
+    assert "restore:False" in events
+    assert view.paste_transition_id is None
+
+
+def test_unpinned_paste_failure_restores_with_focus() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+
+    presenter._paste("s1")
+    operation_id = events[-1].operation_id
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "pending"))
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "failed"))
+
+    assert "restore:True" in events
+    assert view.paste_transition_id is None
+
+
+def test_stale_paste_result_does_not_restore_current_transition() -> None:
+    presenter, events = presenter_with_selection("selected")
+    view = presenter._views["s1"]
+    presenter._paste("s1")
+    current_id = events[-1].operation_id
+    view.output_operations["paste"] = current_id
+
+    presenter._apply_output_operation(OutputOperationResult("old", "s1", "paste", "succeeded"))
+
+    assert not any(event.startswith("restore:") for event in events if isinstance(event, str))
+    assert view.paste_transition_id == current_id
 
 
 def test_pin_updates_visual_state_before_emitting_command() -> None:
@@ -234,6 +286,38 @@ def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:
 
     assert result == "break"
     assert events == ["follow-up:s1"]
+
+
+def test_ctrl_w_pastes_only_for_active_popup() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    presenter._paste = lambda session_id: events.append(f"paste:{session_id}")
+
+    presenter._register_view("s1", view)
+    result = view.dialog.root.bindings["<Control-w>"](None)
+
+    assert result == "break"
+    assert events == ["paste:s1"]
+
+    events.clear()
+    presenter._active_workflow_id = "other"
+    result = view.dialog.root.bindings["<Control-w>"](None)
+
+    assert result == "break"
+    assert events == []
 
 
 def test_ctrl_e_toggles_pin_for_active_popup() -> None:
@@ -310,6 +394,13 @@ def test_focus_lifecycle_closes_only_for_unpinned_outside_focus() -> None:
     assert lifecycle.finish_outside_check(pinned=True, focused_inside=False) is False
     assert lifecycle.request_outside_check() is True
     assert lifecycle.finish_outside_check(pinned=False, focused_inside=False) is True
+
+
+def test_focus_lifecycle_can_cancel_outside_check_during_paste_transition() -> None:
+    lifecycle = PopupFocusLifecycle(True, True, True)
+    assert lifecycle.request_outside_check() is True
+    lifecycle.cancel_outside_check()
+    assert lifecycle.request_outside_check() is True
 
 
 def test_content_key_ignores_speaking_and_pin_snapshot_changes() -> None:

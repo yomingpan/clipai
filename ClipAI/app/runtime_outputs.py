@@ -6,7 +6,7 @@ import logging
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, SpeakSelectionOrClipboard, ToggleSpeech
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, ReleaseForegroundWorkflow, SpeakSelectionOrClipboard, ToggleSpeech
 from ClipAI.core.models import OutputOperationIntent
 from ClipAI.core.ports import DiagnosticsExporter, OperationTracker, OutputOperationPresenter, UserNotifier
 from ClipAI.services.output_actions import OutputActions
@@ -87,15 +87,31 @@ class ResultOutputRuntimeModule:
 
     def _paste(self, command: PasteResult) -> None:
         controller = self._workflow_controller(command.session_id)
-        if controller and controller.snapshot.content and self._output_actions.can_paste:
-            text = _selected_or_result(command.text, controller)
-            intent = OutputOperationIntent(command.operation_id or uuid.uuid4().hex, command.session_id, "paste", text)
-            operation = self._operations.begin(intent)
+        operation_id = command.operation_id or uuid.uuid4().hex
+        if controller is None or not controller.snapshot.content:
+            self._reject_paste(operation_id, command.session_id, "This result is no longer available to paste.")
+            return
+        if not self._output_actions.can_paste:
+            self._reject_paste(operation_id, command.session_id, "Paste output is not configured.")
+            return
+        text = _selected_or_result(command.text, controller)
+        intent = OutputOperationIntent(operation_id, command.session_id, "paste", text)
+        keep_workflow = controller.snapshot.pinned
+        operation = self._operations.begin(intent)
+        try:
             self._supervisor.submit(
                 intent.operation_id,
-                lambda: self._complete_paste(intent, operation),
+                lambda: self._complete_paste(intent, operation, keep_workflow),
                 lambda error: logger.error("Paste failed session_id=%s: %s", command.session_id, error),
             )
+        except BaseException as exc:
+            self._operations.fail(intent, exc, operation)
+            logger.error("Could not schedule paste session_id=%s: %s", command.session_id, exc)
+
+    def _reject_paste(self, operation_id: str, workflow_id: str, message: str) -> None:
+        intent = OutputOperationIntent(operation_id, workflow_id, "paste", "")
+        operation = self._operations.begin(intent)
+        self._operations.fail(intent, RuntimeError(message), operation)
 
     def _archive(self, command: ArchiveResult) -> None:
         controller = self._workflow_controller(command.session_id)
@@ -120,14 +136,18 @@ class ResultOutputRuntimeModule:
             raise
         self._operations.succeed(intent, operation)
 
-    def _complete_paste(self, intent, operation) -> None:
+    def _complete_paste(self, intent, operation, keep_workflow: bool) -> None:
         try:
             self._output_actions.paste(intent.text)
         except BaseException as exc:
             self._operations.fail(intent, exc, operation)
             raise
-        self._operations.succeed(intent, operation)
-        self._enqueue(CloseSession(intent.workflow_id))
+        if not self._operations.succeed(intent, operation):
+            return
+        if keep_workflow:
+            self._enqueue(ReleaseForegroundWorkflow(intent.workflow_id))
+        else:
+            self._enqueue(CloseSession(intent.workflow_id))
 
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:

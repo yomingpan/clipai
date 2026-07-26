@@ -6,7 +6,7 @@ from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, ShortcutTriggered, StartAction, TogglePin
+from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, ReleaseForegroundWorkflow, ShortcutTriggered, StartAction, TogglePin
 from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -44,6 +44,7 @@ WorkflowRuntimeCommand: TypeAlias = (
     | TogglePin
     | FollowUp
     | ActivateWorkflow
+    | ReleaseForegroundWorkflow
     | NavigateWorkflowBack
     | WorkflowInvocationFailed
     | HeadlessWorkflowFinished
@@ -135,6 +136,9 @@ class WorkflowRuntimeModule:
             record = self._records.get(command.workflow_id)
             if record is not None and record.presentation == "visible":
                 self._foreground_id = command.workflow_id
+        elif isinstance(command, ReleaseForegroundWorkflow):
+            if self._foreground_id == command.workflow_id:
+                self._foreground_id = None
         elif isinstance(command, NavigateWorkflowBack):
             controller = self.controller_for(command.workflow_id)
             if controller is not None:

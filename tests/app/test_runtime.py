@@ -1502,3 +1502,49 @@ def test_paste_and_archive_flow_through_typed_commands() -> None:
     runtime.drain_commands()
     assert view.workflow_controller(session_id) is None
     assert outputs.pasted == ["selected"]
+
+
+def test_pinned_paste_preserves_workflow_and_releases_foreground() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    controller = workflow(view, session_id)
+    controller._snapshot = controller.snapshot.evolve(content="use me")
+    runtime.enqueue(TogglePin(session_id))
+    runtime.drain_commands()
+
+    runtime.enqueue(PasteResult(session_id, operation_id="paste-op"))
+    runtime.drain_commands()
+    supervisor.work["paste-op"]()
+    runtime.drain_commands()
+
+    assert view.workflow_controller(session_id) is controller
+    assert controller.snapshot.pinned is True
+    assert runtime._workflow_module.has_foreground_workflow() is False
+    assert outputs.pasted == ["use me"]
+
+    runtime.enqueue(ActivateWorkflow(session_id))
+    runtime.drain_commands()
+    assert runtime._workflow_module.has_foreground_workflow() is True
+
+
+def test_stale_paste_completion_does_not_close_workflow() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    controller = workflow(view, session_id)
+    controller._snapshot = controller.snapshot.evolve(content="use me")
+
+    runtime.enqueue(PasteResult(session_id, operation_id="old-paste"))
+    runtime.enqueue(PasteResult(session_id, operation_id="new-paste"))
+    runtime.drain_commands()
+    supervisor.work["old-paste"]()
+    runtime.drain_commands()
+
+    assert view.workflow_controller(session_id) is controller
+
+    supervisor.work["new-paste"]()
+    runtime.drain_commands()
+    assert view.workflow_controller(session_id) is None

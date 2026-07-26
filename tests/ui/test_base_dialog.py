@@ -39,6 +39,7 @@ from ClipAI.ui.base_dialog import (
     _PresentationTextbox,
     apply_widget_font_scaling,
     hide_window_from_task_switcher,
+    show_window_without_activation,
     rgb_to_hex,
     configure_presentation_typography,
     configure_display_break_typography,
@@ -80,6 +81,44 @@ def test_windows_tool_window_style_hides_taskbar_and_alt_tab() -> None:
     assert hide_window_from_task_switcher(Window(), user32) is True
     assert user32.updated == (20, -20, 0x00000080)
     assert user32.positioned[-1] == 0x0027
+
+
+def test_windows_popup_restore_preserves_external_foreground_window() -> None:
+    class Window:
+        deiconified = False
+
+        def deiconify(self):
+            self.deiconified = True
+
+        def update_idletasks(self):
+            pass
+
+        def winfo_id(self):
+            return 10
+
+    class User32:
+        shown = None
+        restored = None
+
+        def GetForegroundWindow(self):
+            return 30
+
+        def GetParent(self, hwnd):
+            return 20
+
+        def ShowWindow(self, hwnd, command):
+            self.shown = (hwnd, command)
+
+        def SetForegroundWindow(self, hwnd):
+            self.restored = hwnd
+
+    window = Window()
+    user32 = User32()
+
+    assert show_window_without_activation(window, user32) is True
+    assert window.deiconified is True
+    assert user32.shown == (20, 4)
+    assert user32.restored == 30
 
 
 class FakeCanvas:
@@ -423,7 +462,7 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
     assert [spec.tooltip for spec in STANDARD_RESULT_ACTIONS] == [
         "Speak result",
         "Copy result",
-        "Paste result",
+        "Paste result (Ctrl+W)",
         "Archive result",
         "Ask follow-up",
     ]

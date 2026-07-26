@@ -332,6 +332,33 @@ def hide_window_from_task_switcher(window, user32=None) -> bool:
         return False
 
 
+def show_window_without_activation(window, user32=None) -> bool:
+    """Show a withdrawn Windows popup without taking focus from its paste target."""
+    if user32 is None:
+        if sys.platform != "win32":
+            try:
+                window.deiconify()
+                return True
+            except (AttributeError, tk.TclError):
+                return False
+        import ctypes
+
+        user32 = ctypes.windll.user32
+    try:
+        previous_foreground = int(user32.GetForegroundWindow())
+        window.deiconify()
+        window.update_idletasks()
+        child = int(window.winfo_id())
+        hwnd = int(user32.GetParent(child)) or child
+        sw_show_no_activate = 4
+        user32.ShowWindow(hwnd, sw_show_no_activate)
+        if previous_foreground and previous_foreground != hwnd:
+            user32.SetForegroundWindow(previous_foreground)
+        return True
+    except (AttributeError, OSError, TypeError, ValueError, tk.TclError):
+        return False
+
+
 class BaseDialog:
     def __init__(
         self,
@@ -461,6 +488,22 @@ class BaseDialog:
 
     def close(self) -> None:
         self.lifecycle.close()
+
+    def hide_for_external_output(self) -> None:
+        try:
+            self.root.withdraw()
+        except tk.TclError:
+            pass
+
+    def restore_after_external_output(self, *, activate: bool) -> None:
+        if activate:
+            try:
+                self.root.deiconify()
+            except tk.TclError:
+                return
+            self.lifecycle.focus()
+            return
+        show_window_without_activation(self.root)
 
     def request_close(self) -> str:
         """Emit the semantic close request; only the presenter destroys views."""
@@ -639,7 +682,7 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
         active_color="#00B04F",
         active_hover_color="#00B04F",
     ),
-    ResultActionSpec(slot_id="paste", icon=PASTE_ICON, tooltip="Paste result"),
+    ResultActionSpec(slot_id="paste", icon=PASTE_ICON, tooltip="Paste result (Ctrl+W)"),
     ResultActionSpec(
         slot_id="archive",
         icon=ARCHIVE_ICON,
