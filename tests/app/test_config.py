@@ -86,6 +86,24 @@ def test_long_press_uses_variant_prompt() -> None:
     assert resolved.feedback_contract != catalog.resolve("english_companion", "short").feedback_contract
 
 
+def test_long_press_ctrl_alt_2_translates_to_japanese() -> None:
+    bundle = load_config_bundle()
+
+    shortcut = bundle.shortcuts.definition("translate_to_english")
+    short_action = bundle.actions.resolve(shortcut.action_id, "short")
+    long_action = bundle.actions.resolve(shortcut.action_id, "long")
+
+    assert shortcut.hotkey == "ctrl+alt+2"
+    assert short_action.name == "Translate to English"
+    assert "natural English" in short_action.prompt
+    assert long_action.name == "翻譯成日文"
+    assert "natural Japanese" in long_action.prompt
+    assert "Output only the Japanese translation" in long_action.system_prompt
+    assert long_action.feedback_contract is not None
+    assert long_action.feedback_contract.transform_label == "將內容翻譯成符合情境與關係的自然日文"
+    assert long_action.feedback_contract != short_action.feedback_contract
+
+
 def test_action_input_mode_defaults_to_selection_or_clipboard(tmp_path: Path) -> None:
     path = tmp_path / "actions.yaml"
     path.write_text(

@@ -60,6 +60,30 @@ actions:
       Translate the following text or image content into natural English:
 
       {input}
+    press_variants:
+      long:
+        name: 翻譯成日文
+        feedback:
+          transform: 將內容翻譯成符合情境與關係的自然日文
+          human_space: 保留真正想表達的意思、立場、語氣與最後用字
+          verify: 這個日文版本是否準確、自然，而且適合真正要讀它的人？
+          reasons:
+            - id: meaning_inaccurate
+              label: 語意不準確
+            - id: tone_or_formality_off
+              label: 語氣、敬語或正式程度不對
+            - id: terms_names_or_numbers_wrong
+              label: 術語、姓名或數字翻錯
+            - id: unnatural_or_wrong_audience
+              label: 說法不自然或不適合對象
+            - id: other
+              label: 其他
+        system_prompt: >
+          Translate the input into natural, clear Japanese appropriate to its context, audience, relationship, and level of formality. Preserve intent, tone, stance, uncertainty, names, numbers, facts, and constraints. Use natural Japanese rather than following the original word order, and choose polite or plain language only when the context supports it. Do not summarize, comment, extend, or invent information. The input may be text or an image; when an image is unclear, translate only visible content and mark uncertainty. Output only the Japanese translation in natural paragraphs. Do not add headings, bullets, labels, an introduction, or pronunciation notes.
+        prompt: |
+          Translate the following text or image content into natural Japanese:
+
+          {input}
 
   - id: name_idea
     name: 為想法命名
