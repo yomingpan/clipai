@@ -354,8 +354,8 @@ def test_ctrl_e_toggles_pin_for_active_popup() -> None:
         def schedule(self, _delay_ms, _callback) -> str:
             return "scheduled"
 
-    class CtrlEvent:
-        state = 0x0004
+    class CtrlWithNumLockEvent:
+        state = 0x0004 | 0x0008
 
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
@@ -363,14 +363,14 @@ def test_ctrl_e_toggles_pin_for_active_popup() -> None:
     view.dialog.lifecycle = Lifecycle()
 
     presenter._register_view("s1", view)
-    result = view.dialog.root.bindings["<Control-e>"](CtrlEvent())
+    result = view.dialog.root.bindings["<Control-e>"](CtrlWithNumLockEvent())
 
     assert result == "break"
     assert events == ["pin:toggled", TogglePin("s1")]
 
     events.clear()
     presenter._active_workflow_id = "other"
-    result = view.dialog.root.bindings["<Control-e>"](CtrlEvent())
+    result = view.dialog.root.bindings["<Control-e>"](CtrlWithNumLockEvent())
 
     assert result == "break"
     assert events == []
@@ -389,7 +389,7 @@ def test_popup_shortcuts_ignore_alt_modified_global_chords() -> None:
             return "scheduled"
 
     class CtrlAltEvent:
-        state = 0x0004 | 0x0008
+        state = 0x0004 | 0x0008 | 0x00020000
 
     class CtrlShiftEvent:
         state = 0x0004 | 0x0001

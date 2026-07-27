@@ -17,7 +17,9 @@ from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 
 
-_POPUP_SHORTCUT_ALLOWED_MODIFIERS = 0x0002 | 0x0004 | 0x0010
+# Windows Tk maps Num Lock to Mod1 (0x0008), while physical Alt uses
+# the separate 0x00020000 state bit. Lock states must not disable Ctrl shortcuts.
+_POPUP_SHORTCUT_ALLOWED_MODIFIERS = 0x0002 | 0x0004 | 0x0008 | 0x0010
 
 
 @dataclass
