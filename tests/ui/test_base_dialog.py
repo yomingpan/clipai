@@ -764,12 +764,36 @@ def test_pin_state_updates_icon_and_shortcut_tooltip() -> None:
     surface.set_pinned_state(True)
     assert surface.dialog.pinned is True
     assert surface.pin_button.configuration["text"] == UNPIN_ICON
-    assert surface._pin_tooltip.text == "Unpin (Ctrl+E)"
+    assert surface._pin_tooltip.text == "Unpin (Ctrl+E or double-click header)"
 
     surface.set_pinned_state(False)
     assert surface.dialog.pinned is False
     assert surface.pin_button.configuration["text"] == PIN_ICON
-    assert surface._pin_tooltip.text == "Keep open (Ctrl+E)"
+    assert surface._pin_tooltip.text == "Keep open (Ctrl+E or double-click header)"
+
+
+def test_header_double_click_binding_excludes_action_buttons() -> None:
+    class Widget:
+        def __init__(self) -> None:
+            self.bindings = []
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings.append((sequence, callback, add))
+
+    callback = lambda _event: None
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.header = Widget()
+    surface.title_area = Widget()
+    surface.title_label = Widget()
+    surface.pin_button = Widget()
+    surface.close_button = Widget()
+
+    surface.bind_header_double_click(callback)
+
+    for widget in (surface.header, surface.title_area, surface.title_label):
+        assert widget.bindings == [("<Double-Button-1>", callback, "+")]
+    assert surface.pin_button.bindings == []
+    assert surface.close_button.bindings == []
 
 
 def test_source_preview_stays_on_one_line_and_ellipsizes_over_limit() -> None:

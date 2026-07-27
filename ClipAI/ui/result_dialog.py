@@ -17,6 +17,9 @@ from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 
 
+_POPUP_SHORTCUT_ALLOWED_MODIFIERS = 0x0002 | 0x0004 | 0x0010
+
+
 @dataclass
 class _SessionView:
     dialog: BaseDialog
@@ -454,13 +457,14 @@ class ResultDialogPresenter:
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
         dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._activate(sid), add="+")
         dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
-        dialog.root.bind("<Control-q>", lambda _event, sid=session_id: self._shortcut(self._toggle_speech, sid), add="+")
-        dialog.root.bind("<Control-e>", lambda _event, sid=session_id: self._shortcut(self._toggle_pin, sid), add="+")
-        dialog.root.bind("<Control-c>", lambda _event, sid=session_id: self._shortcut(self._copy, sid), add="+")
-        dialog.root.bind("<Control-s>", lambda _event, sid=session_id: self._shortcut(self._archive, sid), add="+")
-        dialog.root.bind("<Control-r>", lambda _event, sid=session_id: self._shortcut(self._toggle_feedback, sid), add="+")
+        dialog.root.bind("<Control-q>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_speech, sid), add="+")
+        dialog.root.bind("<Control-e>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_pin, sid), add="+")
+        dialog.root.bind("<Control-c>", lambda event, sid=session_id: self._popup_shortcut(event, self._copy, sid), add="+")
+        dialog.root.bind("<Control-s>", lambda event, sid=session_id: self._popup_shortcut(event, self._archive, sid), add="+")
+        dialog.root.bind("<Control-r>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_feedback, sid), add="+")
         dialog.root.bind("<Control-v>", lambda event, sid=session_id: self._paste_shortcut(event, sid), add="+")
-        dialog.root.bind("<Control-slash>", lambda _event, sid=session_id: self._shortcut(self._toggle_follow_up, sid), add="+")
+        dialog.root.bind("<Control-slash>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_follow_up, sid), add="+")
+        view.surface.bind_header_double_click(lambda _event, sid=session_id: self._header_double_click(sid))
         lifecycle.shown = True
 
         def establish_initial_focus() -> None:
@@ -476,10 +480,21 @@ class ResultDialogPresenter:
             action(session_id)
         return "break"
 
+    def _popup_shortcut(self, event, action: Callable[[str], None], session_id: str) -> str:
+        if _has_only_popup_shortcut_modifiers(event):
+            return self._shortcut(action, session_id)
+        return "break"
+
     def _paste_shortcut(self, event, session_id: str) -> str | None:
+        if not _has_only_popup_shortcut_modifiers(event):
+            return "break"
         if _accepts_native_paste(getattr(event, "widget", None)):
             return None
         return self._shortcut(self._paste, session_id)
+
+    def _header_double_click(self, session_id: str) -> str:
+        self._toggle_pin(session_id)
+        return "break"
 
     def _activate(self, session_id: str) -> None:
         self._active_workflow_id = session_id
@@ -521,6 +536,12 @@ def _content_render_key(snapshot: SessionSnapshot) -> tuple[object, ...]:
     if snapshot.status == SessionStatus.COMPLETED:
         return (snapshot.status, snapshot.content, snapshot.presentation)
     return (snapshot.status, snapshot.content, snapshot.status_text, snapshot.presentation)
+
+
+def _has_only_popup_shortcut_modifiers(event: object | None) -> bool:
+    """Allow Ctrl with lock-state bits, but not Alt, Shift, or other modifiers."""
+    state = getattr(event, "state", 0)
+    return isinstance(state, int) and state & ~_POPUP_SHORTCUT_ALLOWED_MODIFIERS == 0
 
 
 def _accepts_native_paste(widget: object | None) -> bool:

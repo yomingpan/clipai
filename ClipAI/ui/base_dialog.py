@@ -812,10 +812,10 @@ class BaseResultSurface:
         self.header.grid(row=0, column=0, sticky="ew", padx=9, pady=(3, 0))
         self.header.grid_columnconfigure(0, weight=1)
 
-        title_area = ctk.CTkFrame(self.header, fg_color=SURFACE_BG)
-        title_area.grid(row=0, column=0, sticky="w")
+        self.title_area = ctk.CTkFrame(self.header, fg_color=SURFACE_BG)
+        self.title_area.grid(row=0, column=0, sticky="w")
         self.title_label = ctk.CTkLabel(
-            title_area,
+            self.title_area,
             text="",
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"], weight="bold"),
             text_color=TITLE_COLOR,
@@ -881,8 +881,8 @@ class BaseResultSurface:
             command=self.toggle_pin,
         )
         self.pin_button.pack(side="left")
-        self._pin_tooltip = _Tooltip(self.pin_button, "Keep open (Ctrl+E)", self.dialog.lifecycle)
-        self.dialog.enable_drag(self.header, title_area, self.title_label)
+        self._pin_tooltip = _Tooltip(self.pin_button, "Keep open (Ctrl+E or double-click header)", self.dialog.lifecycle)
+        self.dialog.enable_drag(self.header, self.title_area, self.title_label)
 
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 0))
@@ -1384,6 +1384,10 @@ class BaseResultSurface:
             return None
         return selected or None
 
+    def bind_header_double_click(self, callback: Callable) -> None:
+        for widget in (self.header, self.title_area, self.title_label):
+            widget.bind("<Double-Button-1>", callback, add="+")
+
     def set_pinned_state(self, pinned: bool) -> None:
         self.dialog.set_pinned(pinned)
         self.pin_button.configure(
@@ -1392,7 +1396,9 @@ class BaseResultSurface:
             hover_color="#2F8DCE" if pinned else "#3A3A3A",
             text_color=CONTENT_COLOR if pinned else "#8A8A8A",
         )
-        self._pin_tooltip.set_text("Unpin (Ctrl+E)" if pinned else "Keep open (Ctrl+E)")
+        self._pin_tooltip.set_text(
+            "Unpin (Ctrl+E or double-click header)" if pinned else "Keep open (Ctrl+E or double-click header)"
+        )
 
     def toggle_pin(self) -> bool:
         pinned = self.dialog.toggle_pin()

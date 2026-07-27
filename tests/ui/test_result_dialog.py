@@ -43,6 +43,7 @@ class Surface:
         self.events = events
         self.overflow_expanded = False
         self.feedback_available = False
+        self.header_double_click_callback = None
 
     def selected_text(self) -> str | None:
         return self.selected
@@ -65,6 +66,9 @@ class Surface:
     def toggle_pin(self) -> bool:
         self.events.append("pin:toggled")
         return True
+
+    def bind_header_double_click(self, callback) -> None:
+        self.header_double_click_callback = callback
 
     def configure_action_contract(self, contract, input_source: str) -> None:
         self.events.append(("contract", contract, input_source))
@@ -350,23 +354,85 @@ def test_ctrl_e_toggles_pin_for_active_popup() -> None:
         def schedule(self, _delay_ms, _callback) -> str:
             return "scheduled"
 
+    class CtrlEvent:
+        state = 0x0004
+
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
     view.dialog.root = ShortcutRoot()
     view.dialog.lifecycle = Lifecycle()
 
     presenter._register_view("s1", view)
-    result = view.dialog.root.bindings["<Control-e>"](None)
+    result = view.dialog.root.bindings["<Control-e>"](CtrlEvent())
 
     assert result == "break"
     assert events == ["pin:toggled", TogglePin("s1")]
 
     events.clear()
     presenter._active_workflow_id = "other"
-    result = view.dialog.root.bindings["<Control-e>"](None)
+    result = view.dialog.root.bindings["<Control-e>"](CtrlEvent())
 
     assert result == "break"
     assert events == []
+
+
+def test_popup_shortcuts_ignore_alt_modified_global_chords() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    class CtrlAltEvent:
+        state = 0x0004 | 0x0008
+
+    class CtrlShiftEvent:
+        state = 0x0004 | 0x0001
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    presenter._toggle_speech = lambda _session_id: events.append("speech:toggled")
+    presenter._copy = lambda _session_id: events.append("copied")
+    presenter._archive = lambda _session_id: events.append("archived")
+
+    presenter._register_view("s1", view)
+
+    for event in (CtrlAltEvent(), CtrlShiftEvent()):
+        for shortcut in ("<Control-e>", "<Control-q>", "<Control-c>", "<Control-s>"):
+            assert view.dialog.root.bindings[shortcut](event) == "break"
+
+    assert events == []
+
+
+def test_double_clicking_popup_header_toggles_pin() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+
+    presenter._register_view("s1", view)
+    result = view.surface.header_double_click_callback(None)
+
+    assert result == "break"
+    assert events == ["pin:toggled", TogglePin("s1")]
 
 
 def test_workflow_context_projects_selection_and_displayed_step() -> None:
