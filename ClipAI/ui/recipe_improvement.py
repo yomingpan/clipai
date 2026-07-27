@@ -342,12 +342,23 @@ class RecipeImprovementDialog:
         self._privacy_var = tk.BooleanVar(
             value=not state.privacy_confirmation_required
         )
-        ctk.CTkCheckBox(
+        privacy_frame = ctk.CTkFrame(
             self._content,
-            text=privacy,
+            fg_color="transparent",
+        )
+        privacy_frame.grid(row=row, column=0, sticky="ew", padx=8, pady=10)
+        ctk.CTkCheckBox(
+            privacy_frame,
+            text="我同意傳送上述資料",
             variable=self._privacy_var,
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            privacy_frame,
+            text=privacy,
+            anchor="w",
+            justify="left",
             wraplength=650,
-        ).grid(row=row, column=0, sticky="w", padx=8, pady=10)
+        ).grid(row=1, column=0, sticky="ew", pady=(6, 0))
         row += 1
         buttons = ctk.CTkFrame(self._content, fg_color="transparent")
         buttons.grid(row=row, column=0, sticky="ew", padx=8, pady=8)
