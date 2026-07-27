@@ -28,26 +28,49 @@ def test_project_metadata_matches_the_supported_runtime() -> None:
 def test_windows_launcher_is_a_thin_bootstrap_entrypoint() -> None:
     launcher = (PROJECT_ROOT / "run_clipai.bat").read_text(encoding="utf-8")
 
-    assert "scripts\\bootstrap.py" in launcher
+    assert "scripts\\bootstrap_windows.ps1" in launcher
     assert "pip install" not in launcher
     assert "-m venv" not in launcher
-    assert "ClipAI requires Python 3.10 through 3.13." in launcher
+
+
+def test_windows_bootstrap_installs_and_selects_python_312() -> None:
+    bootstrap_script = (PROJECT_ROOT / "scripts" / "bootstrap_windows.ps1").read_text(encoding="utf-8")
+
+    assert '$RequiredPython = "3.12"' in bootstrap_script
+    assert '$PythonManagerPackage = "9NQ7512CXL7T"' in bootstrap_script
+    assert "-V:3.12" in bootstrap_script
+    assert "--accept-package-agreements" in bootstrap_script
+    assert "scripts\\bootstrap.py" in bootstrap_script
 
 
 @pytest.mark.parametrize(
     ("version", "expected"),
-    [((3, 9), False), ((3, 10), True), ((3, 13), True), ((3, 14), False)],
+    [((3, 11), False), ((3, 12), True), ((3, 13), False), ((3, 14), False)],
 )
 def test_supported_python_range(version: tuple[int, int], expected: bool) -> None:
     assert bootstrap.supported_python(version) is expected
 
 
-def test_prepare_reuses_an_existing_environment(tmp_path: Path) -> None:
+def write_install_inputs(project_root: Path) -> None:
+    (project_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    constraints = project_root / "constraints" / "windows.txt"
+    constraints.parent.mkdir(exist_ok=True)
+    constraints.write_text("requests==2.32.3\n", encoding="utf-8")
+
+
+def test_prepare_reuses_a_ready_python_312_environment(tmp_path: Path) -> None:
+    write_install_inputs(tmp_path)
     python = tmp_path / ".venv" / "Scripts" / "python.exe"
     python.parent.mkdir(parents=True)
     python.touch()
+    bootstrap.mark_environment_ready(tmp_path, python)
 
-    assert bootstrap.prepare(tmp_path, Path("system-python"), confirm=lambda _: "n") == python
+    assert bootstrap.prepare(
+        tmp_path,
+        Path("system-python"),
+        confirm=lambda _: "n",
+        read_version=lambda _: (3, 12),
+    ) == python
 
 
 def test_prepare_declines_environment_creation(tmp_path: Path) -> None:
@@ -55,14 +78,72 @@ def test_prepare_declines_environment_creation(tmp_path: Path) -> None:
         bootstrap.prepare(tmp_path, Path("python"), confirm=lambda _: "n")
 
 
-def test_create_environment_uses_runtime_constraints(tmp_path: Path) -> None:
-    constraints = tmp_path / "constraints" / "windows.txt"
-    constraints.parent.mkdir()
-    constraints.write_text("requests==2.32.3\n", encoding="utf-8")
+def test_prepare_refreshes_dependencies_when_inputs_change(tmp_path: Path) -> None:
+    write_install_inputs(tmp_path)
+    python = tmp_path / ".venv" / "Scripts" / "python.exe"
+    python.parent.mkdir(parents=True)
+    python.touch()
     commands: list[list[str]] = []
 
     def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
         commands.append(list(command))
+        if command[1:3] == ["-m", "venv"]:
+            created_python = Path(command[-1]) / "Scripts" / "python.exe"
+            created_python.parent.mkdir(parents=True)
+            created_python.touch()
+        return subprocess.CompletedProcess(command, 0)
+
+    result = bootstrap.prepare(
+        tmp_path,
+        Path("system-python"),
+        runner=runner,
+        read_version=lambda _: (3, 12),
+        assume_yes=True,
+    )
+
+    assert result == python
+    assert len(commands) == 2
+    assert bootstrap.environment_is_ready(tmp_path, python)
+
+
+def test_prepare_preserves_an_incompatible_dot_venv(tmp_path: Path) -> None:
+    write_install_inputs(tmp_path)
+    old_python = tmp_path / ".venv" / "Scripts" / "python.exe"
+    old_python.parent.mkdir(parents=True)
+    old_python.touch()
+    commands: list[list[str]] = []
+
+    def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        if command[1:3] == ["-m", "venv"]:
+            created_python = Path(command[-1]) / "Scripts" / "python.exe"
+            created_python.parent.mkdir(parents=True)
+            created_python.touch()
+        return subprocess.CompletedProcess(command, 0)
+
+    python = bootstrap.prepare(
+        tmp_path,
+        Path("python312"),
+        runner=runner,
+        read_version=lambda _: (3, 13),
+        assume_yes=True,
+    )
+
+    assert (tmp_path / ".venv.incompatible" / "Scripts" / "python.exe").is_file()
+    assert python == tmp_path / ".venv" / "Scripts" / "python.exe"
+    assert commands[0][0] == "python312"
+
+
+def test_create_environment_uses_runtime_constraints(tmp_path: Path) -> None:
+    write_install_inputs(tmp_path)
+    commands: list[list[str]] = []
+
+    def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        if command[1:3] == ["-m", "venv"]:
+            created_python = Path(command[-1]) / "Scripts" / "python.exe"
+            created_python.parent.mkdir(parents=True)
+            created_python.touch()
         return subprocess.CompletedProcess(command, 0)
 
     python = bootstrap.create_environment(tmp_path, Path("python"), runner)
@@ -72,6 +153,7 @@ def test_create_environment_uses_runtime_constraints(tmp_path: Path) -> None:
     assert "--upgrade" in commands[1]
     assert "-c" in commands[2]
     assert ".[dev]" not in commands[2]
+    assert bootstrap.environment_is_ready(tmp_path, python)
 
 
 def test_create_environment_reports_missing_constraints(tmp_path: Path) -> None:
@@ -88,6 +170,10 @@ def test_failed_install_has_actionable_stage(tmp_path: Path) -> None:
     def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
         nonlocal calls
         calls += 1
+        if command[1:3] == ["-m", "venv"]:
+            created_python = Path(command[-1]) / "Scripts" / "python.exe"
+            created_python.parent.mkdir(parents=True)
+            created_python.touch()
         return subprocess.CompletedProcess(command, 7 if calls == 3 else 0)
 
     with pytest.raises(bootstrap.BootstrapError, match="ClipAI installation failed with exit code 7"):
