@@ -805,6 +805,7 @@ class BaseResultSurface:
         self._feedback_success_job: str | None = None
         self._feedback_pending_payload: tuple[FeedbackOutcome, str, str, bool] | None = None
         self._guidance_job: str | None = None
+        self._rendered_pinned_state: bool | None = None
         self._build()
 
     def _build(self) -> None:
@@ -1390,6 +1391,8 @@ class BaseResultSurface:
 
     def set_pinned_state(self, pinned: bool) -> None:
         self.dialog.set_pinned(pinned)
+        if getattr(self, "_rendered_pinned_state", None) is pinned:
+            return
         self.pin_button.configure(
             text=UNPIN_ICON if pinned else PIN_ICON,
             fg_color=ACTION_HOVER_COLOR if pinned else SURFACE_BG,
@@ -1399,6 +1402,7 @@ class BaseResultSurface:
         self._pin_tooltip.set_text(
             "Unpin (Ctrl+E or double-click header)" if pinned else "Keep open (Ctrl+E or double-click header)"
         )
+        self._rendered_pinned_state = pinned
 
     def toggle_pin(self) -> bool:
         pinned = self.dialog.toggle_pin()

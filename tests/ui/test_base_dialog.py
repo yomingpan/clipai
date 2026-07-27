@@ -772,6 +772,40 @@ def test_pin_state_updates_icon_and_shortcut_tooltip() -> None:
     assert surface._pin_tooltip.text == "Keep open (Ctrl+E or double-click header)"
 
 
+def test_repeated_pin_projection_does_not_redraw_button() -> None:
+    class Dialog:
+        def __init__(self) -> None:
+            self.pinned = False
+
+        def set_pinned(self, pinned: bool) -> None:
+            self.pinned = pinned
+
+    class Button:
+        def __init__(self) -> None:
+            self.configurations = []
+
+        def configure(self, **configuration) -> None:
+            self.configurations.append(configuration)
+
+    class Tooltip:
+        def __init__(self) -> None:
+            self.texts = []
+
+        def set_text(self, text: str) -> None:
+            self.texts.append(text)
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.dialog = Dialog()
+    surface.pin_button = Button()
+    surface._pin_tooltip = Tooltip()
+
+    surface.set_pinned_state(True)
+    surface.set_pinned_state(True)
+
+    assert len(surface.pin_button.configurations) == 1
+    assert surface._pin_tooltip.texts == ["Unpin (Ctrl+E or double-click header)"]
+
+
 def test_header_double_click_binding_excludes_action_buttons() -> None:
     class Widget:
         def __init__(self) -> None:
