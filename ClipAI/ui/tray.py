@@ -131,7 +131,7 @@ class TrayController:
         if self._on_open_provider_settings is not None:
             menu_items.append(pystray.MenuItem("Settings and Models...", lambda _icon, _item: self._on_open_provider_settings()))
         if self._on_open_recipe_improvement is not None:
-            menu_items.append(pystray.MenuItem("改善 Recipe…", lambda _icon, _item: self._on_open_recipe_improvement()))
+            menu_items.append(pystray.MenuItem("Improve Recipe...", lambda _icon, _item: self._on_open_recipe_improvement()))
         guidance_menu = self._build_guidance_menu(pystray)
         if guidance_menu is not None:
             menu_items.append(guidance_menu)

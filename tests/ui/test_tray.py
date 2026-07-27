@@ -91,7 +91,7 @@ def test_tray_recipe_improvement_item_is_visible_and_invokes_callback() -> None:
     )
 
     items = tray._build_main_menu_items(Pystray, lambda _icon, _item: None)
-    item = next(item for item in items if getattr(item, "text", "") == "改善 Recipe…")
+    item = next(item for item in items if getattr(item, "text", "") == "Improve Recipe...")
     item.action(None, None)
 
     assert events == ["improve"]
