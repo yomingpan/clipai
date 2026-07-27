@@ -8,13 +8,15 @@ import uuid
 from ClipAI.app.config_schema import ConfigBundle
 from ClipAI.core.errors import ConfigError
 from ClipAI.app.provider_configuration import AppProviderConfigurationBackend, build_provider_snapshot
+from ClipAI.app.recipe_configuration import load_recipe_configuration_overlay
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
+from ClipAI.app.runtime_recipe_improvement import RecipeImprovementRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
+from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, OpenRecipeImprovement, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
 from ClipAI.core.models import HotkeyEventType, ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, Stoppable
@@ -45,6 +47,7 @@ from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
 from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
 from ClipAI.services.prompt_builder import PromptBuilder
+from ClipAI.services.recipe_improvement import RecipeImprovementEvidenceService
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.ui.result_dialog import ResultDialogPresenter
 from ClipAI.ui.tray import TrayController
@@ -79,6 +82,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         model_selection=ModelSelectionState(snapshot.active_provider, available_models, model),
         provider_selection=ProviderSelectionState(snapshot.options, snapshot.active_provider),
         on_open_provider_settings=lambda: runtime_holder[0].enqueue(OpenProviderSettings()),
+        on_open_recipe_improvement=lambda: runtime_holder[0].enqueue(OpenRecipeImprovement()),
         guidance_preferences=guidance_preferences.preferences,
         on_set_first_use_hints=lambda enabled: runtime_holder[0].enqueue(SetFirstUseHintsEnabled(enabled, uuid.uuid4().hex)),
         on_reset_first_use_hints=lambda: runtime_holder[0].enqueue(ResetFirstUseHints(uuid.uuid4().hex)),
@@ -131,10 +135,12 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         archive=JsonlArchiveStore(),
         keyboard=SystemKeyboardOutput(),
     )
+    prompt_builder = PromptBuilder(bundle.app.system_prompt, bundle.output_profiles)
+    result_processor = ResultProcessor(bundle.output_profiles)
     execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
-        prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),
-        result_processor=ResultProcessor(bundle.output_profiles),
+        prompt_builder=prompt_builder,
+        result_processor=result_processor,
         default_temperature=bundle.app.temperature,
         available_actions=("copy", "paste", "archive", "follow_up", "speaker") if speech is not None else ("copy", "paste", "archive", "follow_up"),
         operation_tracker=operation_tracker,
@@ -189,14 +195,37 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         provider_selection_presenter=tray,
         provider_settings_presenter=view,
     )
+    feedback_store = JsonlActionFeedbackStore()
     user_persistence_module = UserPersistenceRuntimeModule(
         supervisor=supervisor,
         workflow_controller=workflow_module.controller_for,
         enqueue=enqueue,
-        action_feedback=ActionFeedbackService(JsonlActionFeedbackStore()),
+        action_feedback=ActionFeedbackService(feedback_store),
         guidance_preferences=guidance_preferences,
         guidance_preferences_presenter=tray,
         notifier=tray,
+    )
+    recipe_configuration = load_recipe_configuration_overlay(bundle.actions)
+    recipe_improvement_module = RecipeImprovementRuntimeModule(
+        RecipeImprovementEvidenceService(bundle.actions, feedback_store),
+        view,
+        binding_reader=lambda: provider_configuration.active_binding,
+        supervisor=supervisor,
+        enqueue=enqueue,
+        request_builder=lambda action, input_text, request_model: prompt_builder.build(
+            action,
+            input_text,
+            model=request_model,
+            default_temperature=bundle.app.temperature,
+        ),
+        revisions=recipe_configuration.revisions,
+        revision_warning=recipe_configuration.warning,
+        notifier=tray,
+        operation_tracker=operation_tracker,
+        presentation_builder=lambda action, text: result_processor.process(
+            text,
+            action.output_profile,
+        ).document,
     )
     runtime = AppRuntime(
         shortcuts=bundle.shortcuts,
@@ -209,6 +238,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         hotkey_registrar=register,
         tray_factory=lambda _on_exit: tray,
         operation_tracker=operation_tracker,
+        recipe_improvement=recipe_improvement_module,
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):

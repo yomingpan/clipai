@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeAlias
 
-from ClipAI.core.models import FeedbackOutcome, HotkeyEventType, ModelCatalogConnection, PressType, ProviderSettingsInput, ResultRoute
+from ClipAI.core.models import FeedbackOutcome, HotkeyEventType, LLMResult, ModelCatalogConnection, PressType, ProviderSettingsInput, RecipeComparisonResult, RecipeComparisonVerdict, RecipeManualTestCase, ResultRoute
 
 
 @dataclass(frozen=True)
@@ -120,6 +120,122 @@ class OpenProviderSettings:
 
 
 @dataclass(frozen=True)
+class OpenRecipeImprovement:
+    pass
+
+
+@dataclass(frozen=True)
+class BeginRecipeImprovement:
+    action_id: str
+    press_type: PressType
+
+
+@dataclass(frozen=True)
+class GenerateRecipeCandidate:
+    selected_feedback_ids: tuple[str, ...]
+    directions: tuple[str, ...]
+    user_direction: str
+    privacy_consent: bool
+    operation_id: str
+
+
+@dataclass(frozen=True)
+class RecipeCandidateCompleted:
+    operation_id: str
+    result: LLMResult | None = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class RunRecipeCandidateTests:
+    selected_feedback_ids: tuple[str, ...]
+    manual_cases: tuple[RecipeManualTestCase, ...]
+    operation_id: str
+    saved_case_importance: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class RecipeTestProgress:
+    operation_id: str
+    current: int
+    total: int
+
+
+@dataclass(frozen=True)
+class RecipeTestsCompleted:
+    operation_id: str
+    comparisons: tuple[RecipeComparisonResult, ...] = ()
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class SetRecipeComparisonVerdict:
+    test_id: str
+    verdict: RecipeComparisonVerdict
+    candidate_parent_version: str = ""
+    candidate_iteration: int = 0
+    reasons: tuple[str, ...] = ()
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class ApplyRecipeCandidate:
+    confirm_mixed_results: bool = False
+    operation_id: str = ""
+    candidate_parent_version: str = ""
+    candidate_iteration: int = 0
+
+
+@dataclass(frozen=True)
+class CancelRecipeImprovementOperation:
+    operation_id: str
+
+
+@dataclass(frozen=True)
+class OpenRecipeVersionHistory:
+    action_id: str
+    press_type: PressType
+
+
+@dataclass(frozen=True)
+class RestoreRecipeVersion:
+    action_id: str
+    press_type: PressType
+    revision_id: str
+    confirmed: bool = False
+    operation_id: str = ""
+
+
+@dataclass(frozen=True)
+class KeepPersonalRecipeVersion:
+    action_id: str
+    press_type: PressType
+    operation_id: str = ""
+
+
+@dataclass(frozen=True)
+class RefineRecipeCandidate:
+    candidate_parent_version: str = ""
+    candidate_iteration: int = 0
+
+
+@dataclass(frozen=True)
+class ReturnToRecipeCandidate:
+    candidate_parent_version: str = ""
+    candidate_iteration: int = 0
+
+
+@dataclass(frozen=True)
+class TreatRecipeIssueAsPrompt:
+    action_version: str = ""
+
+
+@dataclass(frozen=True)
+class RetryFailedRecipeTests:
+    operation_id: str
+
+
+@dataclass(frozen=True)
 class ValidateAndSaveProviderSettings:
     settings: ProviderSettingsInput
     operation_id: str = ""
@@ -168,4 +284,4 @@ class GuidancePreferencesCompleted:
     error: str = ""
 
 
-AppCommand: TypeAlias = ShortcutTriggered | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | ReleaseForegroundWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted
+AppCommand: TypeAlias = ShortcutTriggered | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | ReleaseForegroundWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | OpenRecipeImprovement | BeginRecipeImprovement | GenerateRecipeCandidate | RecipeCandidateCompleted | RunRecipeCandidateTests | RetryFailedRecipeTests | RecipeTestProgress | RecipeTestsCompleted | SetRecipeComparisonVerdict | ApplyRecipeCandidate | CancelRecipeImprovementOperation | OpenRecipeVersionHistory | RestoreRecipeVersion | KeepPersonalRecipeVersion | RefineRecipeCandidate | ReturnToRecipeCandidate | TreatRecipeIssueAsPrompt | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted

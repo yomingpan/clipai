@@ -990,7 +990,7 @@ class BaseResultSurface:
         self.feedback_save_case = tk.BooleanVar(value=False)
         self.feedback_case_checkbox = ctk.CTkCheckBox(
             self.feedback_frame,
-            text="保留這次案例（包含原文與結果）",
+            text="儲存供日後改善（包含原文與結果，僅存在本機）",
             variable=self.feedback_save_case,
             text_color=CONTENT_COLOR,
             border_color="#8A8A8A",

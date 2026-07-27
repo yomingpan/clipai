@@ -9,12 +9,13 @@ import uuid
 import customtkinter as ctk
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext, FeedbackOutcome, OutputOperationResult, ProviderSettingsState
+from ClipAI.core.models import ActiveWorkflowContext, FeedbackOutcome, OutputOperationResult, ProviderSettingsState, RecipeImprovementState
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
+from ClipAI.ui.recipe_improvement import RecipeImprovementDialog
 
 
 # Windows Tk maps Num Lock to Mod1 (0x0008), while physical Alt uses
@@ -84,6 +85,7 @@ class ResultDialogPresenter:
         self._display_metrics = display_metrics
         self._layout_policy = layout_policy or PopupLayoutPolicy()
         self._provider_settings_dialog: ProviderSettingsDialog | None = None
+        self._recipe_improvement_dialog: RecipeImprovementDialog | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
@@ -113,6 +115,18 @@ class ResultDialogPresenter:
     def set_provider_settings(self, state: ProviderSettingsState) -> None:
         if self._provider_settings_dialog is not None:
             self._provider_settings_dialog.apply(state)
+
+    def show_recipe_improvement(self, state: RecipeImprovementState) -> None:
+        if self._recipe_improvement_dialog is None:
+            self._recipe_improvement_dialog = RecipeImprovementDialog(
+                self._root,
+                self._command_sink,
+            )
+        self._recipe_improvement_dialog.show(state)
+
+    def set_recipe_improvement(self, state: RecipeImprovementState) -> None:
+        if self._recipe_improvement_dialog is not None:
+            self._recipe_improvement_dialog.apply(state)
 
     def _apply_output_operation(self, result: OutputOperationResult) -> None:
         view = self._views.get(result.workflow_id)
@@ -188,6 +202,9 @@ class ResultDialogPresenter:
         if self._provider_settings_dialog is not None:
             self._provider_settings_dialog.destroy()
             self._provider_settings_dialog = None
+        if self._recipe_improvement_dialog is not None:
+            self._recipe_improvement_dialog.destroy()
+            self._recipe_improvement_dialog = None
         try:
             self._root.quit()
         except tk.TclError:

@@ -1,5 +1,22 @@
 # ClipAI agent contract
 
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the canonical triage labels documented in
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository using root `CONTEXT.md` and `docs/adr/`.
+See `docs/agents/domain.md`.
+
 Before changing this repository, read:
 
 - `docs/Product_philosophy.md`

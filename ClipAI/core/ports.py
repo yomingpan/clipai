@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, ProviderSelectionState, ProviderSettingsState, SpeechRequest, UserFacingError
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, ProviderSelectionState, ProviderSettingsState, RecipeImprovementState, SpeechRequest, UserFacingError
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -67,6 +67,10 @@ class ActionFeedbackStore(Protocol):
     def append(self, record: ActionFeedbackRecord) -> None: ...
 
 
+class ActionFeedbackHistory(Protocol):
+    def load(self) -> tuple[ActionFeedbackRecord, ...]: ...
+
+
 class GuidancePreferencesStore(Protocol):
     def load(self) -> GuidancePreferences: ...
 
@@ -101,6 +105,12 @@ class ProviderSettingsPresenter(Protocol):
     def show_provider_settings(self, state: ProviderSettingsState) -> None: ...
 
     def set_provider_settings(self, state: ProviderSettingsState) -> None: ...
+
+
+class RecipeImprovementPresenter(Protocol):
+    def show_recipe_improvement(self, state: RecipeImprovementState) -> None: ...
+
+    def set_recipe_improvement(self, state: RecipeImprovementState) -> None: ...
 
 
 class GuidancePreferencesPresenter(Protocol):

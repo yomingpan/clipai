@@ -24,6 +24,12 @@ OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
+RecipeComparisonVerdict = Literal[
+    "unreviewed",
+    "current_better",
+    "candidate_better",
+    "both_need_work",
+]
 
 
 @dataclass(frozen=True)
@@ -201,6 +207,177 @@ class ActionFeedbackRecord:
     note: str = ""
     input_text: str | None = None
     result_text: str | None = None
+
+
+@dataclass(frozen=True)
+class RecipeVariantSummary:
+    action_id: str
+    name: str
+    press_type: PressType
+    current_version: str
+    feedback_count: int
+    saved_case_count: int
+    negative_feedback_count: int
+    helpful_feedback_count: int
+    reminder_recommended: bool
+    improvement_supported: bool
+    unavailable_reason: str = ""
+
+
+@dataclass(frozen=True)
+class RecipeImprovementOverview:
+    variants: tuple[RecipeVariantSummary, ...]
+
+
+@dataclass(frozen=True)
+class RecipeEvidenceItem:
+    feedback_id: str
+    created_at: str
+    outcome: FeedbackOutcome
+    reason: str
+    note: str
+    provider: str
+    model: str
+    has_saved_case: bool
+    input_text: str | None = None
+    result_text: str | None = None
+
+
+@dataclass(frozen=True)
+class RecipePromptCandidate:
+    action_id: str
+    press_type: PressType
+    parent_version: str
+    iteration: int
+    system_prompt: str
+    prompt: str
+    explanation: str
+    provider: str
+    model: str
+    problem_summary: str = ""
+    proposed_change: str = ""
+    preserve_behavior: str = ""
+
+
+@dataclass(frozen=True)
+class RecipeCandidateProposal:
+    classification: Literal["prompt", "app_issue", "insufficient_evidence"]
+    explanation: str
+    candidate: RecipePromptCandidate | None = None
+
+
+@dataclass(frozen=True)
+class RecipeApplyGate:
+    mode: Literal["direct", "confirm", "blocked"]
+    message: str
+
+
+@dataclass(frozen=True)
+class RecipeRevision:
+    revision_id: str
+    action_id: str
+    press_type: PressType
+    parent_version: str
+    version_id: str
+    created_at: str
+    system_prompt: str
+    prompt: str
+    validation_summary: str
+    provider: str = ""
+    model: str = ""
+    source: Literal["builtin", "personal"] = "personal"
+
+
+@dataclass(frozen=True)
+class RecipeActiveRevision:
+    action_id: str
+    press_type: PressType
+    revision_id: str
+
+
+@dataclass(frozen=True)
+class RecipeBuiltinUpdateDecision:
+    action_id: str
+    press_type: PressType
+    builtin_version: str
+    decision: Literal["keep_personal"] = "keep_personal"
+
+
+@dataclass(frozen=True)
+class RecipeRevisionSnapshot:
+    schema_version: int = 1
+    revisions: tuple[RecipeRevision, ...] = ()
+    active: tuple[RecipeActiveRevision, ...] = ()
+    builtin_update_decisions: tuple[RecipeBuiltinUpdateDecision, ...] = ()
+
+
+@dataclass(frozen=True)
+class RecipeManualTestCase:
+    test_id: str
+    input_text: str
+    importance: str = ""
+
+
+@dataclass(frozen=True)
+class RecipeComparisonResult:
+    test_id: str
+    input_text: str
+    current_result: str
+    candidate_result: str
+    importance: str
+    baseline_label: str
+    candidate_label: str
+    verdict: RecipeComparisonVerdict = "unreviewed"
+    error: str = ""
+    current_presentation: PresentationDocument | None = None
+    candidate_presentation: PresentationDocument | None = None
+    improvement_reasons: tuple[str, ...] = ()
+    improvement_note: str = ""
+
+
+@dataclass(frozen=True)
+class RecipeImprovementState:
+    stage: Literal[
+        "overview",
+        "evidence",
+        "generating",
+        "candidate",
+        "testing",
+        "review",
+        "applying",
+        "history",
+        "applied",
+        "error",
+    ]
+    overview: RecipeImprovementOverview
+    action_id: str = ""
+    press_type: PressType = "short"
+    action_name: str = ""
+    current_version: str = ""
+    current_system_prompt: str = ""
+    current_prompt: str = ""
+    provider: str = ""
+    model: str = ""
+    evidence: tuple[RecipeEvidenceItem, ...] = ()
+    selected_feedback_ids: tuple[str, ...] = ()
+    directions: tuple[str, ...] = ()
+    user_direction: str = ""
+    candidate: RecipePromptCandidate | None = None
+    iteration: int = 0
+    operation_id: str = ""
+    request_count: int = 0
+    test_progress: str = ""
+    comparisons: tuple[RecipeComparisonResult, ...] = ()
+    apply_gate: RecipeApplyGate = RecipeApplyGate(
+        "blocked", "至少需要一個成功的比較結果。"
+    )
+    revision_history: tuple[RecipeRevision, ...] = ()
+    active_revision_id: str = ""
+    builtin_update_available: bool = False
+    privacy_confirmation_required: bool = True
+    can_generate: bool = True
+    suspected_app_issue: bool = False
+    message: str = ""
 
 
 @dataclass(frozen=True)

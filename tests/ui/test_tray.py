@@ -83,6 +83,20 @@ def test_tray_keeps_diagnostics_callback_separate_from_export_work() -> None:
     assert events == ["export"]
 
 
+def test_tray_recipe_improvement_item_is_visible_and_invokes_callback() -> None:
+    events: list[str] = []
+    tray = TrayController(
+        lambda: None,
+        on_open_recipe_improvement=lambda: events.append("improve"),
+    )
+
+    items = tray._build_main_menu_items(Pystray, lambda _icon, _item: None)
+    item = next(item for item in items if getattr(item, "text", "") == "改善 Recipe…")
+    item.action(None, None)
+
+    assert events == ["improve"]
+
+
 def test_tray_model_menu_projects_only_available_models_and_checks_active() -> None:
     tray = TrayController(
         lambda: None,

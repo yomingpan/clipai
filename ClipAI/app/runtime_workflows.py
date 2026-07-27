@@ -7,7 +7,7 @@ import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, ReleaseForegroundWorkflow, ShortcutTriggered, StartAction, TogglePin
-from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget
+from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, ResolvedAction
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -51,11 +51,12 @@ WorkflowRuntimeCommand: TypeAlias = (
 )
 
 
-@dataclass(frozen=True)
+@dataclass
 class _WorkflowRecord:
     controller: WorkflowController
     binding: ProviderExecutionBinding
     presentation: WorkflowPresentation
+    actions_by_version: dict[str, ResolvedAction]
 
 
 class _HeadlessPresenter:
@@ -193,7 +194,9 @@ class WorkflowRuntimeModule:
                 controller,
                 self._provider_configuration.active_binding,
                 "visible",
+                action,
             )
+        record.actions_by_version[action.version_id] = action
         invocation = ActionInvocation(
             uuid.uuid4().hex,
             action.id,
@@ -232,6 +235,7 @@ class WorkflowRuntimeModule:
             controller,
             self._provider_configuration.active_binding,
             "headless",
+            action,
         )
 
         def execute() -> None:
@@ -261,7 +265,9 @@ class WorkflowRuntimeModule:
         if previous.displayed_step_index < 0:
             return
         parent = previous.steps[previous.displayed_step_index]
-        action = self._actions.resolve(parent.action_id, parent.press_type)
+        action = record.actions_by_version.get(parent.action_version)
+        if action is None:
+            action = self._actions.resolve(parent.action_id, parent.press_type)
         invocation = ActionInvocation(
             uuid.uuid4().hex,
             action.id,
@@ -339,10 +345,16 @@ class WorkflowRuntimeModule:
         controller: WorkflowController,
         binding: ProviderExecutionBinding,
         presentation: WorkflowPresentation,
+        action: ResolvedAction,
     ) -> _WorkflowRecord:
         if workflow_id in self._records:
             raise RuntimeError(f"workflow identity is already registered: {workflow_id}")
-        record = _WorkflowRecord(controller, binding, presentation)
+        record = _WorkflowRecord(
+            controller,
+            binding,
+            presentation,
+            {action.version_id: action},
+        )
         self._records[workflow_id] = record
         return record
 

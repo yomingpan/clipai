@@ -656,6 +656,38 @@ def test_follow_up_keeps_workflow_provider_binding_after_runtime_switch() -> Non
     assert (binding.provider_id, binding.model) == ("openai", "model")
 
 
+def test_follow_up_keeps_parent_recipe_revision_after_hot_apply() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    supervisor.work[controller.snapshot.active_invocation_id]()
+    invocation = view.execute_action.invocations[-1]
+    original_action = view.actions.resolve("a", "short")
+    controller.complete(
+        invocation,
+        original_action,
+        InputDocument("input", "selection"),
+        "first result",
+        ("follow_up",),
+    )
+    view.actions.activate_prompts(
+        "a",
+        "short",
+        "new system",
+        "new prompt {input}",
+    )
+
+    runtime.enqueue(FollowUp(workflow_id, "What changed?"))
+    runtime.drain_commands()
+    supervisor.work[controller.snapshot.active_invocation_id]()
+
+    follow_up_action = view.execute_action.follow_ups[-1][0][0]
+    assert follow_up_action == original_action
+    assert follow_up_action.version_id != view.actions.resolve("a", "short").version_id
+
+
 def test_model_selection_write_failure_keeps_previous_model() -> None:
     operations = OperationTracker()
     runtime, _view, _supervisor, _outputs, _listener = make_runtime(

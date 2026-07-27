@@ -79,6 +79,7 @@ class TrayController:
         on_select_provider: Callable[[str], None] | None = None,
         on_reload_configuration: Callable[[], None] | None = None,
         on_open_provider_settings: Callable[[], None] | None = None,
+        on_open_recipe_improvement: Callable[[], None] | None = None,
         on_refresh_models: Callable[[], None] | None = None,
         guidance_preferences: GuidancePreferences | None = None,
         on_set_first_use_hints: Callable[[bool], None] | None = None,
@@ -93,6 +94,7 @@ class TrayController:
         self._on_select_provider = on_select_provider
         self._on_reload_configuration = on_reload_configuration
         self._on_open_provider_settings = on_open_provider_settings
+        self._on_open_recipe_improvement = on_open_recipe_improvement
         self._on_refresh_models = on_refresh_models
         self._guidance_preferences = guidance_preferences
         self._on_set_first_use_hints = on_set_first_use_hints
@@ -110,6 +112,17 @@ class TrayController:
             icon.stop()
             self._on_exit()
 
+        menu_items = self._build_main_menu_items(pystray, quit_app)
+        self._icon = pystray.Icon(
+            "clipai",
+            create_tray_image(self._status, memory_active=self._memory_active),
+            self._tooltip(),
+            menu=pystray.Menu(*menu_items),
+        )
+        self._thread = threading.Thread(target=self._run, daemon=True, name="ClipAITray")
+        self._thread.start()
+
+    def _build_main_menu_items(self, pystray, quit_app) -> list[object]:
         menu_items = [
             pystray.MenuItem(lambda _item: f"ClipAI — {STATUS_LABELS[self._status]}", None, enabled=False),
             pystray.MenuItem(lambda _item: self._configuration_summary(), None, enabled=False),
@@ -117,6 +130,8 @@ class TrayController:
         ]
         if self._on_open_provider_settings is not None:
             menu_items.append(pystray.MenuItem("Settings and Models...", lambda _icon, _item: self._on_open_provider_settings()))
+        if self._on_open_recipe_improvement is not None:
+            menu_items.append(pystray.MenuItem("改善 Recipe…", lambda _icon, _item: self._on_open_recipe_improvement()))
         guidance_menu = self._build_guidance_menu(pystray)
         if guidance_menu is not None:
             menu_items.append(guidance_menu)
@@ -130,14 +145,7 @@ class TrayController:
         menu_items.append(pystray.Menu.SEPARATOR)
         menu_items.append(pystray.MenuItem("Quit ClipAI", quit_app))
 
-        self._icon = pystray.Icon(
-            "clipai",
-            create_tray_image(self._status, memory_active=self._memory_active),
-            self._tooltip(),
-            menu=pystray.Menu(*menu_items),
-        )
-        self._thread = threading.Thread(target=self._run, daemon=True, name="ClipAITray")
-        self._thread.start()
+        return menu_items
 
     def _configuration_summary(self) -> str:
         provider = ""

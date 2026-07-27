@@ -6,10 +6,11 @@ import queue
 
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeCommand, ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule, ProviderRuntimeCommand
+from ClipAI.app.runtime_recipe_improvement import RecipeImprovementRuntimeCommand, RecipeImprovementRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeCommand, UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvocationFailed, WorkflowRuntimeCommand, WorkflowRuntimeModule
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, GuidancePreferencesCompleted, NavigateWorkflowBack, OpenProviderSettings, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ApplyRecipeCandidate, ArchiveResult, BeginRecipeImprovement, CancelRecipeImprovementOperation, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, GenerateRecipeCandidate, GuidancePreferencesCompleted, KeepPersonalRecipeVersion, NavigateWorkflowBack, OpenProviderSettings, OpenRecipeImprovement, OpenRecipeVersionHistory, PasteResult, RecipeCandidateCompleted, RecipeTestProgress, RecipeTestsCompleted, RefineRecipeCandidate, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, RestoreRecipeVersion, RetryFailedRecipeTests, ReturnToRecipeCandidate, RunRecipeCandidateTests, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetRecipeComparisonVerdict, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, TreatRecipeIssueAsPrompt, ValidateAndSaveProviderSettings
 from ClipAI.core.models import HotkeyEventType
 from ClipAI.core.ports import ApplicationView, OperationTracker, RuntimeComponent, Stoppable
 from ClipAI.services.provider_configuration import ProviderConfigurationResult
@@ -20,6 +21,25 @@ _WORKFLOW_COMMANDS = (StartAction, CloseSession, CancelSession, TogglePin, Follo
 _OUTPUT_COMMANDS = (CopyResult, PasteResult, ArchiveResult, ToggleSpeech, SpeakSelectionOrClipboard, ExportDiagnostics)
 _PROVIDER_COMMANDS = (SelectProviderModel, SelectProvider, ReloadConfiguration, OpenProviderSettings, ValidateAndSaveProviderSettings, RefreshProviderModels, ProviderConfigurationResult)
 _USER_PERSISTENCE_COMMANDS = (SubmitActionFeedback, ActionFeedbackCompleted, SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted)
+_RECIPE_IMPROVEMENT_COMMANDS = (
+    OpenRecipeImprovement,
+    BeginRecipeImprovement,
+    GenerateRecipeCandidate,
+    RecipeCandidateCompleted,
+    RunRecipeCandidateTests,
+    RecipeTestProgress,
+    RecipeTestsCompleted,
+    SetRecipeComparisonVerdict,
+    ApplyRecipeCandidate,
+    CancelRecipeImprovementOperation,
+    OpenRecipeVersionHistory,
+    RestoreRecipeVersion,
+    KeepPersonalRecipeVersion,
+    RefineRecipeCandidate,
+    ReturnToRecipeCandidate,
+    TreatRecipeIssueAsPrompt,
+    RetryFailedRecipeTests,
+)
 
 
 class AppRuntime:
@@ -38,6 +58,7 @@ class AppRuntime:
         hotkey_registrar: Callable[[dict[str, dict[str, str]], Callable[[str, HotkeyEventType], None]], Stoppable],
         tray_factory: Callable[[Callable[[], None]], RuntimeComponent] | None = None,
         operation_tracker: OperationTracker | None = None,
+        recipe_improvement: RecipeImprovementRuntimeModule | None = None,
     ) -> None:
         self._shortcuts = shortcuts
         self._view = view
@@ -49,6 +70,7 @@ class AppRuntime:
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
         self._operation_tracker = operation_tracker
+        self._recipe_improvement_module = recipe_improvement
         self._commands: queue.Queue[object] = queue.Queue()
         self._listener: Stoppable | None = None
         self._tray: RuntimeComponent | None = None
@@ -87,6 +109,8 @@ class AppRuntime:
         if self._tray_factory is not None:
             self._tray = self._tray_factory(lambda: self.enqueue(ShutdownApplication()))
             self._tray.start()
+        if self._recipe_improvement_module is not None:
+            self._recipe_improvement_module.start()
 
     def run_forever(self) -> None:
         self.start()
@@ -109,6 +133,8 @@ class AppRuntime:
         self._stopping = True
         self._workflow_module.stop()
         self._result_output_module.stop()
+        if self._recipe_improvement_module is not None:
+            self._recipe_improvement_module.stop()
         if self._listener is not None:
             self._listener.stop()
         self._listener = None
@@ -141,3 +167,10 @@ class AppRuntime:
             self._provider_configuration_module.handle(cast(ProviderRuntimeCommand, command))
         elif isinstance(command, _USER_PERSISTENCE_COMMANDS):
             self._user_persistence_module.handle(cast(UserPersistenceRuntimeCommand, command))
+        elif (
+            self._recipe_improvement_module is not None
+            and isinstance(command, _RECIPE_IMPROVEMENT_COMMANDS)
+        ):
+            self._recipe_improvement_module.handle(
+                cast(RecipeImprovementRuntimeCommand, command)
+            )

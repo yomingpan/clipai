@@ -87,3 +87,16 @@ def test_runtime_does_not_own_provider_configuration_policy() -> None:
         "discover_provider_models",
     )
     assert [value for value in forbidden if value in source] == []
+
+
+def test_recipe_improvement_ui_cannot_access_provider_or_revision_implementations() -> None:
+    source = Path("ClipAI/ui/recipe_improvement.py").read_text(encoding="utf-8")
+    forbidden = (
+        "JsonRecipeRevisionStore",
+        "RecipeRevisionCoordinator",
+        ".complete(",
+        "activate_prompts(",
+        "config/actions.yaml",
+        "data/recipe_revisions.json",
+    )
+    assert [value for value in forbidden if value in source] == []
