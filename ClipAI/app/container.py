@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from importlib.metadata import PackageNotFoundError, version
 import os
 import uuid
@@ -15,7 +15,7 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
-from ClipAI.core.models import HotkeyEventType, ModelSelectionState, ProviderSelectionState
+from ClipAI.core.models import HotkeyEventType, ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, Stoppable
 from ClipAI.platform.clipboard import SystemClipboard
@@ -51,6 +51,10 @@ from ClipAI.ui.tray import TrayController
 from ClipAI.support.logging_setup import configure_logging
 from ClipAI.support.diagnostics import SafeDiagnosticsExporter
 from ClipAI.support.diagnostics import IncidentReporter
+
+
+def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
+    return any(issue.code == "provider.missing_api_key" for issue in bundle_issues)
 
 
 def build_runtime(bundle: ConfigBundle) -> AppRuntime:
@@ -207,6 +211,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         operation_tracker=operation_tracker,
     )
     runtime_holder.append(runtime)
+    if _needs_provider_setup(readiness_issues):
+        runtime.enqueue(OpenProviderSettings(snapshot.active_provider))
     return runtime
 
 
