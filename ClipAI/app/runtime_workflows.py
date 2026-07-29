@@ -119,6 +119,9 @@ class WorkflowRuntimeModule:
     def resolve_shortcut(self, command: ShortcutTriggered) -> AppCommand | None:
         return self._shortcut_intents.resolve(command)
 
+    def cancel_shortcut_sequence(self) -> None:
+        self._shortcut_intents.cancel()
+
     def handle(self, command: WorkflowRuntimeCommand) -> None:
         if isinstance(command, StartAction):
             self._start_action(command)

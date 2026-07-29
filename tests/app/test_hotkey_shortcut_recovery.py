@@ -48,7 +48,7 @@ def test_stale_action_key_does_not_create_popup_during_speech_sequence() -> None
         schedule=lambda delay, callback: FakeTimer(delay, callback),
     )
 
-    def trigger(shortcut_id, press_type) -> None:
+    def trigger(shortcut_id, press_type, _gesture_id) -> None:
         command = sequence.resolve(ShortcutTriggered(shortcut_id, press_type))
         if command is not None:
             commands.append(command)

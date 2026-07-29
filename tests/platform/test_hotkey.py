@@ -48,7 +48,7 @@ def test_short_press_triggers_action_once() -> None:
     events: list[tuple[str, str]] = []
     dispatcher = create_hotkey_dispatcher(
         {"explain_word": {"hotkey": "ctrl+alt+8"}},
-        lambda action_id, press_type: events.append((action_id, press_type)),
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -79,7 +79,7 @@ def test_grave_physical_key_triggers_tilde_shortcut_across_input_states(action_k
     events: list[tuple[str, str]] = []
     dispatcher = create_hotkey_dispatcher(
         {"dictation_editor": {"hotkey": "ctrl+alt+~"}},
-        lambda action_id, press_type: events.append((action_id, press_type)),
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -100,7 +100,7 @@ def test_long_press_triggers_long_without_release_short() -> None:
     events: list[tuple[str, str]] = []
     dispatcher = create_hotkey_dispatcher(
         {"explain_word": {"hotkey": "ctrl+alt+8"}},
-        lambda action_id, press_type: events.append((action_id, press_type)),
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -126,7 +126,7 @@ def test_held_composer_fires_before_action_key_is_released() -> None:
             "friend": {"hotkey": "ctrl+alt+6"},
             "speech": {"hotkey": "ctrl+alt+q"},
         },
-        lambda action_id, press_type: events.append((action_id, press_type)),
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -141,9 +141,49 @@ def test_held_composer_fires_before_action_key_is_released() -> None:
 
     dispatcher.on_release(FakeKey(char="6"))
     assert events == [("speech", "long"), ("friend", "short")]
-
     dispatcher.on_release(FakeKey(char="q"))
     dispatcher.on_release(FakeKey(name="alt_l"))
     dispatcher.on_release(FakeKey(name="ctrl_l"))
 
     assert events == [("speech", "long"), ("friend", "short"), ("speech", "long_release")]
+
+
+def test_physical_gesture_progress_uses_one_identity_until_all_keys_release() -> None:
+    triggers: list[tuple[str, str, int]] = []
+    progress: list[tuple[int, frozenset[str], bool]] = []
+    dispatcher = create_hotkey_dispatcher(
+        {"english": {"hotkey": "ctrl+alt+8"}},
+        lambda action_id, press_type, gesture_id: triggers.append((action_id, press_type, gesture_id)),
+        on_progress=lambda gesture_id, pressed, ended: progress.append((gesture_id, pressed, ended)),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+    )
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="8"))
+    dispatcher.on_release(FakeKey(char="8"))
+    dispatcher.on_release(FakeKey(name="alt_l"))
+    dispatcher.on_release(FakeKey(name="ctrl_l"))
+
+    assert {gesture_id for gesture_id, _pressed, _ended in progress} == {1}
+    assert progress[0] == (1, frozenset({"ctrl"}), False)
+    assert progress[-1] == (1, frozenset(), True)
+    assert triggers == [("english", "short", 1)]
+
+
+def test_injected_keys_never_appear_in_gesture_progress() -> None:
+    progress: list[tuple[int, frozenset[str], bool]] = []
+    dispatcher = create_hotkey_dispatcher(
+        {"english": {"hotkey": "ctrl+alt+8"}},
+        lambda _action_id, _press_type, _gesture_id: None,
+        on_progress=lambda gesture_id, pressed, ended: progress.append((gesture_id, pressed, ended)),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+    )
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"), injected=True)
+    dispatcher.on_press(FakeKey(name="alt_l"), injected=True)
+    dispatcher.on_press(FakeKey(char="8"), injected=True)
+
+    assert progress == []
