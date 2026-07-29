@@ -20,7 +20,7 @@ class MockShortcutGuideSurface:
         shortcuts = load_shortcut_catalog("config/shortcuts.yaml", actions=actions)
         catalog = ShortcutGuideCatalog(shortcuts, actions, modifier_mode=app.modifier_mode)
         self.dialog = ShortcutGuideDialog(self.root, self.handle)
-        self.dialog.apply(self.coordinator.open("mock-guide", catalog.items()))
+        self.dialog.show(self.coordinator.open("mock-guide", catalog.items()))
 
     def handle(self, command: object) -> None:
         if isinstance(command, SelectShortcutGuideItem):

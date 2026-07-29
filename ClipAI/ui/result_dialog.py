@@ -119,7 +119,7 @@ class ResultDialogPresenter:
     def show_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
         if self._shortcut_guide_dialog is None:
             self._shortcut_guide_dialog = ShortcutGuideDialog(self._root, self._command_sink)
-        self._shortcut_guide_dialog.apply(snapshot)
+        self._shortcut_guide_dialog.show(snapshot)
 
     def set_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
         if self._shortcut_guide_dialog is not None:

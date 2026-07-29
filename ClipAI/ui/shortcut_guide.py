@@ -31,6 +31,7 @@ class ShortcutGuideDialog:
         self._snapshot: ShortcutGuideSnapshot | None = None
         self._window_icon_handles: tuple[int, ...] = ()
         self._list_buttons: dict[str, ctk.CTkButton] = {}
+        self._list_signature: tuple[tuple[str, str, str], ...] = ()
         self._key_labels: dict[str, ctk.CTkLabel] = {}
 
         self._window = ctk.CTkToplevel(master)
@@ -106,6 +107,9 @@ class ShortcutGuideDialog:
         self._apply_keyboard(item, snapshot.pressed_keys)
         self._status.configure(text=snapshot.status_text)
         self._apply_detail(item)
+
+    def show(self, snapshot: ShortcutGuideSnapshot) -> None:
+        self.apply(snapshot)
         self._window.deiconify()
         self._window.lift()
 
@@ -146,24 +150,36 @@ class ShortcutGuideDialog:
                 self._key_labels[token] = key
 
     def _rebuild_list(self, snapshot: ShortcutGuideSnapshot) -> None:
-        for button in self._list_buttons.values():
-            button.destroy()
-        self._list_buttons.clear()
+        signature = tuple(
+            (item.shortcut_id, item.display_hotkey, item.title)
+            for item in snapshot.items
+        )
+        if signature != self._list_signature:
+            for button in self._list_buttons.values():
+                button.destroy()
+            self._list_buttons.clear()
+            for row, item in enumerate(snapshot.items):
+                button = ctk.CTkButton(
+                    self._shortcut_list,
+                    anchor="w",
+                    hover_color=("gray75", "gray30"),
+                    command=lambda shortcut_id=item.shortcut_id: self._command_sink(
+                        SelectShortcutGuideItem(shortcut_id)
+                    ),
+                )
+                button.grid(row=row, column=0, padx=4, pady=2, sticky="ew")
+                self._list_buttons[item.shortcut_id] = button
+            self._list_signature = signature
+
         verified_ids = {shortcut_id for shortcut_id, _press_type in snapshot.verified}
-        for row, item in enumerate(snapshot.items):
+        for item in snapshot.items:
             selected = item.shortcut_id == snapshot.selected_shortcut_id
             marker = "✓ " if item.shortcut_id in verified_ids else ""
-            button = ctk.CTkButton(
-                self._shortcut_list,
+            self._list_buttons[item.shortcut_id].configure(
                 text=f"{marker}{item.display_hotkey}  ·  {item.title}",
-                anchor="w",
                 fg_color=("#3B8ED0", "#1F6AA5") if selected else "transparent",
                 text_color=("white", "white") if selected else ("gray10", "gray90"),
-                hover_color=("gray75", "gray30"),
-                command=lambda shortcut_id=item.shortcut_id: self._command_sink(SelectShortcutGuideItem(shortcut_id)),
             )
-            button.grid(row=row, column=0, padx=4, pady=2, sticky="ew")
-            self._list_buttons[item.shortcut_id] = button
 
     def _apply_keyboard(self, item: ShortcutGuideItem | None, pressed_keys: frozenset[str]) -> None:
         selected_tokens = item.key_tokens if item is not None else frozenset()
