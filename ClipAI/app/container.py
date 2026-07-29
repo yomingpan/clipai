@@ -12,9 +12,10 @@ from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
+from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
+from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
 from ClipAI.core.models import HotkeyEventType, ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, Stoppable
@@ -43,6 +44,7 @@ from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
 from ClipAI.services.result_router import ResultRouter
+from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
@@ -79,6 +81,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         model_selection=ModelSelectionState(snapshot.active_provider, available_models, model),
         provider_selection=ProviderSelectionState(snapshot.options, snapshot.active_provider),
         on_open_provider_settings=lambda: runtime_holder[0].enqueue(OpenProviderSettings()),
+        on_open_shortcut_guide=lambda: runtime_holder[0].enqueue(OpenShortcutGuide(uuid.uuid4().hex)),
         guidance_preferences=guidance_preferences.preferences,
         on_set_first_use_hints=lambda enabled: runtime_holder[0].enqueue(SetFirstUseHintsEnabled(enabled, uuid.uuid4().hex)),
         on_reset_first_use_hints=lambda: runtime_holder[0].enqueue(ResetFirstUseHints(uuid.uuid4().hex)),
@@ -142,10 +145,15 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         guidance_preferences=guidance_preferences,
     )
 
-    def register(action_map: dict[str, dict[str, str]], callback: Callable[[str, HotkeyEventType], None]) -> Stoppable:
+    def register(
+        action_map: dict[str, dict[str, str]],
+        callback: Callable[[str, HotkeyEventType, int], None],
+        progress: Callable[[int, frozenset[str], bool], None],
+    ) -> Stoppable:
         return register_hotkeys_with_long_press(
             action_map,
             callback,
+            on_progress=progress,
             modifier_mode=bundle.app.modifier_mode,
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
         )
@@ -198,6 +206,15 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         guidance_preferences_presenter=tray,
         notifier=tray,
     )
+    shortcut_guide_module = ShortcutGuideRuntimeModule(
+        catalog=ShortcutGuideCatalog(
+            bundle.shortcuts,
+            bundle.actions,
+            modifier_mode=bundle.app.modifier_mode,
+        ),
+        coordinator=ShortcutGuideCoordinator(),
+        presenter=view,
+    )
     runtime = AppRuntime(
         shortcuts=bundle.shortcuts,
         view=view,
@@ -209,6 +226,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         hotkey_registrar=register,
         tray_factory=lambda _on_exit: tray,
         operation_tracker=operation_tracker,
+        shortcut_guide=shortcut_guide_module,
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):

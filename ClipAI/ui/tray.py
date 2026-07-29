@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw
 from ClipAI.core.models import ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState
 
 logger = logging.getLogger("clipai.tray")
+SHORTCUT_GUIDE_MENU_LABEL = "Keyboard Shortcuts..."
 
 STATUS_COLORS: dict[ApplicationStatus, tuple[int, int, int]] = {
     "idle": (0, 82, 184),
@@ -79,6 +80,7 @@ class TrayController:
         on_select_provider: Callable[[str], None] | None = None,
         on_reload_configuration: Callable[[], None] | None = None,
         on_open_provider_settings: Callable[[], None] | None = None,
+        on_open_shortcut_guide: Callable[[], None] | None = None,
         on_refresh_models: Callable[[], None] | None = None,
         guidance_preferences: GuidancePreferences | None = None,
         on_set_first_use_hints: Callable[[bool], None] | None = None,
@@ -93,6 +95,7 @@ class TrayController:
         self._on_select_provider = on_select_provider
         self._on_reload_configuration = on_reload_configuration
         self._on_open_provider_settings = on_open_provider_settings
+        self._on_open_shortcut_guide = on_open_shortcut_guide
         self._on_refresh_models = on_refresh_models
         self._guidance_preferences = guidance_preferences
         self._on_set_first_use_hints = on_set_first_use_hints
@@ -117,6 +120,8 @@ class TrayController:
         ]
         if self._on_open_provider_settings is not None:
             menu_items.append(pystray.MenuItem("Settings and Models...", lambda _icon, _item: self._on_open_provider_settings()))
+        if self._on_open_shortcut_guide is not None:
+            menu_items.append(pystray.MenuItem(SHORTCUT_GUIDE_MENU_LABEL, lambda _icon, _item: self._on_open_shortcut_guide()))
         guidance_menu = self._build_guidance_menu(pystray)
         if guidance_menu is not None:
             menu_items.append(guidance_menu)

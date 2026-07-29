@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, ProviderSelectionState, ProviderSettingsState, SpeechRequest, UserFacingError
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, SpeechRequest, UserFacingError
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -105,6 +105,14 @@ class ProviderSettingsPresenter(Protocol):
 
 class GuidancePreferencesPresenter(Protocol):
     def set_guidance_preferences(self, preferences: GuidancePreferences) -> None: ...
+
+
+class ShortcutGuidePresenter(Protocol):
+    def show_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None: ...
+
+    def set_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None: ...
+
+    def close_shortcut_guide(self) -> None: ...
 
 
 class ModelPreferenceStore(Protocol):

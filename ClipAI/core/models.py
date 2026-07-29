@@ -7,6 +7,7 @@ from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
 HotkeyEventType = Literal["short", "long", "long_release", "invalid", "cancel"]
+ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
 MessageRole = Literal["system", "user", "assistant"]
 ImageSource = Literal["clipboard"]
 InputMode = Literal["clipboard", "clipboard_image", "selection_or_clipboard"]
@@ -234,6 +235,31 @@ class ShortcutDefinition:
     hotkey: str
     command: ShortcutCommandKind
     action_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ShortcutGuideItem:
+    shortcut_id: str
+    hotkey: str
+    display_hotkey: str
+    key_tokens: frozenset[str]
+    title: str
+    short_description: str
+    long_title: str = ""
+    long_description: str = ""
+
+
+@dataclass(frozen=True)
+class ShortcutGuideSnapshot:
+    guide_id: str
+    items: tuple[ShortcutGuideItem, ...]
+    selected_shortcut_id: str
+    pressed_keys: frozenset[str] = frozenset()
+    verified: frozenset[tuple[str, PressType]] = frozenset()
+    phase: ShortcutGuidePhase = "listening"
+    status_text: str = "請按住快捷鍵組合，再按一個功能鍵。"
+    matched_shortcut_id: str = ""
+    matched_press_type: PressType | None = None
 
 
 @dataclass(frozen=True)
