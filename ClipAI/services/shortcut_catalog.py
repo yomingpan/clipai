@@ -28,3 +28,6 @@ class ShortcutCatalog:
             return self._shortcuts[shortcut_id]
         except KeyError as exc:
             raise ValueError(f"unknown shortcut: {shortcut_id}") from exc
+
+    def definitions(self) -> tuple[ShortcutDefinition, ...]:
+        return tuple(self._shortcuts.values())

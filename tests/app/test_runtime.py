@@ -467,7 +467,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         result_output=output_module,
         provider_configuration=provider_module,
         user_persistence=persistence_module,
-        hotkey_registrar=lambda _map, _callback: listener,
+        hotkey_registrar=lambda _map, _callback, _progress: listener,
         tray_factory=Tray if with_tray else None,
         operation_tracker=operation_tracker,
     )

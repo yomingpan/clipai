@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.models import GuidancePreferences, ModelSelectionState, ProviderOption, ProviderSelectionState
-from ClipAI.ui.tray import STATUS_COLORS, TrayController, create_tray_image
+from ClipAI.ui.tray import SHORTCUT_GUIDE_MENU_LABEL, STATUS_COLORS, TrayController, create_tray_image
 
 
 class MenuItem:
@@ -81,6 +81,16 @@ def test_tray_keeps_diagnostics_callback_separate_from_export_work() -> None:
     assert tray._on_export_diagnostics is not None
     tray._on_export_diagnostics()
     assert events == ["export"]
+
+
+def test_tray_exposes_english_keyboard_shortcut_entry_callback() -> None:
+    events = []
+    tray = TrayController(lambda: None, on_open_shortcut_guide=lambda: events.append("open"))
+
+    assert SHORTCUT_GUIDE_MENU_LABEL == "Keyboard Shortcuts..."
+    assert tray._on_open_shortcut_guide is not None
+    tray._on_open_shortcut_guide()
+    assert events == ["open"]
 
 
 def test_tray_model_menu_projects_only_available_models_and_checks_active() -> None:

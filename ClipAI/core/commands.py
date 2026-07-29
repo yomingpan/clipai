@@ -17,6 +17,29 @@ class StartAction:
 class ShortcutTriggered:
     shortcut_id: str
     press_type: HotkeyEventType
+    gesture_id: int = 0
+
+
+@dataclass(frozen=True)
+class ShortcutGestureProgressed:
+    gesture_id: int
+    pressed_keys: frozenset[str]
+    ended: bool = False
+
+
+@dataclass(frozen=True)
+class OpenShortcutGuide:
+    guide_id: str
+
+
+@dataclass(frozen=True)
+class CloseShortcutGuide:
+    guide_id: str
+
+
+@dataclass(frozen=True)
+class SelectShortcutGuideItem:
+    shortcut_id: str
 
 
 @dataclass(frozen=True)
@@ -168,4 +191,4 @@ class GuidancePreferencesCompleted:
     error: str = ""
 
 
-AppCommand: TypeAlias = ShortcutTriggered | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | ReleaseForegroundWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted
+AppCommand: TypeAlias = ShortcutTriggered | ShortcutGestureProgressed | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | ReleaseForegroundWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted

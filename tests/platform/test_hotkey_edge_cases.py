@@ -52,7 +52,7 @@ def setup_function() -> None:
 def make_dispatcher(events: list[tuple[str, str]], hotkey: str = "ctrl+alt+8"):
     return create_hotkey_dispatcher(
         {"explain_word": {"hotkey": hotkey}},
-        lambda action_id, press_type: events.append((action_id, press_type)),
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -187,7 +187,7 @@ def test_injected_selection_copy_does_not_trigger_another_hotkey() -> None:
             "english_companion": {"hotkey": "ctrl+alt+8"},
             "command_copilot": {"hotkey": "ctrl+alt+c"},
         },
-        lambda action_id, press_type: events.append((action_id, press_type)),
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -212,7 +212,7 @@ def test_injected_keys_do_not_change_physical_hotkey_state_or_cancel(caplog) -> 
     events: list[tuple[str, str]] = []
     dispatcher = create_hotkey_dispatcher(
         {"command_copilot": {"hotkey": "ctrl+alt+c"}},
-        lambda action_id, press_type: events.append((action_id, press_type)),
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
         diagnostics_enabled=lambda flag: flag == "hotkey_raw_events",
@@ -287,7 +287,7 @@ def test_secure_desktop_transition_discards_stale_modifiers_before_next_key() ->
     physical_modifiers = {"ctrl": True, "alt": True, "shift": False}
     dispatcher = create_hotkey_dispatcher(
         {"explain_word": {"hotkey": "ctrl+alt+8"}},
-        lambda action_id, press_type: events.append((action_id, press_type)),
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
         key_is_pressed=physical_modifiers.get,
@@ -325,7 +325,7 @@ def test_stale_cleanup_does_not_emit_invalid_for_the_revealing_key() -> None:
     physical_keys = {"ctrl": True, "alt": True, "x": True, "b": False}
     dispatcher = create_hotkey_dispatcher(
         {"shorten": {"hotkey": "ctrl+alt+x"}},
-        lambda action_id, press_type: events.append((action_id, press_type)),
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
         key_is_pressed=physical_keys.get,
@@ -360,7 +360,7 @@ def test_physical_or_unknown_key_state_preserves_active_lifecycle(
             "shorten": {"hotkey": "ctrl+alt+x"},
             "speech": {"hotkey": "ctrl+alt+q"},
         },
-        lambda action_id, press_type: events.append((action_id, press_type)),
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
         key_is_pressed=key_is_pressed,

@@ -6,10 +6,11 @@ import queue
 
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeCommand, ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule, ProviderRuntimeCommand
+from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeCommand, ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeCommand, UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvocationFailed, WorkflowRuntimeCommand, WorkflowRuntimeModule
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, GuidancePreferencesCompleted, NavigateWorkflowBack, OpenProviderSettings, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CloseShortcutGuide, CopyResult, ExportDiagnostics, FollowUp, GuidancePreferencesCompleted, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, ShortcutGestureProgressed, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import HotkeyEventType
 from ClipAI.core.ports import ApplicationView, OperationTracker, RuntimeComponent, Stoppable
 from ClipAI.services.provider_configuration import ProviderConfigurationResult
@@ -20,6 +21,7 @@ _WORKFLOW_COMMANDS = (StartAction, CloseSession, CancelSession, TogglePin, Follo
 _OUTPUT_COMMANDS = (CopyResult, PasteResult, ArchiveResult, ToggleSpeech, SpeakSelectionOrClipboard, ExportDiagnostics)
 _PROVIDER_COMMANDS = (SelectProviderModel, SelectProvider, ReloadConfiguration, OpenProviderSettings, ValidateAndSaveProviderSettings, RefreshProviderModels, ProviderConfigurationResult)
 _USER_PERSISTENCE_COMMANDS = (SubmitActionFeedback, ActionFeedbackCompleted, SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted)
+_SHORTCUT_GUIDE_COMMANDS = (OpenShortcutGuide, CloseShortcutGuide, SelectShortcutGuideItem, ShortcutGestureProgressed)
 
 
 class AppRuntime:
@@ -35,9 +37,17 @@ class AppRuntime:
         result_output: ResultOutputRuntimeModule,
         provider_configuration: ProviderConfigurationRuntimeModule,
         user_persistence: UserPersistenceRuntimeModule,
-        hotkey_registrar: Callable[[dict[str, dict[str, str]], Callable[[str, HotkeyEventType], None]], Stoppable],
+        hotkey_registrar: Callable[
+            [
+                dict[str, dict[str, str]],
+                Callable[[str, HotkeyEventType, int], None],
+                Callable[[int, frozenset[str], bool], None],
+            ],
+            Stoppable,
+        ],
         tray_factory: Callable[[Callable[[], None]], RuntimeComponent] | None = None,
         operation_tracker: OperationTracker | None = None,
+        shortcut_guide: ShortcutGuideRuntimeModule | None = None,
     ) -> None:
         self._shortcuts = shortcuts
         self._view = view
@@ -49,6 +59,7 @@ class AppRuntime:
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
         self._operation_tracker = operation_tracker
+        self._shortcut_guide_module = shortcut_guide
         self._commands: queue.Queue[object] = queue.Queue()
         self._listener: Stoppable | None = None
         self._tray: RuntimeComponent | None = None
@@ -82,11 +93,17 @@ class AppRuntime:
     def start(self) -> None:
         self._listener = self._hotkey_registrar(
             self._shortcuts.hotkey_map(),
-            lambda shortcut_id, press_type: self.enqueue(ShortcutTriggered(shortcut_id, press_type)),
+            lambda shortcut_id, press_type, gesture_id: self.enqueue(ShortcutTriggered(shortcut_id, press_type, gesture_id)),
+            self._enqueue_shortcut_progress,
         )
         if self._tray_factory is not None:
             self._tray = self._tray_factory(lambda: self.enqueue(ShutdownApplication()))
             self._tray.start()
+
+    def _enqueue_shortcut_progress(self, gesture_id: int, pressed_keys: frozenset[str], ended: bool) -> None:
+        guide = self._shortcut_guide_module
+        if guide is not None and guide.wants_progress(gesture_id):
+            self.enqueue(ShortcutGestureProgressed(gesture_id, pressed_keys, ended))
 
     def run_forever(self) -> None:
         self.start()
@@ -125,9 +142,16 @@ class AppRuntime:
 
     def _route(self, command: object) -> None:
         if isinstance(command, ShortcutTriggered):
+            if self._shortcut_guide_module is not None and self._shortcut_guide_module.consume(command):
+                return
             resolved = self._workflow_module.resolve_shortcut(command)
             if resolved is not None:
                 self._route(resolved)
+        elif isinstance(command, _SHORTCUT_GUIDE_COMMANDS):
+            if self._shortcut_guide_module is not None:
+                if isinstance(command, OpenShortcutGuide):
+                    self._workflow_module.cancel_shortcut_sequence()
+                self._shortcut_guide_module.handle(cast(ShortcutGuideRuntimeCommand, command))
         elif isinstance(command, ShutdownApplication):
             self.stop()
         elif isinstance(command, CloseSession):
