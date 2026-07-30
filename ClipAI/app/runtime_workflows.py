@@ -122,6 +122,27 @@ class WorkflowRuntimeModule:
     def cancel_shortcut_sequence(self) -> None:
         self._shortcut_intents.cancel()
 
+    def cancel_active_operations(self) -> tuple[str, ...]:
+        self._shortcut_intents.cancel()
+        task_ids: list[str] = []
+        for workflow_id, record in tuple(self._records.items()):
+            active_id = record.controller.snapshot.active_invocation_id
+            if record.presentation == "headless":
+                if active_id is not None:
+                    task_ids.append(active_id)
+                self._end(
+                    workflow_id,
+                    "cancel",
+                    cancel_task=False,
+                )
+                if self._speech_coordinator is not None:
+                    self._speech_coordinator.cancel_workflow(workflow_id)
+                continue
+            stopped_id = record.controller.stop_active()
+            if stopped_id is not None:
+                task_ids.append(stopped_id)
+        return tuple(task_ids)
+
     def handle(self, command: WorkflowRuntimeCommand) -> None:
         if isinstance(command, StartAction):
             self._start_action(command)
@@ -349,7 +370,13 @@ class WorkflowRuntimeModule:
         self._records[workflow_id] = record
         return record
 
-    def _end(self, workflow_id: str, disposition: Literal["cancel", "close", "release"]) -> None:
+    def _end(
+        self,
+        workflow_id: str,
+        disposition: Literal["cancel", "close", "release"],
+        *,
+        cancel_task: bool = True,
+    ) -> None:
         record = self._records.pop(workflow_id, None)
         if record is None:
             return
@@ -360,7 +387,7 @@ class WorkflowRuntimeModule:
             record.controller.cancel()
         elif disposition == "close":
             record.controller.close()
-        if active_id is not None:
+        if active_id is not None and cancel_task:
             self._supervisor.cancel(active_id)
 
     def _sequence_waiting(self) -> None:

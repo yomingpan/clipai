@@ -144,6 +144,17 @@ def test_each_trigger_reads_the_current_selection_again() -> None:
     assert selection.calls == 3
 
 
+def test_selection_is_captured_when_job_is_created_not_when_worker_runs() -> None:
+    coordinator, _clipboard, selection, speech, _tracker = make_coordinator()
+    selection.text = "captured now"
+    job = coordinator.create_job(clipboard_only=False)
+    selection.text = "changed later"
+
+    job.run()
+
+    assert speech.requests[0].text == "captured now"
+
+
 def test_speech_error_marks_operation_failed() -> None:
     coordinator, _clipboard, _selection, _speech, tracker = make_coordinator(speech=Speech(RuntimeError("tts failed")))
     job = coordinator.create_job(clipboard_only=False)

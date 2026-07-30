@@ -6,7 +6,7 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import OpenProviderSettings, RefreshProviderModels, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import CancelActiveOperations, OpenProviderSettings, RefreshProviderModels, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ModelCatalogConnection, ProviderOption, ProviderSettingsInput, ProviderSettingsState
 from ClipAI.ui.window_icons import CUSTOMTKINTER_ICON_DELAY_MS, destroy_window_icons, install_clipai_window_icons
 
@@ -63,8 +63,12 @@ class ProviderSettingsDialog:
         self._save.grid(row=10, column=0, padx=24, pady=(8, 12), sticky="ew")
         self._refresh = ctk.CTkButton(self._window, text="Refresh Models", command=self._refresh_models)
         self._refresh.grid(row=11, column=0, padx=24, pady=(0, 22), sticky="ew")
-        self._window.bind("<Escape>", lambda _event: self.close())
+        self._window.bind("<Escape>", lambda _event: self._cancel_active_operations())
         self._window.bind("<Control-Return>", lambda _event: self._submit())
+
+    def _cancel_active_operations(self) -> str:
+        self._command_sink(CancelActiveOperations())
+        return "break"
 
     def apply(self, state: ProviderSettingsState) -> None:
         self._state = state

@@ -30,7 +30,6 @@ class ResultOutputRuntimeModule:
         output_actions: OutputActions,
         supervisor: TaskSupervisor,
         workflow_controller: Callable[[str], WorkflowController | None],
-        has_foreground_workflow: Callable[[], bool],
         output_operation_presenter: OutputOperationPresenter,
         enqueue: Callable[[object], None],
         incident_reporter: IncidentReporter,
@@ -43,7 +42,6 @@ class ResultOutputRuntimeModule:
         self._output_actions = output_actions
         self._supervisor = supervisor
         self._workflow_controller = workflow_controller
-        self._has_foreground_workflow = has_foreground_workflow
         self._enqueue = enqueue
         self._incident_reporter = incident_reporter
         self._operation_tracker = operation_tracker
@@ -83,6 +81,26 @@ class ResultOutputRuntimeModule:
     def stop(self) -> None:
         if self._speech_coordinator is not None:
             self._speech_coordinator.cancel_current()
+
+    def cancel_active_operations(self) -> tuple[str, ...]:
+        speech_identity = self._speech_coordinator.current_identity if self._speech_coordinator is not None else None
+        if self._speech_coordinator is not None:
+            self._speech_coordinator.cancel_current()
+        intents = self._operations.cancel_all()
+        task_ids: list[str] = []
+        for intent in intents:
+            task_ids.append(intent.operation_id)
+            if intent.kind == "speech":
+                task_ids.append(f"speech:{intent.operation_id}")
+                controller = self._workflow_controller(intent.workflow_id)
+                if controller is not None and controller.snapshot.speaking:
+                    controller.set_speaking(False)
+        if speech_identity is not None and all(intent.operation_id != speech_identity[0] for intent in intents):
+            task_ids.extend((speech_identity[0], f"speech:{speech_identity[0]}"))
+            controller = self._workflow_controller(speech_identity[1])
+            if controller is not None and controller.snapshot.speaking:
+                controller.set_speaking(False)
+        return tuple(task_ids)
 
     def _copy(self, command: CopyResult) -> None:
         controller = self._workflow_controller(command.session_id)
@@ -166,9 +184,13 @@ class ResultOutputRuntimeModule:
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:
             return
-        if self._cancel_current_speech_projection():
-            return
-        job = self._speech_coordinator.create_job(clipboard_only=self._has_foreground_workflow())
+        replacing = self._cancel_current_speech_projection()
+        job = self._speech_coordinator.create_job(clipboard_only=False)
+        if replacing and self._notifier is not None:
+            preview = " ".join(getattr(job, "text", "").split())
+            if len(preview) > 36:
+                preview = f"{preview[:35]}…"
+            self._notifier.notify("ClipAI", f"正在切換到：{preview}" if preview else "正在切換朗讀內容…")
         intent = OutputOperationIntent(job.operation_id, job.workflow_id, "speech", "")
         operation = self._operations.begin(intent)
         self._supervisor.submit(

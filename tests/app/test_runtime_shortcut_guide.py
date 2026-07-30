@@ -1,5 +1,5 @@
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
-from ClipAI.core.commands import CloseShortcutGuide, OpenShortcutGuide, SelectShortcutGuideItem, ShortcutGestureProgressed, ShortcutTriggered
+from ClipAI.core.commands import CancelActiveOperations, CloseShortcutGuide, OpenShortcutGuide, SelectShortcutGuideItem, ShortcutGestureProgressed, ShortcutTriggered
 from ClipAI.core.models import ActionDefinition, ShortcutDefinition
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -95,3 +95,19 @@ def test_app_runtime_does_not_queue_key_progress_while_guide_is_closed() -> None
     runtime._enqueue_shortcut_progress(3, frozenset({"a"}), False)
 
     assert runtime._commands.empty()
+
+
+def test_escape_keeps_guide_open_and_routes_global_cancel() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    module, presenter = guide_module()
+    module.handle(OpenShortcutGuide("guide-1"))
+    runtime._shortcut_guide_module = module
+    cancellations: list[CancelActiveOperations] = []
+    runtime._cancel_active_operations = cancellations.append
+
+    runtime.enqueue(ShortcutTriggered("", "cancel", 7))
+    runtime.drain_commands()
+
+    assert module.is_open is True
+    assert presenter.closed == 0
+    assert cancellations == [CancelActiveOperations()]

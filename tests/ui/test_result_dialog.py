@@ -169,6 +169,12 @@ def test_closed_snapshot_cleanup_is_idempotent() -> None:
     assert presenter._views == {}
 
 
+def test_stopped_snapshot_has_distinct_content_render_key() -> None:
+    snapshot = SessionSnapshot("s1", 1, SessionStatus.STOPPED, "a", "A", "model", status_text="Stopped")
+
+    assert _content_render_key(snapshot) == (SessionStatus.STOPPED, "", "Stopped", None)
+
+
 def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._toggle_speech("s1")

@@ -5,7 +5,7 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import CloseShortcutGuide, SelectShortcutGuideItem
+from ClipAI.core.commands import CancelActiveOperations, CloseShortcutGuide, SelectShortcutGuideItem
 from ClipAI.core.hotkeys import GRAVE_KEY_TOKEN
 from ClipAI.core.models import ShortcutGuideItem, ShortcutGuideSnapshot
 from ClipAI.ui.window_icons import CUSTOMTKINTER_ICON_DELAY_MS, destroy_window_icons, install_clipai_window_icons
@@ -39,7 +39,7 @@ class ShortcutGuideDialog:
         self._window.geometry("900x640")
         self._window.minsize(780, 560)
         self._window.protocol("WM_DELETE_WINDOW", self._request_close)
-        self._window.bind("<Escape>", lambda _event: self._request_close())
+        self._window.bind("<Escape>", lambda _event: self._cancel_active_operations())
         self._window.grid_columnconfigure(0, weight=1)
         self._window.grid_rowconfigure(2, weight=1)
         self._window.after(CUSTOMTKINTER_ICON_DELAY_MS, self._apply_window_icons)
@@ -202,6 +202,10 @@ class ShortcutGuideDialog:
         snapshot = self._snapshot
         if snapshot is not None:
             self._command_sink(CloseShortcutGuide(snapshot.guide_id))
+
+    def _cancel_active_operations(self) -> str:
+        self._command_sink(CancelActiveOperations())
+        return "break"
 
     def _apply_window_icons(self) -> None:
         try:

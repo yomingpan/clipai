@@ -8,7 +8,7 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelActiveOperations, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActiveWorkflowContext, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -330,14 +330,18 @@ class ResultDialogPresenter:
                     view.surface.set_source_preview(f"Failed: {snapshot.error}")
                 else:
                     view.surface.set_content_chunks([(snapshot.error, "body")])
-        elif snapshot.status == SessionStatus.COMPLETED:
+        elif snapshot.status in {SessionStatus.COMPLETED, SessionStatus.STOPPED}:
+            if snapshot.status == SessionStatus.STOPPED:
+                view.surface.show_action_message("已停止", 1000)
             completion_key = view.step_id or snapshot.content
-            if completion_key and completion_key not in view.flashed_completion_keys:
+            if snapshot.status == SessionStatus.COMPLETED and completion_key and completion_key not in view.flashed_completion_keys:
                 view.flashed_completion_keys.add(completion_key)
                 view.dialog.flash("success")
             if content_changed:
                 if snapshot.presentation is not None:
                     view.surface.set_presentation_document(snapshot.presentation)
+                elif snapshot.status == SessionStatus.STOPPED and not snapshot.content:
+                    view.surface.set_content_chunks([("已停止", "body")])
                 else:
                     view.surface.set_content_chunks([(snapshot.content, "body")])
         else:
@@ -505,7 +509,10 @@ class ResultDialogPresenter:
             hide_from_task_switcher=True,
             on_close_request=lambda sid=session_id: self._request_close(sid),
         )
-        surface = BaseResultSurface(dialog)
+        surface = BaseResultSurface(
+            dialog,
+            on_cancel_all=lambda: self._command_sink(CancelActiveOperations()),
+        )
         surface.configure_standard_actions()
         return _SessionView(dialog=dialog, surface=surface, focus_lifecycle=PopupFocusLifecycle())
 
@@ -620,6 +627,8 @@ def _content_render_key(snapshot: SessionSnapshot) -> tuple[object, ...]:
         return (snapshot.status, snapshot.content, snapshot.error)
     if snapshot.status == SessionStatus.COMPLETED:
         return (snapshot.status, snapshot.content, snapshot.presentation)
+    if snapshot.status == SessionStatus.STOPPED:
+        return (snapshot.status, snapshot.content, snapshot.status_text, snapshot.presentation)
     return (snapshot.status, snapshot.content, snapshot.status_text, snapshot.presentation)
 
 

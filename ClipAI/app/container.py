@@ -182,7 +182,6 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         output_actions=output_actions,
         supervisor=supervisor,
         workflow_controller=workflow_module.controller_for,
-        has_foreground_workflow=workflow_module.has_foreground_workflow,
         output_operation_presenter=view,
         enqueue=enqueue,
         incident_reporter=incident_reporter,
@@ -234,6 +233,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         foreground_monitor=WindowsForegroundWindowMonitor(
             lambda target: runtime_holder[0].enqueue(ExternalForegroundChanged(target))
         ),
+        notifier=tray,
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):

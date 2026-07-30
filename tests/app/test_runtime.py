@@ -7,7 +7,7 @@ from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelActiveOperations, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -78,6 +78,11 @@ class FakeSupervisor:
 
     def cancel(self, session_id) -> None:
         self.cancelled.append(session_id)
+
+    def cancel_many(self, session_ids, on_settled) -> None:
+        for session_id in dict.fromkeys(session_ids):
+            self.cancel(session_id)
+        on_settled()
 
     def shutdown(self) -> None:
         self.closed = True
@@ -450,7 +455,6 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         output_actions=outputs,
         supervisor=supervisor,
         workflow_controller=workflow_module.controller_for,
-        has_foreground_workflow=workflow_module.has_foreground_workflow,
         output_operation_presenter=view,
         enqueue=enqueue,
         incident_reporter=incident_reporter,
@@ -491,6 +495,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         hotkey_registrar=lambda _map, _callback, _progress: listener,
         tray_factory=Tray if with_tray else None,
         operation_tracker=operation_tracker,
+        notifier=notifier,
     )
     runtime_holder.append(runtime)
     runtime._provider_backend = backend
@@ -1014,7 +1019,7 @@ def test_global_speech_command_is_supervised_without_creating_session() -> None:
     assert speech.calls == ["run"]
 
 
-def test_global_speech_shortcut_stops_active_speech_without_starting_another_job() -> None:
+def test_global_speech_shortcut_replaces_active_speech_with_latest_request() -> None:
     speech = GlobalSpeech()
     runtime, view, supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
     runtime.enqueue(ShortcutTriggered("speech", "short"))
@@ -1023,13 +1028,14 @@ def test_global_speech_shortcut_stops_active_speech_without_starting_another_job
     runtime.enqueue(ShortcutTriggered("speech", "short"))
     runtime.drain_commands()
 
-    assert speech.clipboard_only == [False]
+    assert speech.clipboard_only == [False, False]
     assert speech.cancelled == 1
-    assert speech.current_identity is None
+    assert speech.current_identity == (SpeechJob.operation_id, SpeechJob.workflow_id)
     assert supervisor.cancelled == [SpeechJob.operation_id]
     assert [(result.operation_id, result.state) for result in view.output_results] == [
         (SpeechJob.operation_id, "pending"),
         (SpeechJob.operation_id, "cancelled"),
+        (SpeechJob.operation_id, "pending"),
     ]
 
 
@@ -1047,14 +1053,89 @@ def test_long_speech_shortcut_keeps_active_speech_and_arms_sequence() -> None:
     assert speech.clipboard_only == [False]
 
 
-def test_global_speech_uses_clipboard_only_when_session_exists() -> None:
+def test_global_speech_still_prefers_current_selection_when_session_exists() -> None:
     speech = GlobalSpeech()
     runtime, _view, _supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
     runtime.enqueue(SpeakSelectionOrClipboard())
     runtime.drain_commands()
-    assert speech.clipboard_only == [True]
+    assert speech.clipboard_only == [False]
+
+
+def test_escape_routes_to_global_cancel_and_reports_real_settlement() -> None:
+    notifier = Notifier()
+    speech = GlobalSpeech()
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(
+        notifier=notifier,
+        speech_coordinator=speech,
+    )
+    runtime.enqueue(SpeakSelectionOrClipboard())
+    runtime.drain_commands()
+
+    runtime.enqueue(ShortcutTriggered("", "cancel"))
+    runtime.drain_commands()
+
+    assert speech.current_identity is None
+    assert f"speech:{SpeechJob.operation_id}" in supervisor.cancelled
+    assert notifier.messages == [
+        ("ClipAI", "正在停止所有 ClipAI 操作…"),
+        ("ClipAI", "已停止所有 ClipAI 操作"),
+    ]
+
+
+def test_global_cancel_keeps_foreground_and_completed_pinned_workflow_open() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    pinned_id = view.snapshots[-1].session_id
+    pinned = workflow(view, pinned_id)
+    pinned._snapshot = pinned.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        content="keep me",
+        pinned=True,
+        active_invocation_id=None,
+    )
+
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    foreground_id = view.snapshots[-1].session_id
+    runtime.enqueue(CancelActiveOperations())
+    runtime.drain_commands()
+
+    foreground = view.workflow_controller(foreground_id)
+    assert foreground is not None
+    assert foreground.snapshot.status == SessionStatus.STOPPED
+    assert foreground.snapshot.active_invocation_id is None
+    assert view.workflow_controller(pinned_id) is pinned
+    assert pinned.snapshot.content == "keep me"
+
+
+def test_global_cancel_stops_pinned_invocation_and_restores_its_completed_content() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    pinned_id = view.snapshots[-1].session_id
+    pinned = workflow(view, pinned_id)
+    step = WorkflowStep("step-1", "a", "Action", "input", "keep me", "plain_text")
+    pinned._snapshot = pinned.snapshot.evolve(
+        status=SessionStatus.REQUESTING_PROVIDER,
+        content=step.result_text,
+        pinned=True,
+        steps=(step,),
+        displayed_step_index=0,
+        active_invocation_id="pinned-follow-up",
+    )
+
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    runtime.enqueue(CancelActiveOperations())
+    runtime.drain_commands()
+
+    assert "pinned-follow-up" in supervisor.cancelled
+    assert pinned.snapshot.status == SessionStatus.COMPLETED
+    assert pinned.snapshot.active_invocation_id is None
+    assert pinned.snapshot.content == "keep me"
 
 
 def test_contextual_action_reuses_active_workflow_and_prefers_popup_selection() -> None:
