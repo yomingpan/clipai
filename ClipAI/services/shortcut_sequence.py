@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import threading
 
-from ClipAI.core.commands import AppCommand, ShortcutTriggered, StartAction
+from ClipAI.core.commands import AppCommand, ShortcutPressInvoked, StartAction
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 
 
@@ -38,15 +38,7 @@ class ShortcutSequenceCoordinator:
         timer.start()
         return timer
 
-    def resolve(self, trigger: ShortcutTriggered) -> AppCommand | None:
-        if trigger.press_type == "cancel":
-            self.cancel()
-            return None
-        if trigger.press_type == "invalid":
-            if self._waiting:
-                self.cancel()
-                self._on_error("Invalid shortcut sequence.", "Choose an action shortcut after Ctrl+Alt+Q.")
-            return None
+    def resolve(self, trigger: ShortcutPressInvoked) -> AppCommand | None:
         definition = self._shortcuts.definition(trigger.shortcut_id)
         is_composer = definition.command == "speak_selection_or_clipboard"
         if is_composer and trigger.press_type == "long":
@@ -57,12 +49,6 @@ class ShortcutSequenceCoordinator:
             self._on_waiting()
             self._start_timeout()
             return None
-        if is_composer and trigger.press_type == "long_release" and self._armed_shortcut == trigger.shortcut_id:
-            # The sequence was already armed when the long-press threshold was
-            # reached. Releasing Q must not change or restart that lifecycle.
-            return None
-        if trigger.press_type == "long_release":
-            return None
         if self._waiting:
             self._cancel_timer()
             self._waiting = False
@@ -72,6 +58,12 @@ class ShortcutSequenceCoordinator:
                 return None
             return StartAction(definition.action_id, trigger.press_type, "speech")
         return self._shortcuts.resolve(trigger.shortcut_id, trigger.press_type)
+
+    def reject_attempt(self) -> None:
+        if not self._waiting:
+            return
+        self.cancel()
+        self._on_error("Invalid shortcut sequence.", "Choose an action shortcut after Ctrl+Alt+Q.")
 
     def cancel(self) -> None:
         self._cancel_timer()

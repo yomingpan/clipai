@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.commands import AppCommand, ShortcutTriggered
+from ClipAI.core.commands import AppCommand, ShortcutPressInvoked
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 
 
@@ -10,10 +10,13 @@ class ShortcutIntentCoordinator:
     def __init__(self, shortcuts: ShortcutCatalog) -> None:
         self._shortcuts = shortcuts
 
-    def resolve(self, trigger: ShortcutTriggered) -> AppCommand:
+    def resolve(self, trigger: ShortcutPressInvoked) -> AppCommand:
         return self._shortcuts.resolve(trigger.shortcut_id, trigger.press_type)
 
     def cancel(self) -> None:
+        pass
+
+    def reject_attempt(self) -> None:
         pass
 
     @property

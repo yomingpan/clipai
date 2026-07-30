@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ClipAI.core.commands import ShortcutTriggered, StartAction
+from ClipAI.core.commands import ShortcutAttemptRejected, ShortcutPressInvoked, StartAction
 from ClipAI.core.models import ShortcutDefinition
 from ClipAI.platform.hotkey import create_hotkey_dispatcher
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -48,8 +48,13 @@ def test_stale_action_key_does_not_create_popup_during_speech_sequence() -> None
         schedule=lambda delay, callback: FakeTimer(delay, callback),
     )
 
-    def trigger(shortcut_id, press_type, _gesture_id) -> None:
-        command = sequence.resolve(ShortcutTriggered(shortcut_id, press_type))
+    def trigger(event) -> None:
+        if isinstance(event, ShortcutAttemptRejected):
+            sequence.reject_attempt()
+            return
+        if not isinstance(event, ShortcutPressInvoked):
+            return
+        command = sequence.resolve(event)
         if command is not None:
             commands.append(command)
 

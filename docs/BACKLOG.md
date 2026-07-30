@@ -104,7 +104,7 @@ Commits: `69637e6`, `fe7eebe`, `c1be04c`, `696dc15`.
 
 - 開啟、建立、render、activate 或更新 popup 都不得自動啟動 TTS。
 - 只有使用者明確觸發 `Ctrl+Alt+Q` 或按下 popup Speak button 時，才可建立 speech operation。
-- `ShortcutTriggered`、workflow render 與 popup lifecycle 不得被誤判成 `SpeakSelectionOrClipboard`。
+- 非 speech 的 `ShortcutPressInvoked`、workflow render 與 popup lifecycle 不得被誤判成 `SpeakSelectionOrClipboard`。
 - Popup active 時的 clipboard-only speech policy 只適用於使用者明確觸發 speech，不代表 popup 開啟時應朗讀。
 - Provider completion、workflow chaining、Back navigation、pin/unpin 與 focus event 都不得間接呼叫 speech output。
 

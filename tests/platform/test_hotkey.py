@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
+from ClipAI.core.commands import InterruptionRequested, ShortcutKeyStateChanged, ShortcutPressInvoked, ShortcutPressStarted
 from ClipAI.platform.hotkey import create_hotkey_dispatcher, expand_hotkeys
 
 
@@ -40,6 +41,16 @@ def setup_function() -> None:
     FakeTimer.timers.clear()
 
 
+def semantic_recorder(events):
+    def record(event) -> None:
+        if isinstance(event, ShortcutPressInvoked):
+            events.append((event.shortcut_id, event.press_type))
+        elif isinstance(event, InterruptionRequested):
+            events.append(("", f"interrupt_{event.scope}"))
+
+    return record
+
+
 def test_expand_hotkeys_adds_default_modifier_prefix() -> None:
     assert expand_hotkeys("8", modifier_mode="ctrl_alt") == ["ctrl+alt+8"]
 
@@ -48,7 +59,7 @@ def test_short_press_triggers_action_once() -> None:
     events: list[tuple[str, str]] = []
     dispatcher = create_hotkey_dispatcher(
         {"explain_word": {"hotkey": "ctrl+alt+8"}},
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -79,7 +90,7 @@ def test_grave_physical_key_triggers_tilde_shortcut_across_input_states(action_k
     events: list[tuple[str, str]] = []
     dispatcher = create_hotkey_dispatcher(
         {"dictation_editor": {"hotkey": "ctrl+alt+~"}},
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -100,7 +111,7 @@ def test_long_press_triggers_long_without_release_short() -> None:
     events: list[tuple[str, str]] = []
     dispatcher = create_hotkey_dispatcher(
         {"explain_word": {"hotkey": "ctrl+alt+8"}},
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -111,18 +122,18 @@ def test_long_press_triggers_long_without_release_short() -> None:
     FakeTimer.timers[0].fire()
     assert events == [("explain_word", "long")]
     dispatcher.on_release(FakeKey(char="8"))
-    assert events == [("explain_word", "long"), ("explain_word", "long_release")]
+    assert events == [("explain_word", "long")]
     dispatcher.on_release(FakeKey(name="alt_l"))
     dispatcher.on_release(FakeKey(name="ctrl_l"))
 
-    assert events == [("explain_word", "long"), ("explain_word", "long_release")]
+    assert events == [("explain_word", "long")]
 
 
 def test_escape_interrupts_current_immediately_then_escalates_after_threshold() -> None:
     events: list[tuple[str, str]] = []
     dispatcher = create_hotkey_dispatcher(
         {},
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         timer_factory=FakeTimer,
     )
 
@@ -144,7 +155,7 @@ def test_escape_key_repeat_does_not_duplicate_current_interrupt() -> None:
     events: list[str] = []
     dispatcher = create_hotkey_dispatcher(
         {},
-        lambda _action_id, press_type, _gesture_id: events.append(press_type),
+        lambda event: events.append(f"interrupt_{event.scope}") if isinstance(event, InterruptionRequested) else None,
         timer_factory=FakeTimer,
     )
 
@@ -162,7 +173,7 @@ def test_held_composer_fires_before_action_key_is_released() -> None:
             "friend": {"hotkey": "ctrl+alt+6"},
             "speech": {"hotkey": "ctrl+alt+q"},
         },
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -181,19 +192,18 @@ def test_held_composer_fires_before_action_key_is_released() -> None:
     dispatcher.on_release(FakeKey(name="alt_l"))
     dispatcher.on_release(FakeKey(name="ctrl_l"))
 
-    assert events == [("speech", "long"), ("friend", "short"), ("speech", "long_release")]
+    assert events == [("speech", "long"), ("friend", "short")]
 
 
-def test_physical_gesture_progress_uses_one_identity_until_all_keys_release() -> None:
-    triggers: list[tuple[str, str, int]] = []
-    progress: list[tuple[int, frozenset[str], bool]] = []
+def test_observation_reports_key_state_and_active_press_identity() -> None:
+    events = []
     dispatcher = create_hotkey_dispatcher(
         {"english": {"hotkey": "ctrl+alt+8"}},
-        lambda action_id, press_type, gesture_id: triggers.append((action_id, press_type, gesture_id)),
-        on_progress=lambda gesture_id, pressed, ended: progress.append((gesture_id, pressed, ended)),
+        events.append,
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
+    lease = dispatcher.observe()
 
     dispatcher.on_press(FakeKey(name="ctrl_l"))
     dispatcher.on_press(FakeKey(name="alt_l"))
@@ -202,24 +212,26 @@ def test_physical_gesture_progress_uses_one_identity_until_all_keys_release() ->
     dispatcher.on_release(FakeKey(name="alt_l"))
     dispatcher.on_release(FakeKey(name="ctrl_l"))
 
-    assert {gesture_id for gesture_id, _pressed, _ended in progress} == {1}
-    assert progress[0] == (1, frozenset({"ctrl"}), False)
-    assert progress[-1] == (1, frozenset(), True)
-    assert triggers == [("english", "short", 1)]
+    key_states = [event.pressed_keys for event in events if isinstance(event, ShortcutKeyStateChanged)]
+    starts = [event for event in events if isinstance(event, ShortcutPressStarted)]
+    assert lease.snapshot.pressed_keys == frozenset()
+    assert key_states[0] == frozenset({"ctrl"})
+    assert key_states[-1] == frozenset()
+    assert len(starts) == 1
 
 
-def test_injected_keys_never_appear_in_gesture_progress() -> None:
-    progress: list[tuple[int, frozenset[str], bool]] = []
+def test_injected_keys_never_appear_in_observation() -> None:
+    events = []
     dispatcher = create_hotkey_dispatcher(
         {"english": {"hotkey": "ctrl+alt+8"}},
-        lambda _action_id, _press_type, _gesture_id: None,
-        on_progress=lambda gesture_id, pressed, ended: progress.append((gesture_id, pressed, ended)),
+        events.append,
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
+    dispatcher.observe()
 
     dispatcher.on_press(FakeKey(name="ctrl_l"), injected=True)
     dispatcher.on_press(FakeKey(name="alt_l"), injected=True)
     dispatcher.on_press(FakeKey(char="8"), injected=True)
 
-    assert progress == []
+    assert events == []

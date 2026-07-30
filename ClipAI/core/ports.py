@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, SpeechRequest, UserFacingError
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, UserFacingError
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -166,6 +166,17 @@ class DisplayMetricsReader(Protocol):
 
 class Stoppable(Protocol):
     def stop(self) -> None: ...
+
+
+class ShortcutObservationLease(Protocol):
+    @property
+    def snapshot(self) -> ShortcutObservationSnapshot: ...
+
+    def close(self) -> None: ...
+
+
+class ShortcutInput(Stoppable, Protocol):
+    def observe(self) -> ShortcutObservationLease: ...
 
 
 class RuntimeComponent(Stoppable, Protocol):

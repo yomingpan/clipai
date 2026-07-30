@@ -15,3 +15,11 @@ _Avoid_: Active popup, focused window
 **Pinned Workflow**:
 A visible Workflow explicitly preserved when another external Action starts. Pinning preserves the Workflow but does not make it the Foreground Workflow.
 _Avoid_: Persistent popup
+
+**Shortcut Press**:
+One physical shortcut operation that begins when a complete registered binding
+first matches and ends when its non-modifier function key is released or the
+operation is cancelled. Every Shortcut Press has its own identity, even when
+Ctrl, Alt, or Shift remain held between presses. Modifier Context is only the
+currently held modifiers and is not an Action identity.
+_Avoid_: Chord, gesture (when referring to one Action intent)

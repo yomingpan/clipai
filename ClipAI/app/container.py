@@ -15,10 +15,10 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
-from ClipAI.core.models import HotkeyEventType, ModelSelectionState, ProviderSelectionState, ReadinessIssue
+from ClipAI.core.commands import ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, ShortcutInputEvent, ShutdownApplication
+from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.ports import LLMProvider, Stoppable
+from ClipAI.core.ports import LLMProvider, ShortcutInput
 from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.action_feedback import JsonlActionFeedbackStore
 from ClipAI.platform.guidance_preferences import JsonGuidancePreferencesStore
@@ -150,14 +150,12 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
 
     def register(
-        action_map: dict[str, dict[str, str]],
-        callback: Callable[[str, HotkeyEventType, int], None],
-        progress: Callable[[int, frozenset[str], bool], None],
-    ) -> Stoppable:
+        shortcut_map: dict[str, dict[str, str]],
+        callback: Callable[[ShortcutInputEvent], None],
+    ) -> ShortcutInput:
         return register_hotkeys_with_long_press(
-            action_map,
+            shortcut_map,
             callback,
-            on_progress=progress,
             modifier_mode=bundle.app.modifier_mode,
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
         )

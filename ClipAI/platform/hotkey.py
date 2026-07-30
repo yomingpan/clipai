@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ClipAI.core.hotkeys import GRAVE_KEY_ALIASES, GRAVE_KEY_TOKEN, canonicalize_hotkey, parse_hotkey_tokens
-from ClipAI.core.models import HotkeyEventType
+from ClipAI.core.commands import InterruptionRequested, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted
+from ClipAI.core.models import ShortcutObservationSnapshot, ShortcutPressId, ShortcutPressRef
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_key_is_pressed
 
 logger = logging.getLogger("clipai.hotkey")
@@ -84,21 +85,46 @@ def expand_hotkeys(hotkey: str, modifier_mode: str = "ctrl_alt") -> list[str]:
     return [_canonicalize_modifier_prefix(normalized, modifier_mode)]
 
 
-def build_hotkey_bindings(action_map: dict[str, dict], *, modifier_mode: str = "alt_shift") -> list[tuple[str, set[str]]]:
+def build_hotkey_bindings(shortcut_map: dict[str, dict], *, modifier_mode: str = "alt_shift") -> list[tuple[str, set[str]]]:
     hotkeys: list[tuple[str, set[str]]] = []
-    for action_id, action in action_map.items():
-        hotkey = str(action.get("hotkey") or "").strip()
+    for shortcut_id, definition in shortcut_map.items():
+        hotkey = str(definition.get("hotkey") or "").strip()
         for variant in expand_hotkeys(hotkey, modifier_mode=modifier_mode):
-            hotkeys.append((action_id, _parse_hotkey(variant)))
+            hotkeys.append((shortcut_id, _parse_hotkey(variant)))
     return hotkeys
 
 
 @dataclass
 class _HotkeyState:
     timer_generation: int
-    gesture_id: int
+    press_id: ShortcutPressId
+    shortcut_id: str
+    binding_tokens: frozenset[str]
     timer: threading.Timer | None = None
     long_fired: bool = False
+
+
+class _ShortcutObservationLease:
+    def __init__(
+        self,
+        dispatcher: _HotkeyDispatcher,
+        token: int,
+        snapshot: ShortcutObservationSnapshot,
+    ) -> None:
+        self._dispatcher = dispatcher
+        self._token = token
+        self._snapshot = snapshot
+        self._closed = False
+
+    @property
+    def snapshot(self) -> ShortcutObservationSnapshot:
+        return self._snapshot
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._dispatcher.close_observation(self._token)
 
 
 class HotkeyListener:
@@ -114,55 +140,73 @@ class HotkeyListener:
         self._dispatcher.stop()
         self._listener.stop()
 
+    def observe(self) -> _ShortcutObservationLease:
+        return self._dispatcher.observe()
+
 
 class _HotkeyDispatcher:
     def __init__(
         self,
         hotkeys: list[tuple[str, set[str]]],
-        on_trigger: Callable[[str, HotkeyEventType, int], None],
+        on_event: Callable[[ShortcutInputEvent], None],
         *,
-        on_progress: Callable[[int, frozenset[str], bool], None] = lambda _gesture_id, _pressed, _ended: None,
         long_press_sec: float = LONG_PRESS_SEC,
         timer_factory: Callable[..., threading.Timer] = threading.Timer,
         diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
         key_is_pressed: Callable[[str], bool | None] | None = None,
     ) -> None:
-        self._hotkeys = hotkeys
-        self._on_trigger = on_trigger
-        self._on_progress = on_progress
+        self._hotkeys = [(shortcut_id, frozenset(tokens)) for shortcut_id, tokens in hotkeys]
+        self._on_event = on_event
         self._long_press_sec = long_press_sec
         self._timer_factory = timer_factory
         self._diagnostics_enabled = diagnostics_enabled
         self._key_is_pressed = key_is_pressed
         self._pressed: set[str] = set()
         self._active: dict[str, _HotkeyState] = {}
-        self._pending_release: dict[str, tuple[HotkeyEventType, int]] = {}
         self._escape: _HotkeyState | None = None
         self._timer_generation = 0
-        self._gesture_generation = 0
-        self._gesture_id = 0
+        self._press_generation = 0
+        self._observation_generation = 0
+        self._observers: set[int] = set()
         self._lock = threading.RLock()
         self._stopped = False
 
-    def _fire(self, action_id: str, press_type: HotkeyEventType, gesture_id: int) -> None:
+    def _emit(self, event: ShortcutInputEvent) -> None:
+        if not self._stopped:
+            self._on_event(event)
+
+    def _report_key_state(self) -> None:
+        if self._observers:
+            self._emit(ShortcutKeyStateChanged(frozenset(self._pressed)))
+
+    def _next_press_id(self) -> ShortcutPressId:
+        self._press_generation += 1
+        return ShortcutPressId(self._press_generation)
+
+    def observe(self) -> _ShortcutObservationLease:
         with self._lock:
             if self._stopped:
-                return
-            logger.info("[clipai] Hotkey triggered: action_id=%s press_type=%s", action_id, press_type)
-            self._on_trigger(action_id, press_type, gesture_id)
+                return _ShortcutObservationLease(
+                    self,
+                    0,
+                    ShortcutObservationSnapshot(),
+                )
+            self._observation_generation += 1
+            token = self._observation_generation
+            self._observers.add(token)
+            active = tuple(
+                ShortcutPressRef(state.press_id, state.shortcut_id)
+                for state in self._active.values()
+            )
+            return _ShortcutObservationLease(
+                self,
+                token,
+                ShortcutObservationSnapshot(frozenset(self._pressed), active),
+            )
 
-    def _begin_gesture(self) -> int:
-        if self._gesture_id == 0:
-            self._gesture_generation += 1
-            self._gesture_id = self._gesture_generation
-        return self._gesture_id
-
-    def _report_progress(self, *, ended: bool = False) -> None:
-        gesture_id = self._gesture_id
-        if gesture_id:
-            self._on_progress(gesture_id, frozenset(self._pressed), ended)
-        if ended:
-            self._gesture_id = 0
+    def close_observation(self, token: int) -> None:
+        with self._lock:
+            self._observers.discard(token)
 
     def stop(self) -> None:
         with self._lock:
@@ -176,22 +220,32 @@ class _HotkeyDispatcher:
                 self._escape.timer.cancel()
             self._pressed.clear()
             self._active.clear()
-            self._pending_release.clear()
             self._escape = None
-            self._gesture_id = 0
+            self._observers.clear()
 
-    def _fire_long(self, action_id: str, timer_generation: int) -> None:
+    def _fire_long(
+        self,
+        action_id: str,
+        press_id: ShortcutPressId,
+        timer_generation: int,
+    ) -> None:
         with self._lock:
             if self._stopped:
                 return
             state = self._active.get(action_id)
-            if state is None or state.timer_generation != timer_generation:
+            if (
+                state is None
+                or state.timer_generation != timer_generation
+                or state.press_id != press_id
+            ):
                 return
             state.long_fired = True
-            # Long press is a complete typed intent as soon as its threshold is
-            # reached. Waiting for every modifier to be released reverses the
-            # order of held-key shortcut sequences (Q, then an action key).
-            self._fire(action_id, "long", state.gesture_id)
+            logger.info(
+                "[clipai] Shortcut press invoked: shortcut_id=%s press_id=%s press_type=long",
+                action_id,
+                press_id,
+            )
+            self._emit(ShortcutPressInvoked(press_id, action_id, "long"))
 
     def _discard_stale_pressed_state(self) -> set[str]:
         if self._key_is_pressed is None:
@@ -206,8 +260,8 @@ class _HotkeyDispatcher:
 
         affected_actions = {
             action_id
-            for action_id, tokens in self._hotkeys
-            if not tokens.isdisjoint(stale_tokens)
+            for action_id, state in self._active.items()
+            if not state.binding_tokens.isdisjoint(stale_tokens)
         }
         logger.info(
             "[clipai] Discarding stale hotkey state after missing key releases: tokens=%s actions=%s pressed=%s",
@@ -219,8 +273,16 @@ class _HotkeyDispatcher:
             state = self._active.pop(action_id, None)
             if state is not None and state.timer:
                 state.timer.cancel()
-            self._pending_release.pop(action_id, None)
+            if state is not None:
+                self._emit(
+                    ShortcutPressEnded(
+                        state.press_id,
+                        state.shortcut_id,
+                        "cancelled",
+                    )
+                )
         self._pressed.difference_update(stale_tokens)
+        self._report_key_state()
         return stale_tokens
 
     def on_press(self, key, injected: bool = False) -> None:
@@ -246,15 +308,25 @@ class _HotkeyDispatcher:
             if token == "esc":
                 if self._escape is not None:
                     return
-                for state in self._active.values():
+                for state in tuple(self._active.values()):
                     if state.timer is not None:
                         state.timer.cancel()
+                    self._emit(
+                        ShortcutPressEnded(
+                            state.press_id,
+                            state.shortcut_id,
+                            "cancelled",
+                        )
+                    )
                 self._active.clear()
-                self._pending_release.clear()
-                gesture_id = self._begin_gesture()
                 self._pressed.add(token)
                 self._timer_generation += 1
-                state = _HotkeyState(self._timer_generation, gesture_id)
+                state = _HotkeyState(
+                    self._timer_generation,
+                    ShortcutPressId(0),
+                    "",
+                    frozenset({"esc"}),
+                )
 
                 def fire_all(generation=state.timer_generation) -> None:
                     with self._lock:
@@ -266,19 +338,17 @@ class _HotkeyDispatcher:
                         ):
                             return
                         current.long_fired = True
-                        self._fire("", "interrupt_all", current.gesture_id)
+                        self._emit(InterruptionRequested("all"))
 
                 state.timer = self._timer_factory(self._long_press_sec, fire_all)
                 state.timer.daemon = True
                 state.timer.start()
                 self._escape = state
-                self._fire("", "interrupt_current", gesture_id)
+                self._report_key_state()
+                self._emit(InterruptionRequested("current"))
                 return
             if token in self._pressed:
                 return
-            if not self._pressed and stale_tokens and self._gesture_id:
-                self._report_progress(ended=True)
-            gesture_id = self._begin_gesture()
             self._pressed.add(token)
             matched = False
             if self._diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
@@ -295,17 +365,25 @@ class _HotkeyDispatcher:
                         sorted(self._pressed),
                     )
                     self._timer_generation += 1
-                    state = _HotkeyState(self._timer_generation, gesture_id)
+                    press_id = self._next_press_id()
+                    state = _HotkeyState(
+                        self._timer_generation,
+                        press_id,
+                        action_id,
+                        tokens,
+                    )
                     state.timer = self._timer_factory(
                         self._long_press_sec,
-                        lambda aid=action_id, generation=state.timer_generation: self._fire_long(aid, generation),
+                        lambda aid=action_id, pid=press_id, generation=state.timer_generation: self._fire_long(aid, pid, generation),
                     )
                     state.timer.daemon = True
                     state.timer.start()
                     self._active[action_id] = state
+                    self._emit(ShortcutPressStarted(press_id, action_id))
             if not matched and not stale_tokens and token not in {"ctrl", "alt", "shift"}:
-                self._fire("", "invalid", gesture_id)
-            self._report_progress()
+                if self._observers or not self._pressed.isdisjoint(MODIFIER_KEYS):
+                    self._emit(ShortcutAttemptRejected())
+            self._report_key_state()
 
     def on_release(self, key, injected: bool = False) -> None:
         if injected:
@@ -319,8 +397,7 @@ class _HotkeyDispatcher:
                 logger.debug("[clipai] Ignored key release: %s", _describe_key(key))
             return
 
-        callbacks: list[Callable[[], None]] = []
-        ended = False
+        events: list[ShortcutInputEvent] = []
         with self._lock:
             if self._stopped:
                 return
@@ -329,7 +406,7 @@ class _HotkeyDispatcher:
                 self._pressed.discard(token)
                 if state is not None and state.timer is not None:
                     state.timer.cancel()
-                self._report_progress(ended=not self._pressed)
+                self._report_key_state()
                 return
             if self._diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
                 logger.debug(
@@ -342,7 +419,8 @@ class _HotkeyDispatcher:
             for action_id, tokens in self._hotkeys:
                 if action_id not in self._active:
                     continue
-                if tokens.issubset(self._pressed):
+                trigger_tokens = tokens.difference(MODIFIER_KEYS)
+                if not trigger_tokens.isdisjoint(self._pressed):
                     continue
                 state = self._active.pop(action_id)
                 if state.timer:
@@ -354,37 +432,30 @@ class _HotkeyDispatcher:
                         token,
                         sorted(self._pressed),
                     )
-                    self._pending_release[action_id] = ("short", state.gesture_id)
-                else:
-                    self._pending_release[action_id] = ("long_release", state.gesture_id)
+                    events.append(
+                        ShortcutPressInvoked(
+                            state.press_id,
+                            state.shortcut_id,
+                            "short",
+                        )
+                    )
+                events.append(
+                    ShortcutPressEnded(
+                        state.press_id,
+                        state.shortcut_id,
+                        "released",
+                    )
+                )
 
-            for action_id, tokens in self._hotkeys:
-                pending = self._pending_release.get(action_id)
-                # Modifiers may remain held; the user's gesture completes when
-                # every non-modifier trigger key has been released.
-                trigger_tokens = tokens.difference(MODIFIER_KEYS)
-                if pending is None or not trigger_tokens.isdisjoint(self._pressed):
-                    continue
-                self._pending_release.pop(action_id, None)
-                press_type, gesture_id = pending
-                if press_type == "long_release":
-                    callbacks.append(lambda aid=action_id, gid=gesture_id: self._fire(aid, "long_release", gid))
-                else:
-                    callbacks.append(lambda aid=action_id, gid=gesture_id: self._fire(aid, "short", gid))
-            ended = not self._pressed
-
-        for callback in callbacks:
-            callback()
-        with self._lock:
-            if not self._stopped:
-                self._report_progress(ended=ended)
+            for event in events:
+                self._emit(event)
+            self._report_key_state()
 
 
 def create_hotkey_dispatcher(
-    action_map: dict[str, dict],
-    on_trigger: Callable[[str, HotkeyEventType, int], None],
+    shortcut_map: dict[str, dict],
+    on_event: Callable[[ShortcutInputEvent], None],
     *,
-    on_progress: Callable[[int, frozenset[str], bool], None] = lambda _gesture_id, _pressed, _ended: None,
     modifier_mode: str = "alt_shift",
     long_press_sec: float = LONG_PRESS_SEC,
     timer_factory: Callable[..., threading.Timer] = threading.Timer,
@@ -392,9 +463,8 @@ def create_hotkey_dispatcher(
     key_is_pressed: Callable[[str], bool | None] | None = None,
 ) -> _HotkeyDispatcher:
     return _HotkeyDispatcher(
-        build_hotkey_bindings(action_map, modifier_mode=modifier_mode),
-        on_trigger,
-        on_progress=on_progress,
+        build_hotkey_bindings(shortcut_map, modifier_mode=modifier_mode),
+        on_event,
         long_press_sec=long_press_sec,
         timer_factory=timer_factory,
         diagnostics_enabled=diagnostics_enabled,
@@ -403,10 +473,9 @@ def create_hotkey_dispatcher(
 
 
 def register_hotkeys_with_long_press(
-    action_map: dict[str, dict],
-    on_trigger: Callable[[str, HotkeyEventType, int], None],
+    shortcut_map: dict[str, dict],
+    on_event: Callable[[ShortcutInputEvent], None],
     *,
-    on_progress: Callable[[int, frozenset[str], bool], None] = lambda _gesture_id, _pressed, _ended: None,
     modifier_mode: str = "alt_shift",
     long_press_sec: float = LONG_PRESS_SEC,
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
@@ -416,16 +485,15 @@ def register_hotkeys_with_long_press(
     except ImportError as exc:
         raise RuntimeError("pynput is required for desktop hotkey mode") from exc
 
-    hotkeys = build_hotkey_bindings(action_map, modifier_mode=modifier_mode)
-    for action_id, tokens in hotkeys:
-        logger.info("[clipai] Registered hotkey %s -> %s", "+".join(sorted(tokens)), action_id)
+    hotkeys = build_hotkey_bindings(shortcut_map, modifier_mode=modifier_mode)
+    for shortcut_id, tokens in hotkeys:
+        logger.info("[clipai] Registered hotkey %s -> %s", "+".join(sorted(tokens)), shortcut_id)
 
     logger.info("[clipai] Hotkey listener modifier_mode=%s long_press_sec=%s", modifier_mode, long_press_sec)
 
     dispatcher = _HotkeyDispatcher(
         hotkeys,
-        on_trigger,
-        on_progress=on_progress,
+        on_event,
         long_press_sec=long_press_sec,
         diagnostics_enabled=diagnostics_enabled,
         key_is_pressed=windows_key_is_pressed,

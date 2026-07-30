@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from ClipAI.core.commands import ShortcutGestureProgressed, ShortcutTriggered
+from ClipAI.core.commands import ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted
 from ClipAI.core.hotkeys import MODIFIER_KEYS, canonicalize_hotkey, display_hotkey, parse_hotkey_tokens
-from ClipAI.core.models import PressType, ShortcutGuideItem, ShortcutGuideSnapshot
+from ClipAI.core.models import ShortcutGuideItem, ShortcutGuidePhase, ShortcutGuideSnapshot, ShortcutObservationSnapshot, ShortcutPressId
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 
@@ -70,29 +70,48 @@ class ShortcutGuideCatalog:
 class ShortcutGuideDecision:
     consumed: bool
     snapshot: ShortcutGuideSnapshot | None = None
-    close_requested: bool = False
 
 
 class ShortcutGuideCoordinator:
-    """Owns shortcut-guide state and the quarantine for captured gestures."""
+    """Owns shortcut-guide state and the quarantine for captured Shortcut Presses."""
 
     def __init__(self) -> None:
         self._snapshot: ShortcutGuideSnapshot | None = None
-        self._captured_gestures: set[int] = set()
+        self._captured_presses: set[ShortcutPressId] = set()
 
     @property
     def snapshot(self) -> ShortcutGuideSnapshot | None:
         return self._snapshot
 
-    def wants_progress(self, gesture_id: int) -> bool:
-        return self._snapshot is not None or gesture_id in self._captured_gestures
-
-    def open(self, guide_id: str, items: tuple[ShortcutGuideItem, ...]) -> ShortcutGuideSnapshot:
+    def open(
+        self,
+        guide_id: str,
+        items: tuple[ShortcutGuideItem, ...],
+        observation: ShortcutObservationSnapshot = ShortcutObservationSnapshot(),
+    ) -> ShortcutGuideSnapshot:
         if self._snapshot is not None:
             return self._snapshot
+        self._captured_presses.update(
+            active.press_id for active in observation.active_presses
+        )
         selected = items[0].shortcut_id if items else ""
-        status = self._idle_status(items[0] if items else None)
-        self._snapshot = ShortcutGuideSnapshot(guide_id, items, selected, status_text=status)
+        selected_item = items[0] if items else None
+        phase: ShortcutGuidePhase = (
+            "keys_pressed" if observation.pressed_keys else "listening"
+        )
+        status = (
+            self._progress_status(observation.pressed_keys, selected_item)
+            if observation.pressed_keys
+            else self._idle_status(selected_item)
+        )
+        self._snapshot = ShortcutGuideSnapshot(
+            guide_id,
+            items,
+            selected,
+            pressed_keys=observation.pressed_keys,
+            phase=phase,
+            status_text=status,
+        )
         return self._snapshot
 
     def close(self, guide_id: str = "") -> bool:
@@ -108,33 +127,46 @@ class ShortcutGuideCoordinator:
         self._snapshot = replace(snapshot, selected_shortcut_id=shortcut_id)
         return self._snapshot
 
-    def observe(self, event: ShortcutGestureProgressed) -> ShortcutGuideSnapshot | None:
+    def handle(self, event: ShortcutInputEvent) -> ShortcutGuideDecision:
         snapshot = self._snapshot
-        if snapshot is not None and event.gesture_id:
-            self._captured_gestures.add(event.gesture_id)
-        if snapshot is not None:
-            if event.ended and snapshot.phase in {"recognized", "invalid"}:
-                self._snapshot = replace(snapshot, pressed_keys=frozenset())
-            else:
-                phase = "listening" if event.ended or not event.pressed_keys else "keys_pressed"
-                selected = next((item for item in snapshot.items if item.shortcut_id == snapshot.selected_shortcut_id), None)
-                status = self._idle_status(selected) if phase == "listening" else self._progress_status(event.pressed_keys, selected)
-                self._snapshot = replace(snapshot, pressed_keys=event.pressed_keys, phase=phase, status_text=status)
-        if event.ended:
-            self._captured_gestures.discard(event.gesture_id)
-        return self._snapshot
-
-    def consume(self, trigger: ShortcutTriggered) -> ShortcutGuideDecision:
-        snapshot = self._snapshot
-        captured = bool(trigger.gesture_id and trigger.gesture_id in self._captured_gestures)
-        if snapshot is None and not captured:
-            return ShortcutGuideDecision(False)
-        if snapshot is None:
-            return ShortcutGuideDecision(True)
-        if trigger.press_type == "cancel":
-            self._snapshot = None
-            return ShortcutGuideDecision(True, close_requested=True)
-        if trigger.press_type == "invalid":
+        if isinstance(event, ShortcutPressStarted):
+            if snapshot is None:
+                return ShortcutGuideDecision(False)
+            self._captured_presses.add(event.press_id)
+            return ShortcutGuideDecision(True, snapshot)
+        if isinstance(event, ShortcutPressEnded):
+            captured = event.press_id in self._captured_presses
+            self._captured_presses.discard(event.press_id)
+            return ShortcutGuideDecision(captured, snapshot if captured else None)
+        if isinstance(event, ShortcutKeyStateChanged):
+            if snapshot is None:
+                return ShortcutGuideDecision(False)
+            phase: ShortcutGuidePhase = (
+                "listening" if not event.pressed_keys else "keys_pressed"
+            )
+            selected = next(
+                (
+                    item
+                    for item in snapshot.items
+                    if item.shortcut_id == snapshot.selected_shortcut_id
+                ),
+                None,
+            )
+            status = (
+                self._idle_status(selected)
+                if phase == "listening"
+                else self._progress_status(event.pressed_keys, selected)
+            )
+            self._snapshot = replace(
+                snapshot,
+                pressed_keys=event.pressed_keys,
+                phase=phase,
+                status_text=status,
+            )
+            return ShortcutGuideDecision(True, self._snapshot)
+        if isinstance(event, ShortcutAttemptRejected):
+            if snapshot is None:
+                return ShortcutGuideDecision(False)
             self._snapshot = replace(
                 snapshot,
                 phase="invalid",
@@ -143,12 +175,20 @@ class ShortcutGuideCoordinator:
                 matched_press_type=None,
             )
             return ShortcutGuideDecision(True, self._snapshot)
-        if trigger.press_type == "long_release":
-            return ShortcutGuideDecision(True, snapshot)
-        item = next((item for item in snapshot.items if item.shortcut_id == trigger.shortcut_id), None)
+        if not isinstance(event, ShortcutPressInvoked):
+            return ShortcutGuideDecision(False)
+        captured = event.press_id in self._captured_presses
+        if not captured:
+            return ShortcutGuideDecision(False)
+        if snapshot is None:
+            return ShortcutGuideDecision(True)
+        item = next(
+            (item for item in snapshot.items if item.shortcut_id == event.shortcut_id),
+            None,
+        )
         if item is None:
             return ShortcutGuideDecision(True, snapshot)
-        press_type: PressType = "long" if trigger.press_type == "long" else "short"
+        press_type = event.press_type
         description = item.long_title if press_type == "long" and item.long_title else item.title
         self._snapshot = replace(
             snapshot,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeAlias
 
-from ClipAI.core.models import FeedbackOutcome, HotkeyEventType, ModelCatalogConnection, PasteTarget, PressType, ProviderSettingsInput, ResultRoute
+from ClipAI.core.models import FeedbackOutcome, InterruptionScope, ModelCatalogConnection, PasteTarget, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome
 from ClipAI.core.models import ControlSurfaceRef
 
 
@@ -15,17 +15,48 @@ class StartAction:
 
 
 @dataclass(frozen=True)
-class ShortcutTriggered:
-    shortcut_id: str
-    press_type: HotkeyEventType
-    gesture_id: int = 0
+class ShortcutKeyStateChanged:
+    pressed_keys: frozenset[str]
 
 
 @dataclass(frozen=True)
-class ShortcutGestureProgressed:
-    gesture_id: int
-    pressed_keys: frozenset[str]
-    ended: bool = False
+class ShortcutPressStarted:
+    press_id: ShortcutPressId
+    shortcut_id: str
+
+
+@dataclass(frozen=True)
+class ShortcutPressInvoked:
+    press_id: ShortcutPressId
+    shortcut_id: str
+    press_type: PressType
+
+
+@dataclass(frozen=True)
+class ShortcutPressEnded:
+    press_id: ShortcutPressId
+    shortcut_id: str
+    outcome: ShortcutPressOutcome
+
+
+@dataclass(frozen=True)
+class ShortcutAttemptRejected:
+    pass
+
+
+@dataclass(frozen=True)
+class InterruptionRequested:
+    scope: InterruptionScope
+
+
+ShortcutInputEvent: TypeAlias = (
+    ShortcutKeyStateChanged
+    | ShortcutPressStarted
+    | ShortcutPressInvoked
+    | ShortcutPressEnded
+    | ShortcutAttemptRejected
+    | InterruptionRequested
+)
 
 
 @dataclass(frozen=True)
@@ -222,4 +253,4 @@ class GuidancePreferencesCompleted:
     error: str = ""
 
 
-AppCommand: TypeAlias = ShortcutTriggered | ShortcutGestureProgressed | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | CopyResult | PasteResult | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | ReleaseForegroundWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted
+AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | CopyResult | PasteResult | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | ReleaseForegroundWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted

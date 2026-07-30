@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, NewType
 
 from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
-HotkeyEventType = Literal["short", "long", "long_release", "invalid", "cancel", "interrupt_current", "interrupt_all"]
+ShortcutPressId = NewType("ShortcutPressId", int)
+ShortcutPressOutcome = Literal["released", "cancelled"]
+InterruptionScope = Literal["current", "all"]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
 MessageRole = Literal["system", "user", "assistant"]
 ImageSource = Literal["clipboard"]
@@ -35,6 +37,18 @@ InterruptibleOperationKind = Literal[
     "shortcut_sequence",
     "provider_configuration",
 ]
+
+
+@dataclass(frozen=True)
+class ShortcutPressRef:
+    press_id: ShortcutPressId
+    shortcut_id: str
+
+
+@dataclass(frozen=True)
+class ShortcutObservationSnapshot:
+    pressed_keys: frozenset[str] = frozenset()
+    active_presses: tuple[ShortcutPressRef, ...] = ()
 
 
 @dataclass(frozen=True)

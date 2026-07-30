@@ -6,7 +6,7 @@ from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, ReleaseForegroundWorkflow, ShortcutTriggered, StartAction, TogglePin
+from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, ReleaseForegroundWorkflow, ShortcutPressInvoked, StartAction, TogglePin
 from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, InterruptibleOperationRef
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -123,8 +123,11 @@ class WorkflowRuntimeModule:
     def has_foreground_workflow(self) -> bool:
         return self._foreground_id in self._records
 
-    def resolve_shortcut(self, command: ShortcutTriggered) -> AppCommand | None:
+    def resolve_shortcut(self, command: ShortcutPressInvoked) -> AppCommand | None:
         return self._shortcut_intents.resolve(command)
+
+    def reject_shortcut_attempt(self) -> None:
+        self._shortcut_intents.reject_attempt()
 
     def cancel_shortcut_sequence(self) -> None:
         self._shortcut_intents.cancel()

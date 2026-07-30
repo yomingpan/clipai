@@ -1,5 +1,5 @@
-from ClipAI.core.commands import ShortcutGestureProgressed, ShortcutTriggered
-from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, FeedbackReason, ShortcutDefinition
+from ClipAI.core.commands import ShortcutAttemptRejected, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted
+from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, FeedbackReason, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, ShortcutPressRef
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
@@ -68,63 +68,68 @@ def test_real_config_projects_every_shortcut_and_declared_long_variant() -> None
 def test_guide_tracks_progress_and_verifies_short_press_for_this_open_only() -> None:
     coordinator = ShortcutGuideCoordinator()
     snapshot = coordinator.open("guide-1", guide_catalog().items())
+    press_id = ShortcutPressId(7)
 
     assert snapshot.selected_shortcut_id == "english"
-    progress = coordinator.observe(ShortcutGestureProgressed(7, frozenset({"ctrl"})))
-    assert progress is not None
-    assert progress.phase == "keys_pressed"
-    assert "Alt" in progress.status_text
+    progress = coordinator.handle(ShortcutKeyStateChanged(frozenset({"ctrl"})))
+    assert progress.snapshot is not None
+    assert progress.snapshot.phase == "keys_pressed"
+    assert "Alt" in progress.snapshot.status_text
 
-    coordinator.observe(ShortcutGestureProgressed(7, frozenset({"ctrl", "alt", "8"})))
-    decision = coordinator.consume(ShortcutTriggered("english", "short", 7))
+    coordinator.handle(ShortcutPressStarted(press_id, "english"))
+    coordinator.handle(ShortcutKeyStateChanged(frozenset({"ctrl", "alt", "8"})))
+    decision = coordinator.handle(ShortcutPressInvoked(press_id, "english", "short"))
     assert decision.consumed is True
     assert decision.snapshot is not None
     assert decision.snapshot.verified == frozenset({("english", "short")})
     assert "已驗證" in decision.snapshot.status_text
 
-    final = coordinator.observe(ShortcutGestureProgressed(7, frozenset(), ended=True))
-    assert final is not None
-    assert final.phase == "recognized"
-    assert final.pressed_keys == frozenset()
+    coordinator.handle(ShortcutPressEnded(press_id, "english", "released"))
+    final = coordinator.handle(ShortcutKeyStateChanged(frozenset()))
+    assert final.snapshot is not None
+    assert final.snapshot.phase == "listening"
+    assert final.snapshot.pressed_keys == frozenset()
 
     coordinator.close("guide-1")
     reopened = coordinator.open("guide-2", guide_catalog().items())
     assert reopened.verified == frozenset()
 
 
-def test_guide_consumes_invalid_and_long_release_without_side_effect_decisions() -> None:
+def test_guide_consumes_rejected_attempt_while_open() -> None:
     coordinator = ShortcutGuideCoordinator()
     coordinator.open("guide-1", guide_catalog().items())
 
-    invalid = coordinator.consume(ShortcutTriggered("", "invalid", 3))
-    release = coordinator.consume(ShortcutTriggered("english", "long_release", 3))
+    invalid = coordinator.handle(ShortcutAttemptRejected())
 
     assert invalid.consumed is True
     assert invalid.snapshot is not None
     assert invalid.snapshot.phase == "invalid"
-    assert release.consumed is True
 
 
-def test_captured_gesture_remains_quarantined_after_guide_closes() -> None:
+def test_captured_press_remains_quarantined_after_guide_closes_until_terminal_fact() -> None:
     coordinator = ShortcutGuideCoordinator()
     coordinator.open("guide-1", guide_catalog().items())
-    coordinator.observe(ShortcutGestureProgressed(9, frozenset({"ctrl", "alt", "8"})))
+    press_id = ShortcutPressId(9)
+    coordinator.handle(ShortcutPressStarted(press_id, "english"))
     coordinator.close("guide-1")
 
-    assert coordinator.wants_progress(9) is True
-    assert coordinator.wants_progress(10) is False
-    assert coordinator.consume(ShortcutTriggered("english", "short", 9)).consumed is True
-    coordinator.observe(ShortcutGestureProgressed(9, frozenset(), ended=True))
-    assert coordinator.consume(ShortcutTriggered("english", "short", 9)).consumed is False
+    assert coordinator.handle(ShortcutPressInvoked(press_id, "english", "short")).consumed is True
+    assert coordinator.handle(ShortcutPressEnded(press_id, "english", "released")).consumed is True
+    assert coordinator.handle(ShortcutPressInvoked(press_id, "english", "short")).consumed is False
 
 
-def test_cancel_closes_guide_and_keeps_trigger_consumed() -> None:
+def test_opening_guide_quarantines_press_active_in_observation_snapshot() -> None:
     coordinator = ShortcutGuideCoordinator()
-    coordinator.open("guide-1", guide_catalog().items())
+    press_id = ShortcutPressId(4)
+    coordinator.open(
+        "guide-1",
+        guide_catalog().items(),
+        ShortcutObservationSnapshot(
+            frozenset({"ctrl", "alt", "8"}),
+            (ShortcutPressRef(press_id, "english"),),
+        ),
+    )
+    coordinator.close("guide-1")
 
-    decision = coordinator.consume(ShortcutTriggered("", "cancel", 4))
-
-    assert decision.consumed is True
-    assert decision.close_requested is True
-    assert coordinator.snapshot is None
+    assert coordinator.handle(ShortcutPressInvoked(press_id, "english", "long")).consumed is True
 from ClipAI.app.config_loader import load_config_bundle

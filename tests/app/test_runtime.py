@@ -7,8 +7,8 @@ from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -142,6 +142,15 @@ class Listener:
 
     def stop(self) -> None:
         self.stopped = True
+
+    def observe(self):
+        class Lease:
+            snapshot = ShortcutObservationSnapshot()
+
+            def close(self) -> None:
+                pass
+
+        return Lease()
 
 
 class Monitor:
@@ -499,7 +508,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         result_output=output_module,
         provider_configuration=provider_module,
         user_persistence=persistence_module,
-        hotkey_registrar=lambda _map, _callback, _progress: listener,
+        hotkey_registrar=lambda _map, _callback: listener,
         tray_factory=Tray if with_tray else None,
         operation_tracker=operation_tracker,
     )
@@ -1028,10 +1037,10 @@ def test_global_speech_command_is_supervised_without_creating_session() -> None:
 def test_global_speech_shortcut_replaces_active_speech_with_latest_request() -> None:
     speech = GlobalSpeech()
     runtime, view, supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
-    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.enqueue(ShortcutPressInvoked(ShortcutPressId(1), "speech", "short"))
     runtime.drain_commands()
 
-    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.enqueue(ShortcutPressInvoked(ShortcutPressId(2), "speech", "short"))
     runtime.drain_commands()
 
     assert speech.clipboard_only == [False, False]
@@ -1048,10 +1057,10 @@ def test_global_speech_shortcut_replaces_active_speech_with_latest_request() -> 
 def test_long_speech_shortcut_keeps_active_speech_and_arms_sequence() -> None:
     speech = GlobalSpeech()
     runtime, _view, _supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
-    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.enqueue(ShortcutPressInvoked(ShortcutPressId(1), "speech", "short"))
     runtime.drain_commands()
 
-    runtime.enqueue(ShortcutTriggered("speech", "long"))
+    runtime.enqueue(ShortcutPressInvoked(ShortcutPressId(2), "speech", "long"))
     runtime.drain_commands()
 
     assert speech.current_identity == (SpeechJob.operation_id, SpeechJob.workflow_id)
@@ -1081,7 +1090,7 @@ def test_short_escape_stops_current_speech_without_windows_notifications() -> No
     runtime.enqueue(SpeakSelectionOrClipboard())
     runtime.drain_commands()
 
-    runtime.enqueue(ShortcutTriggered("", "interrupt_current"))
+    runtime.enqueue(InterruptionRequested("current"))
     runtime.drain_commands()
 
     assert speech.current_identity is None
@@ -1527,7 +1536,7 @@ def test_global_speech_shortcut_stops_popup_speech_and_resets_speaker_state() ->
     runtime.drain_commands()
     assert controller.snapshot.speaking is True
 
-    runtime.enqueue(ShortcutTriggered("speech", "short"))
+    runtime.enqueue(ShortcutPressInvoked(ShortcutPressId(1), "speech", "short"))
     runtime.drain_commands()
 
     assert view.speech_coordinator.current_identity is None
