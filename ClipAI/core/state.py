@@ -17,6 +17,7 @@ class SessionStatus(str, Enum):
     PROCESSING_RESULT = "processing_result"
     COMPLETED = "completed"
     FAILED = "failed"
+    STOPPED = "stopped"
     CANCELLED = "cancelled"
     CLOSED = "closed"
 
@@ -24,18 +25,20 @@ class SessionStatus(str, Enum):
 TERMINAL_STATUSES = {
     SessionStatus.COMPLETED,
     SessionStatus.FAILED,
+    SessionStatus.STOPPED,
     SessionStatus.CANCELLED,
     SessionStatus.CLOSED,
 }
 
 ALLOWED_TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
-    SessionStatus.CREATED: {SessionStatus.READING_INPUT, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.READING_INPUT: {SessionStatus.PREPARING_REQUEST, SessionStatus.FAILED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.PREPARING_REQUEST: {SessionStatus.REQUESTING_PROVIDER, SessionStatus.FAILED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.REQUESTING_PROVIDER: {SessionStatus.PROCESSING_RESULT, SessionStatus.FAILED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.PROCESSING_RESULT: {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.CREATED: {SessionStatus.READING_INPUT, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.READING_INPUT: {SessionStatus.PREPARING_REQUEST, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.PREPARING_REQUEST: {SessionStatus.REQUESTING_PROVIDER, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.REQUESTING_PROVIDER: {SessionStatus.PROCESSING_RESULT, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.PROCESSING_RESULT: {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.COMPLETED: {SessionStatus.PREPARING_REQUEST, SessionStatus.CLOSED},
     SessionStatus.FAILED: {SessionStatus.CLOSED},
+    SessionStatus.STOPPED: {SessionStatus.CLOSED},
     SessionStatus.CANCELLED: {SessionStatus.CLOSED},
     SessionStatus.CLOSED: set(),
 }

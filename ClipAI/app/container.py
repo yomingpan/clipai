@@ -15,10 +15,10 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
-from ClipAI.core.models import HotkeyEventType, ModelSelectionState, ProviderSelectionState, ReadinessIssue
+from ClipAI.core.commands import ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, ShortcutInputEvent, ShutdownApplication
+from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.ports import LLMProvider, Stoppable
+from ClipAI.core.ports import LLMProvider, ShortcutInput
 from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.action_feedback import JsonlActionFeedbackStore
 from ClipAI.platform.guidance_preferences import JsonGuidancePreferencesStore
@@ -29,6 +29,7 @@ from ClipAI.platform.dotenv_preferences import DotenvModelPreferenceStore
 from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
+from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider
 from ClipAI.providers.anthropic import AnthropicProvider
@@ -42,10 +43,12 @@ from ClipAI.services.provider_binding import ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
+from ClipAI.services.paste_target import PasteTargetCoordinator
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
 from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
+from ClipAI.services.user_control import UserControlCoordinator
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.ui.result_dialog import ResultDialogPresenter
@@ -134,6 +137,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         archive=JsonlArchiveStore(),
         keyboard=SystemKeyboardOutput(),
     )
+    paste_targets = PasteTargetCoordinator(view)
     execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
         prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),
@@ -146,19 +150,18 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
 
     def register(
-        action_map: dict[str, dict[str, str]],
-        callback: Callable[[str, HotkeyEventType, int], None],
-        progress: Callable[[int, frozenset[str], bool], None],
-    ) -> Stoppable:
+        shortcut_map: dict[str, dict[str, str]],
+        callback: Callable[[ShortcutInputEvent], None],
+    ) -> ShortcutInput:
         return register_hotkeys_with_long_press(
-            action_map,
+            shortcut_map,
             callback,
-            on_progress=progress,
             modifier_mode=bundle.app.modifier_mode,
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
         )
 
     supervisor = TaskSupervisor(bundle.runtime.max_workers)
+    user_control = UserControlCoordinator()
     incident_reporter = IncidentReporter()
     enqueue = lambda command: runtime_holder[0].enqueue(command)
     workflow_module = WorkflowRuntimeModule(
@@ -174,12 +177,12 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         operation_tracker=operation_tracker,
         notifier=tray,
         speech_coordinator=speech_coordinator,
+        user_control=user_control,
     )
     result_output_module = ResultOutputRuntimeModule(
         output_actions=output_actions,
         supervisor=supervisor,
         workflow_controller=workflow_module.controller_for,
-        has_foreground_workflow=workflow_module.has_foreground_workflow,
         output_operation_presenter=view,
         enqueue=enqueue,
         incident_reporter=incident_reporter,
@@ -187,6 +190,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         diagnostics_exporter=diagnostics_exporter,
         notifier=tray,
         speech_coordinator=speech_coordinator,
+        paste_targets=paste_targets,
+        user_control=user_control,
     )
     provider_configuration_module = ProviderConfigurationRuntimeModule(
         coordinator=provider_configuration,
@@ -196,6 +201,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         model_selection_presenter=tray,
         provider_selection_presenter=tray,
         provider_settings_presenter=view,
+        user_control=user_control,
     )
     user_persistence_module = UserPersistenceRuntimeModule(
         supervisor=supervisor,
@@ -227,6 +233,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         tray_factory=lambda _on_exit: tray,
         operation_tracker=operation_tracker,
         shortcut_guide=shortcut_guide_module,
+        foreground_monitor=WindowsForegroundWindowMonitor(
+            lambda target: runtime_holder[0].enqueue(ExternalForegroundChanged(target))
+        ),
+        user_control=user_control,
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):

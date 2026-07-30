@@ -80,6 +80,17 @@ class ProviderConfigurationCoordinator:
     def busy(self) -> bool:
         return self._operation is not None
 
+    @property
+    def active_operation(self) -> tuple[ProviderSettingsOperationKind, str] | None:
+        operation = self._operation
+        return (operation.kind, operation.operation_id) if operation is not None else None
+
+    def cancel_active(self) -> ProviderConfigurationUpdate:
+        operation, self._operation = self._operation, None
+        if operation is None:
+            return ProviderConfigurationUpdate()
+        return ProviderConfigurationUpdate(self.settings_state(operation.provider))
+
     def model_selection(self) -> ModelSelectionState:
         option = self._option(self._snapshot.active_provider)
         operation = self._operation

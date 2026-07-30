@@ -6,8 +6,8 @@ from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, ReleaseForegroundWorkflow, ShortcutTriggered, StartAction, TogglePin
-from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget
+from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, ReleaseForegroundWorkflow, ShortcutPressInvoked, StartAction, TogglePin
+from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, InterruptibleOperationRef
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -20,6 +20,7 @@ from ClipAI.services.shortcut_intent import ShortcutIntentCoordinator
 from ClipAI.services.shortcut_sequence import ShortcutSequenceCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
 from ClipAI.services.workflow_controller import WorkflowController
+from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
 
 
@@ -87,6 +88,7 @@ class WorkflowRuntimeModule:
         speech_coordinator: SpeechCoordinator | None = None,
         input_targets: InputTargetResolver | None = None,
         shortcut_intents: ShortcutIntentCoordinator | None = None,
+        user_control: UserControlCoordinator | None = None,
     ) -> None:
         self._actions = actions
         self._execute_action = execute_action
@@ -101,6 +103,8 @@ class WorkflowRuntimeModule:
         self._speech_coordinator = speech_coordinator
         self._input_targets = input_targets or InputTargetResolver()
         self._records: dict[str, _WorkflowRecord] = {}
+        self._user_control = user_control
+        self._interruption_leases: dict[str, InterruptibleOperationLease] = {}
         self._foreground_id: str | None = None
         self._shortcut_intents = shortcut_intents or ShortcutSequenceCoordinator(
             shortcuts,
@@ -113,14 +117,61 @@ class WorkflowRuntimeModule:
         record = self._records.get(workflow_id)
         return record.controller if record is not None else None
 
+    def bind_user_control(self, user_control: UserControlCoordinator) -> None:
+        self._user_control = user_control
+
     def has_foreground_workflow(self) -> bool:
         return self._foreground_id in self._records
 
-    def resolve_shortcut(self, command: ShortcutTriggered) -> AppCommand | None:
+    def resolve_shortcut(self, command: ShortcutPressInvoked) -> AppCommand | None:
         return self._shortcut_intents.resolve(command)
+
+    def reject_shortcut_attempt(self) -> None:
+        self._shortcut_intents.reject_attempt()
 
     def cancel_shortcut_sequence(self) -> None:
         self._shortcut_intents.cancel()
+
+    def has_pending_shortcut_sequence(self) -> bool:
+        return self._shortcut_intents.is_waiting
+
+    def cancel_active_operations(self) -> tuple[str, ...]:
+        self._shortcut_intents.cancel()
+        task_ids: list[str] = []
+        for workflow_id, record in tuple(self._records.items()):
+            active_id = record.controller.snapshot.active_invocation_id
+            if record.presentation == "headless":
+                if active_id is not None:
+                    task_ids.append(active_id)
+                self._end(
+                    workflow_id,
+                    "cancel",
+                    cancel_task=False,
+                )
+                if self._speech_coordinator is not None:
+                    self._speech_coordinator.cancel_workflow(workflow_id)
+                continue
+            stopped_id = record.controller.stop_active()
+            if stopped_id is not None:
+                task_ids.append(stopped_id)
+        return tuple(task_ids)
+
+    def cancel_operation(self, operation_id: str) -> tuple[str, ...]:
+        for workflow_id, record in tuple(self._records.items()):
+            if record.controller.snapshot.active_invocation_id != operation_id:
+                continue
+            if record.presentation == "headless":
+                self._end(workflow_id, "cancel", cancel_task=False)
+                if self._speech_coordinator is not None:
+                    self._speech_coordinator.cancel_workflow(workflow_id)
+            else:
+                record.controller.stop_active()
+            self._supervisor.cancel(operation_id)
+            return (operation_id,)
+        return ()
+
+    def cancel_all_content_operations(self) -> tuple[str, ...]:
+        return self.cancel_active_operations()
 
     def handle(self, command: WorkflowRuntimeCommand) -> None:
         if isinstance(command, StartAction):
@@ -312,9 +363,27 @@ class WorkflowRuntimeModule:
         work: Callable[[], None],
     ) -> None:
         try:
+            if self._user_control is not None:
+                record = self._records.get(workflow_id)
+                lease = self._user_control.begin(InterruptibleOperationRef(
+                    invocation_id,
+                    "workflow",
+                    workflow_id=workflow_id,
+                    surface_id=workflow_id if record is not None and record.presentation == "visible" else "",
+                ))
+                self._interruption_leases[invocation_id] = lease
+
+            def tracked_work() -> None:
+                try:
+                    work()
+                finally:
+                    current = self._interruption_leases.pop(invocation_id, None)
+                    if current is not None:
+                        current.finish()
+
             self._supervisor.submit(
                 invocation_id,
-                work,
+                tracked_work,
                 lambda error: self._enqueue(WorkflowInvocationFailed(workflow_id, error)),
             )
         except BaseException as error:
@@ -349,7 +418,13 @@ class WorkflowRuntimeModule:
         self._records[workflow_id] = record
         return record
 
-    def _end(self, workflow_id: str, disposition: Literal["cancel", "close", "release"]) -> None:
+    def _end(
+        self,
+        workflow_id: str,
+        disposition: Literal["cancel", "close", "release"],
+        *,
+        cancel_task: bool = True,
+    ) -> None:
         record = self._records.pop(workflow_id, None)
         if record is None:
             return
@@ -360,7 +435,7 @@ class WorkflowRuntimeModule:
             record.controller.cancel()
         elif disposition == "close":
             record.controller.close()
-        if active_id is not None:
+        if active_id is not None and cancel_task:
             self._supervisor.cancel(active_id)
 
     def _sequence_waiting(self) -> None:

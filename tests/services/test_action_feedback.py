@@ -30,8 +30,7 @@ def make_step() -> WorkflowStep:
         input_source="selection",
         feedback_contract=ActionFeedbackContract(
             "Shorten faithfully",
-            "Keep meaning",
-            "Does it still represent you?",
+            "Do not change meaning",
             (FeedbackReason("meaning_lost", "Core meaning was lost"), FeedbackReason("other", "Other")),
         ),
         action_version="abc123",

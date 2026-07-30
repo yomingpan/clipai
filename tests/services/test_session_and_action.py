@@ -126,7 +126,7 @@ def run_invocation(
 
 class GuidanceStore:
     def __init__(self) -> None:
-        self.preferences = GuidancePreferences()
+        self.preferences = GuidancePreferences(True)
 
     def load(self):
         return self.preferences
@@ -140,8 +140,7 @@ def test_first_successful_feedback_recipe_projects_guidance_once() -> None:
     guidance = GuidancePreferencesCoordinator(store)
     resolved = replace(action(), feedback_contract=ActionFeedbackContract(
         "Translate",
-        "Keep intent",
-        "Verify audience fit",
+        "Do not change intent",
         (FeedbackReason("other", "Other"),),
     ))
     executor = workflow(FakeClipboard("clipboard"), FakeSelection("selected"), guidance_preferences=guidance)
@@ -150,7 +149,7 @@ def test_first_successful_feedback_recipe_projects_guidance_once() -> None:
     second = run_invocation(executor, invocation_id="second", resolved_action=resolved)
     long_resolved = replace(resolved, press_type="long", feedback_contract=replace(
         resolved.feedback_contract,
-        transform_label="Improve English",
+        ai_help_label="Improve English",
     ))
     long_first = run_invocation(executor, invocation_id="long-first", resolved_action=long_resolved)
     long_second = run_invocation(executor, invocation_id="long-second", resolved_action=long_resolved)

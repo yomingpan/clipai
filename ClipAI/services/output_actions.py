@@ -3,7 +3,8 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-from ClipAI.core.ports import ArchiveStore, ClipboardTransactionStore, KeyboardOutput
+from ClipAI.core.models import PasteTarget
+from ClipAI.core.ports import ArchiveStore, ClipboardTransactionStore, TargetedKeyboardOutput
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 
 
@@ -13,7 +14,7 @@ class OutputActions:
         *,
         clipboard: ClipboardTransactionStore,
         archive: ArchiveStore | None = None,
-        keyboard: KeyboardOutput | None = None,
+        keyboard: TargetedKeyboardOutput | None = None,
         paste_restore_delay_sec: float = 0.25,
         wait: Callable[[float], None] = time.sleep,
         clipboard_transactions: ClipboardTransactionCoordinator | None = None,
@@ -37,11 +38,11 @@ class OutputActions:
     def can_archive(self) -> bool:
         return self._archive is not None
 
-    def paste(self, text: str) -> None:
+    def paste(self, text: str, target: PasteTarget) -> None:
         if self._keyboard is None:
             raise RuntimeError("keyboard output is not configured")
         with self._clipboard_transactions.temporary_text(text):
-            self._keyboard.paste()
+            self._keyboard.paste(target)
             self._wait(self._paste_restore_delay_sec)
 
     @property

@@ -107,6 +107,17 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - `pin`：固定 surface，避免 focus out 時自動關閉。Pin 必須保留為 base slot。
 - `speaker`、`copy`、`paste` 採 selection-first；沒有非空 selection 時才使用完整 result。
 - Paste 必須先隱藏 surface、釋放 focus，再送出 typed command；UI 不得直接操作 clipboard 或 keyboard。
+- Result surface 的 focus state 以邊框作為主要提示。Focused surface 的 footer
+  只顯示最近的外部 paste target，不重複標示「已聚焦」；pinned 且 unfocused 時必須說明
+  `Ctrl+V` 會由目前外部視窗使用原剪貼簿內容。
+- Focus 與 paste target 提示固定置於 popup footer 左下角，model 置於同列
+  右下角；兩者必須使用相同字級與顏色，不得占用 header 或 result content
+  的閱讀空間，也不得以警示色搶走內容注意力。
+- Windows paste target、toolkit focus 與 semantic Foreground Workflow 是三種
+  不同身份。Paste target 由 service coordinator 擁有；UI 只呈現 target
+  projection 與回報 focus activation candidate。
+- Paste target 無效、已關閉或無法成為 foreground 時，系統不得向其他視窗
+  fallback 或盲送 `Ctrl+V`，必須恢復 surface 並顯示失敗狀態。
 
 Optional slots：
 

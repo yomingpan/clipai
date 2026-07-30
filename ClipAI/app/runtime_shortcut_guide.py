@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import TypeAlias
 
-from ClipAI.core.commands import CloseShortcutGuide, OpenShortcutGuide, SelectShortcutGuideItem, ShortcutGestureProgressed, ShortcutTriggered
+from ClipAI.core.commands import CloseShortcutGuide, OpenShortcutGuide, SelectShortcutGuideItem, ShortcutInputEvent
+from ClipAI.core.models import ShortcutObservationSnapshot
 from ClipAI.core.ports import ShortcutGuidePresenter
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
 
@@ -11,7 +12,6 @@ ShortcutGuideRuntimeCommand: TypeAlias = (
     OpenShortcutGuide
     | CloseShortcutGuide
     | SelectShortcutGuideItem
-    | ShortcutGestureProgressed
 )
 
 
@@ -31,31 +31,30 @@ class ShortcutGuideRuntimeModule:
     def is_open(self) -> bool:
         return self._coordinator.snapshot is not None
 
-    def wants_progress(self, gesture_id: int) -> bool:
-        return self._coordinator.wants_progress(gesture_id)
-
-    def handle(self, command: ShortcutGuideRuntimeCommand) -> None:
+    def handle(
+        self,
+        command: ShortcutGuideRuntimeCommand,
+        observation: ShortcutObservationSnapshot = ShortcutObservationSnapshot(),
+    ) -> None:
         if isinstance(command, OpenShortcutGuide):
-            snapshot = self._coordinator.open(command.guide_id, self._catalog.items())
+            snapshot = self._coordinator.open(
+                command.guide_id,
+                self._catalog.items(),
+                observation,
+            )
             self._presenter.show_shortcut_guide(snapshot)
         elif isinstance(command, CloseShortcutGuide):
             if self._coordinator.close(command.guide_id):
                 self._presenter.close_shortcut_guide()
         elif isinstance(command, SelectShortcutGuideItem):
-            snapshot = self._coordinator.select(command.shortcut_id)
-            if snapshot is not None:
-                self._presenter.set_shortcut_guide(snapshot)
-        elif isinstance(command, ShortcutGestureProgressed):
-            snapshot = self._coordinator.observe(command)
-            if snapshot is not None:
-                self._presenter.set_shortcut_guide(snapshot)
+            selected_snapshot = self._coordinator.select(command.shortcut_id)
+            if selected_snapshot is not None:
+                self._presenter.set_shortcut_guide(selected_snapshot)
 
-    def consume(self, trigger: ShortcutTriggered) -> bool:
-        decision = self._coordinator.consume(trigger)
+    def consume(self, event: ShortcutInputEvent) -> bool:
+        decision = self._coordinator.handle(event)
         if not decision.consumed:
             return False
-        if decision.close_requested:
-            self._presenter.close_shortcut_guide()
-        elif decision.snapshot is not None:
+        if decision.snapshot is not None:
             self._presenter.set_shortcut_guide(decision.snapshot)
         return True

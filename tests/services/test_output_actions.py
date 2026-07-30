@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ClipAI.services.output_actions import OutputActions
-from ClipAI.core.models import ClipboardSnapshot
+from ClipAI.core.models import ClipboardSnapshot, PasteTarget
 from ClipAI.services.speech_text import SpeechTextPreprocessor
 
 
@@ -42,10 +42,14 @@ class Keyboard:
         self.fail = fail
         self.calls = 0
 
-    def paste(self) -> None:
+    def paste(self, target: PasteTarget) -> None:
+        assert target == TARGET
         self.calls += 1
         if self.fail:
             raise RuntimeError("paste failed")
+
+
+TARGET = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
 
 
 def test_paste_restores_clipboard_after_focus_delay() -> None:
@@ -53,7 +57,7 @@ def test_paste_restores_clipboard_after_focus_delay() -> None:
     keyboard = Keyboard()
     waits: list[float] = []
     actions = OutputActions(clipboard=clipboard, keyboard=keyboard, wait=waits.append, paste_restore_delay_sec=0.25)
-    actions.paste("result")
+    actions.paste("result", TARGET)
     assert clipboard.writes == ["result", "original"]
     assert keyboard.calls == 1
     assert waits == [0.25]
@@ -63,7 +67,7 @@ def test_paste_restores_clipboard_when_keyboard_fails() -> None:
     clipboard = Clipboard("original")
     actions = OutputActions(clipboard=clipboard, keyboard=Keyboard(fail=True), wait=lambda _delay: None)
     with pytest.raises(RuntimeError, match="paste failed"):
-        actions.paste("result")
+        actions.paste("result", TARGET)
     assert clipboard.text == "original"
 
 
@@ -78,5 +82,5 @@ def test_paste_does_not_restore_over_newer_clipboard_content() -> None:
     def external_update(_delay: float) -> None:
         clipboard.write_text("new user content")
 
-    OutputActions(clipboard=clipboard, keyboard=Keyboard(), wait=external_update).paste("result")
+    OutputActions(clipboard=clipboard, keyboard=Keyboard(), wait=external_update).paste("result", TARGET)
     assert clipboard.text == "new user content"

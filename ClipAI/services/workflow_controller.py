@@ -149,6 +149,30 @@ class WorkflowController:
                 return
             self._snapshot = self._snapshot.evolve(active_invocation_id=None)
 
+    def stop_active(self) -> str | None:
+        with self._lock:
+            invocation_id = self._snapshot.active_invocation_id
+            if invocation_id is None:
+                return None
+            self._active_token.cancel()
+            if self._snapshot.displayed_step_index >= 0:
+                self._snapshot = self._snapshot.evolve(
+                    status=SessionStatus.COMPLETED,
+                    status_text="Stopped",
+                    active_invocation_id=None,
+                    speaking=False,
+                )
+            else:
+                self._snapshot = self._snapshot.evolve(
+                    status=SessionStatus.STOPPED,
+                    status_text="Stopped",
+                    active_invocation_id=None,
+                    speaking=False,
+                )
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return invocation_id
+
     def navigate_back(self) -> SessionSnapshot | None:
         with self._lock:
             if self._snapshot.displayed_step_index <= 0:

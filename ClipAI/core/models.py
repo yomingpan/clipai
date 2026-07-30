@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, NewType
 
 from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
-HotkeyEventType = Literal["short", "long", "long_release", "invalid", "cancel"]
+ShortcutPressId = NewType("ShortcutPressId", int)
+ShortcutPressOutcome = Literal["released", "cancelled"]
+InterruptionScope = Literal["current", "all"]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
 MessageRole = Literal["system", "user", "assistant"]
 ImageSource = Literal["clipboard"]
@@ -25,6 +27,48 @@ OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
+ControlSurfaceKind = Literal["workflow", "provider_settings", "shortcut_guide"]
+InterruptibleOperationKind = Literal[
+    "workflow",
+    "speech",
+    "copy",
+    "paste",
+    "archive",
+    "shortcut_sequence",
+    "provider_configuration",
+]
+
+
+@dataclass(frozen=True)
+class ShortcutPressRef:
+    press_id: ShortcutPressId
+    shortcut_id: str
+
+
+@dataclass(frozen=True)
+class ShortcutObservationSnapshot:
+    pressed_keys: frozenset[str] = frozenset()
+    active_presses: tuple[ShortcutPressRef, ...] = ()
+
+
+@dataclass(frozen=True)
+class ControlSurfaceRef:
+    surface_id: str
+    kind: ControlSurfaceKind
+
+
+@dataclass(frozen=True)
+class InterruptibleOperationRef:
+    operation_id: str
+    kind: InterruptibleOperationKind
+    workflow_id: str = ""
+    surface_id: str = ""
+
+
+@dataclass(frozen=True)
+class InterruptionPlan:
+    surface: ControlSurfaceRef | None = None
+    operations: tuple[InterruptibleOperationRef, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -178,9 +222,8 @@ class FeedbackReason:
 
 @dataclass(frozen=True)
 class ActionFeedbackContract:
-    transform_label: str
-    human_space_label: str
-    verification_label: str
+    ai_help_label: str
+    ai_does_not_label: str
     reasons: tuple[FeedbackReason, ...]
 
 
@@ -322,7 +365,7 @@ class WorkflowStep:
 
 @dataclass(frozen=True)
 class GuidancePreferences:
-    first_use_hints_enabled: bool = True
+    first_use_hints_enabled: bool = False
     seen_action_ids: frozenset[str] = frozenset()
     update_pending: bool = False
 
@@ -356,6 +399,17 @@ class InputDocument:
 class ClipboardSnapshot:
     text: str
     image: ImageContent | None = None
+
+
+@dataclass(frozen=True)
+class PasteTarget:
+    """Opaque snapshot of a non-ClipAI window that can receive paste output."""
+
+    window_token: str
+    process_id: int
+    application_name: str
+    window_title: str
+    observation_sequence: int
 
 
 @dataclass(frozen=True)

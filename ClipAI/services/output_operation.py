@@ -13,7 +13,7 @@ class OutputOperationCoordinator:
     def __init__(self, presenter: OutputOperationPresenter, tracker: OperationTracker | None = None) -> None:
         self._presenter = presenter
         self._tracker = tracker
-        self._active: dict[tuple[str, str], tuple[str, OperationHandle | None]] = {}
+        self._active: dict[tuple[str, str], tuple[OutputOperationIntent, OperationHandle | None]] = {}
         self._lock = threading.RLock()
 
     def begin(self, intent: OutputOperationIntent) -> OperationHandle | None:
@@ -22,13 +22,46 @@ class OutputOperationCoordinator:
         handle = self._tracker.start(f"{tracker_kind}:{intent.operation_id}", tracker_kind) if self._tracker else None
         with self._lock:
             previous = self._active.get(key)
-            self._active[key] = (intent.operation_id, handle)
+            self._active[key] = (intent, handle)
         if previous is not None and previous[1] is not None:
             previous[1].cancel()
         self._presenter.present_output_operation(
             OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, "pending")
         )
         return handle
+
+    def cancel_all(self) -> tuple[OutputOperationIntent, ...]:
+        with self._lock:
+            active = tuple(self._active.values())
+            self._active.clear()
+        for intent, handle in active:
+            if handle is not None:
+                handle.cancel()
+            self._presenter.present_output_operation(
+                OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, "cancelled")
+            )
+        return tuple(intent for intent, _handle in active)
+
+    def cancel_operation(self, operation_id: str) -> OutputOperationIntent | None:
+        with self._lock:
+            match = next(
+                (
+                    (key, intent, handle)
+                    for key, (intent, handle) in self._active.items()
+                    if intent.operation_id == operation_id
+                ),
+                None,
+            )
+            if match is None:
+                return None
+            key, intent, handle = match
+            self._active.pop(key, None)
+        if handle is not None:
+            handle.cancel()
+        self._presenter.present_output_operation(
+            OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, "cancelled")
+        )
+        return intent
 
     def succeed(self, intent: OutputOperationIntent, handle: OperationHandle | None = None) -> bool:
         if handle is not None:
@@ -62,7 +95,7 @@ class OutputOperationCoordinator:
         key = (intent.workflow_id, intent.kind)
         with self._lock:
             active = self._active.get(key)
-            if active is None or active[0] != intent.operation_id:
+            if active is None or active[0].operation_id != intent.operation_id:
                 return False
             self._active.pop(key, None)
         self._presenter.present_output_operation(

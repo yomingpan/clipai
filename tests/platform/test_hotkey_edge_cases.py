@@ -5,6 +5,7 @@ import logging
 
 import pytest
 
+from ClipAI.core.commands import ShortcutPressEnded, ShortcutPressInvoked
 from ClipAI.platform.hotkey import HotkeyListener, create_hotkey_dispatcher
 
 
@@ -49,10 +50,18 @@ def setup_function() -> None:
     FakeTimer.timers.clear()
 
 
+def semantic_recorder(events):
+    def record(event) -> None:
+        if isinstance(event, ShortcutPressInvoked):
+            events.append((event.shortcut_id, event.press_type))
+
+    return record
+
+
 def make_dispatcher(events: list[tuple[str, str]], hotkey: str = "ctrl+alt+8"):
     return create_hotkey_dispatcher(
         {"explain_word": {"hotkey": hotkey}},
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -177,7 +186,7 @@ def test_timer_fire_then_release_does_not_trigger_short_after_long() -> None:
     FakeTimer.timers[0].fire()
     release_ctrl_alt_8(dispatcher)
 
-    assert events == [("explain_word", "long"), ("explain_word", "long_release")]
+    assert events == [("explain_word", "long")]
 
 
 def test_injected_selection_copy_does_not_trigger_another_hotkey() -> None:
@@ -187,7 +196,7 @@ def test_injected_selection_copy_does_not_trigger_another_hotkey() -> None:
             "english_companion": {"hotkey": "ctrl+alt+8"},
             "command_copilot": {"hotkey": "ctrl+alt+c"},
         },
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
     )
@@ -204,7 +213,7 @@ def test_injected_selection_copy_does_not_trigger_another_hotkey() -> None:
 
     release_ctrl_alt_8(dispatcher)
 
-    assert events == [("english_companion", "long"), ("english_companion", "long_release")]
+    assert events == [("english_companion", "long")]
     assert len(FakeTimer.timers) == 1
 
 
@@ -212,7 +221,7 @@ def test_injected_keys_do_not_change_physical_hotkey_state_or_cancel(caplog) -> 
     events: list[tuple[str, str]] = []
     dispatcher = create_hotkey_dispatcher(
         {"command_copilot": {"hotkey": "ctrl+alt+c"}},
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
         diagnostics_enabled=lambda flag: flag == "hotkey_raw_events",
@@ -278,7 +287,6 @@ def test_cancelled_timer_callback_cannot_complete_a_new_gesture() -> None:
     assert events == [
         ("explain_word", "short"),
         ("explain_word", "long"),
-        ("explain_word", "long_release"),
     ]
 
 
@@ -287,7 +295,7 @@ def test_secure_desktop_transition_discards_stale_modifiers_before_next_key() ->
     physical_modifiers = {"ctrl": True, "alt": True, "shift": False}
     dispatcher = create_hotkey_dispatcher(
         {"explain_word": {"hotkey": "ctrl+alt+8"}},
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
         key_is_pressed=physical_modifiers.get,
@@ -325,7 +333,7 @@ def test_stale_cleanup_does_not_emit_invalid_for_the_revealing_key() -> None:
     physical_keys = {"ctrl": True, "alt": True, "x": True, "b": False}
     dispatcher = create_hotkey_dispatcher(
         {"shorten": {"hotkey": "ctrl+alt+x"}},
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
         key_is_pressed=physical_keys.get,
@@ -360,7 +368,7 @@ def test_physical_or_unknown_key_state_preserves_active_lifecycle(
             "shorten": {"hotkey": "ctrl+alt+x"},
             "speech": {"hotkey": "ctrl+alt+q"},
         },
-        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        semantic_recorder(events),
         modifier_mode="ctrl_alt",
         timer_factory=FakeTimer,
         key_is_pressed=key_is_pressed,

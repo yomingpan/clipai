@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from collections.abc import Iterable
 from concurrent.futures import Future, ThreadPoolExecutor
 import threading
 
@@ -28,6 +29,8 @@ class TaskSupervisor:
             with self._lock:
                 if self._tasks.get(session_id) is done:
                     self._tasks.pop(session_id, None)
+            if done.cancelled():
+                return
             try:
                 error = done.exception()
             except BaseException as exc:
@@ -42,6 +45,33 @@ class TaskSupervisor:
         with self._lock:
             future = self._tasks.get(session_id)
         if future is not None:
+            future.cancel()
+
+    def cancel_many(self, session_ids: Iterable[str], on_settled: Callable[[], None]) -> None:
+        with self._lock:
+            futures = {
+                future
+                for session_id in dict.fromkeys(session_ids)
+                if (future := self._tasks.get(session_id)) is not None
+            }
+        if not futures:
+            on_settled()
+            return
+
+        remaining = len(futures)
+        settlement_lock = threading.Lock()
+
+        def settled(_future: Future[None]) -> None:
+            nonlocal remaining
+            with settlement_lock:
+                remaining -= 1
+                complete = remaining == 0
+            if complete:
+                on_settled()
+
+        for future in futures:
+            future.add_done_callback(settled)
+        for future in futures:
             future.cancel()
 
     def shutdown(self) -> None:

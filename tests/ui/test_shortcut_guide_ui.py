@@ -106,3 +106,12 @@ def test_snapshot_update_does_not_raise_the_window() -> None:
 
     assert dialog._window.deiconify_calls == 1
     assert dialog._window.lift_calls == 1
+
+
+def test_local_escape_defers_shortcut_guide_to_the_global_gesture_owner() -> None:
+    events = []
+    dialog = ShortcutGuideDialog.__new__(ShortcutGuideDialog)
+    dialog._request_close = lambda: events.append("close")
+
+    assert dialog._handle_escape() == "break"
+    assert events == []

@@ -1,4 +1,4 @@
-schema_version: 7
+schema_version: 8
 
 actions:
   - id: translate_to_traditional_chinese
@@ -10,9 +10,8 @@ actions:
     temperature: 0.1
     output_profile: plain_text
     feedback:
-      transform: 將內容翻譯成自然、符合台灣語境的繁體中文
-      human_space: 保留真正想表達的意思、立場、關係拿捏與最後用字
-      verify: 這個繁體中文版本是否準確、自然，而且適合真正要讀它的人？
+      helps: 將內容翻譯成自然、符合台灣語境的繁體中文
+      does_not: 不替你決定真正想表達的意思、立場、關係拿捏與最後用字
       reasons:
         - id: meaning_inaccurate
           label: 語意不準確
@@ -40,9 +39,8 @@ actions:
     temperature: 0.1
     output_profile: plain_text
     feedback:
-      transform: 將內容翻譯成符合情境的自然英文
-      human_space: 保留真正想表達的意思、立場、關係拿捏與最後選擇
-      verify: 這個英文版本是否準確，而且適合真正要讀它的人？
+      helps: 將內容翻譯成符合情境的自然英文
+      does_not: 不替你決定真正想表達的意思、立場、關係拿捏與最後選擇
       reasons:
         - id: meaning_inaccurate
           label: 語意不準確
@@ -64,9 +62,8 @@ actions:
       long:
         name: 翻譯成日文
         feedback:
-          transform: 將內容翻譯成符合情境與關係的自然日文
-          human_space: 保留真正想表達的意思、立場、語氣與最後用字
-          verify: 這個日文版本是否準確、自然，而且適合真正要讀它的人？
+          helps: 將內容翻譯成符合情境與關係的自然日文
+          does_not: 不替你決定真正想表達的意思、立場、語氣與最後用字
           reasons:
             - id: meaning_inaccurate
               label: 語意不準確
@@ -94,9 +91,8 @@ actions:
     temperature: 0.3
     output_profile: plain_text
     feedback:
-      transform: 找出最值得繼續發展的一條思考線，並為它取一個容易記住的名字
-      human_space: 保留想法尚未定型的空間，並決定哪條思考線真正值得發展
-      verify: 這個命名是否抓到你真正想繼續追蹤的想法，而沒有太早替它下結論？
+      helps: 找出最值得繼續發展的一條思考線，並為它取一個容易記住的名字
+      does_not: 不替你定型想法，也不替你決定哪條思考線真正值得發展
       reasons:
         - id: wrong_thought_line
           label: 抓錯了真正重要的思考線
@@ -132,9 +128,8 @@ actions:
     temperature: 0.2
     output_profile: plain_text
     feedback:
-      transform: 找到或校準能準確承載想法的詞彙，不把暫時探索說成定論
-      human_space: 保留原始觀察、脈絡與不確定性，決定是否採用這個詞
-      verify: 這個詞是否準確、有使用價值，且沒有過早限縮我的思考？
+      helps: 找到或校準能準確承載想法的詞彙，不把暫時探索說成定論
+      does_not: 不替你改寫原始觀察、抹去不確定性或決定是否採用這個詞
       reasons:
         - id: mode_or_concept_misread
           label: 誤判我的意圖，或詞彙解釋不準確
@@ -179,9 +174,8 @@ actions:
     temperature: 0.25
     output_profile: plain_text
     feedback:
-      transform: 區分不易改變的本質與會變動的形式，照亮值得持續抓住的核心
-      human_space: 保留價值取捨、情境理解，以及你決定要守住什麼的權利
-      verify: 這個本質是否有原始內容支持，而且在情境改變時仍真正有用？
+      helps: 區分不易改變的本質與會變動的形式，照亮值得持續抓住的核心
+      does_not: 不替你取捨價值、判定情境或決定最後要守住什麼
       reasons:
         - id: essence_not_supported
           label: 所謂本質缺乏原始內容支持
@@ -212,9 +206,8 @@ actions:
     temperature: 0.2
     output_profile: plain_text
     feedback:
-      transform: 將內容整理成立場、核心理由、成立條件與關鍵原文
-      human_space: 保留最後立場、優先順序，以及你願意承擔哪些風險的判斷
-      verify: 建議立場是否真的受到原文支持，而且是你願意採取的立場？
+      helps: 將內容整理成立場、核心理由、成立條件與關鍵原文
+      does_not: 不替你決定最後立場、優先順序或願意承擔的風險
       reasons:
         - id: position_unsupported_or_not_mine
           label: 立場缺乏支持，或不是我真正的立場
@@ -254,9 +247,8 @@ actions:
     temperature: 0.25
     output_profile: plain_text
     feedback:
-      transform: 將艱深內容改寫成像朋友解釋一樣自然、清楚的說法
-      human_space: 保留自己形成理解、提出疑問，以及決定是否接受解釋的空間
-      verify: 這個說明是否讓你更容易理解，同時沒有扭曲原本概念？
+      helps: 將艱深內容改寫成像朋友解釋一樣自然、清楚的說法
+      does_not: 不替你形成理解、消除疑問或決定是否接受這個解釋
       reasons:
         - id: core_concept_inaccurate
           label: 核心概念解釋不準確
@@ -284,9 +276,8 @@ actions:
     temperature: 0.15
     output_profile: plain_text
     feedback:
-      transform: 整理文章結構、段落連接與真正影響理解的重要觀點
-      human_space: 保留慢讀、重新詮釋，以及形成自己理解與立場的過程
-      verify: 這份整理是否忠實反映作者的論述，而且能幫助你回到原文深入閱讀？
+      helps: 整理文章結構、段落連接與真正影響理解的重要觀點
+      does_not: 不取代你慢讀、重新詮釋，以及形成自己理解與立場的過程
       reasons:
         - id: structure_or_connection_wrong
           label: 文章結構或段落關係整理錯誤
@@ -321,9 +312,8 @@ actions:
     temperature: 0.2
     output_profile: english_learning_compact
     feedback:
-      transform: 從輸入中選一個實際出現的英文詞語，說明意思、用法、例句與記憶方式
-      human_space: 保留主動回想、自己造句，以及判斷這個詞是否值得學習的過程
-      verify: 選出的詞語是否真的出現在輸入中，而且能幫助你之後獨立使用？
+      helps: 從輸入中選一個實際出現的英文詞語，說明意思、用法、例句與記憶方式
+      does_not: 不取代你主動回想、自己造句或判斷這個詞是否值得學習
       reasons:
         - id: expression_absent_or_wrong
           label: 選到的詞語沒有出現在輸入中，或不是重點
@@ -353,9 +343,8 @@ actions:
         name: 英文改善建議
         output_profile: english_improvement
         feedback:
-          transform: 找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型
-          human_space: 保留原本意圖與個人語氣，並親自練習、選擇真正會使用的表達
-          verify: 改寫後的英文是否仍是你想說的話，而且建議能幫助你下次自己表達？
+          helps: 找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型
+          does_not: 不替你改變原本意圖與個人語氣，也不取代親自練習與選擇表達
           reasons:
             - id: intent_or_detail_changed
               label: 原本意圖、資訊或重點被改變
@@ -396,9 +385,8 @@ actions:
     temperature: 0.3
     output_profile: plain_text
     feedback:
-      transform: 找出一個最可能改變理解、決策或下一步的重要問題
-      human_space: 保留判斷哪個問題真正重要，以及親自回答、選擇與承擔的責任
-      verify: 這個問題是否照亮真正的未知，而且不同答案確實會改變下一步？
+      helps: 找出一個最可能改變理解、決策或下一步的重要問題
+      does_not: 不替你判斷問題的最終重要性，也不替你回答、選擇或承擔結果
       reasons:
         - id: wrong_issue_selected
           label: 問題沒有對準真正重要的卡點
@@ -433,9 +421,8 @@ actions:
     temperature: 0.3
     output_profile: plain_text
     feedback:
-      transform: 檢查觀點的價值、假設與盲點，提出更高層問題與可驗證的前進方向
-      human_space: 保留最後相信什麼、如何取捨價值，以及採用哪些證據的判斷
-      verify: 這份分析是否忠於原觀點、沒有虛構對立，而且真的提升了問題層次？
+      helps: 檢查觀點的價值、假設與盲點，提出更高層問題與可驗證的前進方向
+      does_not: 不替你決定最後相信什麼、如何取捨價值或採用哪些證據
       reasons:
         - id: original_view_distorted
           label: 原觀點的價值、立場或範圍被扭曲
@@ -476,9 +463,8 @@ actions:
     temperature: 0.2
     output_profile: plain_text
     feedback:
-      transform: 依當下目的選擇一個合適切面，將內容整理成互斥且盡量完整的結構
-      human_space: 保留真正想理解的問題、拆解邊界，以及是否接受這個切面的判斷
-      verify: 這個切面是否符合我的目的，分類彼此清楚且沒有遺漏關鍵面向？
+      helps: 依當下目的選擇一個合適切面，將內容整理成互斥且盡量完整的結構
+      does_not: 不替你決定真正要理解的問題、拆解邊界或是否接受這個切面
       reasons:
         - id: wrong_lens
           label: 推薦切面沒有對準我想理解的問題
@@ -520,9 +506,8 @@ actions:
     temperature: 0.2
     output_profile: plain_text
     feedback:
-      transform: 把內容轉成一個低成本、具體且能帶來新資訊的最小下一步
-      human_space: 保留是否採用、何時投入、如何修改，以及決定不行動的權利
-      verify: 這一步是否小到能開始、具體可完成，而且真的能讓我知道更多？
+      helps: 把內容轉成一個低成本、具體且能帶來新資訊的最小下一步
+      does_not: 不替你決定是否採用、何時投入、如何修改或是否不行動
       reasons:
         - id: wrong_goal
           label: 行動沒有對準內容真正涉及的問題
@@ -564,9 +549,8 @@ actions:
     temperature: 0.25
     output_profile: plain_text
     feedback:
-      transform: 忠實指出觀點所保護的價值、必要取捨、採納與不採納的代價
-      human_space: 保留價值排序、可接受代價，以及最後選擇與負責的判斷
-      verify: 這份透視是否照亮真正的權衡，而沒有替我決定或虛構對立？
+      helps: 忠實指出觀點所保護的價值、必要取捨、採納與不採納的代價
+      does_not: 不替你排序價值、決定可接受的代價或做出最後選擇
       reasons:
         - id: original_view_distorted
           label: 原觀點或它重視的價值被扭曲
@@ -611,9 +595,8 @@ actions:
     temperature: 0.15
     output_profile: plain_text
     feedback:
-      transform: 抽取建立理解地圖不可缺少的核心概念，並說明它們與內容的關係
-      human_space: 保留閱讀時的注意力分配、概念連結，以及最後如何解讀內容的判斷
-      verify: 這些關鍵字是否真的構成理解地圖，而不是只挑出常出現的詞？
+      helps: 抽取建立理解地圖不可缺少的核心概念，並說明它們與內容的關係
+      does_not: 不替你分配閱讀注意力、建立最終概念連結或決定如何解讀內容
       reasons:
         - id: key_concept_missing
           label: 影響理解的核心概念被遺漏
@@ -648,9 +631,8 @@ actions:
     temperature: 0.1
     output_profile: plain_text
     feedback:
-      transform: 將語音轉錄整理成自然、可直接閱讀或傳送的文字
-      human_space: 保留最終意圖、獨特資訊、立場、不確定性與個人語氣
-      verify: 這個版本是否仍完整代表你原本想說的話，而且可以直接使用？
+      helps: 將語音轉錄整理成自然、可直接閱讀或傳送的文字
+      does_not: 不替你改變最終意圖、獨特資訊、立場、不確定性或個人語氣
       reasons:
         - id: meaning_or_detail_lost
           label: 重要意思、細節或資訊被遺漏
@@ -723,9 +705,8 @@ actions:
     temperature: 0.1
     output_profile: plain_text
     feedback:
-      transform: 縮短內容、移除重複，並維持原有結構
-      human_space: 保留原本的立場、事實、語氣與語言
-      verify: 這個版本是否仍然代表你，而且真的更容易使用？
+      helps: 縮短內容、移除重複，並維持原有結構
+      does_not: 不替你改變原本的立場、事實、語氣或語言
       reasons:
         - id: meaning_or_fact_lost
           label: 核心意思或重要事實少了
@@ -762,9 +743,8 @@ actions:
     temperature: 0.0
     output_profile: plain_text
     feedback:
-      transform: 從截圖精確擷取文字，或在需要時整理成可直接使用的格式
-      human_space: 保留原始內容、語言、結構與最後採用何種排版的判斷
-      verify: 文字是否完整可讀，且短按保留格式、長按的整理沒有改變原意？
+      helps: 從截圖精確擷取文字，或在需要時整理成可直接使用的格式
+      does_not: 不替你改變原始內容、語言或結構，也不決定最後採用的排版
       reasons:
         - id: text_missing_or_incorrect
           label: 漏字、錯字或辨識不正確
@@ -801,9 +781,8 @@ actions:
     temperature: 0.1
     output_profile: plain_text
     feedback:
-      transform: 將自然語言或既有指令整理成可理解、可審核且更安全的操作計畫
-      human_space: 保留是否執行、接受哪些風險，以及最終操作決定的權利
-      verify: 這份計畫是否忠實反映原本意圖，並清楚指出真正需要確認的風險？
+      helps: 將自然語言或既有指令整理成可理解、可審核且更安全的操作計畫
+      does_not: 不替你執行指令、接受風險或做出最終操作決定
       reasons:
         - id: intent_or_command_misread
           label: 原本意圖或指令被誤解

@@ -46,3 +46,23 @@ def test_late_completion_cannot_replace_newer_same_kind_operation() -> None:
         ("new", "pending"),
         ("new", "succeeded"),
     ]
+
+
+def test_cancel_all_projects_cancelled_and_rejects_late_completion() -> None:
+    presenter = Presenter()
+    coordinator = OutputOperationCoordinator(presenter)
+    copy = OutputOperationIntent("copy-op", "workflow", "copy", "text")
+    speech = OutputOperationIntent("speech-op", "global", "speech", "text")
+    coordinator.begin(copy)
+    coordinator.begin(speech)
+
+    cancelled = coordinator.cancel_all()
+
+    assert cancelled == (copy, speech)
+    assert coordinator.succeed(copy) is False
+    assert [(item.operation_id, item.state) for item in presenter.results] == [
+        ("copy-op", "pending"),
+        ("speech-op", "pending"),
+        ("copy-op", "cancelled"),
+        ("speech-op", "cancelled"),
+    ]

@@ -35,6 +35,7 @@ class SpeechVoiceSelector:
 class SpeechJob:
     operation_id: str
     workflow_id: str
+    text: str
     run: Callable[[], None]
 
 
@@ -61,22 +62,23 @@ class SpeechCoordinator:
     def create_job(self, *, clipboard_only: bool) -> SpeechJob:
         source = "clipboard" if clipboard_only else "selection"
         operation_id = f"tts:{source}:{uuid.uuid4().hex}"
+        text = self._read_text(clipboard_only=clipboard_only)
         return self._create_job(
             operation_id=operation_id,
             workflow_id="global",
-            read_text=lambda: self._read_text(clipboard_only=clipboard_only),
+            text=text,
             track=False,
         )
 
     def create_text_job(self, *, operation_id: str, workflow_id: str, text: str) -> SpeechJob:
-        return self._create_job(operation_id=operation_id, workflow_id=workflow_id, read_text=lambda: text, track=False)
+        return self._create_job(operation_id=operation_id, workflow_id=workflow_id, text=text, track=False)
 
     def speak_result(self, text: str, workflow_id: str, cancellation: CancellationToken) -> None:
         operation_id = f"tts:sequence:{uuid.uuid4().hex}"
         self._create_job(
             operation_id=operation_id,
             workflow_id=workflow_id,
-            read_text=lambda: text,
+            text=text,
             track=True,
             token=cancellation,
         ).run()
@@ -86,7 +88,7 @@ class SpeechCoordinator:
         *,
         operation_id: str,
         workflow_id: str,
-        read_text: Callable[[], str],
+        text: str,
         track: bool,
         token: CancellationToken | None = None,
     ) -> SpeechJob:
@@ -100,7 +102,6 @@ class SpeechCoordinator:
             try:
                 if token.is_cancelled:
                     return
-                text = read_text()
                 prepared = self._speech_text.prepare(text)
                 if prepared and not token.is_cancelled:
                     request = SpeechRequest(prepared, self._voice_selector.select(prepared), token)
@@ -118,7 +119,7 @@ class SpeechCoordinator:
                     if self._current is not None and self._current[2] is token:
                         self._current = None
 
-        return SpeechJob(operation_id, workflow_id, run)
+        return SpeechJob(operation_id, workflow_id, text, run)
 
     def is_active_for(self, workflow_id: str) -> bool:
         with self._lock:

@@ -8,7 +8,7 @@ from typing import Callable, Literal, Mapping, Protocol
 
 import customtkinter as ctk
 
-from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PresentationDocument
+from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PresentationDocument
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hints
@@ -33,12 +33,19 @@ def ellipsize_source_preview(text: str, limit: int = SOURCE_PREVIEW_MAX_CHARS) -
     return f"{compact[: limit - 3].rstrip()}..."
 
 
+def paste_target_display_text(target: PasteTarget) -> str:
+    title = " ".join(target.window_title.split())
+    if len(title) > 36:
+        title = f"{title[:35]}…"
+    app = target.application_name.strip() or "Windows app"
+    return f"{app} — {title}" if title and title.casefold() != app.casefold() else app
+
+
 def action_contract_tooltip_text(contract: ActionFeedbackContract) -> str:
     return (
-        f"AI 幫你\n{contract.transform_label}\n\n"
-        f"你仍保留\n{contract.human_space_label}\n\n"
-        f"結果後確認\n{contract.verification_label}\n\n"
-        "Ctrl + R：Recipe 回饋"
+        f"AI 幫你\n{contract.ai_help_label}\n\n"
+        f"AI 不做什麼\n{contract.ai_does_not_label}\n\n"
+        "若結果不符合預期，可按右上角 ⓘ 或 Ctrl + R 回饋。"
     )
 
 
@@ -217,20 +224,26 @@ class SurfaceFlashController:
         self._cancel = cancel
         self._reset_job: str | None = None
         self.state: DialogState = "idle"
+        self._idle_color = colors.hex("idle")
 
     def reset(self) -> None:
         self._reset_job = None
         self.state = "idle"
-        self._apply_color(self._colors.hex("idle"))
+        self._apply_color(self._idle_color)
 
     def set_state(self, state: DialogState) -> None:
         self._cancel_pending_reset()
         self.state = state
-        self._apply_color(self._colors.hex(state))
+        self._apply_color(self._idle_color if state == "idle" else self._colors.hex(state))
+
+    def set_idle_color(self, color: str) -> None:
+        self._idle_color = color
+        if self.state == "idle":
+            self._apply_color(color)
 
     def redraw(self) -> None:
         """Repaint the current state without changing its pending lifecycle."""
-        self._apply_color(self._colors.hex(self.state))
+        self._apply_color(self._idle_color if self.state == "idle" else self._colors.hex(self.state))
 
     def flash(self, state: DialogState) -> None:
         if state == "idle":
@@ -478,6 +491,11 @@ class BaseDialog:
 
     def flash(self, state: DialogState) -> None:
         self._flash_controller.flash(state)
+
+    def set_focus_active(self, active: bool) -> None:
+        self._flash_controller.set_idle_color(
+            self._state_colors.hex("idle") if active else "#5F6B78"
+        )
 
     def set_pinned(self, pinned: bool) -> None:
         self.pinned = pinned
@@ -932,15 +950,29 @@ class BaseResultSurface:
         self._list_indent_prefixes: dict[str, str] = {}
         self.content_text._on_scaling_changed = self._reapply_list_indents
 
+        self.footer = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
+        self.footer.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 2))
+        self.footer.grid_columnconfigure(0, weight=1)
+
+        self.paste_target_label = ctk.CTkLabel(
+            self.footer,
+            text="尚未選擇貼上目標",
+            anchor="w",
+            height=11,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["model"]),
+            text_color=MODEL_COLOR,
+        )
+        self.paste_target_label.grid(row=0, column=0, sticky="w")
+
         self.model_label = ctk.CTkLabel(
-            self.root,
+            self.footer,
             text="",
             anchor="e",
             height=11,
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["model"]),
             text_color=MODEL_COLOR,
         )
-        self.model_label.grid(row=5, column=0, sticky="e", padx=12, pady=(0, 2))
+        self.model_label.grid(row=0, column=1, sticky="e", padx=(8, 0))
 
         self.feedback_frame = ctk.CTkFrame(
             self.root,
@@ -1072,6 +1104,26 @@ class BaseResultSurface:
     def set_model(self, model: str) -> None:
         self.model_label.configure(text=f"model: {model}")
 
+    def set_paste_focus_state(self, focused: bool, target: PasteTarget | None) -> None:
+        self.dialog.set_focus_active(focused)
+        if focused and target is not None:
+            destination = paste_target_display_text(target)
+            self.paste_target_label.configure(
+                text=f"貼到：{destination}",
+            )
+            self.set_action_tooltip("paste", f"貼上辨識文字到 {destination} (Ctrl+V)")
+            return
+        if focused:
+            self.paste_target_label.configure(
+                text="尚未選擇貼上目標",
+            )
+            self.set_action_tooltip("paste", "找不到貼上目標；請先選取外部視窗")
+            return
+        self.paste_target_label.configure(
+            text="未聚焦｜Ctrl+V 使用原剪貼簿",
+        )
+        self.set_action_tooltip("paste", "Popup 未聚焦；Ctrl+V 會使用原剪貼簿內容")
+
     def configure_action_contract(self, contract: ActionFeedbackContract | None, input_source: str) -> None:
         if contract is None:
             self.info_button.pack_forget()
@@ -1181,10 +1233,6 @@ class BaseResultSurface:
             self._feedback_success_job = None
 
     def _handle_escape(self, _event=None) -> str:
-        if self._feedback_overlay_open:
-            self.close_feedback_overlay()
-        else:
-            self.dialog.request_close()
         return "break"
 
     def _choose_feedback(self, outcome: FeedbackOutcome) -> None:

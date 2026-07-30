@@ -5,12 +5,14 @@ from typing import TypeAlias
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import OpenProviderSettings, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import CloseProviderSettings, OpenProviderSettings, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ValidateAndSaveProviderSettings
+from ClipAI.core.models import InterruptibleOperationRef
 from ClipAI.core.ports import ModelSelectionPresenter, OperationTracker, ProviderSelectionPresenter, ProviderSettingsPresenter
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator, ProviderConfigurationResult, ProviderConfigurationUpdate
+from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
 
 
-ProviderRuntimeCommand: TypeAlias = SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | ProviderConfigurationResult
+ProviderRuntimeCommand: TypeAlias = SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | CloseProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | ProviderConfigurationResult
 
 
 class ProviderConfigurationRuntimeModule:
@@ -26,6 +28,7 @@ class ProviderConfigurationRuntimeModule:
         model_selection_presenter: ModelSelectionPresenter | None = None,
         provider_selection_presenter: ProviderSelectionPresenter | None = None,
         provider_settings_presenter: ProviderSettingsPresenter | None = None,
+        user_control: UserControlCoordinator | None = None,
     ) -> None:
         self._coordinator = coordinator
         self._supervisor = supervisor
@@ -34,10 +37,15 @@ class ProviderConfigurationRuntimeModule:
         self._model_selection_presenter = model_selection_presenter
         self._provider_selection_presenter = provider_selection_presenter
         self._provider_settings_presenter = provider_settings_presenter
+        self._user_control = user_control
+        self._leases: dict[str, InterruptibleOperationLease] = {}
 
     @property
     def coordinator(self) -> ProviderConfigurationCoordinator:
         return self._coordinator
+
+    def bind_user_control(self, user_control: UserControlCoordinator) -> None:
+        self._user_control = user_control
 
     def handle(self, command: ProviderRuntimeCommand) -> None:
         if isinstance(command, SelectProviderModel):
@@ -51,12 +59,31 @@ class ProviderConfigurationRuntimeModule:
         elif isinstance(command, OpenProviderSettings):
             if self._provider_settings_presenter is not None:
                 self._project(self._coordinator.open_settings(command.provider))
+        elif isinstance(command, CloseProviderSettings):
+            self._close_settings()
         elif isinstance(command, ValidateAndSaveProviderSettings):
             self._save(command)
         elif isinstance(command, RefreshProviderModels):
             self._refresh(command)
         elif isinstance(command, ProviderConfigurationResult):
+            lease = self._leases.pop(command.operation_id, None)
+            if lease is not None:
+                lease.finish()
             self._project(self._coordinator.complete(command))
+
+    def _close_settings(self) -> None:
+        active = self._coordinator.active_operation
+        if active is not None:
+            kind, operation_id = active
+            self._project(self._coordinator.cancel_active())
+            self._supervisor.cancel(
+                f"provider-settings:{operation_id}" if kind == "save" else f"provider-models:{operation_id}"
+            )
+            lease = self._leases.pop(operation_id, None)
+            if lease is not None:
+                lease.finish()
+        if self._provider_settings_presenter is not None:
+            self._provider_settings_presenter.close_provider_settings()
 
     def _save(self, command: ValidateAndSaveProviderSettings) -> None:
         operation_id = command.operation_id or uuid.uuid4().hex
@@ -64,6 +91,12 @@ class ProviderConfigurationRuntimeModule:
         self._project(update)
         if work is None:
             return
+        if self._user_control is not None:
+            self._leases[operation_id] = self._user_control.begin(InterruptibleOperationRef(
+                operation_id,
+                "provider_configuration",
+                surface_id="provider-settings",
+            ))
         self._supervisor.submit(
             f"provider-settings:{operation_id}",
             lambda: self._enqueue(self._coordinator.execute(work)),
@@ -80,6 +113,12 @@ class ProviderConfigurationRuntimeModule:
         self._project(update)
         if work is None:
             return
+        if self._user_control is not None:
+            self._leases[operation_id] = self._user_control.begin(InterruptibleOperationRef(
+                operation_id,
+                "provider_configuration",
+                surface_id="provider-settings",
+            ))
         self._supervisor.submit(
             f"provider-models:{operation_id}",
             lambda: self._enqueue(self._coordinator.execute(work)),

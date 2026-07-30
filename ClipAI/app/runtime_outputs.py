@@ -7,12 +7,14 @@ import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, ReleaseForegroundWorkflow, SpeakSelectionOrClipboard, ToggleSpeech
-from ClipAI.core.models import OutputOperationIntent
+from ClipAI.core.models import InterruptibleOperationRef, OutputOperationIntent, PasteTarget
 from ClipAI.core.ports import DiagnosticsExporter, OperationTracker, OutputOperationPresenter, UserNotifier
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.output_operation import OutputOperationCoordinator
+from ClipAI.services.paste_target import PasteTargetCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
 from ClipAI.services.workflow_controller import WorkflowController
+from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime.outputs")
@@ -29,7 +31,6 @@ class ResultOutputRuntimeModule:
         output_actions: OutputActions,
         supervisor: TaskSupervisor,
         workflow_controller: Callable[[str], WorkflowController | None],
-        has_foreground_workflow: Callable[[], bool],
         output_operation_presenter: OutputOperationPresenter,
         enqueue: Callable[[object], None],
         incident_reporter: IncidentReporter,
@@ -37,18 +38,28 @@ class ResultOutputRuntimeModule:
         diagnostics_exporter: DiagnosticsExporter | None = None,
         notifier: UserNotifier | None = None,
         speech_coordinator: SpeechCoordinator | None = None,
+        paste_targets: PasteTargetCoordinator | None = None,
+        user_control: UserControlCoordinator | None = None,
     ) -> None:
         self._output_actions = output_actions
         self._supervisor = supervisor
         self._workflow_controller = workflow_controller
-        self._has_foreground_workflow = has_foreground_workflow
         self._enqueue = enqueue
         self._incident_reporter = incident_reporter
         self._operation_tracker = operation_tracker
         self._diagnostics_exporter = diagnostics_exporter
         self._notifier = notifier
         self._speech_coordinator = speech_coordinator
+        self._paste_targets = paste_targets or PasteTargetCoordinator()
         self._operations = OutputOperationCoordinator(output_operation_presenter, operation_tracker)
+        self._user_control = user_control
+        self._interruption_leases: dict[str, InterruptibleOperationLease] = {}
+
+    def observe_paste_target(self, target: PasteTarget) -> None:
+        self._paste_targets.observe(target)
+
+    def bind_user_control(self, user_control: UserControlCoordinator) -> None:
+        self._user_control = user_control
 
     def handle(self, command: ResultOutputRuntimeCommand) -> None:
         if isinstance(command, CopyResult):
@@ -73,10 +84,55 @@ class ResultOutputRuntimeModule:
         self._speech_coordinator.cancel_operation(operation_id)
         self._supervisor.cancel(operation_id)
         self._operations.cancel(OutputOperationIntent(operation_id, workflow_id, "speech", ""))
+        self._finish_interruption(operation_id)
 
     def stop(self) -> None:
         if self._speech_coordinator is not None:
             self._speech_coordinator.cancel_current()
+
+    def cancel_active_operations(self) -> tuple[str, ...]:
+        speech_identity = self._speech_coordinator.current_identity if self._speech_coordinator is not None else None
+        if self._speech_coordinator is not None:
+            self._speech_coordinator.cancel_current()
+        intents = self._operations.cancel_all()
+        task_ids: list[str] = []
+        for intent in intents:
+            self._finish_interruption(intent.operation_id)
+            task_ids.append(intent.operation_id)
+            if intent.kind == "speech":
+                task_ids.append(f"speech:{intent.operation_id}")
+                controller = self._workflow_controller(intent.workflow_id)
+                if controller is not None and controller.snapshot.speaking:
+                    controller.set_speaking(False)
+        if speech_identity is not None and all(intent.operation_id != speech_identity[0] for intent in intents):
+            task_ids.extend((speech_identity[0], f"speech:{speech_identity[0]}"))
+            controller = self._workflow_controller(speech_identity[1])
+            if controller is not None and controller.snapshot.speaking:
+                controller.set_speaking(False)
+        return tuple(task_ids)
+
+    def cancel_operation(self, operation_id: str) -> tuple[str, ...]:
+        identity = self._speech_coordinator.current_identity if self._speech_coordinator is not None else None
+        if identity is not None and identity[0] == operation_id:
+            self._speech_coordinator.cancel_operation(operation_id)
+        intent = self._operations.cancel_operation(operation_id)
+        lease = self._interruption_leases.pop(operation_id, None)
+        if lease is not None:
+            lease.finish()
+        if intent is None and (identity is None or identity[0] != operation_id):
+            return ()
+        workflow_id = intent.workflow_id if intent is not None else identity[1]
+        controller = self._workflow_controller(workflow_id)
+        if controller is not None and controller.snapshot.speaking:
+            controller.set_speaking(False)
+        task_ids = [operation_id]
+        if (intent is not None and intent.kind == "speech") or (identity is not None and identity[0] == operation_id):
+            task_ids.append(f"speech:{operation_id}")
+        self._supervisor.cancel_many(task_ids, lambda: None)
+        return tuple(task_ids)
+
+    def cancel_all_content_operations(self) -> tuple[str, ...]:
+        return self.cancel_active_operations()
 
     def _copy(self, command: CopyResult) -> None:
         controller = self._workflow_controller(command.session_id)
@@ -94,24 +150,34 @@ class ResultOutputRuntimeModule:
         if not self._output_actions.can_paste:
             self._reject_paste(operation_id, command.session_id, "Paste output is not configured.")
             return
+        target = self._paste_targets.current
+        if target is None:
+            self._reject_paste(
+                operation_id,
+                command.session_id,
+                "找不到貼上目標。請先點選要貼入的視窗，再回到 ClipAI。",
+            )
+            return
         text = _selected_or_result(command.text, controller)
         intent = OutputOperationIntent(operation_id, command.session_id, "paste", text)
         keep_workflow = controller.snapshot.pinned
-        operation = self._operations.begin(intent)
+        operation = self._begin_operation(intent)
         try:
             self._supervisor.submit(
                 intent.operation_id,
-                lambda: self._complete_paste(intent, operation, keep_workflow),
+                lambda: self._complete_paste(intent, operation, keep_workflow, target),
                 lambda error: logger.error("Paste failed session_id=%s: %s", command.session_id, error),
             )
         except BaseException as exc:
             self._operations.fail(intent, exc, operation)
+            self._finish_interruption(intent.operation_id)
             logger.error("Could not schedule paste session_id=%s: %s", command.session_id, exc)
 
     def _reject_paste(self, operation_id: str, workflow_id: str, message: str) -> None:
         intent = OutputOperationIntent(operation_id, workflow_id, "paste", "")
-        operation = self._operations.begin(intent)
+        operation = self._begin_operation(intent)
         self._operations.fail(intent, RuntimeError(message), operation)
+        self._finish_interruption(operation_id)
 
     def _archive(self, command: ArchiveResult) -> None:
         controller = self._workflow_controller(command.session_id)
@@ -121,7 +187,7 @@ class ResultOutputRuntimeModule:
             self._run_output_action(intent, lambda: self._output_actions.archive(text))
 
     def _run_output_action(self, intent: OutputOperationIntent, work: Callable[[], None]) -> None:
-        operation = self._operations.begin(intent)
+        operation = self._begin_operation(intent)
         self._supervisor.submit(
             intent.operation_id,
             lambda: self._complete_output_action(intent, operation, work),
@@ -134,14 +200,18 @@ class ResultOutputRuntimeModule:
         except BaseException as exc:
             self._operations.fail(intent, exc, operation)
             raise
+        finally:
+            self._finish_interruption(intent.operation_id)
         self._operations.succeed(intent, operation)
 
-    def _complete_paste(self, intent, operation, keep_workflow: bool) -> None:
+    def _complete_paste(self, intent, operation, keep_workflow: bool, target: PasteTarget) -> None:
         try:
-            self._output_actions.paste(intent.text)
+            self._output_actions.paste(intent.text, target)
         except BaseException as exc:
             self._operations.fail(intent, exc, operation)
             raise
+        finally:
+            self._finish_interruption(intent.operation_id)
         if not self._operations.succeed(intent, operation):
             return
         if keep_workflow:
@@ -152,11 +222,15 @@ class ResultOutputRuntimeModule:
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:
             return
-        if self._cancel_current_speech_projection():
-            return
-        job = self._speech_coordinator.create_job(clipboard_only=self._has_foreground_workflow())
+        replacing = self._cancel_current_speech_projection()
+        job = self._speech_coordinator.create_job(clipboard_only=False)
+        if replacing and self._notifier is not None:
+            preview = " ".join(getattr(job, "text", "").split())
+            if len(preview) > 36:
+                preview = f"{preview[:35]}…"
+            self._notifier.notify("ClipAI", f"正在切換到：{preview}" if preview else "正在切換朗讀內容…")
         intent = OutputOperationIntent(job.operation_id, job.workflow_id, "speech", "")
-        operation = self._operations.begin(intent)
+        operation = self._begin_operation(intent)
         self._supervisor.submit(
             f"speech:{job.operation_id}",
             lambda: self._run_speech_job(job, intent, operation, None),
@@ -173,6 +247,7 @@ class ResultOutputRuntimeModule:
                 self._speech_coordinator.cancel_operation(operation_id)
                 self._supervisor.cancel(operation_id)
                 self._operations.cancel(OutputOperationIntent(operation_id, session_id, "speech", ""))
+                self._finish_interruption(operation_id)
             controller.set_speaking(False)
             return
         self._cancel_current_speech_projection()
@@ -180,7 +255,7 @@ class ResultOutputRuntimeModule:
         text = selected_text.strip() if selected_text and selected_text.strip() else controller.snapshot.content
         operation_id = requested_operation_id or uuid.uuid4().hex
         intent = OutputOperationIntent(operation_id, session_id, "speech", text)
-        operation = self._operations.begin(intent)
+        operation = self._begin_operation(intent)
         job = self._speech_coordinator.create_text_job(operation_id=operation_id, workflow_id=session_id, text=text)
         self._supervisor.submit(
             operation_id,
@@ -196,6 +271,8 @@ class ResultOutputRuntimeModule:
             if current and controller is not None:
                 controller.set_speaking(False)
             raise
+        finally:
+            self._finish_interruption(intent.operation_id)
         current = self._operations.succeed(intent, operation)
         if current and controller is not None:
             controller.set_speaking(False)
@@ -211,10 +288,31 @@ class ResultOutputRuntimeModule:
             return False
         self._supervisor.cancel(operation_id)
         self._operations.cancel(OutputOperationIntent(operation_id, workflow_id, "speech", ""))
+        self._finish_interruption(operation_id)
         previous = self._workflow_controller(workflow_id)
         if previous is not None:
             previous.set_speaking(False)
         return True
+
+    def _begin_operation(self, intent: OutputOperationIntent):
+        operation = self._operations.begin(intent)
+        if self._user_control is not None:
+            lease = self._user_control.begin(InterruptibleOperationRef(
+                intent.operation_id,
+                intent.kind,
+                workflow_id=intent.workflow_id,
+                surface_id=intent.workflow_id if intent.workflow_id != "global" else "",
+            ))
+            previous = self._interruption_leases.pop(intent.operation_id, None)
+            if previous is not None:
+                previous.finish()
+            self._interruption_leases[intent.operation_id] = lease
+        return operation
+
+    def _finish_interruption(self, operation_id: str) -> None:
+        lease = self._interruption_leases.pop(operation_id, None)
+        if lease is not None:
+            lease.finish()
 
     def _handle_speech_error(self, session_id: str, error: BaseException) -> None:
         self._incident_reporter.report(error, context=f"speech:{session_id}")

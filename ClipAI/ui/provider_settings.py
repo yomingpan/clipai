@@ -6,8 +6,8 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import OpenProviderSettings, RefreshProviderModels, ValidateAndSaveProviderSettings
-from ClipAI.core.models import ModelCatalogConnection, ProviderOption, ProviderSettingsInput, ProviderSettingsState
+from ClipAI.core.commands import CloseProviderSettings, ControlSurfaceActivated, ControlSurfaceReleased, OpenProviderSettings, RefreshProviderModels, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ControlSurfaceRef, ModelCatalogConnection, ProviderOption, ProviderSettingsInput, ProviderSettingsState
 from ClipAI.ui.window_icons import CUSTOMTKINTER_ICON_DELAY_MS, destroy_window_icons, install_clipai_window_icons
 
 
@@ -25,7 +25,7 @@ class ProviderSettingsDialog:
         self._window.after(CUSTOMTKINTER_ICON_DELAY_MS, self._apply_windows_window_icons)
         self._window.geometry("430x500")
         self._window.minsize(390, 460)
-        self._window.protocol("WM_DELETE_WINDOW", self.close)
+        self._window.protocol("WM_DELETE_WINDOW", self._request_close)
         self._window.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(self._window, text="Provider", anchor="w").grid(row=0, column=0, padx=24, pady=(22, 4), sticky="ew")
@@ -63,8 +63,30 @@ class ProviderSettingsDialog:
         self._save.grid(row=10, column=0, padx=24, pady=(8, 12), sticky="ew")
         self._refresh = ctk.CTkButton(self._window, text="Refresh Models", command=self._refresh_models)
         self._refresh.grid(row=11, column=0, padx=24, pady=(0, 22), sticky="ew")
-        self._window.bind("<Escape>", lambda _event: self.close())
+        self._window.bind("<Escape>", lambda _event: self._handle_escape())
+        self._window.bind("<FocusIn>", lambda _event: self._command_sink(
+            ControlSurfaceActivated(ControlSurfaceRef("provider-settings", "provider_settings"))
+        ), add="+")
+        self._window.bind("<FocusOut>", lambda _event: self._window.after(
+            0, self._release_focus_if_outside
+        ), add="+")
         self._window.bind("<Control-Return>", lambda _event: self._submit())
+
+    def _handle_escape(self) -> str:
+        return "break"
+
+    def _request_close(self) -> None:
+        self._command_sink(CloseProviderSettings())
+
+    def _release_focus_if_outside(self) -> None:
+        try:
+            focused = self._window.focus_get()
+            if focused is None or focused.winfo_toplevel() is not self._window:
+                self._command_sink(ControlSurfaceReleased(
+                    ControlSurfaceRef("provider-settings", "provider_settings")
+                ))
+        except tk.TclError:
+            pass
 
     def apply(self, state: ProviderSettingsState) -> None:
         self._state = state

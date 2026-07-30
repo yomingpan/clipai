@@ -310,7 +310,7 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
 
 ## Action feedback ownership
 
-- Every Action referenced by a `start_action` Shortcut declares a typed, user-visible feedback contract describing the transformation, human space, verification question, and Recipe-specific reasons. Shortcut loading rejects incomplete coverage.
+- Every Action referenced by a `start_action` Shortcut declares a typed, user-visible feedback contract describing what AI helps with, what AI does not decide, and Recipe-specific feedback reasons. Shortcut loading rejects incomplete coverage.
 - Feedback semantics belong to the resolved Action, not the Shortcut. A press variant may override the base feedback contract when short and long press perform meaningfully different tasks; otherwise it inherits the base contract.
 - Non-Action commands such as `speak_selection_or_clipboard` are explicitly outside this feedback lifecycle because they do not create an AI result step or visible Workflow result.
 - `WorkflowController` owns the feedback projection for the currently displayed completed step. Feedback operation identity is separate from workflow revision, provider invocation identity, and output-operation identity.
@@ -324,5 +324,6 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
 - `GuidancePreferencesCoordinator` is the single owner of the enabled flag, seen Action ids, and preference-operation identity.
 - Tray emits typed preference intents and projects authoritative preferences; it never reads or writes JSON and never changes the checked state before persistence succeeds.
 - A platform `GuidancePreferencesStore` adapter owns `data/user_preferences.json` and writes it atomically. `.env` is not a user-interaction preference store.
-- A successful feedback-enabled Recipe may consume its first-use hint once per Action and press type. The visible Workflow surface projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.
+- First-use hints are disabled by default and the tray toggle is initially unchecked. When explicitly enabled, a successful feedback-enabled Recipe may consume its first-use hint once per Action and press type. The visible Workflow surface projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.
+- Legacy preference schema v1 migrates to disabled while preserving seen Action ids, so the former default-on value does not survive as an accidental opt-in. Schema v2 persists subsequent explicit user choices.
 - Reset clears only seen Action ids. It does not enable first-use hints or change any Recipe.
