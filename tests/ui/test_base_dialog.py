@@ -322,7 +322,7 @@ def test_paste_focus_projection_explains_active_and_unfocused_ctrl_v() -> None:
     surface.set_paste_focus_state(False, target)
 
     assert surface.dialog.focus_states == [True, False]
-    assert surface.paste_target_label.values[0] == {"text": "已聚焦｜貼到：Notepad — Untitled"}
+    assert surface.paste_target_label.values[0] == {"text": "貼到：Notepad — Untitled"}
     assert surface.paste_target_label.values[-1] == {"text": "未聚焦｜Ctrl+V 使用原剪貼簿"}
     assert tooltips[0] == ("paste", "貼上辨識文字到 Notepad — Untitled (Ctrl+V)")
 

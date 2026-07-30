@@ -957,7 +957,7 @@ class BaseResultSurface:
 
         self.paste_target_label = ctk.CTkLabel(
             self.footer,
-            text="已聚焦｜尚未選擇貼上目標",
+            text="尚未選擇貼上目標",
             anchor="w",
             height=11,
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["model"]),
@@ -1110,13 +1110,13 @@ class BaseResultSurface:
         if focused and target is not None:
             destination = paste_target_display_text(target)
             self.paste_target_label.configure(
-                text=f"已聚焦｜貼到：{destination}",
+                text=f"貼到：{destination}",
             )
             self.set_action_tooltip("paste", f"貼上辨識文字到 {destination} (Ctrl+V)")
             return
         if focused:
             self.paste_target_label.configure(
-                text="已聚焦｜尚未選擇貼上目標",
+                text="尚未選擇貼上目標",
             )
             self.set_action_tooltip("paste", "找不到貼上目標；請先選取外部視窗")
             return

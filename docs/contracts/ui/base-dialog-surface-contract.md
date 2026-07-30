@@ -107,8 +107,8 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - `pin`：固定 surface，避免 focus out 時自動關閉。Pin 必須保留為 base slot。
 - `speaker`、`copy`、`paste` 採 selection-first；沒有非空 selection 時才使用完整 result。
 - Paste 必須先隱藏 surface、釋放 focus，再送出 typed command；UI 不得直接操作 clipboard 或 keyboard。
-- Result surface 必須以文字與邊框共同投影真實 focus state。Focused
-  surface 顯示最近的外部 paste target；pinned 且 unfocused 時必須說明
+- Result surface 的 focus state 以邊框作為主要提示。Focused surface 的 footer
+  只顯示最近的外部 paste target，不重複標示「已聚焦」；pinned 且 unfocused 時必須說明
   `Ctrl+V` 會由目前外部視窗使用原剪貼簿內容。
 - Focus 與 paste target 提示固定置於 popup footer 左下角，model 置於同列
   右下角；兩者必須使用相同字級與顏色，不得占用 header 或 result content
