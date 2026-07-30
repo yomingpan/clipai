@@ -21,7 +21,7 @@ class MemoryStore:
 
 
 def test_first_success_is_consumed_once_and_survives_restart() -> None:
-    store = MemoryStore()
+    store = MemoryStore(GuidancePreferences(True))
     coordinator = GuidancePreferencesCoordinator(store)
 
     assert coordinator.consume_first_use_hint("shorten") is True
@@ -39,7 +39,7 @@ def test_disabled_guidance_does_not_mark_recipe_seen() -> None:
 
 
 def test_explicit_setting_projects_pending_then_saved_authoritative_state() -> None:
-    coordinator = GuidancePreferencesCoordinator(MemoryStore())
+    coordinator = GuidancePreferencesCoordinator(MemoryStore(GuidancePreferences(True)))
 
     update = coordinator.begin_set_enabled(False, "op-1")
     assert update.preferences.first_use_hints_enabled is True
@@ -53,7 +53,7 @@ def test_explicit_setting_projects_pending_then_saved_authoritative_state() -> N
 
 
 def test_failed_setting_keeps_previous_state_and_reports_error() -> None:
-    coordinator = GuidancePreferencesCoordinator(MemoryStore(fail=True))
+    coordinator = GuidancePreferencesCoordinator(MemoryStore(GuidancePreferences(True), fail=True))
     update = coordinator.begin_set_enabled(False, "op-1")
     assert update.work is not None
 
@@ -76,7 +76,7 @@ def test_reset_only_clears_seen_recipes_without_enabling_hints() -> None:
 
 
 def test_seen_write_failure_can_show_again_without_breaking_action() -> None:
-    coordinator = GuidancePreferencesCoordinator(MemoryStore(fail=True))
+    coordinator = GuidancePreferencesCoordinator(MemoryStore(GuidancePreferences(True), fail=True))
 
     assert coordinator.consume_first_use_hint("shorten") is True
     assert coordinator.preferences.seen_action_ids == frozenset()

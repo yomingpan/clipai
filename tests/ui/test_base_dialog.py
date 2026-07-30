@@ -912,22 +912,20 @@ def test_source_preview_at_limit_is_not_ellipsized() -> None:
     assert ellipsize_source_preview(text) == text
 
 
-def test_action_contract_tooltip_explains_ai_human_and_verification_space() -> None:
+def test_action_contract_tooltip_explains_ai_scope_and_feedback_entry_points() -> None:
     from ClipAI.core.models import ActionFeedbackContract, FeedbackReason
     from ClipAI.ui.base_dialog import action_contract_tooltip_text
 
     text = action_contract_tooltip_text(ActionFeedbackContract(
         "縮短內容",
-        "原本的立場與語氣",
-        "是否仍然代表你？",
+        "不替你改變原本的立場與語氣",
         (FeedbackReason("other", "其他"),),
     ))
 
     assert text == (
         "AI 幫你\n縮短內容\n\n"
-        "你仍保留\n原本的立場與語氣\n\n"
-        "結果後確認\n是否仍然代表你？\n\n"
-        "Ctrl + R：Recipe 回饋"
+        "AI 不做什麼\n不替你改變原本的立場與語氣\n\n"
+        "若結果不符合預期，可按右上角 ⓘ 或 Ctrl + R 回饋。"
     )
 
 

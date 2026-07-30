@@ -391,8 +391,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         {},
         feedback_contract=ActionFeedbackContract(
             "Shorten faithfully",
-            "Keep meaning",
-            "Verify meaning",
+            "Do not change meaning",
             (FeedbackReason("meaning_lost", "Meaning lost"),),
         ),
     )
@@ -527,7 +526,7 @@ class GuidanceStore:
 
 
 def test_guidance_setting_waits_for_persistence_before_changing_checked_state() -> None:
-    coordinator = GuidancePreferencesCoordinator(GuidanceStore())
+    coordinator = GuidancePreferencesCoordinator(GuidanceStore(GuidancePreferences(True)))
     presenter = Tray(lambda: None)
     runtime, _view, supervisor, _outputs, _listener = make_runtime(
         guidance_preferences=coordinator,

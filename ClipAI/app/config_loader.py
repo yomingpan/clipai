@@ -17,7 +17,7 @@ from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 
 T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
-ACTIONS_SCHEMA_VERSION = 7
+ACTIONS_SCHEMA_VERSION = 8
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -269,7 +269,7 @@ def _parse_feedback_contract(value: Any, action_path: str) -> ActionFeedbackCont
         return None
     path = f"{action_path}.feedback"
     data = _mapping(value, path)
-    _reject_unknown(data, {"transform", "human_space", "verify", "reasons"}, path)
+    _reject_unknown(data, {"helps", "does_not", "reasons"}, path)
     raw_reasons = data.get("reasons")
     if not isinstance(raw_reasons, list) or not raw_reasons:
         raise ConfigError(f"{path}.reasons must be a non-empty list")
@@ -285,9 +285,8 @@ def _parse_feedback_contract(value: Any, action_path: str) -> ActionFeedbackCont
         reason_ids.add(reason_id)
         reasons.append(FeedbackReason(reason_id, _string(reason.get("label"), f"{reason_path}.label")))
     return ActionFeedbackContract(
-        transform_label=_string(data.get("transform"), f"{path}.transform"),
-        human_space_label=_string(data.get("human_space"), f"{path}.human_space"),
-        verification_label=_string(data.get("verify"), f"{path}.verify"),
+        ai_help_label=_string(data.get("helps"), f"{path}.helps"),
+        ai_does_not_label=_string(data.get("does_not"), f"{path}.does_not"),
         reasons=tuple(reasons),
     )
 

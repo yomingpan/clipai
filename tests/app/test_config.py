@@ -38,7 +38,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "Avoid formulaic wording" in action.prompt
     assert "記憶：" in action.prompt
     assert bundle.schema_versions.app == 1
-    assert bundle.schema_versions.actions == 7
+    assert bundle.schema_versions.actions == 8
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
@@ -83,7 +83,7 @@ def test_long_press_uses_variant_prompt() -> None:
     assert resolved.prompt.index("Start with one polished full rewrite") < resolved.prompt.index("Then focus on")
     assert "do not invent a complete sentence or unsupported context" in resolved.prompt
     assert resolved.feedback_contract is not None
-    assert resolved.feedback_contract.transform_label == "找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型"
+    assert resolved.feedback_contract.ai_help_label == "找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型"
     assert resolved.feedback_contract != catalog.resolve("english_companion", "short").feedback_contract
 
 
@@ -101,7 +101,7 @@ def test_long_press_ctrl_alt_2_translates_to_japanese() -> None:
     assert "natural Japanese" in long_action.prompt
     assert "Output only the Japanese translation" in long_action.system_prompt
     assert long_action.feedback_contract is not None
-    assert long_action.feedback_contract.transform_label == "將內容翻譯成符合情境與關係的自然日文"
+    assert long_action.feedback_contract.ai_help_label == "將內容翻譯成符合情境與關係的自然日文"
     assert long_action.feedback_contract != short_action.feedback_contract
 
 
@@ -232,8 +232,8 @@ def test_future_catalog_schema_version_is_rejected(tmp_path: Path, filename: str
 
 def test_future_actions_schema_version_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "actions.yaml"
-    path.write_text("schema_version: 8\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 8"):
+    path.write_text("schema_version: 9\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 9"):
         load_action_catalog(path)
 
 
@@ -245,9 +245,8 @@ def test_feedback_contract_is_typed_for_enabled_actions() -> None:
     dictation = catalog.resolve("intent_preserving_dictation_editor", "short")
 
     assert translated.feedback_contract is not None
-    assert translated.feedback_contract.transform_label == "將內容翻譯成符合情境的自然英文"
-    assert translated.feedback_contract.human_space_label == "保留真正想表達的意思、立場、關係拿捏與最後選擇"
-    assert translated.feedback_contract.verification_label == "這個英文版本是否準確，而且適合真正要讀它的人？"
+    assert translated.feedback_contract.ai_help_label == "將內容翻譯成符合情境的自然英文"
+    assert translated.feedback_contract.ai_does_not_label == "不替你決定真正想表達的意思、立場、關係拿捏與最後選擇"
     assert [(reason.id, reason.label) for reason in translated.feedback_contract.reasons] == [
         ("meaning_inaccurate", "語意不準確"),
         ("tone_or_formality_off", "語氣或正式程度不對"),
@@ -256,9 +255,8 @@ def test_feedback_contract_is_typed_for_enabled_actions() -> None:
         ("other", "其他"),
     ]
     assert shortened.feedback_contract is not None
-    assert shortened.feedback_contract.transform_label == "縮短內容、移除重複，並維持原有結構"
-    assert shortened.feedback_contract.human_space_label == "保留原本的立場、事實、語氣與語言"
-    assert shortened.feedback_contract.verification_label == "這個版本是否仍然代表你，而且真的更容易使用？"
+    assert shortened.feedback_contract.ai_help_label == "縮短內容、移除重複，並維持原有結構"
+    assert shortened.feedback_contract.ai_does_not_label == "不替你改變原本的立場、事實、語氣或語言"
     assert [(reason.id, reason.label) for reason in shortened.feedback_contract.reasons] == [
         ("meaning_or_fact_lost", "核心意思或重要事實少了"),
         ("key_detail_missing", "縮得太多，關鍵細節不夠"),
@@ -268,9 +266,8 @@ def test_feedback_contract_is_typed_for_enabled_actions() -> None:
     ]
     assert shortened.version_id
     assert dictation.feedback_contract is not None
-    assert dictation.feedback_contract.transform_label == "將語音轉錄整理成自然、可直接閱讀或傳送的文字"
-    assert dictation.feedback_contract.human_space_label == "保留最終意圖、獨特資訊、立場、不確定性與個人語氣"
-    assert dictation.feedback_contract.verification_label == "這個版本是否仍完整代表你原本想說的話，而且可以直接使用？"
+    assert dictation.feedback_contract.ai_help_label == "將語音轉錄整理成自然、可直接閱讀或傳送的文字"
+    assert dictation.feedback_contract.ai_does_not_label == "不替你改變最終意圖、獨特資訊、立場、不確定性或個人語氣"
     assert [(reason.id, reason.label) for reason in dictation.feedback_contract.reasons] == [
         ("meaning_or_detail_lost", "重要意思、細節或資訊被遺漏"),
         ("correction_or_repetition_wrong", "改口、自我修正或重複內容處理錯誤"),
@@ -382,7 +379,7 @@ def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
     assert "活用：" in action.prompt
 
 
-def test_thinking_actions_have_distinct_outputs_and_human_space() -> None:
+def test_thinking_actions_have_distinct_outputs_and_ai_boundaries() -> None:
     bundle = load_config_bundle()
 
     expected = {
@@ -390,19 +387,19 @@ def test_thinking_actions_have_distinct_outputs_and_human_space() -> None:
             "name": "MECE 拆解",
             "hotkey": "ctrl+alt+s",
             "prompt_markers": ("## 推薦切面", "## MECE 拆解", "## 邊界與缺少資訊"),
-            "human_space": "保留真正想理解的問題、拆解邊界，以及是否接受這個切面的判斷",
+            "does_not": "不替你決定真正要理解的問題、拆解邊界或是否接受這個切面",
         },
         "minimum_action": {
             "name": "最小行動",
             "hotkey": "ctrl+alt+a",
             "prompt_markers": ("## 最小行動", "## 為什麼是這一步", "## 完成條件"),
-            "human_space": "保留是否採用、何時投入、如何修改，以及決定不行動的權利",
+            "does_not": "不替你決定是否採用、何時投入、如何修改或是否不行動",
         },
         "tradeoff_perspective": {
             "name": "權衡透視",
             "hotkey": "ctrl+alt+d",
             "prompt_markers": ("## 觀點", "## 價值與取捨", "## 兩邊的代價", "## 需要你判斷"),
-            "human_space": "保留價值排序、可接受代價，以及最後選擇與負責的判斷",
+            "does_not": "不替你排序價值、決定可接受的代價或做出最後選擇",
         },
     }
 
@@ -421,7 +418,7 @@ def test_thinking_actions_have_distinct_outputs_and_human_space() -> None:
         assert "圖片" in action.system_prompt
         assert all(marker in action.prompt for marker in contract["prompt_markers"])
         assert action.feedback_contract is not None
-        assert action.feedback_contract.human_space_label == contract["human_space"]
+        assert action.feedback_contract.ai_does_not_label == contract["does_not"]
         assert len(action.feedback_contract.reasons) == 5
         assert action.feedback_contract.reasons[-1].id == "other"
 
@@ -455,8 +452,7 @@ def test_command_copilot_combines_command_generation_and_risk_review() -> None:
     ("original", "changed"),
     [
         ("將內容翻譯成符合情境的自然英文", "將內容翻成自然英文"),
-        ("保留真正想表達的意思、立場、關係拿捏與最後選擇", "保留真正想表達的意思"),
-        ("這個英文版本是否準確，而且適合真正要讀它的人？", "這個版本準確嗎？"),
+        ("不替你決定真正想表達的意思、立場、關係拿捏與最後選擇", "不替你決定真正想表達的意思"),
         ("說法不自然或不適合對象", "說法不自然"),
     ],
 )
@@ -542,7 +538,7 @@ def test_invalid_shortcut_is_rejected(tmp_path: Path, shortcut: dict, message: s
 def test_start_action_shortcut_rejects_action_without_feedback(tmp_path: Path) -> None:
     actions_path = tmp_path / "actions.yaml"
     actions_path.write_text(
-        "schema_version: 7\nactions:\n  - id: no_feedback\n    name: No Feedback\n    system_prompt: system\n    prompt: '{input}'\n",
+        "schema_version: 8\nactions:\n  - id: no_feedback\n    name: No Feedback\n    system_prompt: system\n    prompt: '{input}'\n",
         encoding="utf-8",
     )
     shortcuts_path = tmp_path / "shortcuts.yaml"
@@ -558,7 +554,7 @@ def test_start_action_shortcut_rejects_action_without_feedback(tmp_path: Path) -
 def test_duplicate_yaml_key_is_rejected_instead_of_silently_overwriting(tmp_path: Path) -> None:
     path = tmp_path / "actions.yaml"
     path.write_text(
-        "schema_version: 7\nactions:\n  - id: duplicate\n    name: First\n    name: Second\n    system_prompt: system\n    prompt: '{input}'\n",
+        "schema_version: 8\nactions:\n  - id: duplicate\n    name: First\n    name: Second\n    system_prompt: system\n    prompt: '{input}'\n",
         encoding="utf-8",
     )
 

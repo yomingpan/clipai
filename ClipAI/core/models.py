@@ -178,9 +178,8 @@ class FeedbackReason:
 
 @dataclass(frozen=True)
 class ActionFeedbackContract:
-    transform_label: str
-    human_space_label: str
-    verification_label: str
+    ai_help_label: str
+    ai_does_not_label: str
     reasons: tuple[FeedbackReason, ...]
 
 
@@ -322,7 +321,7 @@ class WorkflowStep:
 
 @dataclass(frozen=True)
 class GuidancePreferences:
-    first_use_hints_enabled: bool = True
+    first_use_hints_enabled: bool = False
     seen_action_ids: frozenset[str] = frozenset()
     update_pending: bool = False
 

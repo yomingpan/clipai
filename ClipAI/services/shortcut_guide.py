@@ -47,13 +47,13 @@ class ShortcutGuideCatalog:
         assert definition.action_id is not None
         action = self._actions.get(definition.action_id)
         short = self._actions.resolve(definition.action_id, "short")
-        short_description = short.feedback_contract.transform_label if short.feedback_contract else short.name
+        short_description = short.feedback_contract.ai_help_label if short.feedback_contract else short.name
         long_title = ""
         long_description = ""
         if "long" in action.press_variants:
             long = self._actions.resolve(definition.action_id, "long")
             long_title = long.name
-            long_description = long.feedback_contract.transform_label if long.feedback_contract else long.name
+            long_description = long.feedback_contract.ai_help_label if long.feedback_contract else long.name
         return ShortcutGuideItem(
             definition.id,
             hotkey,

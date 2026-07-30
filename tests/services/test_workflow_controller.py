@@ -78,7 +78,7 @@ def test_late_completion_from_replaced_invocation_is_ignored() -> None:
 
 def test_feedback_lifecycle_is_owned_by_completed_step_and_ignores_late_completion() -> None:
     workflow = controller()
-    contract = ActionFeedbackContract("Shorten", "Keep meaning", "Verify meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
+    contract = ActionFeedbackContract("Shorten", "Do not change meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
     resolved = ResolvedAction(
         "a", "A", "system", "{input}", "short", "selection_or_clipboard", "popup", 0.2,
         feedback_contract=contract, version_id="version-1",
@@ -102,7 +102,7 @@ def test_feedback_lifecycle_is_owned_by_completed_step_and_ignores_late_completi
 
 def test_feedback_remains_available_when_input_is_a_previous_workflow_result() -> None:
     workflow = controller()
-    contract = ActionFeedbackContract("Shorten", "Keep meaning", "Verify meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
+    contract = ActionFeedbackContract("Shorten", "Do not change meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
     resolved = ResolvedAction(
         "a", "A", "system", "{input}", "short", "selection_or_clipboard", "popup", 0.2,
         feedback_contract=contract, version_id="version-1",
@@ -129,7 +129,7 @@ def test_completion_projects_one_time_guidance_without_reappearing_in_history() 
 
 def test_feedback_completion_offscreen_is_remembered_without_overwriting_current_step() -> None:
     workflow = controller()
-    contract = ActionFeedbackContract("Shorten", "Keep meaning", "Verify meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
+    contract = ActionFeedbackContract("Shorten", "Do not change meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
     resolved = ResolvedAction(
         "a", "A", "system", "{input}", "short", "selection_or_clipboard", "popup", 0.2,
         feedback_contract=contract, version_id="version-1",

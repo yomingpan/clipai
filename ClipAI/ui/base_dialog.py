@@ -43,10 +43,9 @@ def paste_target_display_text(target: PasteTarget) -> str:
 
 def action_contract_tooltip_text(contract: ActionFeedbackContract) -> str:
     return (
-        f"AI 幫你\n{contract.transform_label}\n\n"
-        f"你仍保留\n{contract.human_space_label}\n\n"
-        f"結果後確認\n{contract.verification_label}\n\n"
-        "Ctrl + R：Recipe 回饋"
+        f"AI 幫你\n{contract.ai_help_label}\n\n"
+        f"AI 不做什麼\n{contract.ai_does_not_label}\n\n"
+        "若結果不符合預期，可按右上角 ⓘ 或 Ctrl + R 回饋。"
     )
 
 

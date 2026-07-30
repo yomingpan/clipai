@@ -8,8 +8,7 @@ from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCo
 def guide_catalog() -> ShortcutGuideCatalog:
     feedback = ActionFeedbackContract(
         "協助使用者理解英文",
-        "保留自己的理解",
-        "是否真正理解？",
+        "不取代使用者自己的理解",
         (FeedbackReason("other", "其他"),),
     )
     actions = ActionCatalog([
