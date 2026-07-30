@@ -4,9 +4,9 @@ from ClipAI.core.models import DisplayMetrics, PopupBounds
 
 
 class PopupLayoutPolicy:
-    # Reading-first baseline: the increased shell is offset by compact chrome.
+    # Reading-first baseline: compact chrome preserves space for result content.
     DEFAULT_WIDTH = 400
-    DEFAULT_HEIGHT = 336
+    DEFAULT_HEIGHT = 320
     MIN_WIDTH = 340
     MIN_HEIGHT = 220
     MARGIN = 16

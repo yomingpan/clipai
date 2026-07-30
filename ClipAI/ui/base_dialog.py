@@ -842,15 +842,6 @@ class BaseResultSurface:
             wraplength=330,
         )
         self.title_label.pack(anchor="w")
-        self.paste_target_label = ctk.CTkLabel(
-            self.title_area,
-            text="沒有可用的貼上目標｜請先選取外部視窗",
-            anchor="w",
-            justify="left",
-            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
-            text_color="#8A8A8A",
-        )
-        self.paste_target_label.pack(anchor="w")
 
         self.window_actions = ctk.CTkFrame(self.header, fg_color=SURFACE_BG)
         self.window_actions.grid(row=0, column=1, sticky="ne")
@@ -960,15 +951,29 @@ class BaseResultSurface:
         self._list_indent_prefixes: dict[str, str] = {}
         self.content_text._on_scaling_changed = self._reapply_list_indents
 
+        self.footer = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
+        self.footer.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 2))
+        self.footer.grid_columnconfigure(0, weight=1)
+
+        self.paste_target_label = ctk.CTkLabel(
+            self.footer,
+            text="已聚焦｜尚未選擇貼上目標",
+            anchor="w",
+            height=11,
+            font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["model"]),
+            text_color=MODEL_COLOR,
+        )
+        self.paste_target_label.grid(row=0, column=0, sticky="w")
+
         self.model_label = ctk.CTkLabel(
-            self.root,
+            self.footer,
             text="",
             anchor="e",
             height=11,
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["model"]),
             text_color=MODEL_COLOR,
         )
-        self.model_label.grid(row=5, column=0, sticky="e", padx=12, pady=(0, 2))
+        self.model_label.grid(row=0, column=1, sticky="e", padx=(8, 0))
 
         self.feedback_frame = ctk.CTkFrame(
             self.root,
@@ -1105,21 +1110,18 @@ class BaseResultSurface:
         if focused and target is not None:
             destination = paste_target_display_text(target)
             self.paste_target_label.configure(
-                text=f"貼到：{destination}｜Ctrl+V 貼上辨識文字",
-                text_color=ANALYZING_COLOR,
+                text=f"已聚焦｜貼到：{destination}",
             )
             self.set_action_tooltip("paste", f"貼上辨識文字到 {destination} (Ctrl+V)")
             return
         if focused:
             self.paste_target_label.configure(
-                text="沒有可用的貼上目標｜請先選取外部視窗",
-                text_color="#D7A94B",
+                text="已聚焦｜尚未選擇貼上目標",
             )
             self.set_action_tooltip("paste", "找不到貼上目標；請先選取外部視窗")
             return
         self.paste_target_label.configure(
-            text="未聚焦｜Ctrl+V 會在目前視窗貼上原剪貼簿內容",
-            text_color="#8A8A8A",
+            text="未聚焦｜Ctrl+V 使用原剪貼簿",
         )
         self.set_action_tooltip("paste", "Popup 未聚焦；Ctrl+V 會使用原剪貼簿內容")
 

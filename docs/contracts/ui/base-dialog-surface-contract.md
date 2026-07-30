@@ -110,6 +110,9 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - Result surface 必須以文字與邊框共同投影真實 focus state。Focused
   surface 顯示最近的外部 paste target；pinned 且 unfocused 時必須說明
   `Ctrl+V` 會由目前外部視窗使用原剪貼簿內容。
+- Focus 與 paste target 提示固定置於 popup footer 左下角，model 置於同列
+  右下角；兩者必須使用相同字級與顏色，不得占用 header 或 result content
+  的閱讀空間，也不得以警示色搶走內容注意力。
 - Windows paste target、toolkit focus 與 semantic Foreground Workflow 是三種
   不同身份。Paste target 由 service coordinator 擁有；UI 只呈現 target
   projection 與回報 focus activation candidate。

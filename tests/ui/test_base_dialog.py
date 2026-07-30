@@ -322,8 +322,8 @@ def test_paste_focus_projection_explains_active_and_unfocused_ctrl_v() -> None:
     surface.set_paste_focus_state(False, target)
 
     assert surface.dialog.focus_states == [True, False]
-    assert surface.paste_target_label.values[0]["text"] == "貼到：Notepad — Untitled｜Ctrl+V 貼上辨識文字"
-    assert "原剪貼簿內容" in surface.paste_target_label.values[-1]["text"]
+    assert surface.paste_target_label.values[0] == {"text": "已聚焦｜貼到：Notepad — Untitled"}
+    assert surface.paste_target_label.values[-1] == {"text": "未聚焦｜Ctrl+V 使用原剪貼簿"}
     assert tooltips[0] == ("paste", "貼上辨識文字到 Notepad — Untitled (Ctrl+V)")
 
 
@@ -896,9 +896,12 @@ def test_source_preview_stays_on_one_line_and_ellipsizes_over_limit() -> None:
     assert preview.endswith("...")
     source = inspect.getsource(BaseResultSurface._build)
     assert "wraplength=0" in source
-    assert 'self.model_label.grid(row=5, column=0, sticky="e"' in source
+    assert 'self.footer.grid(row=5, column=0, sticky="ew"' in source
+    assert 'self.paste_target_label.grid(row=0, column=0, sticky="w")' in source
+    assert 'self.model_label.grid(row=0, column=1, sticky="e"' in source
     assert 'height=11' in source
-    assert 'size=POPUP_FONT_SIZES["model"]' in source
+    assert source.count('size=POPUP_FONT_SIZES["model"]') == 2
+    assert source.count("text_color=MODEL_COLOR") == 2
     assert "\n" not in preview
 
 
