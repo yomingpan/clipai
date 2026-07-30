@@ -1,4 +1,3 @@
-from ClipAI.core.commands import CancelActiveOperations
 from ClipAI.ui.provider_settings import ProviderSettingsDialog, _credential_status
 from importlib.resources import files
 
@@ -14,10 +13,10 @@ def test_credential_status_exposes_only_safe_hint() -> None:
     assert _credential_status("", optional=True) == "API key is optional. No saved key is configured."
 
 
-def test_escape_emits_global_cancel_without_closing_provider_settings() -> None:
-    commands = []
+def test_escape_defers_provider_settings_to_the_global_gesture_owner() -> None:
+    events = []
     dialog = ProviderSettingsDialog.__new__(ProviderSettingsDialog)
-    dialog._command_sink = commands.append
+    dialog.close = lambda: events.append("close")
 
-    assert dialog._cancel_active_operations() == "break"
-    assert commands == [CancelActiveOperations()]
+    assert dialog._handle_escape() == "break"
+    assert events == []

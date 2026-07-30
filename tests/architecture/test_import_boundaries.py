@@ -87,3 +87,18 @@ def test_runtime_does_not_own_provider_configuration_policy() -> None:
         "discover_provider_models",
     )
     assert [value for value in forbidden if value in source] == []
+
+
+def test_ui_does_not_choose_interruption_scope_or_call_operation_adapters() -> None:
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in Path("ClipAI/ui").rglob("*.py")
+    )
+    forbidden = (
+        "CancelActiveOperations",
+        "TaskSupervisor",
+        "SpeechCoordinator",
+        "ProviderConfigurationCoordinator",
+        "cancel_active_operations(",
+    )
+    assert [value for value in forbidden if value in source] == []

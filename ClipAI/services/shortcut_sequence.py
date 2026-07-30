@@ -78,6 +78,10 @@ class ShortcutSequenceCoordinator:
         self._armed_shortcut = None
         self._waiting = False
 
+    @property
+    def is_waiting(self) -> bool:
+        return self._waiting
+
     def _start_timeout(self) -> None:
         self._cancel_timer()
         self._generation += 1

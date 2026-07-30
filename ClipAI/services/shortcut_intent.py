@@ -15,3 +15,7 @@ class ShortcutIntentCoordinator:
 
     def cancel(self) -> None:
         pass
+
+    @property
+    def is_waiting(self) -> bool:
+        return False

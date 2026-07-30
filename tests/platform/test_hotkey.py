@@ -112,11 +112,47 @@ def test_long_press_triggers_long_without_release_short() -> None:
     assert events == [("explain_word", "long")]
     dispatcher.on_release(FakeKey(char="8"))
     assert events == [("explain_word", "long"), ("explain_word", "long_release")]
-
     dispatcher.on_release(FakeKey(name="alt_l"))
     dispatcher.on_release(FakeKey(name="ctrl_l"))
 
     assert events == [("explain_word", "long"), ("explain_word", "long_release")]
+
+
+def test_escape_interrupts_current_immediately_then_escalates_after_threshold() -> None:
+    events: list[tuple[str, str]] = []
+    dispatcher = create_hotkey_dispatcher(
+        {},
+        lambda action_id, press_type, _gesture_id: events.append((action_id, press_type)),
+        timer_factory=FakeTimer,
+    )
+
+    dispatcher.on_press(FakeKey(name="esc"))
+    assert events == [("", "interrupt_current")]
+    assert len(FakeTimer.timers) == 1
+
+    FakeTimer.timers[0].fire()
+    assert events == [("", "interrupt_current"), ("", "interrupt_all")]
+
+    dispatcher.on_release(FakeKey(name="esc"))
+    dispatcher.on_press(FakeKey(name="esc"))
+    dispatcher.on_release(FakeKey(name="esc"))
+    assert FakeTimer.timers[-1].cancelled is True
+    assert events[-1] == ("", "interrupt_current")
+
+
+def test_escape_key_repeat_does_not_duplicate_current_interrupt() -> None:
+    events: list[str] = []
+    dispatcher = create_hotkey_dispatcher(
+        {},
+        lambda _action_id, press_type, _gesture_id: events.append(press_type),
+        timer_factory=FakeTimer,
+    )
+
+    dispatcher.on_press(FakeKey(name="esc"))
+    dispatcher.on_press(FakeKey(name="esc"))
+
+    assert events == ["interrupt_current"]
+    assert len(FakeTimer.timers) == 1
 
 
 def test_held_composer_fires_before_action_key_is_released() -> None:

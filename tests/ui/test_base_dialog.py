@@ -496,6 +496,16 @@ def test_native_close_request_uses_callback_instead_of_destroying_the_dialog() -
     assert events == ["close-requested"]
 
 
+def test_result_surface_escape_defers_to_the_global_gesture_owner() -> None:
+    events: list[str] = []
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface._feedback_overlay_open = False
+    surface.dialog = type("Dialog", (), {"request_close": lambda _self: events.append("close")})()
+
+    assert surface._handle_escape() == "break"
+    assert events == []
+
+
 def test_drag_position_calculation_uses_recorded_offsets() -> None:
     class DialogLike:
         _drag_offset_x = 12

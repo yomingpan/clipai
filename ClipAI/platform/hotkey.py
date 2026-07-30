@@ -137,6 +137,7 @@ class _HotkeyDispatcher:
         self._pressed: set[str] = set()
         self._active: dict[str, _HotkeyState] = {}
         self._pending_release: dict[str, tuple[HotkeyEventType, int]] = {}
+        self._escape: _HotkeyState | None = None
         self._timer_generation = 0
         self._gesture_generation = 0
         self._gesture_id = 0
@@ -171,9 +172,12 @@ class _HotkeyDispatcher:
             for state in self._active.values():
                 if state.timer:
                     state.timer.cancel()
+            if self._escape is not None and self._escape.timer is not None:
+                self._escape.timer.cancel()
             self._pressed.clear()
             self._active.clear()
             self._pending_release.clear()
+            self._escape = None
             self._gesture_id = 0
 
     def _fire_long(self, action_id: str, timer_generation: int) -> None:
@@ -240,9 +244,35 @@ class _HotkeyDispatcher:
                 return
             stale_tokens = self._discard_stale_pressed_state()
             if token == "esc":
+                if self._escape is not None:
+                    return
+                for state in self._active.values():
+                    if state.timer is not None:
+                        state.timer.cancel()
+                self._active.clear()
+                self._pending_release.clear()
                 gesture_id = self._begin_gesture()
-                self._fire("", "cancel", gesture_id)
-                self._report_progress(ended=True)
+                self._pressed.add(token)
+                self._timer_generation += 1
+                state = _HotkeyState(self._timer_generation, gesture_id)
+
+                def fire_all(generation=state.timer_generation) -> None:
+                    with self._lock:
+                        current = self._escape
+                        if (
+                            self._stopped
+                            or current is None
+                            or current.timer_generation != generation
+                        ):
+                            return
+                        current.long_fired = True
+                        self._fire("", "interrupt_all", current.gesture_id)
+
+                state.timer = self._timer_factory(self._long_press_sec, fire_all)
+                state.timer.daemon = True
+                state.timer.start()
+                self._escape = state
+                self._fire("", "interrupt_current", gesture_id)
                 return
             if token in self._pressed:
                 return
@@ -293,6 +323,13 @@ class _HotkeyDispatcher:
         ended = False
         with self._lock:
             if self._stopped:
+                return
+            if token == "esc":
+                state, self._escape = self._escape, None
+                self._pressed.discard(token)
+                if state is not None and state.timer is not None:
+                    state.timer.cancel()
+                self._report_progress(ended=not self._pressed)
                 return
             if self._diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
                 logger.debug(

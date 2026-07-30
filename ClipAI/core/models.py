@@ -6,7 +6,7 @@ from typing import Literal
 from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
-HotkeyEventType = Literal["short", "long", "long_release", "invalid", "cancel"]
+HotkeyEventType = Literal["short", "long", "long_release", "invalid", "cancel", "interrupt_current", "interrupt_all"]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
 MessageRole = Literal["system", "user", "assistant"]
 ImageSource = Literal["clipboard"]
@@ -25,6 +25,36 @@ OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
+ControlSurfaceKind = Literal["workflow", "provider_settings", "shortcut_guide"]
+InterruptibleOperationKind = Literal[
+    "workflow",
+    "speech",
+    "copy",
+    "paste",
+    "archive",
+    "shortcut_sequence",
+    "provider_configuration",
+]
+
+
+@dataclass(frozen=True)
+class ControlSurfaceRef:
+    surface_id: str
+    kind: ControlSurfaceKind
+
+
+@dataclass(frozen=True)
+class InterruptibleOperationRef:
+    operation_id: str
+    kind: InterruptibleOperationKind
+    workflow_id: str = ""
+    surface_id: str = ""
+
+
+@dataclass(frozen=True)
+class InterruptionPlan:
+    surface: ControlSurfaceRef | None = None
+    operations: tuple[InterruptibleOperationRef, ...] = ()
 
 
 @dataclass(frozen=True)

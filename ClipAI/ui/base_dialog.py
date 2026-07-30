@@ -807,9 +807,8 @@ class StandardResultActions:
 
 
 class BaseResultSurface:
-    def __init__(self, dialog: BaseDialog, *, on_cancel_all: Callable[[], None] | None = None) -> None:
+    def __init__(self, dialog: BaseDialog) -> None:
         self.dialog = dialog
-        self._on_cancel_all = on_cancel_all
         self.root = dialog.surface
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(4, weight=1)
@@ -1234,12 +1233,6 @@ class BaseResultSurface:
             self._feedback_success_job = None
 
     def _handle_escape(self, _event=None) -> str:
-        if self._on_cancel_all is not None:
-            self._on_cancel_all()
-        elif self._feedback_overlay_open:
-            self.close_feedback_overlay()
-        else:
-            self.dialog.request_close()
         return "break"
 
     def _choose_feedback(self, outcome: FeedbackOutcome) -> None:

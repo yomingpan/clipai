@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import cast
 import queue
-import uuid
 
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeCommand, ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule, ProviderRuntimeCommand
@@ -11,16 +10,18 @@ from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeCommand, Short
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeCommand, UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvocationFailed, WorkflowRuntimeCommand, WorkflowRuntimeModule
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ActiveOperationsCancelled, ArchiveResult, CancelActiveOperations, CancelSession, CloseSession, CloseShortcutGuide, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, ShortcutGestureProgressed, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseProviderSettings, CloseSession, CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, ShortcutGestureProgressed, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import HotkeyEventType
-from ClipAI.core.ports import ApplicationView, ForegroundWindowMonitor, OperationTracker, RuntimeComponent, Stoppable, UserNotifier
+from ClipAI.core.models import ControlSurfaceRef, InterruptionPlan
+from ClipAI.core.ports import ApplicationView, ForegroundWindowMonitor, OperationTracker, RuntimeComponent, Stoppable
 from ClipAI.services.provider_configuration import ProviderConfigurationResult
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
+from ClipAI.services.user_control import UserControlCoordinator
 
 
 _WORKFLOW_COMMANDS = (StartAction, CloseSession, CancelSession, TogglePin, FollowUp, ActivateWorkflow, ReleaseForegroundWorkflow, NavigateWorkflowBack, WorkflowInvocationFailed, HeadlessWorkflowFinished)
 _OUTPUT_COMMANDS = (CopyResult, PasteResult, ArchiveResult, ToggleSpeech, SpeakSelectionOrClipboard, ExportDiagnostics)
-_PROVIDER_COMMANDS = (SelectProviderModel, SelectProvider, ReloadConfiguration, OpenProviderSettings, ValidateAndSaveProviderSettings, RefreshProviderModels, ProviderConfigurationResult)
+_PROVIDER_COMMANDS = (SelectProviderModel, SelectProvider, ReloadConfiguration, OpenProviderSettings, CloseProviderSettings, ValidateAndSaveProviderSettings, RefreshProviderModels, ProviderConfigurationResult)
 _USER_PERSISTENCE_COMMANDS = (SubmitActionFeedback, ActionFeedbackCompleted, SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted)
 _SHORTCUT_GUIDE_COMMANDS = (OpenShortcutGuide, CloseShortcutGuide, SelectShortcutGuideItem, ShortcutGestureProgressed)
 
@@ -50,7 +51,7 @@ class AppRuntime:
         operation_tracker: OperationTracker | None = None,
         shortcut_guide: ShortcutGuideRuntimeModule | None = None,
         foreground_monitor: ForegroundWindowMonitor | None = None,
-        notifier: UserNotifier | None = None,
+        user_control: UserControlCoordinator | None = None,
     ) -> None:
         self._shortcuts = shortcuts
         self._view = view
@@ -64,8 +65,10 @@ class AppRuntime:
         self._operation_tracker = operation_tracker
         self._shortcut_guide_module = shortcut_guide
         self._foreground_monitor = foreground_monitor
-        self._notifier = notifier
-        self._active_cancellation_id: str | None = None
+        self._user_control = user_control or UserControlCoordinator()
+        self._workflow_module.bind_user_control(self._user_control)
+        self._result_output_module.bind_user_control(self._user_control)
+        self._provider_configuration_module.bind_user_control(self._user_control)
         self._commands: queue.Queue[object] = queue.Queue()
         self._listener: Stoppable | None = None
         self._tray: RuntimeComponent | None = None
@@ -152,10 +155,11 @@ class AppRuntime:
 
     def _route(self, command: object) -> None:
         if isinstance(command, ShortcutTriggered):
-            if command.press_type == "cancel":
-                if self._shortcut_guide_module is not None and self._shortcut_guide_module.consume(command):
-                    return
-                self._route(CancelActiveOperations())
+            if command.press_type in {"interrupt_current", "cancel"}:
+                self._route(InterruptCurrent())
+                return
+            if command.press_type == "interrupt_all":
+                self._route(InterruptAll())
                 return
             if self._shortcut_guide_module is not None and self._shortcut_guide_module.consume(command):
                 return
@@ -164,20 +168,55 @@ class AppRuntime:
                 self._route(resolved)
         elif isinstance(command, ExternalForegroundChanged):
             self._result_output_module.observe_paste_target(command.target)
-        elif isinstance(command, _SHORTCUT_GUIDE_COMMANDS):
-            if self._shortcut_guide_module is not None:
-                if isinstance(command, OpenShortcutGuide):
-                    self._workflow_module.cancel_shortcut_sequence()
-                self._shortcut_guide_module.handle(cast(ShortcutGuideRuntimeCommand, command))
         elif isinstance(command, ShutdownApplication):
             self.stop()
-        elif isinstance(command, CancelActiveOperations):
-            self._cancel_active_operations(command)
-        elif isinstance(command, ActiveOperationsCancelled):
-            self._complete_active_operations_cancellation(command)
+        elif isinstance(command, ControlSurfaceActivated):
+            self._user_control.focus(command.surface)
+        elif isinstance(command, ControlSurfaceReleased):
+            self._user_control.release(command.surface)
+        elif isinstance(command, InterruptCurrent):
+            if (
+                self._user_control.focused_surface is None
+                and self._workflow_module.has_pending_shortcut_sequence()
+            ):
+                self._workflow_module.cancel_shortcut_sequence()
+                return
+            self._execute_interruption(self._user_control.interrupt_current())
+        elif isinstance(command, InterruptAll):
+            self._execute_interruption(self._user_control.interrupt_all())
+            task_ids = (
+                *self._workflow_module.cancel_all_content_operations(),
+                *self._result_output_module.cancel_all_content_operations(),
+            )
+            self._supervisor.cancel_many(task_ids, lambda: None)
         elif isinstance(command, CloseSession):
+            self._user_control.release(ControlSurfaceRef(command.session_id, "workflow"))
             self._result_output_module.close_workflow(command.session_id)
             self._workflow_module.handle(command)
+        elif isinstance(command, ActivateWorkflow):
+            self._user_control.focus(ControlSurfaceRef(command.workflow_id, "workflow"))
+            self._workflow_module.handle(command)
+        elif isinstance(command, ReleaseForegroundWorkflow):
+            self._user_control.release(ControlSurfaceRef(command.workflow_id, "workflow"))
+            self._workflow_module.handle(command)
+        elif isinstance(command, OpenShortcutGuide):
+            self._user_control.focus(ControlSurfaceRef(command.guide_id, "shortcut_guide"))
+            if self._shortcut_guide_module is not None:
+                self._workflow_module.cancel_shortcut_sequence()
+                self._shortcut_guide_module.handle(command)
+        elif isinstance(command, CloseShortcutGuide):
+            self._user_control.release(ControlSurfaceRef(command.guide_id, "shortcut_guide"))
+            if self._shortcut_guide_module is not None:
+                self._shortcut_guide_module.handle(command)
+        elif isinstance(command, _SHORTCUT_GUIDE_COMMANDS):
+            if self._shortcut_guide_module is not None:
+                self._shortcut_guide_module.handle(cast(ShortcutGuideRuntimeCommand, command))
+        elif isinstance(command, OpenProviderSettings):
+            self._user_control.focus(ControlSurfaceRef("provider-settings", "provider_settings"))
+            self._provider_configuration_module.handle(command)
+        elif isinstance(command, CloseProviderSettings):
+            self._user_control.release(ControlSurfaceRef("provider-settings", "provider_settings"))
+            self._provider_configuration_module.handle(command)
         elif isinstance(command, _WORKFLOW_COMMANDS):
             self._workflow_module.handle(cast(WorkflowRuntimeCommand, command))
         elif isinstance(command, _OUTPUT_COMMANDS):
@@ -187,25 +226,21 @@ class AppRuntime:
         elif isinstance(command, _USER_PERSISTENCE_COMMANDS):
             self._user_persistence_module.handle(cast(UserPersistenceRuntimeCommand, command))
 
-    def _cancel_active_operations(self, command: CancelActiveOperations) -> None:
-        task_ids = (
-            *self._workflow_module.cancel_active_operations(),
-            *self._result_output_module.cancel_active_operations(),
-        )
-        if not task_ids:
-            return
-        operation_id = command.operation_id or uuid.uuid4().hex
-        self._active_cancellation_id = operation_id
-        if self._notifier is not None:
-            self._notifier.notify("ClipAI", "正在停止所有 ClipAI 操作…")
-        self._supervisor.cancel_many(
-            task_ids,
-            lambda: self.enqueue(ActiveOperationsCancelled(operation_id)),
-        )
-
-    def _complete_active_operations_cancellation(self, command: ActiveOperationsCancelled) -> None:
-        if command.operation_id != self._active_cancellation_id:
-            return
-        self._active_cancellation_id = None
-        if self._notifier is not None:
-            self._notifier.notify("ClipAI", "已停止所有 ClipAI 操作")
+    def _execute_interruption(self, plan: InterruptionPlan) -> None:
+        surface = plan.surface
+        if surface is not None:
+            if surface.kind == "workflow":
+                self._route(CloseSession(surface.surface_id))
+            elif surface.kind == "provider_settings":
+                self._route(CloseProviderSettings())
+            elif surface.kind == "shortcut_guide":
+                self._route(CloseShortcutGuide(surface.surface_id))
+        for operation in plan.operations:
+            if operation.kind == "workflow":
+                self._workflow_module.cancel_operation(operation.operation_id)
+            elif operation.kind == "provider_configuration":
+                self._provider_configuration_module.handle(CloseProviderSettings())
+            elif operation.kind == "shortcut_sequence":
+                self._workflow_module.cancel_shortcut_sequence()
+            else:
+                self._result_output_module.cancel_operation(operation.operation_id)

@@ -7,7 +7,7 @@ from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelActiveOperations, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -339,6 +339,13 @@ class GlobalSpeech:
         self.cancelled += 1
         return True
 
+    def operation_for(self, workflow_id: str):
+        return self.current[0] if self.current is not None and self.current[1] == workflow_id else None
+
+    def cancel_workflow(self, workflow_id: str) -> bool:
+        operation_id = self.operation_for(workflow_id)
+        return self.cancel_operation(operation_id) if operation_id is not None else False
+
     @property
     def current_identity(self):
         return self.current
@@ -495,7 +502,6 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         hotkey_registrar=lambda _map, _callback, _progress: listener,
         tray_factory=Tray if with_tray else None,
         operation_tracker=operation_tracker,
-        notifier=notifier,
     )
     runtime_holder.append(runtime)
     runtime._provider_backend = backend
@@ -1063,25 +1069,57 @@ def test_global_speech_still_prefers_current_selection_when_session_exists() -> 
     assert speech.clipboard_only == [False]
 
 
-def test_escape_routes_to_global_cancel_and_reports_real_settlement() -> None:
+def test_short_escape_stops_current_speech_without_windows_notifications() -> None:
     notifier = Notifier()
+    tracker = OperationTracker()
     speech = GlobalSpeech()
     runtime, _view, supervisor, _outputs, _listener = make_runtime(
         notifier=notifier,
+        operation_tracker=tracker,
         speech_coordinator=speech,
     )
     runtime.enqueue(SpeakSelectionOrClipboard())
     runtime.drain_commands()
 
-    runtime.enqueue(ShortcutTriggered("", "cancel"))
+    runtime.enqueue(ShortcutTriggered("", "interrupt_current"))
     runtime.drain_commands()
 
     assert speech.current_identity is None
     assert f"speech:{SpeechJob.operation_id}" in supervisor.cancelled
-    assert notifier.messages == [
-        ("ClipAI", "正在停止所有 ClipAI 操作…"),
-        ("ClipAI", "已停止所有 ClipAI 操作"),
-    ]
+    assert notifier.messages == []
+    assert ("cancel", f"tts:{SpeechJob.operation_id}") in tracker.events
+
+
+def test_short_escape_uses_latest_operation_without_stopping_older_workflow() -> None:
+    speech = GlobalSpeech()
+    runtime, view, _supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    invocation_id = workflow(view, workflow_id).snapshot.active_invocation_id
+    runtime.enqueue(SpeakSelectionOrClipboard())
+    runtime.drain_commands()
+
+    runtime.enqueue(InterruptCurrent())
+    runtime.drain_commands()
+
+    assert speech.current_identity is None
+    assert workflow(view, workflow_id).snapshot.active_invocation_id == invocation_id
+
+
+def test_short_escape_closes_focused_popup_without_stopping_unowned_speech() -> None:
+    speech = GlobalSpeech()
+    runtime, view, _supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)
+    runtime.enqueue(SpeakSelectionOrClipboard())
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    runtime.enqueue(ActivateWorkflow(workflow_id))
+    runtime.enqueue(InterruptCurrent())
+    runtime.drain_commands()
+
+    assert runtime._workflow_module.controller_for(workflow_id) is None
+    assert speech.current_identity == (SpeechJob.operation_id, SpeechJob.workflow_id)
 
 
 def test_global_cancel_keeps_foreground_and_completed_pinned_workflow_open() -> None:
@@ -1100,7 +1138,7 @@ def test_global_cancel_keeps_foreground_and_completed_pinned_workflow_open() -> 
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
     foreground_id = view.snapshots[-1].session_id
-    runtime.enqueue(CancelActiveOperations())
+    runtime.enqueue(InterruptAll())
     runtime.drain_commands()
 
     foreground = view.workflow_controller(foreground_id)
@@ -1129,7 +1167,7 @@ def test_global_cancel_stops_pinned_invocation_and_restores_its_completed_conten
 
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
-    runtime.enqueue(CancelActiveOperations())
+    runtime.enqueue(InterruptAll())
     runtime.drain_commands()
 
     assert "pinned-follow-up" in supervisor.cancelled

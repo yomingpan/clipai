@@ -42,6 +42,27 @@ class OutputOperationCoordinator:
             )
         return tuple(intent for intent, _handle in active)
 
+    def cancel_operation(self, operation_id: str) -> OutputOperationIntent | None:
+        with self._lock:
+            match = next(
+                (
+                    (key, intent, handle)
+                    for key, (intent, handle) in self._active.items()
+                    if intent.operation_id == operation_id
+                ),
+                None,
+            )
+            if match is None:
+                return None
+            key, intent, handle = match
+            self._active.pop(key, None)
+        if handle is not None:
+            handle.cancel()
+        self._presenter.present_output_operation(
+            OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, "cancelled")
+        )
+        return intent
+
     def succeed(self, intent: OutputOperationIntent, handle: OperationHandle | None = None) -> bool:
         if handle is not None:
             handle.succeed()

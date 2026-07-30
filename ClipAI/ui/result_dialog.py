@@ -8,8 +8,8 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelActiveOperations, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
@@ -152,6 +152,10 @@ class ResultDialogPresenter:
     def set_provider_settings(self, state: ProviderSettingsState) -> None:
         if self._provider_settings_dialog is not None:
             self._provider_settings_dialog.apply(state)
+
+    def close_provider_settings(self) -> None:
+        if self._provider_settings_dialog is not None:
+            self._provider_settings_dialog.close()
 
     def show_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
         self._hold_focus_for_shortcut_guide()
@@ -570,10 +574,7 @@ class ResultDialogPresenter:
             hide_from_task_switcher=True,
             on_close_request=lambda sid=session_id: self._request_close(sid),
         )
-        surface = BaseResultSurface(
-            dialog,
-            on_cancel_all=lambda: self._command_sink(CancelActiveOperations()),
-        )
+        surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
         return _SessionView(dialog=dialog, surface=surface, focus_lifecycle=PopupFocusLifecycle())
 
@@ -633,6 +634,7 @@ class ResultDialogPresenter:
             return
         view.focus_lifecycle.mark_focused()
         view.surface.set_paste_focus_state(True, self._paste_target)
+        self._command_sink(ControlSurfaceActivated(ControlSurfaceRef(session_id, "workflow")))
         self._activate(session_id)
 
     def _activate(self, session_id: str) -> None:
@@ -665,6 +667,8 @@ class ResultDialogPresenter:
                     focused_inside=focused_inside,
                 )
                 view.surface.set_paste_focus_state(focused_inside, self._paste_target)
+                if not focused_inside:
+                    self._command_sink(ControlSurfaceReleased(ControlSurfaceRef(session_id, "workflow")))
                 if should_close:
                     view.surface.collapse_overflow()
                     self._request_close(session_id)
@@ -675,6 +679,7 @@ class ResultDialogPresenter:
                     focused_inside=False,
                 )
                 view.surface.set_paste_focus_state(False, self._paste_target)
+                self._command_sink(ControlSurfaceReleased(ControlSurfaceRef(session_id, "workflow")))
                 if should_close:
                     view.surface.collapse_overflow()
                     self._request_close(session_id)

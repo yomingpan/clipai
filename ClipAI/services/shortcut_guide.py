@@ -10,7 +10,7 @@ from ClipAI.services.shortcut_catalog import ShortcutCatalog
 
 
 _SPEECH_SHORT_TITLE = "朗讀選取文字或剪貼簿"
-_SPEECH_SHORT_DESCRIPTION = "朗讀目前選取的文字；朗讀中再次觸發會改讀最新選取，Esc 停止所有 ClipAI 操作。"
+_SPEECH_SHORT_DESCRIPTION = "朗讀目前選取的文字；朗讀中再次觸發會改讀最新選取。Esc 短按關閉目前面板或停止最後啟動的操作，長按停止全部內容工作。"
 _SPEECH_LONG_TITLE = "語音快捷鍵組合"
 _SPEECH_LONG_DESCRIPTION = "長按後再按另一個 Action 快捷鍵，將該次結果以語音輸出。"
 

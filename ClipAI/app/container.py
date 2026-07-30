@@ -48,6 +48,7 @@ from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
 from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
+from ClipAI.services.user_control import UserControlCoordinator
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.ui.result_dialog import ResultDialogPresenter
@@ -162,6 +163,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         )
 
     supervisor = TaskSupervisor(bundle.runtime.max_workers)
+    user_control = UserControlCoordinator()
     incident_reporter = IncidentReporter()
     enqueue = lambda command: runtime_holder[0].enqueue(command)
     workflow_module = WorkflowRuntimeModule(
@@ -177,6 +179,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         operation_tracker=operation_tracker,
         notifier=tray,
         speech_coordinator=speech_coordinator,
+        user_control=user_control,
     )
     result_output_module = ResultOutputRuntimeModule(
         output_actions=output_actions,
@@ -190,6 +193,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         notifier=tray,
         speech_coordinator=speech_coordinator,
         paste_targets=paste_targets,
+        user_control=user_control,
     )
     provider_configuration_module = ProviderConfigurationRuntimeModule(
         coordinator=provider_configuration,
@@ -199,6 +203,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         model_selection_presenter=tray,
         provider_selection_presenter=tray,
         provider_settings_presenter=view,
+        user_control=user_control,
     )
     user_persistence_module = UserPersistenceRuntimeModule(
         supervisor=supervisor,
@@ -233,7 +238,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         foreground_monitor=WindowsForegroundWindowMonitor(
             lambda target: runtime_holder[0].enqueue(ExternalForegroundChanged(target))
         ),
-        notifier=tray,
+        user_control=user_control,
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):

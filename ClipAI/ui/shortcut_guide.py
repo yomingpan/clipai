@@ -5,9 +5,9 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import CloseShortcutGuide, SelectShortcutGuideItem
+from ClipAI.core.commands import CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, SelectShortcutGuideItem
 from ClipAI.core.hotkeys import GRAVE_KEY_TOKEN
-from ClipAI.core.models import ShortcutGuideItem, ShortcutGuideSnapshot
+from ClipAI.core.models import ControlSurfaceRef, ShortcutGuideItem, ShortcutGuideSnapshot
 from ClipAI.ui.window_icons import CUSTOMTKINTER_ICON_DELAY_MS, destroy_window_icons, install_clipai_window_icons
 
 
@@ -39,7 +39,11 @@ class ShortcutGuideDialog:
         self._window.geometry("900x640")
         self._window.minsize(780, 560)
         self._window.protocol("WM_DELETE_WINDOW", self._request_close)
-        self._window.bind("<Escape>", lambda _event: self._defer_escape_to_hotkey_listener())
+        self._window.bind("<Escape>", lambda _event: self._handle_escape())
+        self._window.bind("<FocusIn>", lambda _event: self._focus_changed(True), add="+")
+        self._window.bind("<FocusOut>", lambda _event: self._window.after(
+            0, self._release_focus_if_outside
+        ), add="+")
         self._window.grid_columnconfigure(0, weight=1)
         self._window.grid_rowconfigure(2, weight=1)
         self._window.after(CUSTOMTKINTER_ICON_DELAY_MS, self._apply_window_icons)
@@ -203,10 +207,23 @@ class ShortcutGuideDialog:
         if snapshot is not None:
             self._command_sink(CloseShortcutGuide(snapshot.guide_id))
 
-    @staticmethod
-    def _defer_escape_to_hotkey_listener() -> str:
-        """Let the global physical-key listener emit the single typed Escape intent."""
+    def _handle_escape(self) -> str:
         return "break"
+
+    def _focus_changed(self, focused: bool) -> None:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return
+        command = ControlSurfaceActivated if focused else ControlSurfaceReleased
+        self._command_sink(command(ControlSurfaceRef(snapshot.guide_id, "shortcut_guide")))
+
+    def _release_focus_if_outside(self) -> None:
+        try:
+            focused = self._window.focus_get()
+            if focused is None or focused.winfo_toplevel() is not self._window:
+                self._focus_changed(False)
+        except tk.TclError:
+            pass
 
     def _apply_window_icons(self) -> None:
         try:
