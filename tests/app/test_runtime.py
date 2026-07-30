@@ -7,8 +7,8 @@ from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, FollowUp, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutTriggered, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -16,6 +16,7 @@ from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
+from ClipAI.services.paste_target import PasteTargetCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
 
 
@@ -31,6 +32,7 @@ class FakeView:
         self.execute_action = None
         self.actions = None
         self.speech_coordinator = None
+        self.paste_target_states = []
 
     def set_command_sink(self, sink) -> None:
         self.sink = sink
@@ -49,6 +51,9 @@ class FakeView:
 
     def present_output_operation(self, result) -> None:
         self.output_results.append(result)
+
+    def present_paste_target(self, target) -> None:
+        self.paste_target_states.append(target)
 
     def show_provider_settings(self, state) -> None:
         self.provider_settings_states.append(state)
@@ -110,6 +115,7 @@ class FakeOutputs:
         self.can_archive = True
         self.pasted: list[str] = []
         self.archived: list[str] = []
+        self.paste_targets: list[PasteTarget] = []
 
     def copy(self, text: str) -> None:
         self.copied.append(text)
@@ -117,8 +123,9 @@ class FakeOutputs:
     def speak(self, text: str) -> None:
         self.spoken.append(text)
 
-    def paste(self, text: str) -> None:
+    def paste(self, text: str, target: PasteTarget) -> None:
         self.pasted.append(text)
+        self.paste_targets.append(target)
 
     def archive(self, text: str) -> None:
         self.archived.append(text)
@@ -127,6 +134,18 @@ class FakeOutputs:
 class Listener:
     def __init__(self) -> None:
         self.stopped = False
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+class Monitor:
+    def __init__(self) -> None:
+        self.started = False
+        self.stopped = False
+
+    def start(self) -> None:
+        self.started = True
 
     def stop(self) -> None:
         self.stopped = True
@@ -410,6 +429,8 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
     execute_action = FakeExecute()
     provider_configuration = ProviderConfigurationCoordinator(snapshot, backend)
     incident_reporter = IncidentReporter()
+    paste_targets = PasteTargetCoordinator(view)
+    paste_targets.observe(PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1))
     runtime_holder = []
     enqueue = lambda command: runtime_holder[0].enqueue(command)
     workflow_module = WorkflowRuntimeModule(
@@ -438,6 +459,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         diagnostics_exporter=diagnostics_exporter,
         notifier=notifier,
         speech_coordinator=speech_coordinator,
+        paste_targets=paste_targets,
     )
     provider_module = ProviderConfigurationRuntimeModule(
         coordinator=provider_configuration,
@@ -1337,6 +1359,18 @@ def test_stop_releases_listener_supervisor_and_view() -> None:
     assert listener.stopped and supervisor.closed and view.stopped
 
 
+def test_runtime_starts_and_stops_foreground_monitor() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    monitor = Monitor()
+    runtime._foreground_monitor = monitor
+
+    runtime.start()
+    runtime.stop()
+
+    assert monitor.started is True
+    assert monitor.stopped is True
+
+
 def test_tray_exit_uses_typed_shutdown_command() -> None:
     runtime, view, supervisor, _outputs, listener = make_runtime(with_tray=True)
     runtime.start()
@@ -1548,3 +1582,42 @@ def test_stale_paste_completion_does_not_close_workflow() -> None:
     supervisor.work["new-paste"]()
     runtime.drain_commands()
     assert view.workflow_controller(session_id) is None
+
+
+def test_paste_captures_latest_target_when_operation_begins() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    controller = workflow(view, session_id)
+    controller._snapshot = controller.snapshot.evolve(content="use me")
+    target_two = PasteTarget("hwnd:20", 84, "Writer", "Draft", 2)
+    target_three = PasteTarget("hwnd:30", 126, "Mail", "Reply", 3)
+
+    runtime.enqueue(ExternalForegroundChanged(target_two))
+    runtime.enqueue(PasteResult(session_id, operation_id="paste-op"))
+    runtime.drain_commands()
+    runtime.enqueue(ExternalForegroundChanged(target_three))
+    runtime.drain_commands()
+    supervisor.work["paste-op"]()
+
+    assert outputs.paste_targets == [target_two]
+    assert view.paste_target_states[-1] == target_three
+
+
+def test_paste_without_target_fails_without_scheduling_keyboard_output() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime._result_output_module._paste_targets = PasteTargetCoordinator(view)
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    session_id = view.snapshots[-1].session_id
+    controller = workflow(view, session_id)
+    controller._snapshot = controller.snapshot.evolve(content="use me")
+
+    runtime.enqueue(PasteResult(session_id, operation_id="paste-op"))
+    runtime.drain_commands()
+
+    assert "paste-op" not in supervisor.work
+    assert outputs.pasted == []
+    assert view.output_results[-1].state == "failed"
+    assert "找不到貼上目標" in view.output_results[-1].error.message

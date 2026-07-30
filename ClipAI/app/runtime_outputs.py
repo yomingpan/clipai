@@ -7,10 +7,11 @@ import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, ExportDiagnostics, PasteResult, ReleaseForegroundWorkflow, SpeakSelectionOrClipboard, ToggleSpeech
-from ClipAI.core.models import OutputOperationIntent
+from ClipAI.core.models import OutputOperationIntent, PasteTarget
 from ClipAI.core.ports import DiagnosticsExporter, OperationTracker, OutputOperationPresenter, UserNotifier
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.output_operation import OutputOperationCoordinator
+from ClipAI.services.paste_target import PasteTargetCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.support.diagnostics import IncidentReporter
@@ -37,6 +38,7 @@ class ResultOutputRuntimeModule:
         diagnostics_exporter: DiagnosticsExporter | None = None,
         notifier: UserNotifier | None = None,
         speech_coordinator: SpeechCoordinator | None = None,
+        paste_targets: PasteTargetCoordinator | None = None,
     ) -> None:
         self._output_actions = output_actions
         self._supervisor = supervisor
@@ -48,7 +50,11 @@ class ResultOutputRuntimeModule:
         self._diagnostics_exporter = diagnostics_exporter
         self._notifier = notifier
         self._speech_coordinator = speech_coordinator
+        self._paste_targets = paste_targets or PasteTargetCoordinator()
         self._operations = OutputOperationCoordinator(output_operation_presenter, operation_tracker)
+
+    def observe_paste_target(self, target: PasteTarget) -> None:
+        self._paste_targets.observe(target)
 
     def handle(self, command: ResultOutputRuntimeCommand) -> None:
         if isinstance(command, CopyResult):
@@ -94,6 +100,14 @@ class ResultOutputRuntimeModule:
         if not self._output_actions.can_paste:
             self._reject_paste(operation_id, command.session_id, "Paste output is not configured.")
             return
+        target = self._paste_targets.current
+        if target is None:
+            self._reject_paste(
+                operation_id,
+                command.session_id,
+                "找不到貼上目標。請先點選要貼入的視窗，再回到 ClipAI。",
+            )
+            return
         text = _selected_or_result(command.text, controller)
         intent = OutputOperationIntent(operation_id, command.session_id, "paste", text)
         keep_workflow = controller.snapshot.pinned
@@ -101,7 +115,7 @@ class ResultOutputRuntimeModule:
         try:
             self._supervisor.submit(
                 intent.operation_id,
-                lambda: self._complete_paste(intent, operation, keep_workflow),
+                lambda: self._complete_paste(intent, operation, keep_workflow, target),
                 lambda error: logger.error("Paste failed session_id=%s: %s", command.session_id, error),
             )
         except BaseException as exc:
@@ -136,9 +150,9 @@ class ResultOutputRuntimeModule:
             raise
         self._operations.succeed(intent, operation)
 
-    def _complete_paste(self, intent, operation, keep_workflow: bool) -> None:
+    def _complete_paste(self, intent, operation, keep_workflow: bool, target: PasteTarget) -> None:
         try:
-            self._output_actions.paste(intent.text)
+            self._output_actions.paste(intent.text, target)
         except BaseException as exc:
             self._operations.fail(intent, exc, operation)
             raise

@@ -359,6 +359,17 @@ class ClipboardSnapshot:
 
 
 @dataclass(frozen=True)
+class PasteTarget:
+    """Opaque snapshot of a non-ClipAI window that can receive paste output."""
+
+    window_token: str
+    process_id: int
+    application_name: str
+    window_title: str
+    observation_sequence: int
+
+
+@dataclass(frozen=True)
 class ProcessedResult:
     text: str
     output_profile: str = "plain_text"

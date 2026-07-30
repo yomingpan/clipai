@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, SpeechRequest, UserFacingError
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, SpeechRequest, UserFacingError
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -49,6 +49,8 @@ class ApplicationView(ResultPresenter, Protocol):
 
     def stop(self) -> None: ...
 
+    def present_paste_target(self, target: PasteTarget | None) -> None: ...
+
 
 
 class OutputOperationPresenter(Protocol):
@@ -79,8 +81,12 @@ class SpeechOutput(Protocol):
     def stop(self) -> None: ...
 
 
-class KeyboardOutput(Protocol):
-    def paste(self) -> None: ...
+class TargetedKeyboardOutput(Protocol):
+    def paste(self, target: PasteTarget) -> None: ...
+
+
+class PasteTargetPresenter(Protocol):
+    def present_paste_target(self, target: PasteTarget | None) -> None: ...
 
 
 class StatusIndicator(Protocol):
@@ -162,3 +168,7 @@ class Stoppable(Protocol):
 
 class RuntimeComponent(Stoppable, Protocol):
     def start(self) -> None: ...
+
+
+class ForegroundWindowMonitor(RuntimeComponent, Protocol):
+    pass

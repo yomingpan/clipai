@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import queue
+
 from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, OutputOperationResult
+from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, OutputOperationResult, PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.result_dialog import PopupFocusLifecycle, ResultDialogPresenter, _SessionView, _content_render_key
 
@@ -90,13 +92,24 @@ class Surface:
     def close_feedback_overlay(self) -> None:
         self.events.append("feedback:closed")
 
+    def set_paste_focus_state(self, focused, target) -> None:
+        self.focused = focused
+        self.paste_target = target
+
 
 def presenter_with_selection(selected: str | None):
     events: list[str] = []
     presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
-    presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events))}
+    lifecycle = PopupFocusLifecycle(
+        registered=True,
+        shown=True,
+        initial_focus_established=True,
+        focused_inside=True,
+    )
+    presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events), focus_lifecycle=lifecycle)}
     presenter._command_sink = lambda command: events.append(command)
-    presenter._active_workflow_id = "s1"
+    presenter._paste_target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
+    presenter._paste_target_updates = queue.Queue()
     return presenter, events
 
 
@@ -132,7 +145,6 @@ def test_late_output_operation_evicts_dead_view_without_touching_surface() -> No
 
     assert events == []
     assert presenter._views == {}
-    assert presenter._active_workflow_id is None
 
 
 def test_late_completed_snapshot_evicts_dead_view_without_touching_surface() -> None:
@@ -144,7 +156,6 @@ def test_late_completed_snapshot_evicts_dead_view_without_touching_surface() -> 
 
     assert events == []
     assert presenter._views == {}
-    assert presenter._active_workflow_id is None
 
 
 def test_closed_snapshot_cleanup_is_idempotent() -> None:
@@ -156,7 +167,6 @@ def test_closed_snapshot_cleanup_is_idempotent() -> None:
 
     assert events == ["close"]
     assert presenter._views == {}
-    assert presenter._active_workflow_id is None
 
 
 def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:
@@ -201,6 +211,7 @@ def test_pinned_paste_success_restores_without_activation() -> None:
 
     assert "restore:False" in events
     assert view.paste_transition_id is None
+    assert view.surface.focused is False
 
 
 def test_unpinned_paste_failure_restores_with_focus() -> None:
@@ -317,7 +328,7 @@ def test_ctrl_v_pastes_only_for_active_popup() -> None:
     assert events == ["paste:s1"]
 
     events.clear()
-    presenter._active_workflow_id = "other"
+    view.focus_lifecycle.focused_inside = False
     result = view.dialog.root.bindings["<Control-v>"](None)
 
     assert result == "break"
@@ -369,7 +380,7 @@ def test_ctrl_e_toggles_pin_for_active_popup() -> None:
     assert events == ["pin:toggled", TogglePin("s1")]
 
     events.clear()
-    presenter._active_workflow_id = "other"
+    view.focus_lifecycle.focused_inside = False
     result = view.dialog.root.bindings["<Control-e>"](CtrlWithNumLockEvent())
 
     assert result == "break"
@@ -461,30 +472,56 @@ def test_native_close_request_immediately_excludes_popup_content_and_emits_close
 
 def test_focus_lifecycle_ignores_focus_out_until_registered_shown_and_focused() -> None:
     lifecycle = PopupFocusLifecycle()
-    assert lifecycle.request_outside_check() is False
+    assert lifecycle.request_outside_check() is None
     lifecycle.registered = True
     lifecycle.shown = True
-    assert lifecycle.request_outside_check() is False
-    lifecycle.initial_focus_established = True
-    assert lifecycle.request_outside_check() is True
-    assert lifecycle.request_outside_check() is False
+    assert lifecycle.request_outside_check() is None
+    lifecycle.mark_focused()
+    assert lifecycle.request_outside_check() is not None
+    assert lifecycle.request_outside_check() is None
 
 
 def test_focus_lifecycle_closes_only_for_unpinned_outside_focus() -> None:
     lifecycle = PopupFocusLifecycle(True, True, True)
-    assert lifecycle.request_outside_check() is True
-    assert lifecycle.finish_outside_check(pinned=False, focused_inside=True) is False
-    assert lifecycle.request_outside_check() is True
-    assert lifecycle.finish_outside_check(pinned=True, focused_inside=False) is False
-    assert lifecycle.request_outside_check() is True
-    assert lifecycle.finish_outside_check(pinned=False, focused_inside=False) is True
+    generation = lifecycle.request_outside_check()
+    assert generation is not None
+    assert lifecycle.finish_outside_check(generation, pinned=False, focused_inside=True) is False
+    generation = lifecycle.request_outside_check()
+    assert generation is not None
+    assert lifecycle.finish_outside_check(generation, pinned=True, focused_inside=False) is False
+    generation = lifecycle.request_outside_check()
+    assert generation is not None
+    assert lifecycle.finish_outside_check(generation, pinned=False, focused_inside=False) is True
 
 
 def test_focus_lifecycle_can_cancel_outside_check_during_paste_transition() -> None:
     lifecycle = PopupFocusLifecycle(True, True, True)
-    assert lifecycle.request_outside_check() is True
+    assert lifecycle.request_outside_check() is not None
     lifecycle.cancel_outside_check()
-    assert lifecycle.request_outside_check() is True
+    assert lifecycle.request_outside_check() is not None
+
+
+def test_new_focus_invalidates_stale_outside_check() -> None:
+    lifecycle = PopupFocusLifecycle(True, True, True)
+    generation = lifecycle.request_outside_check()
+    assert generation is not None
+
+    lifecycle.mark_focused()
+
+    assert lifecycle.finish_outside_check(generation, pinned=False, focused_inside=False) is False
+    assert lifecycle.focused_inside is True
+
+
+def test_latest_paste_target_updates_visible_focus_projection() -> None:
+    presenter, _events = presenter_with_selection(None)
+    newer = PasteTarget("hwnd:20", 84, "Writer", "Draft", 2)
+
+    presenter._apply_paste_target(newer)
+    presenter._apply_paste_target(PasteTarget("hwnd:10", 42, "Old", "Old", 1))
+
+    surface = presenter._views["s1"].surface
+    assert surface.focused is True
+    assert surface.paste_target == newer
 
 
 def test_content_key_ignores_speaking_and_pin_snapshot_changes() -> None:

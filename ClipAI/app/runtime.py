@@ -10,9 +10,9 @@ from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeCommand, Short
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeCommand, UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvocationFailed, WorkflowRuntimeCommand, WorkflowRuntimeModule
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CloseShortcutGuide, CopyResult, ExportDiagnostics, FollowUp, GuidancePreferencesCompleted, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, ShortcutGestureProgressed, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CloseShortcutGuide, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, ShortcutGestureProgressed, ShortcutTriggered, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import HotkeyEventType
-from ClipAI.core.ports import ApplicationView, OperationTracker, RuntimeComponent, Stoppable
+from ClipAI.core.ports import ApplicationView, ForegroundWindowMonitor, OperationTracker, RuntimeComponent, Stoppable
 from ClipAI.services.provider_configuration import ProviderConfigurationResult
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 
@@ -48,6 +48,7 @@ class AppRuntime:
         tray_factory: Callable[[Callable[[], None]], RuntimeComponent] | None = None,
         operation_tracker: OperationTracker | None = None,
         shortcut_guide: ShortcutGuideRuntimeModule | None = None,
+        foreground_monitor: ForegroundWindowMonitor | None = None,
     ) -> None:
         self._shortcuts = shortcuts
         self._view = view
@@ -60,6 +61,7 @@ class AppRuntime:
         self._tray_factory = tray_factory
         self._operation_tracker = operation_tracker
         self._shortcut_guide_module = shortcut_guide
+        self._foreground_monitor = foreground_monitor
         self._commands: queue.Queue[object] = queue.Queue()
         self._listener: Stoppable | None = None
         self._tray: RuntimeComponent | None = None
@@ -91,6 +93,8 @@ class AppRuntime:
             self._commands.put(command)
 
     def start(self) -> None:
+        if self._foreground_monitor is not None:
+            self._foreground_monitor.start()
         self._listener = self._hotkey_registrar(
             self._shortcuts.hotkey_map(),
             lambda shortcut_id, press_type, gesture_id: self.enqueue(ShortcutTriggered(shortcut_id, press_type, gesture_id)),
@@ -124,6 +128,8 @@ class AppRuntime:
         if self._stopping:
             return
         self._stopping = True
+        if self._foreground_monitor is not None:
+            self._foreground_monitor.stop()
         self._workflow_module.stop()
         self._result_output_module.stop()
         if self._listener is not None:
@@ -147,6 +153,8 @@ class AppRuntime:
             resolved = self._workflow_module.resolve_shortcut(command)
             if resolved is not None:
                 self._route(resolved)
+        elif isinstance(command, ExternalForegroundChanged):
+            self._result_output_module.observe_paste_target(command.target)
         elif isinstance(command, _SHORTCUT_GUIDE_COMMANDS):
             if self._shortcut_guide_module is not None:
                 if isinstance(command, OpenShortcutGuide):

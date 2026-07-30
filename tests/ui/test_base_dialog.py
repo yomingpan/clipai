@@ -7,6 +7,7 @@ import tkinter as tk
 import customtkinter as ctk
 import pytest
 
+from ClipAI.core.models import PasteTarget
 from ClipAI.ui.base_dialog import (
     ACTION_COLOR,
     ACTION_HOVER_COLOR,
@@ -46,6 +47,7 @@ from ClipAI.ui.base_dialog import (
     configure_hanging_indent,
     configure_tooltip_layer,
     insert_display_text,
+    paste_target_display_text,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
@@ -269,6 +271,60 @@ def test_set_idle_cancels_pending_reset_without_scheduling_another() -> None:
     assert first_job in scheduler.cancelled
     assert scheduler.jobs == {}
     assert controller.state == "idle"
+
+
+def test_focus_idle_color_survives_transient_success_flash() -> None:
+    applied: list[str] = []
+    scheduler = FakeScheduler()
+    controller = SurfaceFlashController(
+        colors=SurfaceStateColors(),
+        apply_color=applied.append,
+        schedule=scheduler.schedule,
+        cancel=scheduler.cancel,
+    )
+
+    controller.set_idle_color("#5F6B78")
+    controller.flash("success")
+    scheduler.fire(next(iter(scheduler.jobs)))
+
+    assert applied[-1] == "#5F6B78"
+
+
+def test_paste_target_display_uses_app_and_truncated_title() -> None:
+    target = PasteTarget("hwnd:10", 42, "Notepad", "x" * 50, 1)
+
+    assert paste_target_display_text(target) == f"Notepad — {'x' * 35}…"
+
+
+def test_paste_focus_projection_explains_active_and_unfocused_ctrl_v() -> None:
+    class Dialog:
+        def __init__(self) -> None:
+            self.focus_states = []
+
+        def set_focus_active(self, active: bool) -> None:
+            self.focus_states.append(active)
+
+    class Label:
+        def __init__(self) -> None:
+            self.values = []
+
+        def configure(self, **values) -> None:
+            self.values.append(values)
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.dialog = Dialog()
+    surface.paste_target_label = Label()
+    tooltips = []
+    surface.set_action_tooltip = lambda slot, text: tooltips.append((slot, text))
+    target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
+
+    surface.set_paste_focus_state(True, target)
+    surface.set_paste_focus_state(False, target)
+
+    assert surface.dialog.focus_states == [True, False]
+    assert surface.paste_target_label.values[0]["text"] == "貼到：Notepad — Untitled｜Ctrl+V 貼上辨識文字"
+    assert "原剪貼簿內容" in surface.paste_target_label.values[-1]["text"]
+    assert tooltips[0] == ("paste", "貼上辨識文字到 Notepad — Untitled (Ctrl+V)")
 
 
 def test_rounded_surface_painter_redraws_tagged_surface_below_widgets() -> None:

@@ -9,7 +9,7 @@ import uuid
 import customtkinter as ctk
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActiveWorkflowContext, FeedbackOutcome, OutputOperationResult, ProviderSettingsState, ShortcutGuideSnapshot
+from ClipAI.core.models import ActiveWorkflowContext, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
@@ -49,19 +49,36 @@ class PopupFocusLifecycle:
     shown: bool = False
     initial_focus_established: bool = False
     outside_check_pending: bool = False
+    focused_inside: bool = False
+    transition_generation: int = 0
 
     @property
     def ready(self) -> bool:
         return self.registered and self.shown and self.initial_focus_established
 
-    def request_outside_check(self) -> bool:
-        if not self.ready or self.outside_check_pending:
-            return False
-        self.outside_check_pending = True
-        return True
-
-    def finish_outside_check(self, *, pinned: bool, focused_inside: bool) -> bool:
+    def mark_focused(self) -> None:
+        self.initial_focus_established = True
+        self.focused_inside = True
         self.outside_check_pending = False
+        self.transition_generation += 1
+
+    def mark_unfocused(self) -> None:
+        self.focused_inside = False
+        self.outside_check_pending = False
+        self.transition_generation += 1
+
+    def request_outside_check(self) -> int | None:
+        if not self.ready or self.outside_check_pending:
+            return None
+        self.outside_check_pending = True
+        self.transition_generation += 1
+        return self.transition_generation
+
+    def finish_outside_check(self, generation: int, *, pinned: bool, focused_inside: bool) -> bool:
+        if generation != self.transition_generation:
+            return False
+        self.outside_check_pending = False
+        self.focused_inside = focused_inside
         return self.ready and not pinned and not focused_inside
 
     def cancel_outside_check(self) -> None:
@@ -76,12 +93,13 @@ class ResultDialogPresenter:
         self._root.withdraw()
         self._updates: queue.Queue[SessionSnapshot] = queue.Queue()
         self._output_updates: queue.Queue[OutputOperationResult] = queue.Queue()
+        self._paste_target_updates: queue.Queue[PasteTarget | None] = queue.Queue()
         self._views: dict[str, _SessionView] = {}
         self._command_sink: Callable[[object], None] = lambda _command: None
         self._stopping = False
         self._destroyed = False
         self._tick_job: str | None = None
-        self._active_workflow_id: str | None = None
+        self._paste_target: PasteTarget | None = None
         self._display_metrics = display_metrics
         self._layout_policy = layout_policy or PopupLayoutPolicy()
         self._provider_settings_dialog: ProviderSettingsDialog | None = None
@@ -106,6 +124,9 @@ class ResultDialogPresenter:
 
     def present_output_operation(self, result: OutputOperationResult) -> None:
         self._output_updates.put(result)
+
+    def present_paste_target(self, target: PasteTarget | None) -> None:
+        self._paste_target_updates.put(target)
 
     def show_provider_settings(self, state: ProviderSettingsState) -> None:
         if self._provider_settings_dialog is None:
@@ -157,7 +178,7 @@ class ResultDialogPresenter:
                 if pinned:
                     view.dialog.restore_after_external_output(activate=False)
             else:
-                view.dialog.restore_after_external_output(activate=not pinned)
+                view.dialog.restore_after_external_output(activate=True)
         if result.state == "succeeded":
             view.surface.pulse_standard_action(slot_id)
             if result.kind == "archive" and not view.surface.overflow_expanded:
@@ -223,6 +244,11 @@ class ResultDialogPresenter:
     def _drain_updates(self) -> None:
         while True:
             try:
+                self._apply_paste_target(self._paste_target_updates.get_nowait())
+            except queue.Empty:
+                break
+        while True:
+            try:
                 self._apply_output_operation(self._output_updates.get_nowait())
             except queue.Empty:
                 break
@@ -232,6 +258,19 @@ class ResultDialogPresenter:
             except queue.Empty:
                 return
             self._apply(snapshot)
+
+    def _apply_paste_target(self, target: PasteTarget | None) -> None:
+        current = self._paste_target
+        if target is not None and current is not None:
+            if target.observation_sequence <= current.observation_sequence:
+                return
+        self._paste_target = target
+        for view in self._views.values():
+            lifecycle = view.focus_lifecycle
+            view.surface.set_paste_focus_state(
+                bool(lifecycle and lifecycle.focused_inside),
+                target,
+            )
 
     def _apply(self, snapshot: SessionSnapshot) -> None:
         view = self._views.get(snapshot.session_id)
@@ -245,14 +284,11 @@ class ResultDialogPresenter:
                 view.dialog.close()
                 self._evict_view(snapshot.session_id, view)
             return
-        created = view is None
         if view is None:
             view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
             self._register_view(snapshot.session_id, view)
         view.revision = snapshot.revision
-        if created or self._active_workflow_id is None:
-            self._active_workflow_id = snapshot.session_id
         previous_step_id = view.step_id
         view.content = snapshot.content
         if snapshot.displayed_step_index >= 0:
@@ -263,6 +299,11 @@ class ResultDialogPresenter:
         view.surface.set_title(snapshot.title)
         view.surface.set_source_preview(snapshot.source_preview)
         view.surface.set_model(snapshot.model)
+        lifecycle = view.focus_lifecycle
+        view.surface.set_paste_focus_state(
+            bool(lifecycle and lifecycle.focused_inside),
+            self._paste_target,
+        )
         view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
         guidance_key = view.step_id or ""
         if snapshot.status == SessionStatus.COMPLETED and snapshot.show_guidance_hint and guidance_key not in view.shown_guidance_keys:
@@ -332,16 +373,12 @@ class ResultDialogPresenter:
     def _evict_view(self, session_id: str, view: _SessionView) -> None:
         if self._views.get(session_id) is view:
             self._views.pop(session_id, None)
-        if self._active_workflow_id == session_id:
-            self._active_workflow_id = None
 
     def _request_close(self, session_id: str) -> None:
         view = self._views.get(session_id)
         if view is None or view.close_requested:
             return
         view.close_requested = True
-        if self._active_workflow_id == session_id:
-            self._active_workflow_id = None
         self._command_sink(CloseSession(session_id))
 
     def _interactive_view(self, session_id: str) -> _SessionView | None:
@@ -387,6 +424,9 @@ class ResultDialogPresenter:
         text = view.surface.selected_text()
         view.paste_transition_id = operation_id
         view.paste_transition_pinned = view.dialog.pinned
+        if view.focus_lifecycle is not None:
+            view.focus_lifecycle.mark_unfocused()
+        view.surface.set_paste_focus_state(False, self._paste_target)
         view.dialog.hide_for_external_output()
         self._command_sink(PasteResult(session_id, text, operation_id))
 
@@ -450,7 +490,7 @@ class ResultDialogPresenter:
         dialog = BaseDialog(
             title="ClipAI",
             width=bounds.width if bounds else 400,
-            height=bounds.height if bounds else 320,
+            height=bounds.height if bounds else 336,
             position="cursor",
             background_color="#111111",
             surface_color="#2B2B2B",
@@ -475,7 +515,7 @@ class ResultDialogPresenter:
         lifecycle.registered = True
         dialog = view.dialog
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
-        dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._activate(sid), add="+")
+        dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._focus_in(sid), add="+")
         dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
         dialog.root.bind("<Control-q>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_speech, sid), add="+")
         dialog.root.bind("<Control-e>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_pin, sid), add="+")
@@ -491,12 +531,15 @@ class ResultDialogPresenter:
             if session_id not in self._views:
                 return
             dialog.lifecycle.focus()
-            lifecycle.initial_focus_established = True
+            lifecycle.mark_focused()
+            view.surface.set_paste_focus_state(True, self._paste_target)
 
         dialog.lifecycle.schedule(0, establish_initial_focus)
 
     def _shortcut(self, action: Callable[[str], None], session_id: str) -> str:
-        if self._active_workflow_id == session_id:
+        view = self._views.get(session_id)
+        lifecycle = view.focus_lifecycle if view is not None else None
+        if lifecycle is not None and lifecycle.focused_inside:
             action(session_id)
         return "break"
 
@@ -516,8 +559,15 @@ class ResultDialogPresenter:
         self._toggle_pin(session_id)
         return "break"
 
+    def _focus_in(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None or view.focus_lifecycle is None:
+            return
+        view.focus_lifecycle.mark_focused()
+        view.surface.set_paste_focus_state(True, self._paste_target)
+        self._activate(session_id)
+
     def _activate(self, session_id: str) -> None:
-        self._active_workflow_id = session_id
         self._command_sink(ActivateWorkflow(session_id))
 
     def _close_if_outside(self, session_id: str) -> None:
@@ -525,7 +575,10 @@ class ResultDialogPresenter:
         if view is None:
             return
         lifecycle = view.focus_lifecycle
-        if lifecycle is None or not lifecycle.request_outside_check():
+        if lifecycle is None:
+            return
+        generation = lifecycle.request_outside_check()
+        if generation is None:
             return
 
         def check() -> None:
@@ -538,11 +591,23 @@ class ResultDialogPresenter:
             try:
                 focused = view.dialog.root.focus_get()
                 focused_inside = focused is not None and focused.winfo_toplevel() is view.dialog.root
-                if lifecycle.finish_outside_check(pinned=view.dialog.pinned, focused_inside=focused_inside):
+                should_close = lifecycle.finish_outside_check(
+                    generation,
+                    pinned=view.dialog.pinned,
+                    focused_inside=focused_inside,
+                )
+                view.surface.set_paste_focus_state(focused_inside, self._paste_target)
+                if should_close:
                     view.surface.collapse_overflow()
                     self._request_close(session_id)
             except tk.TclError:
-                if lifecycle.finish_outside_check(pinned=view.dialog.pinned, focused_inside=False):
+                should_close = lifecycle.finish_outside_check(
+                    generation,
+                    pinned=view.dialog.pinned,
+                    focused_inside=False,
+                )
+                view.surface.set_paste_focus_state(False, self._paste_target)
+                if should_close:
                     view.surface.collapse_overflow()
                     self._request_close(session_id)
 

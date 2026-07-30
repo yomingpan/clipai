@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeAlias
 
-from ClipAI.core.models import FeedbackOutcome, HotkeyEventType, ModelCatalogConnection, PressType, ProviderSettingsInput, ResultRoute
+from ClipAI.core.models import FeedbackOutcome, HotkeyEventType, ModelCatalogConnection, PasteTarget, PressType, ProviderSettingsInput, ResultRoute
 
 
 @dataclass(frozen=True)
@@ -110,6 +110,11 @@ class PasteResult:
 
 
 @dataclass(frozen=True)
+class ExternalForegroundChanged:
+    target: PasteTarget
+
+
+@dataclass(frozen=True)
 class ArchiveResult:
     session_id: str
     text: str | None = None
@@ -191,4 +196,4 @@ class GuidancePreferencesCompleted:
     error: str = ""
 
 
-AppCommand: TypeAlias = ShortcutTriggered | ShortcutGestureProgressed | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | ReleaseForegroundWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted
+AppCommand: TypeAlias = ShortcutTriggered | ShortcutGestureProgressed | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | CopyResult | PasteResult | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | ReleaseForegroundWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted

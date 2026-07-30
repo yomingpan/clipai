@@ -15,7 +15,7 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ExportDiagnostics, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
+from ClipAI.core.commands import ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, ShutdownApplication
 from ClipAI.core.models import HotkeyEventType, ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, Stoppable
@@ -29,6 +29,7 @@ from ClipAI.platform.dotenv_preferences import DotenvModelPreferenceStore
 from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
+from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider
 from ClipAI.providers.anthropic import AnthropicProvider
@@ -42,6 +43,7 @@ from ClipAI.services.provider_binding import ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
+from ClipAI.services.paste_target import PasteTargetCoordinator
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
 from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
@@ -134,6 +136,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         archive=JsonlArchiveStore(),
         keyboard=SystemKeyboardOutput(),
     )
+    paste_targets = PasteTargetCoordinator(view)
     execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
         prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),
@@ -187,6 +190,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         diagnostics_exporter=diagnostics_exporter,
         notifier=tray,
         speech_coordinator=speech_coordinator,
+        paste_targets=paste_targets,
     )
     provider_configuration_module = ProviderConfigurationRuntimeModule(
         coordinator=provider_configuration,
@@ -227,6 +231,9 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         tray_factory=lambda _on_exit: tray,
         operation_tracker=operation_tracker,
         shortcut_guide=shortcut_guide_module,
+        foreground_monitor=WindowsForegroundWindowMonitor(
+            lambda target: runtime_holder[0].enqueue(ExternalForegroundChanged(target))
+        ),
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):
