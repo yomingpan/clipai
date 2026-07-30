@@ -5,7 +5,7 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import CancelActiveOperations, CloseShortcutGuide, SelectShortcutGuideItem
+from ClipAI.core.commands import CloseShortcutGuide, SelectShortcutGuideItem
 from ClipAI.core.hotkeys import GRAVE_KEY_TOKEN
 from ClipAI.core.models import ShortcutGuideItem, ShortcutGuideSnapshot
 from ClipAI.ui.window_icons import CUSTOMTKINTER_ICON_DELAY_MS, destroy_window_icons, install_clipai_window_icons
@@ -39,7 +39,7 @@ class ShortcutGuideDialog:
         self._window.geometry("900x640")
         self._window.minsize(780, 560)
         self._window.protocol("WM_DELETE_WINDOW", self._request_close)
-        self._window.bind("<Escape>", lambda _event: self._cancel_active_operations())
+        self._window.bind("<Escape>", lambda _event: self._defer_escape_to_hotkey_listener())
         self._window.grid_columnconfigure(0, weight=1)
         self._window.grid_rowconfigure(2, weight=1)
         self._window.after(CUSTOMTKINTER_ICON_DELAY_MS, self._apply_window_icons)
@@ -52,7 +52,7 @@ class ShortcutGuideDialog:
         ).grid(row=0, column=0, padx=24, pady=(22, 4), sticky="ew")
         self._instruction = ctk.CTkLabel(
             self._window,
-            text="請按住 Ctrl + Alt，再按一個功能鍵。練習模式不會呼叫 AI 或執行外部操作。",
+            text="請按住 Ctrl + Alt，再按一個功能鍵。練習模式不會執行 Action；Esc 關閉指南。",
             anchor="w",
             justify="left",
             wraplength=840,
@@ -103,7 +103,7 @@ class ShortcutGuideDialog:
         item = next((entry for entry in snapshot.items if entry.shortcut_id == snapshot.selected_shortcut_id), None)
         if item is not None:
             modifiers = " + ".join(item.display_hotkey.split(" + ")[:-1])
-            self._instruction.configure(text=f"請按住 {modifiers}，再按一個功能鍵。練習模式不會呼叫 AI 或執行外部操作。")
+            self._instruction.configure(text=f"請按住 {modifiers}，再按一個功能鍵。練習模式不會執行 Action；Esc 關閉指南。")
         self._apply_keyboard(item, snapshot.pressed_keys)
         self._status.configure(text=snapshot.status_text)
         self._apply_detail(item)
@@ -203,8 +203,9 @@ class ShortcutGuideDialog:
         if snapshot is not None:
             self._command_sink(CloseShortcutGuide(snapshot.guide_id))
 
-    def _cancel_active_operations(self) -> str:
-        self._command_sink(CancelActiveOperations())
+    @staticmethod
+    def _defer_escape_to_hotkey_listener() -> str:
+        """Let the global physical-key listener emit the single typed Escape intent."""
         return "break"
 
     def _apply_window_icons(self) -> None:

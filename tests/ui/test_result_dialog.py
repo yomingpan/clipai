@@ -110,6 +110,8 @@ def presenter_with_selection(selected: str | None):
     presenter._command_sink = lambda command: events.append(command)
     presenter._paste_target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
     presenter._paste_target_updates = queue.Queue()
+    presenter._shortcut_guide_focus_hold_active = False
+    presenter._shortcut_guide_focus_return = None
     return presenter, events
 
 
@@ -498,6 +500,95 @@ def test_focus_lifecycle_closes_only_for_unpinned_outside_focus() -> None:
     generation = lifecycle.request_outside_check()
     assert generation is not None
     assert lifecycle.finish_outside_check(generation, pinned=False, focused_inside=False) is True
+
+
+def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
+    class Guide:
+        def show(self, _snapshot) -> None:
+            events.append("guide:show")
+
+        def close(self) -> None:
+            events.append("guide:close")
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, callback) -> str:
+            callback()
+            return "restore-focus"
+
+        def focus(self) -> None:
+            events.append("focus")
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.lifecycle = Lifecycle()
+    presenter._shortcut_guide_dialog = Guide()
+    presenter._shortcut_guide_focus_return = None
+
+    assert view.focus_lifecycle is not None
+    stale_outside_generation = view.focus_lifecycle.request_outside_check()
+    assert stale_outside_generation is not None
+    presenter.show_shortcut_guide(object())
+
+    assert view.focus_lifecycle.finish_outside_check(
+        stale_outside_generation,
+        pinned=False,
+        focused_inside=False,
+    ) is False
+    assert view.focus_lifecycle.request_outside_check() is None
+    assert view.surface.focused is False
+
+    presenter.close_shortcut_guide()
+    presenter._copy("s1")
+
+    assert events[:3] == ["guide:show", "guide:close", "focus"]
+    assert isinstance(events[3], CopyResult)
+    assert view.focus_lifecycle.focused_inside is True
+    assert view.surface.focused is True
+
+
+def test_shortcut_guide_does_not_restore_a_popup_that_started_closing() -> None:
+    class Guide:
+        def show(self, _snapshot) -> None:
+            pass
+
+        def close(self) -> None:
+            events.append("guide:close")
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    presenter._shortcut_guide_dialog = Guide()
+    presenter._shortcut_guide_focus_return = None
+
+    presenter.show_shortcut_guide(object())
+    view.close_requested = True
+    presenter.close_shortcut_guide()
+
+    assert events == ["guide:close"]
+    assert view.focus_lifecycle is not None
+    assert view.focus_lifecycle.focused_inside is False
+
+
+def test_shortcut_guide_without_an_original_popup_does_not_force_focus() -> None:
+    events = []
+
+    class Guide:
+        def show(self, _snapshot) -> None:
+            events.append("guide:show")
+
+        def close(self) -> None:
+            events.append("guide:close")
+
+    presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
+    presenter._views = {}
+    presenter._shortcut_guide_dialog = Guide()
+    presenter._shortcut_guide_focus_hold_active = False
+    presenter._shortcut_guide_focus_return = None
+
+    presenter.show_shortcut_guide(object())
+    presenter.close_shortcut_guide()
+
+    assert events == ["guide:show", "guide:close"]
+    assert presenter._shortcut_guide_focus_return is None
 
 
 def test_focus_lifecycle_can_cancel_outside_check_during_paste_transition() -> None:

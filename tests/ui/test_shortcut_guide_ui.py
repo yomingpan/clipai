@@ -1,7 +1,6 @@
 from importlib.resources import files
 
 from ClipAI.app.config_loader import load_config_bundle
-from ClipAI.core.commands import CancelActiveOperations
 from ClipAI.core.hotkeys import MODIFIER_KEYS
 from ClipAI.core.models import ShortcutGuideItem, ShortcutGuideSnapshot
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog
@@ -109,10 +108,10 @@ def test_snapshot_update_does_not_raise_the_window() -> None:
     assert dialog._window.lift_calls == 1
 
 
-def test_escape_emits_global_cancel_without_closing_shortcut_guide() -> None:
+def test_local_escape_defers_to_the_global_hotkey_listener_without_emitting_a_second_intent() -> None:
     commands = []
     dialog = ShortcutGuideDialog.__new__(ShortcutGuideDialog)
     dialog._command_sink = commands.append
 
-    assert dialog._cancel_active_operations() == "break"
-    assert commands == [CancelActiveOperations()]
+    assert dialog._defer_escape_to_hotkey_listener() == "break"
+    assert commands == []

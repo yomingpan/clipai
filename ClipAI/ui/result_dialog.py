@@ -51,6 +51,7 @@ class PopupFocusLifecycle:
     outside_check_pending: bool = False
     focused_inside: bool = False
     transition_generation: int = 0
+    owned_dialog_active: bool = False
 
     @property
     def ready(self) -> bool:
@@ -68,7 +69,7 @@ class PopupFocusLifecycle:
         self.transition_generation += 1
 
     def request_outside_check(self) -> int | None:
-        if not self.ready or self.outside_check_pending:
+        if not self.ready or self.outside_check_pending or self.owned_dialog_active:
             return None
         self.outside_check_pending = True
         self.transition_generation += 1
@@ -83,6 +84,19 @@ class PopupFocusLifecycle:
 
     def cancel_outside_check(self) -> None:
         self.outside_check_pending = False
+
+    def hold_for_owned_dialog(self) -> None:
+        self.owned_dialog_active = True
+        self.focused_inside = False
+        self.outside_check_pending = False
+        self.transition_generation += 1
+
+    def release_owned_dialog(self, *, restored: bool) -> None:
+        self.owned_dialog_active = False
+        if restored:
+            self.mark_focused()
+        else:
+            self.mark_unfocused()
 
 
 class ResultDialogPresenter:
@@ -104,6 +118,8 @@ class ResultDialogPresenter:
         self._layout_policy = layout_policy or PopupLayoutPolicy()
         self._provider_settings_dialog: ProviderSettingsDialog | None = None
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
+        self._shortcut_guide_focus_hold_active = False
+        self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
@@ -138,6 +154,7 @@ class ResultDialogPresenter:
             self._provider_settings_dialog.apply(state)
 
     def show_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
+        self._hold_focus_for_shortcut_guide()
         if self._shortcut_guide_dialog is None:
             self._shortcut_guide_dialog = ShortcutGuideDialog(self._root, self._command_sink)
         self._shortcut_guide_dialog.show(snapshot)
@@ -149,6 +166,50 @@ class ResultDialogPresenter:
     def close_shortcut_guide(self) -> None:
         if self._shortcut_guide_dialog is not None:
             self._shortcut_guide_dialog.close()
+        self._restore_focus_after_shortcut_guide()
+
+    def _hold_focus_for_shortcut_guide(self) -> None:
+        if self._shortcut_guide_focus_hold_active:
+            return
+        self._shortcut_guide_focus_hold_active = True
+        self._shortcut_guide_focus_return = None
+        for workflow_id, view in self._views.items():
+            lifecycle = view.focus_lifecycle
+            if (
+                lifecycle is None
+                or self._interactive_view(workflow_id) is not view
+                or not (lifecycle.focused_inside or lifecycle.outside_check_pending)
+            ):
+                continue
+            lifecycle.hold_for_owned_dialog()
+            view.surface.set_paste_focus_state(False, self._paste_target)
+            self._shortcut_guide_focus_return = (workflow_id, view)
+            return
+
+    def _restore_focus_after_shortcut_guide(self) -> None:
+        if not self._shortcut_guide_focus_hold_active:
+            return
+        self._shortcut_guide_focus_hold_active = False
+        target, self._shortcut_guide_focus_return = self._shortcut_guide_focus_return, None
+        if target is None:
+            return
+        workflow_id, held_view = target
+        lifecycle = held_view.focus_lifecycle
+        if lifecycle is None:
+            return
+        if self._interactive_view(workflow_id) is not held_view:
+            lifecycle.release_owned_dialog(restored=False)
+            return
+
+        def restore() -> None:
+            if self._interactive_view(workflow_id) is not held_view:
+                lifecycle.release_owned_dialog(restored=False)
+                return
+            held_view.dialog.lifecycle.focus()
+            lifecycle.release_owned_dialog(restored=True)
+            held_view.surface.set_paste_focus_state(True, self._paste_target)
+
+        held_view.dialog.lifecycle.schedule(0, restore)
 
     def _apply_output_operation(self, result: OutputOperationResult) -> None:
         view = self._views.get(result.workflow_id)

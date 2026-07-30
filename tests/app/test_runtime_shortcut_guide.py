@@ -97,7 +97,7 @@ def test_app_runtime_does_not_queue_key_progress_while_guide_is_closed() -> None
     assert runtime._commands.empty()
 
 
-def test_escape_keeps_guide_open_and_routes_global_cancel() -> None:
+def test_escape_closes_guide_without_routing_global_cancel() -> None:
     runtime, _view, _supervisor, _outputs, _listener = make_runtime()
     module, presenter = guide_module()
     module.handle(OpenShortcutGuide("guide-1"))
@@ -108,6 +108,6 @@ def test_escape_keeps_guide_open_and_routes_global_cancel() -> None:
     runtime.enqueue(ShortcutTriggered("", "cancel", 7))
     runtime.drain_commands()
 
-    assert module.is_open is True
-    assert presenter.closed == 0
-    assert cancellations == [CancelActiveOperations()]
+    assert module.is_open is False
+    assert presenter.closed == 1
+    assert cancellations == []

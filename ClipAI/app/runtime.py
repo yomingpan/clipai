@@ -153,6 +153,8 @@ class AppRuntime:
     def _route(self, command: object) -> None:
         if isinstance(command, ShortcutTriggered):
             if command.press_type == "cancel":
+                if self._shortcut_guide_module is not None and self._shortcut_guide_module.consume(command):
+                    return
                 self._route(CancelActiveOperations())
                 return
             if self._shortcut_guide_module is not None and self._shortcut_guide_module.consume(command):
