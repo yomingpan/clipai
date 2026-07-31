@@ -6,6 +6,7 @@ from ClipAI.core.errors import ProviderAuthError, ProviderResponseError
 from ClipAI.providers.http_transport import HttpResponse
 from ClipAI.providers.model_catalog import ProviderModelCatalogClient
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
+from tests.providers.async_helpers import run
 
 
 class FakeTransport:
@@ -13,11 +14,11 @@ class FakeTransport:
         self.response = response
         self.calls = []
 
-    def get(self, url, **kwargs):
+    async def get(self, url, **kwargs):
         self.calls.append((url, kwargs))
         return self.response
 
-    def post(self, url, **kwargs):
+    async def post(self, url, **kwargs):
         self.calls.append((url, kwargs))
         return self.response
 
@@ -25,7 +26,7 @@ class FakeTransport:
 def test_openai_catalog_validates_with_bearer_header() -> None:
     transport = FakeTransport(HttpResponse(200, "", {"data": [{"id": "gpt-a"}]}))
     client = ProviderModelCatalogClient(transport)
-    models = client.list_models("openai", OpenAISettings("KEY", "https://openai.test", "gpt-a", 10), "secret")
+    models = run(client.list_models("openai", OpenAISettings("KEY", "https://openai.test", "gpt-a", 10), "secret"))
     assert models == ("gpt-a",)
     assert transport.calls[0][0] == "https://openai.test/v1/models"
     assert transport.calls[0][1]["headers"] == {"Authorization": "Bearer secret"}
@@ -34,13 +35,13 @@ def test_openai_catalog_validates_with_bearer_header() -> None:
 def test_gemini_catalog_normalizes_model_names() -> None:
     transport = FakeTransport(HttpResponse(200, "", {"models": [{"name": "models/gemini-a"}]}))
     settings = GeminiSettings("KEY", "https://gemini.test", "gemini-a", 10)
-    assert ProviderModelCatalogClient(transport).list_models("gemini", settings, "secret") == ("gemini-a",)
+    assert run(ProviderModelCatalogClient(transport).list_models("gemini", settings, "secret")) == ("gemini-a",)
 
 
 def test_anthropic_catalog_sends_version_header() -> None:
     transport = FakeTransport(HttpResponse(200, "", {"data": [{"id": "claude-a"}]}))
     settings = AnthropicSettings("KEY", "https://anthropic.test", "claude-a", 10, "2023-06-01", 100)
-    ProviderModelCatalogClient(transport).list_models("anthropic", settings, "secret")
+    run(ProviderModelCatalogClient(transport).list_models("anthropic", settings, "secret"))
     assert transport.calls[0][1]["headers"]["anthropic-version"] == "2023-06-01"
 
 
@@ -48,12 +49,12 @@ def test_catalog_rejects_auth_and_invalid_metadata_without_secret() -> None:
     client = ProviderModelCatalogClient(FakeTransport(HttpResponse(401, "secret echoed", None)))
     settings = OpenAISettings("KEY", "https://openai.test", "gpt-a", 10)
     with pytest.raises(ProviderAuthError) as error:
-        client.list_models("openai", settings, "top-secret")
+        run(client.list_models("openai", settings, "top-secret"))
     assert "top-secret" not in str(error.value)
 
     invalid = ProviderModelCatalogClient(FakeTransport(HttpResponse(200, "", {"wrong": []})))
     with pytest.raises(ProviderResponseError, match="invalid model metadata"):
-        invalid.list_models("openai", settings, "secret")
+        run(invalid.list_models("openai", settings, "secret"))
 
 
 def test_gateway_catalog_falls_back_to_explicit_minimal_completion() -> None:
@@ -61,17 +62,17 @@ def test_gateway_catalog_falls_back_to_explicit_minimal_completion() -> None:
         def __init__(self) -> None:
             self.calls = []
 
-        def get(self, url, **kwargs):
+        async def get(self, url, **kwargs):
             self.calls.append(("get", url, kwargs))
             return HttpResponse(404, "", None)
 
-        def post(self, url, **kwargs):
+        async def post(self, url, **kwargs):
             self.calls.append(("post", url, kwargs))
             return HttpResponse(200, "", {"choices": [{"message": {"content": "OK"}}]})
 
     transport = GatewayTransport()
     settings = GatewaySettings("Local", "http://localhost:8000", "model-a", 10)
-    models = ProviderModelCatalogClient(transport).list_models("gateway", settings, "")
+    models = run(ProviderModelCatalogClient(transport).list_models("gateway", settings, ""))
     assert models == ("model-a",)
     assert [call[0] for call in transport.calls] == ["get", "post"]
 
@@ -80,7 +81,7 @@ def test_gateway_catalog_requires_fallback_model_when_models_endpoint_is_unavail
     transport = FakeTransport(HttpResponse(404, "", None))
     settings = GatewaySettings("Local", "http://localhost:8000", "", 10)
     with pytest.raises(ProviderResponseError, match="Enter a model ID"):
-        ProviderModelCatalogClient(transport).list_models("gateway", settings, "")
+        run(ProviderModelCatalogClient(transport).list_models("gateway", settings, ""))
     assert len(transport.calls) == 1
 
 
@@ -89,7 +90,7 @@ def test_gemini_catalog_paginates_filters_and_deduplicates() -> None:
         def __init__(self) -> None:
             self.calls = []
 
-        def get(self, url, **kwargs):
+        async def get(self, url, **kwargs):
             self.calls.append(kwargs)
             if len(self.calls) == 1:
                 return HttpResponse(200, "", {
@@ -103,6 +104,6 @@ def test_gemini_catalog_paginates_filters_and_deduplicates() -> None:
 
     transport = PagedTransport()
     settings = GeminiSettings("KEY", "https://gemini.test", "gemini-a", 10)
-    models = ProviderModelCatalogClient(transport).list_models("gemini", settings, "secret")
+    models = run(ProviderModelCatalogClient(transport).list_models("gemini", settings, "secret"))
     assert models == ("gemini-a", "gemini-b")
     assert transport.calls[1]["params"]["pageToken"] == "next"

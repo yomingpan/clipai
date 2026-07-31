@@ -4,32 +4,66 @@ import base64
 from typing import Any
 
 from ClipAI.core.errors import CancelledError, ProviderAuthError, ProviderResponseError
-from ClipAI.core.models import ImageContent, LLMRequest, LLMResult, LLMUsage, TextContent
+from ClipAI.core.models import ImageContent, LLMCompleted, LLMRequest, LLMResult, LLMTextDelta, LLMUsage, TextContent
 from ClipAI.core.state import CancellationToken
-from ClipAI.providers.http_transport import HttpResponse, HttpTransport, RequestsHttpTransport
+from ClipAI.providers.http_transport import HttpResponse, HttpTransport
 from ClipAI.providers.settings import AnthropicSettings, ProviderCredential
+from ClipAI.providers.streaming import iter_json_events
 
 
 class AnthropicProvider:
-    def __init__(self, settings: AnthropicSettings, credential: ProviderCredential, transport: HttpTransport | None = None) -> None:
+    def __init__(self, settings: AnthropicSettings, credential: ProviderCredential, transport: HttpTransport) -> None:
         self._settings = settings
         self._credential = credential
-        self._transport = transport or RequestsHttpTransport()
+        self._transport = transport
 
-    def complete(self, request: LLMRequest, cancellation: CancellationToken) -> LLMResult:
+    async def execute(self, request: LLMRequest, cancellation: CancellationToken, *, stream: bool):
         if cancellation.is_cancelled:
             raise CancelledError("request cancelled")
         api_key = self._credential.value
         if not api_key:
             raise ProviderAuthError(f"missing API key in {self._settings.api_key_env}")
-        response = self._transport.post(
+        payload = self.to_payload(request)
+        if stream:
+            payload["stream"] = True
+            text = ""
+            finish_reason: str | None = None
+            input_tokens: int | None = None
+            output_tokens: int | None = None
+            async with self._transport.stream_lines(
+                f"{self._settings.base_url.rstrip('/')}/v1/messages",
+                headers={"x-api-key": api_key, "anthropic-version": self._settings.api_version, "content-type": "application/json"},
+                json=payload,
+                timeout=self._settings.timeout_sec,
+            ) as response:
+                if response.status_code >= 400:
+                    _raise_for_status(HttpResponse(response.status_code, "", None))
+                async for event in iter_json_events(response.lines):
+                    if cancellation.is_cancelled:
+                        raise CancelledError("request cancelled")
+                    event_type = event.get("type")
+                    if event_type == "content_block_delta":
+                        delta = str((event.get("delta") or {}).get("text") or "")
+                        if delta:
+                            text += delta
+                            yield LLMTextDelta(delta)
+                    elif event_type == "message_start":
+                        input_tokens = _optional_int(((event.get("message") or {}).get("usage") or {}).get("input_tokens"))
+                    elif event_type == "message_delta":
+                        finish_reason = str((event.get("delta") or {}).get("stop_reason") or "") or finish_reason
+                        output_tokens = _optional_int((event.get("usage") or {}).get("output_tokens"))
+            if not text.strip():
+                raise ProviderResponseError("Anthropic returned an empty response")
+            yield LLMCompleted(LLMResult(text.strip(), "anthropic", request.model, finish_reason, LLMUsage(input_tokens, output_tokens)))
+            return
+        response = await self._transport.post(
             f"{self._settings.base_url.rstrip('/')}/v1/messages",
             headers={
                 "x-api-key": api_key,
                 "anthropic-version": self._settings.api_version,
                 "content-type": "application/json",
             },
-            json=self.to_payload(request),
+            json=payload,
             timeout=self._settings.timeout_sec,
         )
         if _contains_image(request) and response.status_code in {400, 404, 422}:
@@ -39,7 +73,7 @@ class AnthropicProvider:
         if not text:
             raise ProviderResponseError("Anthropic returned an empty response")
         usage = response.payload.get("usage") or {}
-        return LLMResult(
+        yield LLMCompleted(LLMResult(
             text=text,
             provider="anthropic",
             model=request.model,
@@ -48,7 +82,7 @@ class AnthropicProvider:
                 input_tokens=_optional_int(usage.get("input_tokens")),
                 output_tokens=_optional_int(usage.get("output_tokens")),
             ),
-        )
+        ))
 
     def to_payload(self, request: LLMRequest) -> dict[str, Any]:
         system_text = "\n\n".join(_text_only(message.content) for message in request.messages if message.role == "system").strip()

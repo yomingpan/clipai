@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 import uuid
 
-from ClipAI.app.task_supervisor import TaskSupervisor
+from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, ReleaseForegroundWorkflow, ShortcutPressInvoked, StartAction, TogglePin
 from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, InterruptibleOperationRef
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, WorkflowContextReader
@@ -38,6 +38,12 @@ class HeadlessWorkflowFinished:
     workflow_id: str
 
 
+@dataclass(frozen=True)
+class WorkflowSnapshotReady:
+    snapshot: SessionSnapshot
+    presentation: WorkflowPresentation
+
+
 WorkflowRuntimeCommand: TypeAlias = (
     StartAction
     | CloseSession
@@ -49,6 +55,7 @@ WorkflowRuntimeCommand: TypeAlias = (
     | NavigateWorkflowBack
     | WorkflowInvocationFailed
     | HeadlessWorkflowFinished
+    | WorkflowSnapshotReady
 )
 
 
@@ -59,13 +66,13 @@ class _WorkflowRecord:
     presentation: WorkflowPresentation
 
 
-class _HeadlessPresenter:
-    def __init__(self, on_failed: Callable[[str], None]) -> None:
-        self._on_failed = on_failed
+class _RuntimeWorkflowPresenter:
+    def __init__(self, enqueue: Callable[[object], None], presentation: WorkflowPresentation) -> None:
+        self._enqueue = enqueue
+        self._presentation = presentation
 
     def render(self, snapshot: SessionSnapshot) -> None:
-        if snapshot.status == SessionStatus.FAILED:
-            self._on_failed(snapshot.error)
+        self._enqueue(WorkflowSnapshotReady(snapshot, self._presentation))
 
 
 class WorkflowRuntimeModule:
@@ -78,7 +85,7 @@ class WorkflowRuntimeModule:
         shortcuts: ShortcutCatalog,
         execute_action: ActionExecutor,
         view: ApplicationView,
-        supervisor: TaskSupervisor,
+        provider_execution: ProviderExecutionModule,
         enqueue: Callable[[object], None],
         provider_configuration: ProviderConfigurationCoordinator,
         workflow_context_reader: WorkflowContextReader,
@@ -93,7 +100,7 @@ class WorkflowRuntimeModule:
         self._actions = actions
         self._execute_action = execute_action
         self._view = view
-        self._supervisor = supervisor
+        self._provider_execution = provider_execution
         self._enqueue = enqueue
         self._provider_configuration = provider_configuration
         self._workflow_context_reader = workflow_context_reader
@@ -166,7 +173,7 @@ class WorkflowRuntimeModule:
                     self._speech_coordinator.cancel_workflow(workflow_id)
             else:
                 record.controller.stop_active()
-            self._supervisor.cancel(operation_id)
+            self._provider_execution.cancel(operation_id)
             return (operation_id,)
         return ()
 
@@ -201,6 +208,8 @@ class WorkflowRuntimeModule:
             self._handle_unhandled(command.workflow_id, command.error)
         elif isinstance(command, HeadlessWorkflowFinished):
             self._finish_headless(command.workflow_id)
+        elif isinstance(command, WorkflowSnapshotReady):
+            self._project_snapshot(command.snapshot, command.presentation)
 
     def stop(self) -> None:
         self._shortcut_intents.cancel()
@@ -230,7 +239,7 @@ class WorkflowRuntimeModule:
             active_id = controller.snapshot.active_invocation_id
             if active_id is not None:
                 controller.cancel_active()
-                self._supervisor.cancel(active_id)
+                self._provider_execution.cancel(active_id)
         else:
             previous = self.controller_for(self._foreground_id or "")
             if previous is not None and not previous.snapshot.pinned:
@@ -240,7 +249,7 @@ class WorkflowRuntimeModule:
             parent_step_id = None
             controller = WorkflowController(
                 SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
-                self._view,
+                _RuntimeWorkflowPresenter(self._enqueue, "visible"),
             )
             record = self._register(
                 workflow_id,
@@ -270,7 +279,7 @@ class WorkflowRuntimeModule:
         workflow_id = uuid.uuid4().hex
         controller = WorkflowController(
             SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
-            _HeadlessPresenter(lambda message: self._sequence_error(message, "Check the active model and try again.")),
+            _RuntimeWorkflowPresenter(self._enqueue, "headless"),
         )
         invocation = ActionInvocation(
             uuid.uuid4().hex,
@@ -288,8 +297,8 @@ class WorkflowRuntimeModule:
             "headless",
         )
 
-        def execute() -> None:
-            self._execute_action.execute_invocation(action, invocation, controller, binding=record.binding)
+        async def execute() -> None:
+            await self._execute_action.execute_invocation(action, invocation, controller, binding=record.binding)
             if controller.snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED}:
                 self._enqueue(HeadlessWorkflowFinished(workflow_id))
 
@@ -360,7 +369,7 @@ class WorkflowRuntimeModule:
         self,
         workflow_id: str,
         invocation_id: str,
-        work: Callable[[], None],
+        work: Callable[[], Awaitable[None]],
     ) -> None:
         try:
             if self._user_control is not None:
@@ -373,18 +382,20 @@ class WorkflowRuntimeModule:
                 ))
                 self._interruption_leases[invocation_id] = lease
 
-            def tracked_work() -> None:
+            async def tracked_work() -> None:
                 try:
-                    work()
+                    await work()
                 finally:
                     current = self._interruption_leases.pop(invocation_id, None)
                     if current is not None:
                         current.finish()
 
-            self._supervisor.submit(
+            self._provider_execution.start(
                 invocation_id,
                 tracked_work,
+                lambda _result: None,
                 lambda error: self._enqueue(WorkflowInvocationFailed(workflow_id, error)),
+                lambda: None,
             )
         except BaseException as error:
             self._handle_unhandled(workflow_id, error)
@@ -393,6 +404,15 @@ class WorkflowRuntimeModule:
         record = self._records.get(workflow_id)
         if record is not None and record.presentation == "headless":
             self._end(workflow_id, "release")
+
+    def _project_snapshot(self, snapshot: SessionSnapshot, presentation: WorkflowPresentation) -> None:
+        record = self._records.get(snapshot.session_id)
+        if record is not None and record.controller.snapshot.revision < snapshot.revision:
+            return
+        if presentation == "visible":
+            self._view.render(snapshot)
+        elif snapshot.status == SessionStatus.FAILED:
+            self._sequence_error(snapshot.error, "Check the active model and try again.")
 
     def _foreground_context(self):
         workflow_id = self._foreground_id
@@ -436,7 +456,7 @@ class WorkflowRuntimeModule:
         elif disposition == "close":
             record.controller.close()
         if active_id is not None and cancel_task:
-            self._supervisor.cancel(active_id)
+            self._provider_execution.cancel(active_id)
 
     def _sequence_waiting(self) -> None:
         if self._operation_tracker is not None:

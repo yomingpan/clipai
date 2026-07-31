@@ -9,6 +9,7 @@ from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.http_transport import HttpResponse
 from ClipAI.providers.settings import GeminiSettings, ProviderCredential
+from tests.providers.async_helpers import complete
 
 
 class FakeTransport:
@@ -17,7 +18,7 @@ class FakeTransport:
         self.error = error
         self.calls: list[tuple[str, dict]] = []
 
-    def post(self, url: str, **kwargs):
+    async def post(self, url: str, **kwargs):
         self.calls.append((url, kwargs))
         if self.error:
             raise self.error
@@ -30,7 +31,7 @@ def request(model: str = "test-model") -> LLMRequest:
 
 
 def test_fake_provider_implements_common_contract() -> None:
-    result = FakeProvider("ok").complete(request(), CancellationToken())
+    result = complete(FakeProvider("ok"), request())
     assert (result.text, result.provider, result.model) == ("ok", "fake", "test-model")
 
 
@@ -40,7 +41,7 @@ def test_gemini_maps_payload_and_response() -> None:
         "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 4},
     }))
     provider = GeminiProvider(GeminiSettings("GEMINI_KEY", "https://gemini.test", "gemini", 10), ProviderCredential("GEMINI_KEY", "secret"), transport)
-    result = provider.complete(request("gemini"), CancellationToken())
+    result = complete(provider, request("gemini"))
     assert result.text == "Gemini result"
     assert result.usage and result.usage.output_tokens == 4
     assert transport.calls[0][0].endswith("/v1beta/models/gemini:generateContent")
@@ -49,7 +50,7 @@ def test_gemini_maps_payload_and_response() -> None:
 def test_gemini_missing_key_is_auth_error() -> None:
     provider = GeminiProvider(GeminiSettings("MISSING_KEY", "https://test", "m", 1), ProviderCredential("MISSING_KEY"), FakeTransport())
     with pytest.raises(ProviderAuthError):
-        provider.complete(request(), CancellationToken())
+        complete(provider, request())
 
 
 def test_gemini_preserves_transport_timeout() -> None:
@@ -58,7 +59,7 @@ def test_gemini_preserves_transport_timeout() -> None:
         ProviderCredential("GEMINI_KEY", "secret"), FakeTransport(error=ProviderTimeoutError("timed out")),
     )
     with pytest.raises(ProviderTimeoutError):
-        provider.complete(request(), CancellationToken())
+        complete(provider, request())
 
 
 def test_gemini_invalid_json_is_response_error() -> None:
@@ -67,4 +68,4 @@ def test_gemini_invalid_json_is_response_error() -> None:
         ProviderCredential("GEMINI_KEY", "secret"), FakeTransport(HttpResponse(200, "not json", None)),
     )
     with pytest.raises(ProviderResponseError, match="invalid JSON"):
-        provider.complete(request(), CancellationToken())
+        complete(provider, request())

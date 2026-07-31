@@ -102,3 +102,22 @@ def test_ui_does_not_choose_interruption_scope_or_call_operation_adapters() -> N
         "cancel_active_operations(",
     )
     assert [value for value in forbidden if value in source] == []
+
+
+def test_production_provider_transport_no_longer_imports_requests() -> None:
+    violations = []
+    for path in Path("ClipAI").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import) and any(alias.name == "requests" for alias in node.names):
+                violations.append(str(path))
+            if isinstance(node, ast.ImportFrom) and node.module == "requests":
+                violations.append(str(path))
+    assert violations == []
+
+
+def test_container_shares_one_clipboard_transaction_owner() -> None:
+    source = Path("ClipAI/app/container.py").read_text(encoding="utf-8")
+    assert source.count("ClipboardTransactionCoordinator(clipboard)") == 1
+    assert "SelectionCaptureCoordinator(\n        clipboard_transactions," in source
+    assert "clipboard_transactions=clipboard_transactions" in source

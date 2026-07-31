@@ -22,7 +22,7 @@ class Clipboard:
 
 
 class Selection:
-    def read_text(self):
+    def read_text(self, cancellation=None):
         return "selected"
 
 
@@ -46,7 +46,7 @@ def test_selection_wins_over_clipboard_image_and_text():
 def test_clipboard_image_wins_over_clipboard_text_without_selection():
     image = ImageContent(b"png", "image/png")
     selection = Selection()
-    selection.read_text = lambda: ""
+    selection.read_text = lambda _cancellation=None: ""
     document = InputResolver(Clipboard(image), selection).resolve("selection_or_clipboard")
     assert document.image == image
     assert document.text == ""

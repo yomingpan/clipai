@@ -54,6 +54,7 @@ class WorkflowController:
                 feedback_operation_id="",
                 feedback_message="",
                 show_guidance_hint=False,
+                result_completeness="none",
             )
             snapshot = self._snapshot
             token = self._active_token
@@ -65,6 +66,24 @@ class WorkflowController:
             if self._snapshot.active_invocation_id != invocation_id or self._active_token.is_cancelled:
                 return None
             self._snapshot = self._snapshot.evolve(status=status, **changes)
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return snapshot
+
+    def append_provider_text(self, invocation_id: str, text: str) -> SessionSnapshot | None:
+        if not text:
+            return self.snapshot
+        with self._lock:
+            if self._snapshot.active_invocation_id != invocation_id or self._active_token.is_cancelled:
+                return None
+            content = text if self._snapshot.result_completeness == "none" else f"{self._snapshot.content}{text}"
+            self._snapshot = self._snapshot.evolve(
+                content=content,
+                status=SessionStatus.REQUESTING_PROVIDER,
+                status_text="Receiving response...",
+                result_completeness="partial",
+                available_actions=("copy",),
+            )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
         return snapshot
@@ -122,6 +141,7 @@ class WorkflowController:
                 feedback_operation_id="",
                 feedback_message="",
                 show_guidance_hint=show_guidance_hint,
+                result_completeness="complete",
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
@@ -136,7 +156,11 @@ class WorkflowController:
                 status_text="Failed",
                 error=message,
                 active_invocation_id=None,
-                available_actions=self._snapshot.available_actions if self._snapshot.steps else (),
+                available_actions=(
+                    ("copy",)
+                    if self._snapshot.result_completeness == "partial"
+                    else self._snapshot.available_actions if self._snapshot.steps else ()
+                ),
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)

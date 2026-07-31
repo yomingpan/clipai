@@ -149,6 +149,17 @@ def insert_display_text(textbox: _TextInserter, index: str, text: str, tags: str
     """Insert transformed text while tagging only its synthetic break spaces."""
     base_tags = (tags,) if isinstance(tags, str) else tags
     parts = add_display_break_hints(text).split(DISPLAY_BREAK_HINT)
+    native_text = getattr(textbox, "_textbox", None)
+    if native_text is not None and hasattr(native_text, "insert"):
+        arguments: list[object] = []
+        for part_index, part in enumerate(parts):
+            if part:
+                arguments.extend((part, base_tags))
+            if part_index + 1 < len(parts):
+                arguments.extend((DISPLAY_BREAK_HINT, (*base_tags, DISPLAY_BREAK_TAG)))
+        if arguments:
+            native_text.insert(index, *arguments)
+        return
     for part_index, part in enumerate(parts):
         if part:
             textbox.insert(index, part, base_tags)
@@ -1163,20 +1174,22 @@ class BaseResultSurface:
         self._feedback_submit = on_submit
         self._feedback_contract = contract
         self._feedback_state = state
-        for child in self.feedback_reason_buttons.winfo_children():
-            child.destroy()
-        for reason in contract.reasons:
-            button = ctk.CTkButton(
-                self.feedback_reason_buttons,
-                text=reason.label,
-                anchor="w",
-                height=25,
-                fg_color="#3A3A3A",
-                hover_color="#4A4A4A",
-                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
-                command=lambda reason_id=reason.id: self._choose_reason(reason_id),
-            )
-            button.pack(fill="x", pady=(0, 4))
+        if getattr(self, "_rendered_feedback_contract", None) != contract:
+            for child in self.feedback_reason_buttons.winfo_children():
+                child.destroy()
+            for reason in contract.reasons:
+                button = ctk.CTkButton(
+                    self.feedback_reason_buttons,
+                    text=reason.label,
+                    anchor="w",
+                    height=25,
+                    fg_color="#3A3A3A",
+                    hover_color="#4A4A4A",
+                    font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
+                    command=lambda reason_id=reason.id: self._choose_reason(reason_id),
+                )
+                button.pack(fill="x", pady=(0, 4))
+            self._rendered_feedback_contract = contract
         enabled = state not in {"pending", "succeeded"}
         for button in self.feedback_buttons:
             button.configure(state="normal" if enabled else "disabled")
@@ -1383,6 +1396,22 @@ class BaseResultSurface:
         for text, tag in chunks:
             insert_display_text(self.content_text, "end", text, tag)
         self.content_text.configure(state="disabled")
+
+    def append_content_text(self, text: str, tag: str = "body") -> None:
+        if not text:
+            return
+        try:
+            at_bottom = self.content_text.yview()[1] >= 0.999
+        except (tk.TclError, AttributeError, IndexError):
+            at_bottom = True
+        self.content_text.configure(state="normal")
+        insert_display_text(self.content_text, "end-1c", text, tag)
+        self.content_text.configure(state="disabled")
+        if at_bottom:
+            try:
+                self.content_text.see("end")
+            except (tk.TclError, AttributeError):
+                pass
 
     def set_presentation_document(self, document: PresentationDocument) -> None:
         self.content_text.configure(state="normal")

@@ -25,6 +25,7 @@ InlineStyle = Literal["plain", "bold", "italic"]
 ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
+ResultCompleteness = Literal["none", "partial", "complete"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
 ControlSurfaceKind = Literal["workflow", "provider_settings", "shortcut_guide"]
@@ -215,6 +216,19 @@ class LLMResult:
 
 
 @dataclass(frozen=True)
+class LLMTextDelta:
+    text: str
+
+
+@dataclass(frozen=True)
+class LLMCompleted:
+    result: LLMResult
+
+
+LLMProviderEvent = LLMTextDelta | LLMCompleted
+
+
+@dataclass(frozen=True)
 class FeedbackReason:
     id: str
     label: str
@@ -263,7 +277,7 @@ class ActionDefinition:
     system_prompt: str
     prompt: str
     press_variants: dict[PressType, ActionVariant]
-    stream: bool = False
+    stream: bool | None = None
     input_mode: InputMode = "selection_or_clipboard"
     output_mode: OutputMode = "popup"
     temperature: float | None = None
@@ -326,6 +340,7 @@ class ResolvedAction:
     external_fallback: ExternalFallback = "selection_or_clipboard"
     feedback_contract: ActionFeedbackContract | None = None
     version_id: str = ""
+    stream: bool = False
 
 
 @dataclass(frozen=True)
@@ -396,9 +411,9 @@ class InputDocument:
 
 
 @dataclass(frozen=True)
-class ClipboardSnapshot:
-    text: str
-    image: ImageContent | None = None
+class SelectionCaptureOutcome:
+    text: str = ""
+    status: Literal["captured", "empty", "modifier_timeout", "cancelled", "failed"] = "empty"
 
 
 @dataclass(frozen=True)

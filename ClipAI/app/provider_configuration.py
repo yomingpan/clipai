@@ -10,6 +10,7 @@ from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider, normalize_gateway_base_url
 from ClipAI.providers.gemini import GeminiProvider
+from ClipAI.providers.http_transport import HttpTransport
 from ClipAI.providers.model_catalog import ProviderModelCatalogClient
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import GatewaySettings, ProviderCredential
@@ -24,15 +25,17 @@ class AppProviderConfigurationBackend:
         bundle: ConfigBundle,
         settings_store: DotenvModelPreferenceStore,
         environment_reader: Callable[[], dict[str, str]],
+        transport: HttpTransport,
         model_catalog: ProviderModelCatalogClient | None = None,
     ) -> None:
         self._bundle = bundle
         self._store = settings_store
         self._environment_reader = environment_reader
-        self._catalog = model_catalog or ProviderModelCatalogClient()
+        self._transport = transport
+        self._catalog = model_catalog or ProviderModelCatalogClient(transport)
 
     def reload(self) -> ProviderRuntimeSnapshot:
-        return build_provider_snapshot(self._bundle, self._environment())
+        return build_provider_snapshot(self._bundle, self._environment(), self._transport)
 
     def persist_provider(self, provider: str) -> ProviderRuntimeSnapshot:
         self._store.save_settings((EnvironmentSetting("CLIPAI_PROVIDER", provider),))
@@ -42,7 +45,7 @@ class AppProviderConfigurationBackend:
         self._store.save_settings((EnvironmentSetting(_model_env_name(provider), model),))
         return self.reload()
 
-    def validate_save_and_build(self, settings: ProviderSettingsInput) -> ProviderRuntimeSnapshot:
+    async def validate_save_and_build(self, settings: ProviderSettingsInput) -> ProviderRuntimeSnapshot:
         environment = self._environment()
         provider_settings = getattr(self._bundle.providers, settings.provider)
         effective_key = settings.api_key.strip() or environment.get(provider_settings.api_key_env, "")
@@ -57,7 +60,7 @@ class AppProviderConfigurationBackend:
             if settings.provider == "gateway"
             else provider_settings
         )
-        self._catalog.list_models(settings.provider, validation_settings, effective_key)
+        await self._catalog.list_models(settings.provider, validation_settings, effective_key)
 
         candidate_environment = {
             **environment,
@@ -85,15 +88,15 @@ class AppProviderConfigurationBackend:
             if settings.api_key.strip():
                 updates.append(EnvironmentSetting(provider_settings.api_key_env, settings.api_key.strip()))
             updates.append(EnvironmentSetting(_model_env_name(settings.provider), settings.model.strip()))
-        candidate = build_provider_snapshot(self._bundle, candidate_environment)
+        candidate = build_provider_snapshot(self._bundle, candidate_environment, self._transport)
         self._store.save_settings(tuple(updates))
         return candidate
 
-    def discover_models(self, provider: str, connection: ModelCatalogConnection | None) -> tuple[str, ...]:
+    async def discover_models(self, provider: str, connection: ModelCatalogConnection | None) -> tuple[str, ...]:
         if provider == "anthropic":
             return self._bundle.providers.anthropic.available_models
         environment = self._environment()
-        snapshot = build_provider_snapshot(self._bundle, environment)
+        snapshot = build_provider_snapshot(self._bundle, environment, self._transport)
         option = next(item for item in snapshot.options if item.provider_id == provider)
         if provider == "gateway":
             base_url = connection.base_url if connection is not None else snapshot.connection_base_url
@@ -113,13 +116,17 @@ class AppProviderConfigurationBackend:
         else:
             provider_settings = getattr(self._bundle.providers, provider)
             api_key = environment.get(provider_settings.api_key_env, "")
-        return self._catalog.list_models(provider, provider_settings, api_key)
+        return await self._catalog.list_models(provider, provider_settings, api_key)
 
     def _environment(self) -> dict[str, str]:
         return {**self._environment_reader(), **self._store.read_settings()}
 
 
-def build_provider_snapshot(bundle: ConfigBundle, environment: Mapping[str, str]) -> ProviderRuntimeSnapshot:
+def build_provider_snapshot(
+    bundle: ConfigBundle,
+    environment: Mapping[str, str],
+    transport: HttpTransport,
+) -> ProviderRuntimeSnapshot:
     values = environment
     active = (values.get("CLIPAI_PROVIDER") or bundle.providers.active).strip().lower()
     allowed = ("gemini", "openai", "anthropic", "gateway")
@@ -149,7 +156,7 @@ def build_provider_snapshot(bundle: ConfigBundle, environment: Mapping[str, str]
                 "llm",
             ),
         )
-        provider = provider_types[provider_id](settings, credential)
+        provider = provider_types[provider_id](settings, credential, transport)
         bindings.append(ProviderExecutionBinding(provider, provider_id, model, issues))
         options.append(ProviderOption(
             provider_id,
@@ -181,7 +188,11 @@ def build_provider_snapshot(bundle: ConfigBundle, environment: Mapping[str, str]
         ReadinessIssue("provider.gateway_not_configured", "Configure the custom gateway before selecting it.", "llm"),
     )
     bindings.append(ProviderExecutionBinding(
-        OpenAICompatibleGatewayProvider(gateway_settings, ProviderCredential("CLIPAI_GATEWAY_API_KEY", gateway_key)),
+        OpenAICompatibleGatewayProvider(
+            gateway_settings,
+            ProviderCredential("CLIPAI_GATEWAY_API_KEY", gateway_key),
+            transport,
+        ),
         "gateway",
         gateway_model,
         gateway_issues,

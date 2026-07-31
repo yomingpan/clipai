@@ -8,6 +8,7 @@ import uuid
 from ClipAI.app.config_schema import ConfigBundle
 from ClipAI.core.errors import ConfigError
 from ClipAI.app.provider_configuration import AppProviderConfigurationBackend, build_provider_snapshot
+from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
@@ -23,7 +24,7 @@ from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.action_feedback import JsonlActionFeedbackStore
 from ClipAI.platform.guidance_preferences import JsonGuidancePreferencesStore
 from ClipAI.platform.hotkey import register_hotkeys_with_long_press
-from ClipAI.platform.selection import SystemSelectionReader
+from ClipAI.platform.selection import SystemSelectionCaptureAdapter
 from ClipAI.platform.filesystem import JsonlArchiveStore
 from ClipAI.platform.dotenv_preferences import DotenvModelPreferenceStore
 from ClipAI.platform.display import WindowsDisplayMetricsReader
@@ -34,9 +35,11 @@ from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
+from ClipAI.providers.http_transport import HttpTransport, HttpxAsyncTransport
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
+from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.action_feedback import ActionFeedbackService
 from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
 from ClipAI.services.provider_binding import ProviderRuntimeSnapshot
@@ -48,6 +51,7 @@ from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
 from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
+from ClipAI.services.selection_capture import SelectionCaptureCoordinator
 from ClipAI.services.user_control import UserControlCoordinator
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
@@ -65,8 +69,15 @@ def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
 def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     configure_logging(bundle.logging)
     settings_store = DotenvModelPreferenceStore()
-    snapshot = build_provider_snapshot(bundle, os.environ)
-    provider_backend = AppProviderConfigurationBackend(bundle, settings_store, lambda: dict(os.environ))
+    provider_transport = HttpxAsyncTransport()
+    provider_execution = ProviderExecutionModule(provider_transport)
+    snapshot = build_provider_snapshot(bundle, os.environ, provider_transport)
+    provider_backend = AppProviderConfigurationBackend(
+        bundle,
+        settings_store,
+        lambda: dict(os.environ),
+        provider_transport,
+    )
     provider_configuration = ProviderConfigurationCoordinator(snapshot, provider_backend)
     active_binding = next(item for item in snapshot.bindings if item.provider_id == snapshot.active_provider)
     active_option = next(item for item in snapshot.options if item.provider_id == snapshot.active_provider)
@@ -116,7 +127,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         if bundle.tts.enabled and bundle.tts.voice
         else None
     )
-    selection_reader = SystemSelectionReader(clipboard)
+    clipboard_transactions = ClipboardTransactionCoordinator(clipboard)
+    selection_reader = SelectionCaptureCoordinator(
+        clipboard_transactions,
+        SystemSelectionCaptureAdapter(),
+    )
     voice_selector = SpeechVoiceSelector(
         bundle.tts.english_voice,
         japanese_voice=bundle.tts.japanese_voice,
@@ -136,8 +151,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         clipboard=clipboard,
         archive=JsonlArchiveStore(),
         keyboard=SystemKeyboardOutput(),
+        clipboard_transactions=clipboard_transactions,
     )
     paste_targets = PasteTargetCoordinator(view)
+    supervisor = TaskSupervisor(bundle.runtime.maintenance_workers)
     execute_action = ActionExecutor(
         input_resolver=InputResolver(clipboard, selection_reader),
         prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),
@@ -147,6 +164,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         operation_tracker=operation_tracker,
         result_router=ResultRouter(speech_coordinator),
         guidance_preferences=guidance_preferences,
+        blocking_runner=lambda task_id, work: supervisor.run(
+            task_id,
+            work,
+            task_class="interactive",
+        ),
     )
 
     def register(
@@ -160,7 +182,6 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
         )
 
-    supervisor = TaskSupervisor(bundle.runtime.max_workers)
     user_control = UserControlCoordinator()
     incident_reporter = IncidentReporter()
     enqueue = lambda command: runtime_holder[0].enqueue(command)
@@ -169,7 +190,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         shortcuts=bundle.shortcuts,
         execute_action=execute_action,
         view=view,
-        supervisor=supervisor,
+        provider_execution=provider_execution,
         enqueue=enqueue,
         provider_configuration=provider_configuration,
         workflow_context_reader=view,
@@ -195,7 +216,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
     provider_configuration_module = ProviderConfigurationRuntimeModule(
         coordinator=provider_configuration,
-        supervisor=supervisor,
+        provider_execution=provider_execution,
         enqueue=enqueue,
         operation_tracker=operation_tracker,
         model_selection_presenter=tray,
@@ -225,6 +246,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         shortcuts=bundle.shortcuts,
         view=view,
         supervisor=supervisor,
+        provider_execution=provider_execution,
         workflows=workflow_module,
         result_output=result_output_module,
         provider_configuration=provider_configuration_module,
@@ -244,7 +266,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     return runtime
 
 
-def _build_provider(bundle: ConfigBundle, credential: ProviderCredential | None = None) -> tuple[LLMProvider, str]:
+def _build_provider(
+    bundle: ConfigBundle,
+    credential: ProviderCredential | None = None,
+    transport: HttpTransport | None = None,
+) -> tuple[LLMProvider, str]:
     active = bundle.providers.active
     if active == "fake":
         return FakeProvider(), "fake-model"
@@ -252,19 +278,24 @@ def _build_provider(bundle: ConfigBundle, credential: ProviderCredential | None 
     assert settings is not None
     model = _resolve_active_model(bundle)
     credential = credential or ProviderCredential(settings.api_key_env)
+    transport = transport or HttpxAsyncTransport()
     if active == "gemini":
-        return GeminiProvider(bundle.providers.gemini, credential), model
+        return GeminiProvider(bundle.providers.gemini, credential, transport), model
     if active == "openai":
-        return OpenAIProvider(bundle.providers.openai, credential), model
+        return OpenAIProvider(bundle.providers.openai, credential, transport), model
     if active == "anthropic":
-        return AnthropicProvider(bundle.providers.anthropic, credential), model
+        return AnthropicProvider(bundle.providers.anthropic, credential, transport), model
     if active == "gateway":
-        return OpenAICompatibleGatewayProvider(bundle.providers.gateway, credential), model
+        return OpenAICompatibleGatewayProvider(bundle.providers.gateway, credential, transport), model
     raise ValueError(f"unsupported provider: {active}")
 
 
 def _build_provider_snapshot(bundle: ConfigBundle, environment=None) -> ProviderRuntimeSnapshot:
-    return build_provider_snapshot(bundle, os.environ if environment is None else environment)
+    return build_provider_snapshot(
+        bundle,
+        os.environ if environment is None else environment,
+        HttpxAsyncTransport(),
+    )
 
 
 def _credential_for(bundle: ConfigBundle, provider_id: str) -> ProviderCredential | None:

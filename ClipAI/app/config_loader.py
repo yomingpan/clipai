@@ -17,6 +17,7 @@ from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 
 T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
+APP_CONFIG_SCHEMA_VERSION = 2
 ACTIONS_SCHEMA_VERSION = 8
 
 
@@ -54,7 +55,7 @@ def load_config_bundle(
 ) -> ConfigBundle:
     app, runtime, providers, tts, voice_input, logging_settings = load_app_config(app_config_path)
     output_profiles = load_output_profiles(output_profiles_path)
-    actions = load_action_catalog(actions_path, output_profiles=output_profiles)
+    actions = load_action_catalog(actions_path, output_profiles=output_profiles, default_stream=app.stream)
     shortcuts = load_shortcut_catalog(shortcuts_path, actions=actions)
     return ConfigBundle(
         app=app,
@@ -67,7 +68,7 @@ def load_config_bundle(
         logging=logging_settings,
         output_profiles=output_profiles,
         schema_versions=ConfigSchemaVersions(
-            app=_read_schema_version(app_config_path),
+            app=_read_schema_version(app_config_path, max_version=APP_CONFIG_SCHEMA_VERSION),
             actions=_read_schema_version(actions_path, max_version=ACTIONS_SCHEMA_VERSION),
             output_profiles=_read_schema_version(output_profiles_path),
             shortcuts=_read_schema_version(shortcuts_path),
@@ -77,7 +78,7 @@ def load_config_bundle(
 
 def load_app_config(path: str | Path) -> tuple[AppSettings, RuntimeSettings, ProviderCatalog, TTSSettings, VoiceInputSettings, LoggingSettings]:
     root = _load_yaml_mapping(path)
-    _schema_version(root, path)
+    _schema_version(root, path, max_version=APP_CONFIG_SCHEMA_VERSION)
     _reject_unknown(root, {"schema_version", "app", "provider", "runtime", "tts", "voice_input", "logging"}, "config")
     app_data = _mapping(root.get("app"), "config.app")
     _reject_unknown(app_data, {"stream", "temperature", "system_prompt", "modifier_mode"}, "config.app")
@@ -89,11 +90,14 @@ def load_app_config(path: str | Path) -> tuple[AppSettings, RuntimeSettings, Pro
     )
 
     runtime_data = _mapping(root.get("runtime"), "config.runtime", allow_none=True)
-    _reject_unknown(runtime_data, {"max_workers"}, "config.runtime")
-    max_workers = _integer(runtime_data.get("max_workers"), "config.runtime.max_workers", default=2)
-    if max_workers < 1:
-        raise ConfigError("config.runtime.max_workers must be at least 1")
-    runtime = RuntimeSettings(max_workers=max_workers)
+    _reject_unknown(runtime_data, {"maintenance_workers", "max_workers"}, "config.runtime")
+    if "maintenance_workers" in runtime_data and "max_workers" in runtime_data:
+        raise ConfigError("config.runtime must not define both maintenance_workers and legacy max_workers")
+    field = "max_workers" if "max_workers" in runtime_data else "maintenance_workers"
+    maintenance_workers = _integer(runtime_data.get(field), f"config.runtime.{field}", default=1)
+    if maintenance_workers < 1:
+        raise ConfigError(f"config.runtime.{field} must be at least 1")
+    runtime = RuntimeSettings(maintenance_workers=maintenance_workers)
 
     provider_data = _mapping(root.get("provider"), "config.provider")
     _reject_unknown(provider_data, {"active", "gemini", "openai", "anthropic", "gateway"}, "config.provider")
@@ -194,7 +198,12 @@ def load_output_profiles(path: str | Path) -> OutputProfileCatalog:
     return OutputProfileCatalog(profiles)
 
 
-def load_action_catalog(path: str | Path, *, output_profiles: OutputProfileCatalog | None = None) -> ActionCatalog:
+def load_action_catalog(
+    path: str | Path,
+    *,
+    output_profiles: OutputProfileCatalog | None = None,
+    default_stream: bool = False,
+) -> ActionCatalog:
     output_profiles = output_profiles or load_output_profiles("config/output_profiles.yaml")
     payload = _load_yaml_mapping(path)
     _schema_version(payload, path, max_version=ACTIONS_SCHEMA_VERSION)
@@ -208,7 +217,7 @@ def load_action_catalog(path: str | Path, *, output_profiles: OutputProfileCatal
         for profile_id in profile_ids:
             if not output_profiles.contains(profile_id):
                 raise ConfigError(f"action {action.id} references unknown output profile: {profile_id}")
-    return ActionCatalog(actions)
+    return ActionCatalog(actions, default_stream=default_stream)
 
 
 def _parse_action(value: Any, index: int) -> ActionDefinition:
@@ -254,7 +263,7 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         system_prompt=_string(data.get("system_prompt"), f"{path}.system_prompt"),
         prompt=_string(data.get("prompt"), f"{path}.prompt"),
         press_variants=variants,
-        stream=_boolean(data.get("stream"), f"{path}.stream", default=False),
+        stream=None if "stream" not in data else _boolean(data.get("stream"), f"{path}.stream", default=False),
         input_mode=cast(InputMode, _choice(data.get("input_mode"), f"{path}.input_mode", {"clipboard", "clipboard_image", "selection_or_clipboard"}, "selection_or_clipboard")),
         output_mode=cast(OutputMode, _choice(data.get("output_mode"), f"{path}.output_mode", {"popup"}, "popup")),
         temperature=None if temperature is None else _number(temperature, f"{path}.temperature"),

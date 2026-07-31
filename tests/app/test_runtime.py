@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import pytest
 
 from ClipAI.app.runtime import AppRuntime
@@ -70,7 +71,7 @@ class FakeSupervisor:
         self.error_handlers: dict[str, object] = {}
         self.submit_error = submit_error
 
-    def submit(self, session_id, work, on_unhandled_error):
+    def submit(self, session_id, work, on_unhandled_error, **_kwargs):
         if self.submit_error is not None:
             raise self.submit_error
         self.work[session_id] = work
@@ -83,6 +84,36 @@ class FakeSupervisor:
         for session_id in dict.fromkeys(session_ids):
             self.cancel(session_id)
         on_settled()
+
+    def shutdown(self) -> None:
+        self.closed = True
+
+
+class FakeProviderExecution:
+    def __init__(self, supervisor: FakeSupervisor) -> None:
+        self.supervisor = supervisor
+        self.closed = False
+
+    def start(self, operation_id, work, on_result, on_error, on_cancelled) -> None:
+        if self.supervisor.submit_error is not None:
+            raise self.supervisor.submit_error
+
+        def run() -> None:
+            try:
+                result = asyncio.run(work())
+            except asyncio.CancelledError:
+                on_cancelled()
+            except BaseException as error:
+                on_error(error)
+            else:
+                on_result(result)
+
+        self.supervisor.work[operation_id] = run
+        self.supervisor.error_handlers[operation_id] = on_error
+
+    def cancel(self, operation_id) -> bool:
+        self.supervisor.cancel(operation_id)
+        return operation_id in self.supervisor.work
 
     def shutdown(self) -> None:
         self.closed = True
@@ -101,12 +132,12 @@ class FakeExecute:
     def execute_follow_up(self, action, text, controller) -> None:
         pass
 
-    def execute_invocation(self, action, invocation, controller, *, binding) -> None:
+    async def execute_invocation(self, action, invocation, controller, *, binding) -> None:
         self.invocations.append(invocation)
         self.models.append(binding.model)
         self.bindings.append(binding)
 
-    def execute_follow_up_invocation(self, *args, **kwargs) -> None:
+    async def execute_follow_up_invocation(self, *args, **kwargs) -> None:
         self.follow_ups.append((args, kwargs))
 
 
@@ -235,7 +266,7 @@ class RuntimeProviderBackend:
         self.snapshot = ProviderRuntimeSnapshot(current.active_provider, bindings, options, current.connection_name, current.connection_base_url)
         return self.snapshot
 
-    def validate_save_and_build(self, settings):
+    async def validate_save_and_build(self, settings):
         if self.validate is not None:
             self.validate(settings.provider, settings.api_key, settings.connection_base_url, settings.model)
         candidate = self.build(settings.provider, settings.model, settings.api_key, settings.connection_name, settings.connection_base_url) if self.build is not None else self.snapshot
@@ -253,7 +284,7 @@ class RuntimeProviderBackend:
         self.snapshot = candidate
         return candidate
 
-    def discover_models(self, provider, connection):
+    async def discover_models(self, provider, connection):
         return self.discover(provider, connection) if self.discover is not None else ()
 
 
@@ -418,6 +449,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
     )
     view = FakeView()
     supervisor = FakeSupervisor(submit_error)
+    provider_execution = FakeProviderExecution(supervisor)
     outputs = FakeOutputs()
     speech_coordinator = speech_coordinator or PopupSpeech(outputs)
     listener = Listener()
@@ -458,7 +490,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         shortcuts=shortcuts,
         execute_action=execute_action,
         view=view,
-        supervisor=supervisor,
+        provider_execution=provider_execution,
         enqueue=enqueue,
         provider_configuration=provider_configuration,
         workflow_context_reader=view,
@@ -482,7 +514,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
     )
     provider_module = ProviderConfigurationRuntimeModule(
         coordinator=provider_configuration,
-        supervisor=supervisor,
+        provider_execution=provider_execution,
         enqueue=enqueue,
         operation_tracker=operation_tracker,
         provider_settings_presenter=view,
@@ -504,6 +536,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         shortcuts=shortcuts,
         view=view,
         supervisor=supervisor,
+        provider_execution=provider_execution,
         workflows=workflow_module,
         result_output=output_module,
         provider_configuration=provider_module,

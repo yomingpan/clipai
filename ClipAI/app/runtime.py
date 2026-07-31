@@ -8,8 +8,9 @@ from ClipAI.app.runtime_outputs import ResultOutputRuntimeCommand, ResultOutputR
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule, ProviderRuntimeCommand
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeCommand, ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeCommand, UserPersistenceRuntimeModule
-from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvocationFailed, WorkflowRuntimeCommand, WorkflowRuntimeModule
+from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvocationFailed, WorkflowRuntimeCommand, WorkflowRuntimeModule, WorkflowSnapshotReady
 from ClipAI.app.task_supervisor import TaskSupervisor
+from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseProviderSettings, CloseSession, CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ControlSurfaceRef, InterruptionPlan, ShortcutObservationSnapshot
 from ClipAI.core.ports import ApplicationView, ForegroundWindowMonitor, OperationTracker, RuntimeComponent, ShortcutInput, ShortcutObservationLease
@@ -18,7 +19,7 @@ from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.user_control import UserControlCoordinator
 
 
-_WORKFLOW_COMMANDS = (StartAction, CloseSession, CancelSession, TogglePin, FollowUp, ActivateWorkflow, ReleaseForegroundWorkflow, NavigateWorkflowBack, WorkflowInvocationFailed, HeadlessWorkflowFinished)
+_WORKFLOW_COMMANDS = (StartAction, CloseSession, CancelSession, TogglePin, FollowUp, ActivateWorkflow, ReleaseForegroundWorkflow, NavigateWorkflowBack, WorkflowInvocationFailed, HeadlessWorkflowFinished, WorkflowSnapshotReady)
 _OUTPUT_COMMANDS = (CopyResult, PasteResult, ArchiveResult, ToggleSpeech, SpeakSelectionOrClipboard, ExportDiagnostics)
 _PROVIDER_COMMANDS = (SelectProviderModel, SelectProvider, ReloadConfiguration, OpenProviderSettings, CloseProviderSettings, ValidateAndSaveProviderSettings, RefreshProviderModels, ProviderConfigurationResult)
 _USER_PERSISTENCE_COMMANDS = (SubmitActionFeedback, ActionFeedbackCompleted, SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted)
@@ -41,6 +42,7 @@ class AppRuntime:
         shortcuts: ShortcutCatalog,
         view: ApplicationView,
         supervisor: TaskSupervisor,
+        provider_execution: ProviderExecutionModule,
         workflows: WorkflowRuntimeModule,
         result_output: ResultOutputRuntimeModule,
         provider_configuration: ProviderConfigurationRuntimeModule,
@@ -61,6 +63,7 @@ class AppRuntime:
         self._shortcuts = shortcuts
         self._view = view
         self._supervisor = supervisor
+        self._provider_execution = provider_execution
         self._workflow_module = workflows
         self._result_output_module = result_output
         self._provider_configuration_module = provider_configuration
@@ -146,6 +149,7 @@ class AppRuntime:
         if self._tray is not None:
             self._tray.stop()
         self._tray = None
+        self._provider_execution.shutdown()
         self._supervisor.shutdown()
         if self._operation_tracker is not None:
             self._operation_tracker.stop()

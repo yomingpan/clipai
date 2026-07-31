@@ -24,7 +24,7 @@ class AppSettings:
 
 @dataclass(frozen=True)
 class RuntimeSettings:
-    max_workers: int = 2
+    maintenance_workers: int = 1
 
 
 @dataclass(frozen=True)

@@ -4,25 +4,53 @@ import base64
 from typing import Any
 
 from ClipAI.core.errors import CancelledError, ProviderAuthError, ProviderResponseError
-from ClipAI.core.models import ImageContent, LLMRequest, LLMResult, LLMUsage, TextContent
+from ClipAI.core.models import ImageContent, LLMCompleted, LLMRequest, LLMResult, LLMTextDelta, LLMUsage, TextContent
 from ClipAI.core.state import CancellationToken
-from ClipAI.providers.http_transport import HttpResponse, HttpTransport, RequestsHttpTransport
+from ClipAI.providers.http_transport import HttpResponse, HttpTransport
 from ClipAI.providers.settings import GeminiSettings, ProviderCredential
+from ClipAI.providers.streaming import iter_json_events
 
 
 class GeminiProvider:
-    def __init__(self, settings: GeminiSettings, credential: ProviderCredential, transport: HttpTransport | None = None) -> None:
+    def __init__(self, settings: GeminiSettings, credential: ProviderCredential, transport: HttpTransport) -> None:
         self._settings = settings
         self._credential = credential
-        self._transport = transport or RequestsHttpTransport()
+        self._transport = transport
 
-    def complete(self, request: LLMRequest, cancellation: CancellationToken) -> LLMResult:
+    async def execute(self, request: LLMRequest, cancellation: CancellationToken, *, stream: bool):
         if cancellation.is_cancelled:
             raise CancelledError("request cancelled")
         api_key = self._credential.value
         if not api_key:
             raise ProviderAuthError(f"missing API key in {self._settings.api_key_env}")
-        response = self._transport.post(
+        if stream:
+            text = ""
+            finish_reason: str | None = None
+            usage = LLMUsage()
+            async with self._transport.stream_lines(
+                f"{self._settings.base_url.rstrip('/')}/v1beta/models/{request.model}:streamGenerateContent",
+                params={"key": api_key, "alt": "sse"},
+                json=self.to_payload(request),
+                timeout=self._settings.timeout_sec,
+            ) as response:
+                if response.status_code >= 400:
+                    _raise_for_status("Gemini", HttpResponse(response.status_code, "", None))
+                async for event in iter_json_events(response.lines):
+                    if cancellation.is_cancelled:
+                        raise CancelledError("request cancelled")
+                    delta = self.extract_text(event)
+                    if delta:
+                        text += delta
+                        yield LLMTextDelta(delta)
+                    finish_reason = self._finish_reason(event) or finish_reason
+                    raw_usage = event.get("usageMetadata") or {}
+                    if raw_usage:
+                        usage = LLMUsage(_optional_int(raw_usage.get("promptTokenCount")), _optional_int(raw_usage.get("candidatesTokenCount")))
+            if not text.strip():
+                raise ProviderResponseError("Gemini returned an empty response")
+            yield LLMCompleted(LLMResult(text.strip(), "gemini", request.model, finish_reason, usage))
+            return
+        response = await self._transport.post(
             f"{self._settings.base_url.rstrip('/')}/v1beta/models/{request.model}:generateContent",
             params={"key": api_key},
             json=self.to_payload(request),
@@ -35,7 +63,7 @@ class GeminiProvider:
         if not text:
             raise ProviderResponseError("Gemini returned an empty response")
         usage_data = response.payload.get("usageMetadata") or {} if isinstance(response.payload, dict) else {}
-        return LLMResult(
+        yield LLMCompleted(LLMResult(
             text=text,
             provider="gemini",
             model=request.model,
@@ -44,7 +72,7 @@ class GeminiProvider:
                 input_tokens=_optional_int(usage_data.get("promptTokenCount")),
                 output_tokens=_optional_int(usage_data.get("candidatesTokenCount")),
             ),
-        )
+        ))
 
     @staticmethod
     def to_payload(request: LLMRequest) -> dict[str, Any]:

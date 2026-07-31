@@ -3,6 +3,7 @@ from __future__ import annotations
 from ClipAI.core.errors import InputError
 from ClipAI.core.models import InputDocument, InputMode
 from ClipAI.core.ports import ClipboardReader, SelectionReader
+from ClipAI.core.state import CancellationToken
 
 
 class InputResolver:
@@ -10,14 +11,14 @@ class InputResolver:
         self._clipboard = clipboard
         self._selection = selection
 
-    def resolve(self, mode: InputMode) -> InputDocument:
+    def resolve(self, mode: InputMode, cancellation: CancellationToken | None = None) -> InputDocument:
         if mode == "clipboard_image":
             image = self._clipboard.read_image()
             if image is None:
                 raise InputError("No screenshot found. Copy a screenshot to the clipboard, then trigger ClipAI again.")
             return InputDocument(text="", source="screenshot", image=image)
         if mode == "selection_or_clipboard" and self._selection is not None:
-            selected = self._selection.read_text().strip()
+            selected = self._selection.read_text(cancellation).strip()
             if selected:
                 return InputDocument(text=selected, source="selection")
         image = self._clipboard.read_image()

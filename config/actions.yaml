@@ -3,7 +3,6 @@ schema_version: 8
 actions:
   - id: translate_to_traditional_chinese
     name: 翻譯成繁體中文
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -32,7 +31,6 @@ actions:
 
   - id: translate_to_english
     name: Translate to English
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -84,7 +82,6 @@ actions:
 
   - id: name_idea
     name: 為想法命名
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -121,7 +118,6 @@ actions:
 
   - id: name_concept_carefully
     name: 概念命名
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -167,7 +163,6 @@ actions:
 
   - id: illuminate_essence
     name: 照亮不變的本質
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -199,7 +194,6 @@ actions:
 
   - id: pyramid_position
     name: 麥肯錫金字塔：形成立場
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -240,7 +234,6 @@ actions:
 
   - id: explain_like_friend
     name: 用朋友的方式說明
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -269,7 +262,6 @@ actions:
 
   - id: article_structure
     name: 文章架構與重要觀點
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -305,7 +297,6 @@ actions:
 
   - id: english_companion
     name: English Companion
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -378,7 +369,6 @@ actions:
 
   - id: reflective_question
     name: 提出一個值得思考的問題
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -414,7 +404,6 @@ actions:
 
   - id: critical_thinking
     name: 批判性思考：提升問題層次
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -456,7 +445,6 @@ actions:
 
   - id: mece_decomposition
     name: MECE 拆解
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -499,7 +487,6 @@ actions:
 
   - id: minimum_action
     name: 最小行動
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -542,7 +529,6 @@ actions:
 
   - id: tradeoff_perspective
     name: 權衡透視
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -588,7 +574,6 @@ actions:
 
   - id: extract_keywords
     name: 抽取核心關鍵字
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -624,7 +609,6 @@ actions:
 
   - id: intent_preserving_dictation_editor
     name: 語音成稿編輯器
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -698,7 +682,6 @@ actions:
 
   - id: shorten_content
     name: Shorten Content
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup
@@ -736,7 +719,6 @@ actions:
 
   - id: extract_screenshot_text
     name: 擷取截圖文字
-    stream: false
     input_mode: clipboard_image
     external_fallback: clipboard
     output_mode: popup
@@ -774,7 +756,6 @@ actions:
 
   - id: command_copilot
     name: Command Copilot｜指令轉譯與風險審查
-    stream: false
     input_mode: selection_or_clipboard
     external_fallback: selection_or_clipboard
     output_mode: popup

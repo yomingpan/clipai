@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 
-from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, GuidancePreferences, InputTarget, LLMRequest, LLMResult, OutputProfile, ReadinessIssue, ResolvedAction
+from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, GuidancePreferences, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, ReadinessIssue, ResolvedAction
 from ClipAI.core.errors import ProviderResponseError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.providers.fake import FakeProvider
@@ -35,7 +36,7 @@ class FakeSelection:
     def __init__(self, text: str) -> None:
         self.text = text
 
-    def read_text(self) -> str:
+    def read_text(self, cancellation=None) -> str:
         return self.text
 
 
@@ -115,12 +116,12 @@ def run_invocation(
     resolved = resolved_action or action()
     invocation = ActionInvocation(invocation_id, "english", resolved.press_type, InputTarget("external_text"), workflow_id="w1")
     controller.begin_invocation(invocation, resolved)
-    use_case.execute_invocation(
+    asyncio.run(use_case.execute_invocation(
         resolved,
         invocation,
         controller,
         binding=binding(provider, readiness_issues),
-    )
+    ))
     return controller
 
 
@@ -177,9 +178,9 @@ def test_execute_invocation_appends_successful_workflow_step() -> None:
     invocation = ActionInvocation("i1", "english", "short", InputTarget("external_text"), workflow_id="w1")
     resolved = action()
     controller.begin_invocation(invocation, resolved)
-    workflow(FakeClipboard("clipboard"), FakeSelection("selected")).execute_invocation(
+    asyncio.run(workflow(FakeClipboard("clipboard"), FakeSelection("selected")).execute_invocation(
         resolved, invocation, controller, binding=binding()
-    )
+    ))
     assert controller.snapshot.status == SessionStatus.COMPLETED
     assert controller.snapshot.content == "result"
     assert controller.snapshot.steps[0].input_text == "selected"
@@ -197,18 +198,18 @@ def test_replaced_invocation_cancels_operation_without_late_success() -> None:
     replacement = ActionInvocation("new", "english", "short", InputTarget("external_text"), workflow_id="w1")
 
     class ReplacingProvider:
-        def complete(self, request, cancellation):
+        async def execute(self, request, cancellation, *, stream):
             controller.begin_invocation(replacement, resolved)
-            return LLMResult("late", "fake", request.model)
+            yield LLMCompleted(LLMResult("late", "fake", request.model))
 
     operations = RecordingOperations()
     controller.begin_invocation(old, resolved)
     provider = ReplacingProvider()
-    workflow(
+    asyncio.run(workflow(
         FakeClipboard("clipboard"),
         FakeSelection("selected"),
         operation_tracker=operations,
-    ).execute_invocation(resolved, old, controller, binding=binding(provider))
+    ).execute_invocation(resolved, old, controller, binding=binding(provider)))
     assert operations.events == [("start", "llm:old", "llm"), ("cancel", "llm:old")]
     assert controller.snapshot.active_invocation_id == "new"
     assert controller.snapshot.content == ""
@@ -222,8 +223,9 @@ def test_llm_reports_only_the_provider_call_lifecycle() -> None:
 
 def test_llm_reports_provider_error_without_false_success() -> None:
     class FailingProvider:
-        def complete(self, request, cancellation):
+        async def execute(self, request, cancellation, *, stream):
             raise ProviderResponseError("provider failed")
+            yield
 
     operations = RecordingOperations()
     provider = FailingProvider()
@@ -238,8 +240,9 @@ def test_llm_reports_provider_error_without_false_success() -> None:
 
 def test_missing_provider_key_fails_before_input_or_provider_call() -> None:
     class NeverProvider:
-        def complete(self, request, cancellation):
+        async def execute(self, request, cancellation, *, stream):
             raise AssertionError("provider must not be called")
+            yield
 
     issue = ReadinessIssue("provider.missing_api_key", "Set GEMINI_API_KEY and restart ClipAI.", "llm")
     provider = NeverProvider()
@@ -253,8 +256,9 @@ def test_missing_provider_key_fails_before_input_or_provider_call() -> None:
 
 def test_empty_input_fails_without_calling_provider() -> None:
     class NeverProvider:
-        def complete(self, request, cancellation):
+        async def execute(self, request, cancellation, *, stream):
             raise AssertionError("provider must not be called")
+            yield
 
     session = run_invocation(workflow(FakeClipboard(""), FakeSelection("")), provider=NeverProvider())
     assert session.snapshot.status == SessionStatus.FAILED
@@ -266,9 +270,9 @@ def test_follow_up_keeps_previous_context() -> None:
         def __init__(self) -> None:
             self.requests: list[LLMRequest] = []
 
-        def complete(self, request: LLMRequest, cancellation: CancellationToken) -> LLMResult:
+        async def execute(self, request: LLMRequest, cancellation: CancellationToken, *, stream):
             self.requests.append(request)
-            return LLMResult("first" if len(self.requests) == 1 else "followed", "fake", request.model)
+            yield LLMCompleted(LLMResult("first" if len(self.requests) == 1 else "followed", "fake", request.model))
 
     provider = RecordingProvider()
     use_case = workflow(FakeClipboard("appetizer"), FakeSelection(""))
@@ -283,7 +287,7 @@ def test_follow_up_keeps_previous_context() -> None:
         parent_step_id=parent.step_id,
     )
     session.begin_invocation(follow, action())
-    use_case.execute_follow_up_invocation(
+    asyncio.run(use_case.execute_follow_up_invocation(
         action(),
         "More examples?",
         follow,
@@ -291,7 +295,7 @@ def test_follow_up_keeps_previous_context() -> None:
         original_input=session.snapshot.original_input,
         previous_result=parent.result_text,
         binding=binding(provider),
-    )
+    ))
     assert session.snapshot.content == "followed"
     assert [message.role for message in provider.requests[1].messages] == ["system", "user", "assistant", "user"]
     assert provider.requests[1].messages[-1].content == "More examples?"

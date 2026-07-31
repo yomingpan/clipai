@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 
 app:
   stream: false
@@ -57,7 +57,7 @@ provider:
     timeout_sec: 60
 
 runtime:
-  max_workers: 2
+  maintenance_workers: 1
 
 tts:
   enabled: true

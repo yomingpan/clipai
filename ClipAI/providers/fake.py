@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.errors import CancelledError
-from ClipAI.core.models import LLMRequest, LLMResult, TextContent
+from ClipAI.core.models import LLMCompleted, LLMRequest, LLMResult, LLMTextDelta, TextContent
 from ClipAI.core.state import CancellationToken
 
 
@@ -9,7 +9,7 @@ class FakeProvider:
     def __init__(self, result: str | None = None) -> None:
         self._result = result
 
-    def complete(self, request: LLMRequest, cancellation: CancellationToken) -> LLMResult:
+    async def execute(self, request: LLMRequest, cancellation: CancellationToken, *, stream: bool):
         if cancellation.is_cancelled:
             raise CancelledError("request cancelled")
         user_message = request.messages[-1].content if request.messages else ""
@@ -18,7 +18,9 @@ class FakeProvider:
             "Vertical slice is connected.\n\n"
             f"{_compact_preview(user_message)}"
         )
-        return LLMResult(text=text, provider="fake", model=request.model, finish_reason="stop")
+        if stream:
+            yield LLMTextDelta(text)
+        yield LLMCompleted(LLMResult(text=text, provider="fake", model=request.model, finish_reason="stop"))
 
 
 def _compact_preview(text, limit: int = 120) -> str:

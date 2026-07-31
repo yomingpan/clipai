@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 
 from ClipAI.app.config_loader import load_config_bundle
@@ -23,20 +24,24 @@ class Catalog:
         self.error = error
         self.calls = []
 
-    def list_models(self, provider, settings, api_key):
+    async def list_models(self, provider, settings, api_key):
         self.calls.append((provider, settings, api_key))
         if self.error is not None:
             raise self.error
         return (settings.model,)
 
 
+class Transport:
+    pass
+
+
 def test_backend_validates_before_persisting_provider_settings() -> None:
     store = Store()
     catalog = Catalog(RuntimeError("validation failed"))
-    backend = AppProviderConfigurationBackend(load_config_bundle(), store, lambda: {}, catalog)
+    backend = AppProviderConfigurationBackend(load_config_bundle(), store, lambda: {}, Transport(), catalog)
 
     with pytest.raises(RuntimeError, match="validation failed"):
-        backend.validate_save_and_build(ProviderSettingsInput("gemini", "gemini-2.5-flash", "secret"))
+        asyncio.run(backend.validate_save_and_build(ProviderSettingsInput("gemini", "gemini-2.5-flash", "secret")))
 
     assert store.saved == []
 
@@ -44,7 +49,7 @@ def test_backend_validates_before_persisting_provider_settings() -> None:
 def test_backend_maps_generic_connection_input_to_gateway_environment() -> None:
     store = Store()
     catalog = Catalog()
-    backend = AppProviderConfigurationBackend(load_config_bundle(), store, lambda: {}, catalog)
+    backend = AppProviderConfigurationBackend(load_config_bundle(), store, lambda: {}, Transport(), catalog)
     settings = ProviderSettingsInput(
         "gateway",
         "local-model",
@@ -53,7 +58,7 @@ def test_backend_maps_generic_connection_input_to_gateway_environment() -> None:
         "http://localhost:8000",
     )
 
-    snapshot = backend.validate_save_and_build(settings)
+    snapshot = asyncio.run(backend.validate_save_and_build(settings))
 
     assert snapshot.active_provider == "gateway"
     assert snapshot.connection_name == "Local AI"

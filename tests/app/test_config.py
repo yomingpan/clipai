@@ -17,7 +17,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.providers.active == "gemini"
     assert bundle.providers.gemini.model == "gemini-3.1-flash-lite"
     assert bundle.providers.gemini.available_models == ("gemini-3.1-flash-lite", "gemini-2.5-flash")
-    assert bundle.runtime.max_workers == 2
+    assert bundle.runtime.maintenance_workers == 1
     assert bundle.app.modifier_mode == "ctrl_alt"
     assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
@@ -26,7 +26,8 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     action = bundle.actions.get("english_companion")
     assert action.input_mode == "selection_or_clipboard"
     assert action.output_mode == "popup"
-    assert action.stream is False
+    assert action.stream is None
+    assert bundle.actions.resolve("english_companion", "short").stream is False
     assert action.temperature == 0.2
     assert action.output_profile == "english_learning_compact"
     assert bundle.output_profiles.get(action.output_profile).required_markers == ()
@@ -37,7 +38,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "concrete real-life situation" in action.system_prompt
     assert "Avoid formulaic wording" in action.prompt
     assert "記憶：" in action.prompt
-    assert bundle.schema_versions.app == 1
+    assert bundle.schema_versions.app == 2
     assert bundle.schema_versions.actions == 8
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
@@ -128,6 +129,31 @@ actions:
     assert catalog.resolve("clipboard_only", "short").input_mode == "clipboard"
 
 
+def test_action_stream_inherits_catalog_default_and_allows_override(tmp_path: Path) -> None:
+    path = tmp_path / "actions.yaml"
+    path.write_text(
+        """schema_version: 8
+actions:
+  - id: inherited
+    name: Inherited
+    system_prompt: system
+    prompt: "{input}"
+  - id: disabled
+    name: Disabled
+    system_prompt: system
+    prompt: "{input}"
+    stream: false
+""",
+        encoding="utf-8",
+    )
+
+    catalog = load_action_catalog(path, default_stream=True)
+
+    assert catalog.get("inherited").stream is None
+    assert catalog.resolve("inherited", "short").stream is True
+    assert catalog.resolve("disabled", "short").stream is False
+
+
 def test_unknown_config_field_reports_full_path(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text(
@@ -163,6 +189,36 @@ runtime:
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="max_workers"):
+        load_app_config(path)
+
+
+def test_legacy_runtime_max_workers_migrates_to_maintenance_capacity(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "schema_version: 1\napp: {}\nprovider:\n  active: fake\n  gemini: {}\n  openai: {}\n  anthropic: {}\nruntime:\n  max_workers: 3\n",
+        encoding="utf-8",
+    )
+    _app, runtime, _providers, _tts, _voice, _logging = load_app_config(path)
+    assert runtime.maintenance_workers == 3
+
+
+def test_runtime_maintenance_capacity_defaults_to_one(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "schema_version: 2\napp: {}\nprovider:\n  active: fake\n  gemini: {}\n  openai: {}\n  anthropic: {}\n",
+        encoding="utf-8",
+    )
+    _app, runtime, _providers, _tts, _voice, _logging = load_app_config(path)
+    assert runtime.maintenance_workers == 1
+
+
+def test_runtime_rejects_new_and_legacy_worker_fields_together(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "schema_version: 2\napp: {}\nprovider:\n  active: fake\n  gemini: {}\n  openai: {}\n  anthropic: {}\nruntime:\n  maintenance_workers: 1\n  max_workers: 2\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="must not define both"):
         load_app_config(path)
 
 
@@ -214,8 +270,8 @@ def test_missing_schema_version_is_accepted_as_legacy_without_rewrite(tmp_path: 
 
 def test_future_schema_version_reports_file_and_version(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
-    path.write_text("schema_version: 2\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"config\.yaml.*schema_version 2"):
+    path.write_text("schema_version: 3\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"config\.yaml.*schema_version 3"):
         load_app_config(path)
 
 
@@ -337,7 +393,7 @@ def test_dictation_editor_uses_default_text_workflow_without_a_long_press_varian
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
-    assert action.stream is False
+    assert action.stream is None
     assert action.temperature == 0.1
     assert action.output_profile == "plain_text"
     assert action.press_variants == {}
@@ -360,7 +416,7 @@ def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
-    assert action.stream is False
+    assert action.stream is None
     assert action.temperature == 0.2
     assert action.press_variants == {}
     assert shortcut.hotkey == "ctrl+alt+n"
@@ -436,7 +492,7 @@ def test_command_copilot_combines_command_generation_and_risk_review() -> None:
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
-    assert action.stream is False
+    assert action.stream is None
     assert action.temperature == 0.1
     assert action.press_variants == {}
     assert shortcut.hotkey == "ctrl+alt+c"

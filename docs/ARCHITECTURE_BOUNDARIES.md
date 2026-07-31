@@ -327,3 +327,10 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
 - First-use hints are disabled by default and the tray toggle is initially unchecked. When explicitly enabled, a successful feedback-enabled Recipe may consume its first-use hint once per Action and press type. The visible Workflow surface projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.
 - Legacy preference schema v1 migrates to disabled while preserving seen Action ids, so the former default-on value does not survive as an accidental opt-in. Schema v2 persists subsequent explicit user choices.
 - Reset clears only seen Action ids. It does not enable first-use hints or change any Recipe.
+
+## Runtime ownership additions (ADR-0002 / ADR-0003)
+
+- `ProviderExecutionModule` exclusively owns async provider HTTP tasks, transport cancellation, connection pooling, and transport shutdown.
+- `TaskSupervisor` owns only non-provider blocking work and isolates interactive, media, and maintenance capacity.
+- One container-scoped `ClipboardTransactionCoordinator` owns selection and paste clipboard transactions.
+- Workflow snapshots enter the UI through a per-Workflow latest-revision mailbox. Ordered output-operation acknowledgements remain separate and are never coalesced.
