@@ -16,6 +16,7 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
+from ClipAI.app.speech_execution import SupervisedSpeechResultSink
 from ClipAI.core.commands import ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, ShortcutInputEvent, ShutdownApplication
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
@@ -162,7 +163,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         default_temperature=bundle.app.temperature,
         available_actions=("copy", "paste", "archive", "follow_up", "speaker") if speech is not None else ("copy", "paste", "archive", "follow_up"),
         operation_tracker=operation_tracker,
-        result_router=ResultRouter(speech_coordinator),
+        result_router=ResultRouter(
+            SupervisedSpeechResultSink(speech_coordinator, supervisor)
+            if speech_coordinator is not None
+            else None
+        ),
         guidance_preferences=guidance_preferences,
         blocking_runner=lambda task_id, work: supervisor.run(
             task_id,

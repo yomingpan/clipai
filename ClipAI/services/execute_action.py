@@ -92,7 +92,7 @@ class ActionExecutor:
                 lambda: self._result_processor.process(result.text, action.output_profile),
             )
             show_guidance_hint = self._consume_guidance_hint(action, invocation)
-            self._result_router.route(
+            await self._result_router.route(
                 invocation.result_route,
                 processed,
                 workflow_id=invocation.workflow_id or invocation.invocation_id,
@@ -170,7 +170,7 @@ class ActionExecutor:
             )
             show_guidance_hint = self._consume_guidance_hint(action, invocation)
             document = InputDocument(question, "workflow_result", workflow.snapshot.session_id, invocation.parent_step_id)
-            self._result_router.route(
+            await self._result_router.route(
                 invocation.result_route,
                 processed,
                 workflow_id=invocation.workflow_id or invocation.invocation_id,
