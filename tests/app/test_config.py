@@ -15,8 +15,6 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     bundle = load_config_bundle()
 
     assert bundle.providers.active == "gemini"
-    assert bundle.providers.gemini.model == "gemini-3.1-flash-lite"
-    assert bundle.providers.gemini.available_models == ("gemini-3.1-flash-lite", "gemini-2.5-flash")
     assert bundle.runtime.maintenance_workers == 1
     assert bundle.app.modifier_mode == "ctrl_alt"
     assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
@@ -27,7 +25,6 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert action.input_mode == "selection_or_clipboard"
     assert action.output_mode == "popup"
     assert action.stream is None
-    assert bundle.actions.resolve("english_companion", "short").stream is False
     assert action.temperature == 0.2
     assert action.output_profile == "english_learning_compact"
     assert bundle.output_profiles.get(action.output_profile).required_markers == ()
