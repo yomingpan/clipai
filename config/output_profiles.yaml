@@ -16,9 +16,8 @@ profiles:
     presentation: markdown_sections
     required_markers:
       - "## Full Rewrite"
-      - "## What Sounds Off"
-      - "## Better Ways To Say It"
+      - "## Key Improvements"
       - "## Useful Patterns"
     instruction: |
-      Use exactly these four Markdown sections in order: Full Rewrite, What Sounds Off,
-      Better Ways To Say It, and Useful Patterns. Keep every section concise and avoid additional sections.
+      Use exactly these three Markdown sections in order: Full Rewrite, Key Improvements,
+      and Useful Patterns. Keep every section concise, visually scannable, and free of repeated corrections.

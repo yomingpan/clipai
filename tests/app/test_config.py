@@ -80,8 +80,18 @@ def test_long_press_uses_variant_prompt() -> None:
     assert resolved.output_profile == "english_improvement"
     assert resolved.prompt.index("Start with one polished full rewrite") < resolved.prompt.index("Then focus on")
     assert "do not invent a complete sentence or unsupported context" in resolved.prompt
+    assert "only the 3-5 improvements" in resolved.prompt
+    assert "exactly three separate lines" in resolved.prompt
+    assert "Do not repeat the same correction" in resolved.prompt
     assert resolved.feedback_contract is not None
     assert resolved.feedback_contract.ai_help_label == "找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型"
+
+    profile = load_config_bundle().output_profiles.get(resolved.output_profile)
+    assert profile.required_markers == (
+        "## Full Rewrite",
+        "## Key Improvements",
+        "## Useful Patterns",
+    )
     assert resolved.feedback_contract != catalog.resolve("english_companion", "short").feedback_contract
 
 

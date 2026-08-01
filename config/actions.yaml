@@ -360,9 +360,11 @@ actions:
 
           Start with one polished full rewrite so the user can understand the result top-down before reading the diagnosis.
           If the input is only a word, phrase, heading, or fragment, rewrite it at that same scope; do not invent a complete sentence or unsupported context.
-          Then focus on the 3-8 issues that most affect naturalness and clarity. For each important issue,
-          include the original wording, the issue, a better expression, and a concise Chinese explanation.
-          End with 3-5 reusable patterns.
+          Then focus on only the 3-5 improvements that most affect naturalness and clarity.
+          Put them in one Key Improvements section. For each numbered improvement, use exactly three separate lines:
+          the original wording, an arrow followed by the improved wording, and one short, conversational Traditional Chinese explanation.
+          Keep the original and improved wording visually paired. Do not repeat the same correction elsewhere or add a separate issue list.
+          End with only 2-3 genuinely reusable patterns, each followed by a brief usage situation in Traditional Chinese.
 
           Here is the content:
           {input}
