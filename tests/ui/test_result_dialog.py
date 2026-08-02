@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import queue
+from dataclasses import replace
 
 from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, OutputOperationResult, PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.ui.result_dialog import PopupFocusLifecycle, ResultDialogPresenter, _SessionView, _content_render_key
+from ClipAI.ui.result_dialog import LatestSnapshotMailbox, PopupFocusLifecycle, ResultDialogPresenter, _SessionView, _content_render_key, workflow_render_patch
 
 
 class Root:
@@ -175,6 +176,34 @@ def test_stopped_snapshot_has_distinct_content_render_key() -> None:
     snapshot = SessionSnapshot("s1", 1, SessionStatus.STOPPED, "a", "A", "model", status_text="Stopped")
 
     assert _content_render_key(snapshot) == (SessionStatus.STOPPED, "", "Stopped", None)
+
+
+def test_latest_snapshot_mailbox_coalesces_each_workflow_to_highest_revision() -> None:
+    mailbox = LatestSnapshotMailbox()
+    mailbox.put(SessionSnapshot("one", 1, SessionStatus.REQUESTING_PROVIDER, "a", "A", "m"))
+    mailbox.put(SessionSnapshot("one", 3, SessionStatus.COMPLETED, "a", "A", "m", content="done"))
+    mailbox.put(SessionSnapshot("one", 2, SessionStatus.REQUESTING_PROVIDER, "a", "A", "m", content="late partial"))
+    mailbox.put(SessionSnapshot("two", 1, SessionStatus.FAILED, "a", "A", "m", error="failed"))
+
+    drained = {snapshot.session_id: snapshot for snapshot in mailbox.drain()}
+    assert drained["one"].revision == 3
+    assert drained["one"].status == SessionStatus.COMPLETED
+    assert drained["two"].status == SessionStatus.FAILED
+    assert mailbox.drain() == ()
+
+
+def test_speaking_and_pin_updates_do_not_patch_unchanged_content() -> None:
+    initial = SessionSnapshot("one", 1, SessionStatus.COMPLETED, "a", "A", "m", content="result")
+    speaking = replace(initial, revision=2, speaking=True)
+    pinned = replace(speaking, revision=3, pinned=True)
+
+    speaking_patch = workflow_render_patch(initial, speaking)
+    pinned_patch = workflow_render_patch(speaking, pinned)
+
+    assert speaking_patch.content is False
+    assert speaking_patch.visual_state is True
+    assert pinned_patch.content is False
+    assert pinned_patch.header is True
 
 
 def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:

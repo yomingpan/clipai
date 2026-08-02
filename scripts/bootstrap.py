@@ -12,6 +12,7 @@ from typing import Callable, Sequence
 
 REQUIRED_PYTHON = (3, 12)
 READY_MARKER = ".clipai-bootstrap"
+PIP_CERT_COMPATIBILITY = "--use-deprecated=legacy-certs"
 RunCommand = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 ReadVersion = Callable[[Path], tuple[int, int] | None]
 
@@ -94,10 +95,24 @@ def install_project(project_root: Path, python: Path, runner: RunCommand) -> Non
     if not constraints.is_file():
         raise BootstrapError(f"Dependency constraints are missing: {constraints}")
 
-    run_checked(runner, [str(python), "-m", "pip", "install", "--upgrade", "pip"], "pip upgrade")
     run_checked(
         runner,
-        [str(python), "-m", "pip", "install", "-c", str(constraints), "-e", str(project_root)],
+        [str(python), "-m", "pip", "install", PIP_CERT_COMPATIBILITY, "--upgrade", "pip"],
+        "pip upgrade",
+    )
+    run_checked(
+        runner,
+        [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            PIP_CERT_COMPATIBILITY,
+            "-c",
+            str(constraints),
+            "-e",
+            str(project_root),
+        ],
         "ClipAI installation",
     )
     mark_environment_ready(project_root, python)

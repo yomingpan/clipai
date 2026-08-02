@@ -24,9 +24,9 @@ class ProviderConfigurationBackend(Protocol):
 
     def persist_model(self, provider: str, model: str) -> ProviderRuntimeSnapshot: ...
 
-    def validate_save_and_build(self, settings: ProviderSettingsInput) -> ProviderRuntimeSnapshot: ...
+    async def validate_save_and_build(self, settings: ProviderSettingsInput) -> ProviderRuntimeSnapshot: ...
 
-    def discover_models(self, provider: str, connection: ModelCatalogConnection | None) -> tuple[str, ...]: ...
+    async def discover_models(self, provider: str, connection: ModelCatalogConnection | None) -> tuple[str, ...]: ...
 
 
 @dataclass(frozen=True)
@@ -276,13 +276,14 @@ class ProviderConfigurationCoordinator:
             operation_id=operation_id,
         ))
 
-    def execute(self, work: ProviderConfigurationWork) -> ProviderConfigurationResult:
+    async def execute(self, work: ProviderConfigurationWork) -> ProviderConfigurationResult:
         try:
             if work.kind == "save":
                 assert work.settings is not None
-                snapshot = self._backend.validate_save_and_build(work.settings)
+                snapshot = await self._backend.validate_save_and_build(work.settings)
                 return ProviderConfigurationResult(work.kind, work.operation_id, work.provider, snapshot=snapshot)
-            models = tuple(dict.fromkeys(model.strip() for model in self._backend.discover_models(work.provider, work.connection) if model.strip()))
+            discovered = await self._backend.discover_models(work.provider, work.connection)
+            models = tuple(dict.fromkeys(model.strip() for model in discovered if model.strip()))
             if not models:
                 raise ValueError("provider returned no models")
             return ProviderConfigurationResult(work.kind, work.operation_id, work.provider, models=models)

@@ -666,6 +666,55 @@ def test_display_break_spaces_are_inserted_with_a_one_pixel_adapter_tag() -> Non
     assert " " in textbox.insertions[1][1]
 
 
+def test_long_cjk_text_is_batched_into_one_native_tk_insert_call() -> None:
+    class NativeText:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def insert(self, *args) -> None:
+            self.calls.append(args)
+
+    class Textbox:
+        def __init__(self) -> None:
+            self._textbox = NativeText()
+
+        def insert(self, *args) -> None:
+            raise AssertionError("native batched insert should be used")
+
+    textbox = Textbox()
+    insert_display_text(textbox, "end", "漢字" * 5000, "body")
+    assert len(textbox._textbox.calls) == 1
+
+
+def test_stream_append_preserves_scroll_and_does_not_replace_existing_text() -> None:
+    class Textbox:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def yview(self):
+            return (0.1, 0.5)
+
+        def configure(self, **kwargs):
+            self.calls.append(("configure", kwargs))
+
+        def insert(self, *args):
+            self.calls.append(("insert", args))
+
+        def delete(self, *args):
+            self.calls.append(("delete", args))
+
+        def see(self, *args):
+            self.calls.append(("see", args))
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface.append_content_text("next", "body")
+
+    assert not any(call[0] == "delete" for call in surface.content_text.calls)
+    assert not any(call[0] == "see" for call in surface.content_text.calls)
+    assert any(call[0] == "insert" for call in surface.content_text.calls)
+
+
 @pytest.mark.parametrize("scale", [1.0, 1.33, 2.0])
 def test_hanging_indent_tracks_measured_prefix_width_at_each_dpi_scale(monkeypatch, scale) -> None:
     class TkText:

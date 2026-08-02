@@ -8,6 +8,7 @@ from ClipAI.core.state import CancellationToken
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider, normalize_gateway_base_url
 from ClipAI.providers.http_transport import HttpResponse
 from ClipAI.providers.settings import GatewaySettings, ProviderCredential
+from tests.providers.async_helpers import complete
 
 
 class FakeTransport:
@@ -15,7 +16,7 @@ class FakeTransport:
         self.response = response
         self.calls = []
 
-    def post(self, url, **kwargs):
+    async def post(self, url, **kwargs):
         self.calls.append((url, kwargs))
         return self.response
 
@@ -25,7 +26,7 @@ def test_gateway_maps_chat_completions_with_optional_key() -> None:
     transport = FakeTransport(response)
     settings = GatewaySettings("Local", "http://localhost:8000", "local-model", 10)
     provider = OpenAICompatibleGatewayProvider(settings, ProviderCredential("KEY"), transport)
-    result = provider.complete(LLMRequest((LLMMessage("user", "hello"),), "local-model", 0.2), CancellationToken())
+    result = complete(provider, LLMRequest((LLMMessage("user", "hello"),), "local-model", 0.2))
     assert result.text == "ok"
     assert transport.calls[0][0] == "http://localhost:8000/v1/chat/completions"
     assert "Authorization" not in transport.calls[0][1]["headers"]
@@ -36,7 +37,7 @@ def test_gateway_sends_bearer_key_without_exposing_it_in_error() -> None:
     settings = GatewaySettings("Remote", "https://gateway.test/v1", "model", 10)
     provider = OpenAICompatibleGatewayProvider(settings, ProviderCredential("KEY", "top-secret"), transport)
     with pytest.raises(ProviderAuthError) as error:
-        provider.complete(LLMRequest((LLMMessage("user", "hello"),), "model", 0.2), CancellationToken())
+        complete(provider, LLMRequest((LLMMessage("user", "hello"),), "model", 0.2))
     assert transport.calls[0][1]["headers"]["Authorization"] == "Bearer top-secret"
     assert "top-secret" not in str(error.value)
 

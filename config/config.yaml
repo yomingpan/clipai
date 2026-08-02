@@ -1,7 +1,7 @@
-schema_version: 1
+schema_version: 2
 
 app:
-  stream: false
+  stream: true
   temperature: 0.2
   modifier_mode: ctrl_alt
   system_prompt: |
@@ -27,8 +27,9 @@ provider:
   gemini:
     api_key_env: GEMINI_API_KEY
     base_url: https://generativelanguage.googleapis.com
-    model: gemini-3.1-flash-lite
+    model: gemini-3.5-flash-lite
     available_models:
+      - gemini-3.5-flash-lite
       - gemini-3.1-flash-lite
       - gemini-2.5-flash
     timeout_sec: 60
@@ -57,7 +58,7 @@ provider:
     timeout_sec: 60
 
 runtime:
-  max_workers: 2
+  maintenance_workers: 1
 
 tts:
   enabled: true

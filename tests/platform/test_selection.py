@@ -1,7 +1,31 @@
 from __future__ import annotations
 
-from ClipAI.core.models import ClipboardSnapshot, ImageContent
-from ClipAI.platform.selection import SystemSelectionReader
+from dataclasses import dataclass
+
+from ClipAI.core.models import ImageContent
+from ClipAI.platform.selection import SystemSelectionCaptureAdapter
+from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
+from ClipAI.services.selection_capture import SelectionCaptureCoordinator
+from ClipAI.core.state import CancellationToken
+
+
+@dataclass(frozen=True)
+class ClipboardSnapshot:
+    text: str
+    image: ImageContent | None = None
+
+
+def reader(clipboard, **kwargs):
+    copy_selection = kwargs.pop("copy_selection", None)
+    modifier_is_pressed = kwargs.pop("modifier_is_pressed", lambda _modifier: False)
+    return SelectionCaptureCoordinator(
+        ClipboardTransactionCoordinator(clipboard),
+        SystemSelectionCaptureAdapter(
+            copy_selection=copy_selection,
+            modifier_is_pressed=modifier_is_pressed,
+        ),
+        **kwargs,
+    )
 
 
 class Clipboard:
@@ -48,8 +72,8 @@ def test_selection_capture_restores_original_clipboard() -> None:
         clipboard.value = "selected text"
         clipboard.sequence += 1
 
-    reader = SystemSelectionReader(clipboard, copy_selection=copy_selection, timeout_sec=0.01, poll_sec=0)
-    assert reader.read_text() == "selected text"
+    selection = reader(clipboard, copy_selection=copy_selection, timeout_sec=0.01, poll_sec=0)
+    assert selection.read_text() == "selected text"
     assert clipboard.value == "original"
 
 
@@ -62,8 +86,8 @@ def test_selection_capture_restores_original_non_text_content() -> None:
         clipboard.image = None
         clipboard.sequence += 1
 
-    reader = SystemSelectionReader(clipboard, copy_selection=copy_selection, timeout_sec=0.01, poll_sec=0)
-    assert reader.read_text() == "selected text"
+    selection = reader(clipboard, copy_selection=copy_selection, timeout_sec=0.01, poll_sec=0)
+    assert selection.read_text() == "selected text"
     assert clipboard.image == image
 
 
@@ -86,7 +110,7 @@ def test_selection_capture_waits_for_physical_hotkey_modifiers_to_be_released() 
         clipboard.value = "selected text"
         clipboard.sequence += 1
 
-    reader = SystemSelectionReader(
+    selection = reader(
         clipboard,
         copy_selection=copy_selection,
         modifier_is_pressed=modifier_is_pressed,
@@ -95,7 +119,7 @@ def test_selection_capture_waits_for_physical_hotkey_modifiers_to_be_released() 
         poll_sec=0,
     )
 
-    assert reader.read_text() == "selected text"
+    assert selection.read_text() == "selected text"
     assert clipboard.value == "original"
 
 
@@ -107,7 +131,7 @@ def test_selection_capture_does_not_copy_or_mutate_clipboard_when_modifiers_stay
         nonlocal copy_calls
         copy_calls += 1
 
-    reader = SystemSelectionReader(
+    selection = reader(
         clipboard,
         copy_selection=copy_selection,
         modifier_is_pressed=lambda modifier: modifier == "alt",
@@ -116,7 +140,7 @@ def test_selection_capture_does_not_copy_or_mutate_clipboard_when_modifiers_stay
         poll_sec=0,
     )
 
-    assert reader.read_text() == ""
+    assert selection.read_text() == ""
     assert copy_calls == 0
     assert clipboard.value == "original"
     assert clipboard.writes == []
@@ -130,18 +154,34 @@ def test_selection_capture_does_not_overwrite_later_external_clipboard_update() 
         clipboard.sequence += 1
         clipboard.external_after_sequence = "external update"
 
-    reader = SystemSelectionReader(clipboard, copy_selection=copy_selection, timeout_sec=0.01, poll_sec=0)
-    assert reader.read_text() == ""
+    selection = reader(clipboard, copy_selection=copy_selection, timeout_sec=0.01, poll_sec=0)
+    assert selection.read_text() == ""
     assert clipboard.value == "external update"
 
 
 def test_selection_capture_failure_falls_back_safely() -> None:
     clipboard = Clipboard("original")
-    reader = SystemSelectionReader(
+    selection = reader(
         clipboard,
         copy_selection=lambda: (_ for _ in ()).throw(RuntimeError("copy failed")),
         timeout_sec=0.01,
         poll_sec=0,
     )
-    assert reader.read_text() == ""
+    assert selection.read_text() == ""
     assert clipboard.value == "original"
+
+
+def test_selection_capture_observes_operation_cancellation() -> None:
+    clipboard = Clipboard("original")
+    token = CancellationToken()
+    token.cancel()
+    selection = reader(
+        clipboard,
+        copy_selection=lambda: None,
+        modifier_is_pressed=lambda _modifier: True,
+        modifier_release_timeout_sec=1,
+        timeout_sec=1,
+        poll_sec=0,
+    )
+    assert selection.read_text(token) == ""
+    assert clipboard.writes == []

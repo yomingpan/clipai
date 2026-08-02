@@ -15,9 +15,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     bundle = load_config_bundle()
 
     assert bundle.providers.active == "gemini"
-    assert bundle.providers.gemini.model == "gemini-3.1-flash-lite"
-    assert bundle.providers.gemini.available_models == ("gemini-3.1-flash-lite", "gemini-2.5-flash")
-    assert bundle.runtime.max_workers == 2
+    assert bundle.runtime.maintenance_workers == 1
     assert bundle.app.modifier_mode == "ctrl_alt"
     assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
@@ -26,7 +24,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     action = bundle.actions.get("english_companion")
     assert action.input_mode == "selection_or_clipboard"
     assert action.output_mode == "popup"
-    assert action.stream is False
+    assert action.stream is None
     assert action.temperature == 0.2
     assert action.output_profile == "english_learning_compact"
     assert bundle.output_profiles.get(action.output_profile).required_markers == ()
@@ -37,7 +35,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "concrete real-life situation" in action.system_prompt
     assert "Avoid formulaic wording" in action.prompt
     assert "記憶：" in action.prompt
-    assert bundle.schema_versions.app == 1
+    assert bundle.schema_versions.app == 2
     assert bundle.schema_versions.actions == 8
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
@@ -82,8 +80,18 @@ def test_long_press_uses_variant_prompt() -> None:
     assert resolved.output_profile == "english_improvement"
     assert resolved.prompt.index("Start with one polished full rewrite") < resolved.prompt.index("Then focus on")
     assert "do not invent a complete sentence or unsupported context" in resolved.prompt
+    assert "only the 3-5 improvements" in resolved.prompt
+    assert "exactly three separate lines" in resolved.prompt
+    assert "Do not repeat the same correction" in resolved.prompt
     assert resolved.feedback_contract is not None
     assert resolved.feedback_contract.ai_help_label == "找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型"
+
+    profile = load_config_bundle().output_profiles.get(resolved.output_profile)
+    assert profile.required_markers == (
+        "## Full Rewrite",
+        "## Key Improvements",
+        "## Useful Patterns",
+    )
     assert resolved.feedback_contract != catalog.resolve("english_companion", "short").feedback_contract
 
 
@@ -128,6 +136,31 @@ actions:
     assert catalog.resolve("clipboard_only", "short").input_mode == "clipboard"
 
 
+def test_action_stream_inherits_catalog_default_and_allows_override(tmp_path: Path) -> None:
+    path = tmp_path / "actions.yaml"
+    path.write_text(
+        """schema_version: 8
+actions:
+  - id: inherited
+    name: Inherited
+    system_prompt: system
+    prompt: "{input}"
+  - id: disabled
+    name: Disabled
+    system_prompt: system
+    prompt: "{input}"
+    stream: false
+""",
+        encoding="utf-8",
+    )
+
+    catalog = load_action_catalog(path, default_stream=True)
+
+    assert catalog.get("inherited").stream is None
+    assert catalog.resolve("inherited", "short").stream is True
+    assert catalog.resolve("disabled", "short").stream is False
+
+
 def test_unknown_config_field_reports_full_path(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text(
@@ -163,6 +196,36 @@ runtime:
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="max_workers"):
+        load_app_config(path)
+
+
+def test_legacy_runtime_max_workers_migrates_to_maintenance_capacity(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "schema_version: 1\napp: {}\nprovider:\n  active: fake\n  gemini: {}\n  openai: {}\n  anthropic: {}\nruntime:\n  max_workers: 3\n",
+        encoding="utf-8",
+    )
+    _app, runtime, _providers, _tts, _voice, _logging = load_app_config(path)
+    assert runtime.maintenance_workers == 3
+
+
+def test_runtime_maintenance_capacity_defaults_to_one(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "schema_version: 2\napp: {}\nprovider:\n  active: fake\n  gemini: {}\n  openai: {}\n  anthropic: {}\n",
+        encoding="utf-8",
+    )
+    _app, runtime, _providers, _tts, _voice, _logging = load_app_config(path)
+    assert runtime.maintenance_workers == 1
+
+
+def test_runtime_rejects_new_and_legacy_worker_fields_together(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "schema_version: 2\napp: {}\nprovider:\n  active: fake\n  gemini: {}\n  openai: {}\n  anthropic: {}\nruntime:\n  maintenance_workers: 1\n  max_workers: 2\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="must not define both"):
         load_app_config(path)
 
 
@@ -214,8 +277,8 @@ def test_missing_schema_version_is_accepted_as_legacy_without_rewrite(tmp_path: 
 
 def test_future_schema_version_reports_file_and_version(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
-    path.write_text("schema_version: 2\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"config\.yaml.*schema_version 2"):
+    path.write_text("schema_version: 3\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"config\.yaml.*schema_version 3"):
         load_app_config(path)
 
 
@@ -289,7 +352,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 19
+    assert len(start_actions) == 20
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -306,6 +369,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "minimum_action": "ctrl+alt+a",
         "tradeoff_perspective": "ctrl+alt+d",
         "extract_keywords": "ctrl+alt+e",
+        "structure_score_prompt": "ctrl+alt+f",
         "extract_screenshot_text": "ctrl+alt+g",
         "speak_selection_or_clipboard": "ctrl+alt+q",
         "shorten_content": "ctrl+alt+x",
@@ -337,7 +401,7 @@ def test_dictation_editor_uses_default_text_workflow_without_a_long_press_varian
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
-    assert action.stream is False
+    assert action.stream is None
     assert action.temperature == 0.1
     assert action.output_profile == "plain_text"
     assert action.press_variants == {}
@@ -360,7 +424,7 @@ def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
-    assert action.stream is False
+    assert action.stream is None
     assert action.temperature == 0.2
     assert action.press_variants == {}
     assert shortcut.hotkey == "ctrl+alt+n"
@@ -436,7 +500,7 @@ def test_command_copilot_combines_command_generation_and_risk_review() -> None:
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
-    assert action.stream is False
+    assert action.stream is None
     assert action.temperature == 0.1
     assert action.press_variants == {}
     assert shortcut.hotkey == "ctrl+alt+c"
@@ -446,6 +510,37 @@ def test_command_copilot_combines_command_generation_and_risk_review() -> None:
     assert "不得為了縮短或安全而改變原 command 的行為" in action.system_prompt
     assert "風險層級" in action.prompt
     assert "更安全的做法" in action.prompt
+
+
+def test_score_action_classifies_before_compressing_and_supports_clarification() -> None:
+    bundle = load_config_bundle()
+    action = bundle.actions.get("structure_score_prompt")
+    shortcut = bundle.shortcuts.definition("structure_score_prompt")
+
+    assert action.name == "SCORE 需求整理"
+    assert action.input_mode == "selection_or_clipboard"
+    assert action.external_fallback == "selection_or_clipboard"
+    assert action.output_mode == "popup"
+    assert action.stream is None
+    assert action.temperature == 0.1
+    assert action.output_profile == "score_compact"
+    assert action.press_variants == {}
+    assert shortcut.hotkey == "ctrl+alt+f"
+    assert shortcut.action_id == action.id
+    assert action.feedback_contract is not None
+    assert action.feedback_contract.ai_does_not_label == "不替你補完缺失資訊、決定真正意圖或執行整理後的任務"
+    assert "把複合敘述拆成不可再拆的獨立語義" in action.system_prompt
+    assert "完成分類後才壓縮" in action.system_prompt
+    assert "至少兩個合理答案" in action.system_prompt
+    assert "重新拆解、分類、壓縮並輸出完整的新 SCORE" in action.system_prompt
+    assert "固定依序輸出 S:、C:、O:、R:、E:" in action.system_prompt
+    assert "剛好一點時，內容必須緊接冒號寫在同一實體行" in action.system_prompt
+    assert "單點欄位的錯誤格式" in action.system_prompt
+    assert "## 缺少資訊" in action.system_prompt
+    assert "## 需要確認" in action.system_prompt
+    assert "不得回答或執行" in action.system_prompt
+    assert "<source_material>" in action.prompt
+    assert "剛好一點時，必須把內容直接寫在欄位標籤後的同一實體行" in bundle.output_profiles.get("score_compact").instruction
 
 
 @pytest.mark.parametrize(

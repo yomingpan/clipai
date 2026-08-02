@@ -10,6 +10,7 @@ def test_workflow_module_interface_owns_workflow_creation() -> None:
     runtime, view, supervisor, _outputs, _listener = make_runtime()
 
     runtime._workflow_module.handle(StartAction("a", "short"))
+    runtime.drain_commands()
 
     workflow_id = view.snapshots[-1].session_id
     controller = runtime._workflow_module.controller_for(workflow_id)
@@ -21,6 +22,7 @@ def test_workflow_module_interface_owns_workflow_creation() -> None:
 def test_result_output_module_interface_uses_canonical_workflow_result() -> None:
     runtime, view, supervisor, outputs, _listener = make_runtime()
     runtime._workflow_module.handle(StartAction("a", "short"))
+    runtime.drain_commands()
     workflow_id = view.snapshots[-1].session_id
     controller = runtime._workflow_module.controller_for(workflow_id)
     assert controller is not None

@@ -3,32 +3,32 @@ from __future__ import annotations
 from typing import Any
 
 from ClipAI.core.errors import ProviderAuthError, ProviderResponseError
-from ClipAI.providers.http_transport import HttpResponse, HttpTransport, RequestsHttpTransport
+from ClipAI.providers.http_transport import HttpResponse, HttpTransport
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider, gateway_headers, normalize_gateway_base_url
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings, ProviderCredential, ProviderSettings
 
 
 class ProviderModelCatalogClient:
-    def __init__(self, transport: HttpTransport | None = None) -> None:
-        self._transport = transport or RequestsHttpTransport()
+    def __init__(self, transport: HttpTransport) -> None:
+        self._transport = transport
 
-    def list_models(self, provider_id: str, settings: ProviderSettings, api_key: str) -> tuple[str, ...]:
+    async def list_models(self, provider_id: str, settings: ProviderSettings, api_key: str) -> tuple[str, ...]:
         if provider_id != "gateway" and not api_key.strip():
             raise ProviderAuthError("API key is required")
         if provider_id == "gateway" and isinstance(settings, GatewaySettings):
-            response = self._transport.get(
+            response = await self._transport.get(
                 f"{normalize_gateway_base_url(settings.base_url)}/models",
                 headers=gateway_headers(api_key),
                 timeout=settings.timeout_sec,
             )
             if response.status_code in {404, 405}:
-                return self._test_gateway_completion(settings, api_key)
+                return await self._test_gateway_completion(settings, api_key)
             self._raise_for_status("Gateway", response)
             return _data_models(response.payload)
         if provider_id == "gemini" and isinstance(settings, GeminiSettings):
-            return self._list_gemini(settings, api_key)
+            return await self._list_gemini(settings, api_key)
         if provider_id == "openai" and isinstance(settings, OpenAISettings):
-            response = self._transport.get(
+            response = await self._transport.get(
                 f"{settings.base_url.rstrip('/')}/v1/models",
                 headers={"Authorization": f"Bearer {api_key}"},
                 timeout=settings.timeout_sec,
@@ -36,7 +36,7 @@ class ProviderModelCatalogClient:
             self._raise_for_status("OpenAI", response)
             return _data_models(response.payload)
         if provider_id == "anthropic" and isinstance(settings, AnthropicSettings):
-            response = self._transport.get(
+            response = await self._transport.get(
                 f"{settings.base_url.rstrip('/')}/v1/models",
                 headers={"x-api-key": api_key, "anthropic-version": settings.api_version},
                 timeout=settings.timeout_sec,
@@ -45,14 +45,14 @@ class ProviderModelCatalogClient:
             return _data_models(response.payload)
         raise ProviderResponseError("Unsupported provider configuration")
 
-    def _list_gemini(self, settings: GeminiSettings, api_key: str) -> tuple[str, ...]:
+    async def _list_gemini(self, settings: GeminiSettings, api_key: str) -> tuple[str, ...]:
         models: list[str] = []
         page_token = ""
         for _page in range(100):
             params = {"key": api_key}
             if page_token:
                 params["pageToken"] = page_token
-            response = self._transport.get(
+            response = await self._transport.get(
                 f"{settings.base_url.rstrip('/')}/v1beta/models",
                 params=params,
                 timeout=settings.timeout_sec,
@@ -64,13 +64,13 @@ class ProviderModelCatalogClient:
                 return tuple(dict.fromkeys(models))
         raise ProviderResponseError("Gemini model catalog exceeded the pagination limit")
 
-    def _test_gateway_completion(self, settings: GatewaySettings, api_key: str) -> tuple[str, ...]:
+    async def _test_gateway_completion(self, settings: GatewaySettings, api_key: str) -> tuple[str, ...]:
         from ClipAI.core.models import LLMMessage, LLMRequest
 
         if not settings.model.strip():
             raise ProviderResponseError("Gateway does not list models. Enter a model ID to validate Chat Completions.")
         request = LLMRequest((LLMMessage("user", "Reply with OK."),), settings.model, 0.0)
-        response = self._transport.post(
+        response = await self._transport.post(
             f"{normalize_gateway_base_url(settings.base_url)}/chat/completions",
             headers=gateway_headers(api_key),
             json=OpenAICompatibleGatewayProvider.to_payload(request),

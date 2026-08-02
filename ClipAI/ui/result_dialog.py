@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import queue
+import threading
 import tkinter as tk
 import uuid
 
@@ -39,6 +40,35 @@ class _SessionView:
     close_requested: bool = False
     paste_transition_id: str | None = None
     paste_transition_pinned: bool = False
+    last_snapshot: SessionSnapshot | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowRenderPatch:
+    header: bool
+    content: bool
+    actions: bool
+    feedback: bool
+    visual_state: bool
+
+
+class LatestSnapshotMailbox:
+    """Keep only the highest pending revision for each Workflow."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._latest: dict[str, SessionSnapshot] = {}
+
+    def put(self, snapshot: SessionSnapshot) -> None:
+        with self._lock:
+            current = self._latest.get(snapshot.session_id)
+            if current is None or snapshot.revision > current.revision:
+                self._latest[snapshot.session_id] = snapshot
+
+    def drain(self) -> tuple[SessionSnapshot, ...]:
+        with self._lock:
+            latest, self._latest = self._latest, {}
+        return tuple(latest.values())
 
 
 @dataclass
@@ -105,7 +135,7 @@ class ResultDialogPresenter:
     def __init__(self, display_metrics: DisplayMetricsReader | None = None, layout_policy: PopupLayoutPolicy | None = None) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
-        self._updates: queue.Queue[SessionSnapshot] = queue.Queue()
+        self._updates = LatestSnapshotMailbox()
         self._output_updates: queue.Queue[OutputOperationResult] = queue.Queue()
         self._paste_target_updates: queue.Queue[PasteTarget | None] = queue.Queue()
         self._views: dict[str, _SessionView] = {}
@@ -317,11 +347,7 @@ class ResultDialogPresenter:
                 self._apply_output_operation(self._output_updates.get_nowait())
             except queue.Empty:
                 break
-        while True:
-            try:
-                snapshot = self._updates.get_nowait()
-            except queue.Empty:
-                return
+        for snapshot in self._updates.drain():
             self._apply(snapshot)
 
     def _apply_paste_target(self, target: PasteTarget | None) -> None:
@@ -353,6 +379,8 @@ class ResultDialogPresenter:
             view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
             self._register_view(snapshot.session_id, view)
+        previous = view.last_snapshot
+        patch = workflow_render_patch(previous, snapshot)
         view.revision = snapshot.revision
         previous_step_id = view.step_id
         view.content = snapshot.content
@@ -360,38 +388,49 @@ class ResultDialogPresenter:
             view.step_id = snapshot.steps[snapshot.displayed_step_index].step_id
         if previous_step_id is not None and view.step_id != previous_step_id:
             view.surface.close_feedback_overlay()
-        view.surface.set_pinned_state(snapshot.pinned)
-        view.surface.set_title(snapshot.title)
-        view.surface.set_source_preview(snapshot.source_preview)
-        view.surface.set_model(snapshot.model)
-        lifecycle = view.focus_lifecycle
-        view.surface.set_paste_focus_state(
-            bool(lifecycle and lifecycle.focused_inside),
-            self._paste_target,
-        )
-        view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
+        if patch.header:
+            view.surface.set_pinned_state(snapshot.pinned)
+            view.surface.set_title(snapshot.title)
+            view.surface.set_source_preview(snapshot.source_preview)
+            view.surface.set_model(snapshot.model)
+            lifecycle = view.focus_lifecycle
+            view.surface.set_paste_focus_state(
+                bool(lifecycle and lifecycle.focused_inside),
+                self._paste_target,
+            )
+            view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
         guidance_key = view.step_id or ""
         if snapshot.status == SessionStatus.COMPLETED and snapshot.show_guidance_hint and guidance_key not in view.shown_guidance_keys:
             view.shown_guidance_keys.add(guidance_key)
             view.surface.show_action_guidance_hint()
-        view.surface.close_button.configure(
-            command=lambda sid=snapshot.session_id: self._request_close(sid)
-        )
-        view.surface.pin_button.configure(
-            command=lambda sid=snapshot.session_id: self._toggle_pin(sid)
-        )
-        view.surface.configure_back_action(
-            (lambda sid=snapshot.session_id: self._command_sink(NavigateWorkflowBack(sid)))
-            if snapshot.can_navigate_back
-            else None
-        )
+        if previous is None:
+            view.surface.close_button.configure(
+                command=lambda sid=snapshot.session_id: self._request_close(sid)
+            )
+            view.surface.pin_button.configure(
+                command=lambda sid=snapshot.session_id: self._toggle_pin(sid)
+            )
+        if patch.header:
+            view.surface.configure_back_action(
+                (lambda sid=snapshot.session_id: self._command_sink(NavigateWorkflowBack(sid)))
+                if snapshot.can_navigate_back
+                else None
+            )
         content_key = _content_render_key(snapshot)
-        content_changed = content_key != view.rendered_content_key
+        content_changed = patch.content
         if snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
             if content_changed:
                 if snapshot.content:
-                    view.surface.set_content_chunks([(snapshot.content, "body")])
+                    if (
+                        previous is not None
+                        and previous.result_completeness == "partial"
+                        and snapshot.result_completeness == "partial"
+                        and snapshot.content.startswith(previous.content)
+                    ):
+                        view.surface.append_content_text(snapshot.content[len(previous.content):], "body")
+                    else:
+                        view.surface.set_content_chunks([(snapshot.content, "body")])
                     view.surface.set_source_preview(f"Failed: {snapshot.error}")
                 else:
                     view.surface.set_content_chunks([(snapshot.error, "body")])
@@ -412,22 +451,32 @@ class ResultDialogPresenter:
         else:
             if content_changed:
                 if snapshot.content:
-                    view.surface.set_content_chunks([(snapshot.content, "body")])
+                    if (
+                        previous is not None
+                        and previous.result_completeness == "partial"
+                        and snapshot.result_completeness == "partial"
+                        and snapshot.content.startswith(previous.content)
+                    ):
+                        view.surface.append_content_text(snapshot.content[len(previous.content):], "body")
+                    else:
+                        view.surface.set_content_chunks([(snapshot.content, "body")])
                     view.surface.set_source_preview(snapshot.status_text)
                 else:
                     view.surface.set_loading(snapshot.status_text)
         if content_changed:
             view.rendered_content_key = content_key
-        view.surface.configure_standard_actions(
-            on_speak=(lambda sid=snapshot.session_id: self._toggle_speech(sid)) if "speaker" in snapshot.available_actions else None,
-            on_copy=(lambda sid=snapshot.session_id: self._copy(sid)) if "copy" in snapshot.available_actions else None,
-            on_paste=(lambda sid=snapshot.session_id: self._paste(sid)) if "paste" in snapshot.available_actions else None,
-            on_archive=(lambda sid=snapshot.session_id: self._archive(sid)) if "archive" in snapshot.available_actions else None,
-            on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions else None,
-        )
+        if patch.actions:
+            view.surface.configure_standard_actions(
+                on_speak=(lambda sid=snapshot.session_id: self._toggle_speech(sid)) if "speaker" in snapshot.available_actions else None,
+                on_copy=(lambda sid=snapshot.session_id: self._copy(sid)) if "copy" in snapshot.available_actions else None,
+                on_paste=(lambda sid=snapshot.session_id: self._paste(sid)) if "paste" in snapshot.available_actions else None,
+                on_archive=(lambda sid=snapshot.session_id: self._archive(sid)) if "archive" in snapshot.available_actions else None,
+                on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions else None,
+            )
         view.speaking = snapshot.speaking
-        view.surface.set_speaker_active(snapshot.speaking)
-        if snapshot.status == SessionStatus.COMPLETED and snapshot.action_feedback_contract is not None and view.step_id is not None:
+        if patch.visual_state:
+            view.surface.set_speaker_active(snapshot.speaking)
+        if patch.feedback and snapshot.status == SessionStatus.COMPLETED and snapshot.action_feedback_contract is not None and view.step_id is not None:
             view.surface.configure_feedback(
                 snapshot.action_feedback_contract,
                 snapshot.feedback_state,
@@ -436,8 +485,9 @@ class ResultDialogPresenter:
                     sid, step, outcome, reason, note, save_case
                 ),
             )
-        else:
+        elif patch.feedback:
             view.surface.hide_feedback()
+        view.last_snapshot = snapshot
 
     def _evict_view(self, session_id: str, view: _SessionView) -> None:
         if self._views.get(session_id) is view:
@@ -696,6 +746,54 @@ def _content_render_key(snapshot: SessionSnapshot) -> tuple[object, ...]:
     if snapshot.status == SessionStatus.STOPPED:
         return (snapshot.status, snapshot.content, snapshot.status_text, snapshot.presentation)
     return (snapshot.status, snapshot.content, snapshot.status_text, snapshot.presentation)
+
+
+def workflow_render_patch(previous: SessionSnapshot | None, current: SessionSnapshot) -> WorkflowRenderPatch:
+    if previous is None:
+        return WorkflowRenderPatch(True, True, True, True, True)
+    previous_step = _displayed_step_id(previous)
+    current_step = _displayed_step_id(current)
+    return WorkflowRenderPatch(
+        header=(
+            previous.pinned,
+            previous.title,
+            previous.source_preview,
+            previous.model,
+            previous.can_navigate_back,
+            previous.action_feedback_contract,
+            previous.input_source,
+        ) != (
+            current.pinned,
+            current.title,
+            current.source_preview,
+            current.model,
+            current.can_navigate_back,
+            current.action_feedback_contract,
+            current.input_source,
+        ),
+        content=_content_render_key(previous) != _content_render_key(current),
+        actions=previous.available_actions != current.available_actions,
+        feedback=(
+            previous_step,
+            previous.action_feedback_contract,
+            previous.feedback_state,
+            previous.feedback_message,
+            previous.status == SessionStatus.COMPLETED,
+        ) != (
+            current_step,
+            current.action_feedback_contract,
+            current.feedback_state,
+            current.feedback_message,
+            current.status == SessionStatus.COMPLETED,
+        ),
+        visual_state=previous.speaking != current.speaking,
+    )
+
+
+def _displayed_step_id(snapshot: SessionSnapshot) -> str | None:
+    if 0 <= snapshot.displayed_step_index < len(snapshot.steps):
+        return snapshot.steps[snapshot.displayed_step_index].step_id
+    return None
 
 
 def _has_only_popup_shortcut_modifiers(event: object | None) -> bool:

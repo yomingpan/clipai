@@ -17,14 +17,14 @@ class OutputActions:
         keyboard: TargetedKeyboardOutput | None = None,
         paste_restore_delay_sec: float = 0.25,
         wait: Callable[[float], None] = time.sleep,
-        clipboard_transactions: ClipboardTransactionCoordinator | None = None,
+        clipboard_transactions: ClipboardTransactionCoordinator,
     ) -> None:
         self._clipboard = clipboard
         self._archive = archive
         self._keyboard = keyboard
         self._paste_restore_delay_sec = paste_restore_delay_sec
         self._wait = wait
-        self._clipboard_transactions = clipboard_transactions or ClipboardTransactionCoordinator(clipboard)
+        self._clipboard_transactions = clipboard_transactions
 
     def copy(self, text: str) -> None:
         self._clipboard.write_text(text)
@@ -41,7 +41,10 @@ class OutputActions:
     def paste(self, text: str, target: PasteTarget) -> None:
         if self._keyboard is None:
             raise RuntimeError("keyboard output is not configured")
-        with self._clipboard_transactions.temporary_text(text):
+        with self._clipboard_transactions.temporary_text(
+            f"paste:{target.window_token}:{target.observation_sequence}",
+            text,
+        ):
             self._keyboard.paste(target)
             self._wait(self._paste_restore_delay_sec)
 

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, ClipboardSnapshot, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMRequest, LLMResult, ModelSelectionState, OperationKind, OutputOperationResult, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, UserFacingError
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, UserFacingError
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
 class LLMProvider(Protocol):
-    def complete(self, request: LLMRequest, cancellation: CancellationToken) -> LLMResult: ...
+    def execute(self, request: LLMRequest, cancellation: CancellationToken, *, stream: bool) -> AsyncIterator[LLMProviderEvent]: ...
 
 
 class ClipboardReader(Protocol):
@@ -26,16 +26,25 @@ class ClipboardStore(ClipboardReader, ClipboardWriter, Protocol):
     pass
 
 
-class ClipboardTransactionStore(ClipboardStore, Protocol):
-    def snapshot(self) -> ClipboardSnapshot: ...
+ClipboardSnapshotT = TypeVar("ClipboardSnapshotT")
+
+
+class ClipboardTransactionStore(ClipboardStore, Protocol[ClipboardSnapshotT]):
+    def snapshot(self) -> ClipboardSnapshotT: ...
 
     def sequence_number(self) -> int: ...
 
-    def restore_if_unchanged(self, snapshot: ClipboardSnapshot, expected_sequence: int) -> bool: ...
+    def restore_if_unchanged(self, snapshot: ClipboardSnapshotT, expected_sequence: int) -> bool: ...
+
+
+class SelectionCaptureAdapter(Protocol):
+    def modifier_is_pressed(self, modifier: str) -> bool | None: ...
+
+    def copy_selection(self) -> None: ...
 
 
 class SelectionReader(Protocol):
-    def read_text(self) -> str: ...
+    def read_text(self, cancellation: CancellationToken | None = None) -> str: ...
 
 
 class ResultPresenter(Protocol):

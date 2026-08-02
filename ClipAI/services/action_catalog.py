@@ -8,8 +8,9 @@ from ClipAI.core.models import ActionDefinition, PressType, ResolvedAction
 
 
 class ActionCatalog:
-    def __init__(self, actions: list[ActionDefinition]) -> None:
+    def __init__(self, actions: list[ActionDefinition], *, default_stream: bool = False) -> None:
         self._actions = {action.id: action for action in actions}
+        self._default_stream = default_stream
         if len(self._actions) != len(actions):
             raise ValueError("action ids must be unique")
 
@@ -34,6 +35,7 @@ class ActionCatalog:
             output_profile=variant.output_profile if variant and variant.output_profile else action.output_profile,
             external_fallback=action.external_fallback,
             feedback_contract=(variant.feedback_contract if variant and variant.feedback_contract is not None else action.feedback_contract),
+            stream=self._default_stream if action.stream is None else action.stream,
         )
         version_payload = {
             "id": resolved.id,
@@ -50,6 +52,7 @@ class ActionCatalog:
                 "does_not": resolved.feedback_contract.ai_does_not_label,
                 "reasons": [(reason.id, reason.label) for reason in resolved.feedback_contract.reasons],
             },
+            "stream": resolved.stream,
         }
         version_id = hashlib.sha256(json.dumps(version_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
         return replace(resolved, version_id=version_id)

@@ -76,6 +76,37 @@ def test_late_completion_from_replaced_invocation_is_ignored() -> None:
     assert workflow.snapshot.content == "current"
 
 
+def test_provider_delta_is_identity_scoped_and_marks_partial_content() -> None:
+    workflow = controller()
+    old = invocation("old")
+    current = invocation("current")
+    resolved = action()
+    workflow.begin_invocation(old, resolved)
+    workflow.begin_invocation(current, resolved)
+
+    assert workflow.append_provider_text("old", "late") is None
+    snapshot = workflow.append_provider_text("current", "partial")
+
+    assert snapshot is not None
+    assert snapshot.content == "partial"
+    assert snapshot.result_completeness == "partial"
+    assert snapshot.available_actions == ("copy",)
+
+
+def test_partial_provider_failure_preserves_copyable_text_without_step() -> None:
+    workflow = controller()
+    current = invocation("current")
+    workflow.begin_invocation(current, action())
+    workflow.append_provider_text("current", "useful partial")
+
+    workflow.fail("current", "provider disconnected")
+
+    assert workflow.snapshot.content == "useful partial"
+    assert workflow.snapshot.result_completeness == "partial"
+    assert workflow.snapshot.available_actions == ("copy",)
+    assert workflow.snapshot.steps == ()
+
+
 def test_feedback_lifecycle_is_owned_by_completed_step_and_ignores_late_completion() -> None:
     workflow = controller()
     contract = ActionFeedbackContract("Shorten", "Do not change meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))

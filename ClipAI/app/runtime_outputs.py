@@ -167,6 +167,7 @@ class ResultOutputRuntimeModule:
                 intent.operation_id,
                 lambda: self._complete_paste(intent, operation, keep_workflow, target),
                 lambda error: logger.error("Paste failed session_id=%s: %s", command.session_id, error),
+                task_class="interactive",
             )
         except BaseException as exc:
             self._operations.fail(intent, exc, operation)
@@ -192,6 +193,7 @@ class ResultOutputRuntimeModule:
             intent.operation_id,
             lambda: self._complete_output_action(intent, operation, work),
             lambda error: logger.error("%s failed workflow_id=%s: %s", intent.kind, intent.workflow_id, error),
+            task_class="interactive",
         )
 
     def _complete_output_action(self, intent, operation, work: Callable[[], None]) -> None:
@@ -235,6 +237,8 @@ class ResultOutputRuntimeModule:
             f"speech:{job.operation_id}",
             lambda: self._run_speech_job(job, intent, operation, None),
             lambda error: self._handle_speech_error(job.operation_id, error),
+            task_class="media",
+            cancellation_hook=lambda: self._speech_coordinator.cancel_operation(job.operation_id),
         )
 
     def _toggle_speech(self, session_id: str, selected_text: str | None, requested_operation_id: str) -> None:
@@ -261,6 +265,8 @@ class ResultOutputRuntimeModule:
             operation_id,
             lambda: self._run_speech_job(job, intent, operation, controller),
             lambda error: self._handle_speech_error(session_id, error),
+            task_class="media",
+            cancellation_hook=lambda: self._speech_coordinator.cancel_operation(operation_id),
         )
 
     def _run_speech_job(self, job, intent, operation, controller) -> None:
@@ -332,7 +338,12 @@ class ResultOutputRuntimeModule:
             if self._notifier is not None:
                 self._notifier.notify("ClipAI Diagnostics", f"Exported to {destination}")
 
-        self._supervisor.submit("diagnostics:export", export, self._handle_diagnostics_error)
+        self._supervisor.submit(
+            "diagnostics:export",
+            export,
+            self._handle_diagnostics_error,
+            task_class="maintenance",
+        )
 
     def _handle_diagnostics_error(self, error: BaseException) -> None:
         incident_id = self._incident_reporter.report(error, context="diagnostics:export")

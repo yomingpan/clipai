@@ -76,6 +76,11 @@ shortcuts:
     command: start_action
     action_id: extract_keywords
 
+  - id: structure_score_prompt
+    hotkey: ctrl+alt+f
+    command: start_action
+    action_id: structure_score_prompt
+
   - id: extract_screenshot_text
     hotkey: ctrl+alt+g
     command: start_action

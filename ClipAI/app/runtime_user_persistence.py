@@ -76,6 +76,7 @@ class UserPersistenceRuntimeModule:
                 operation_id,
                 "無法儲存使用引導設定，請再試一次。",
             )),
+            task_class="interactive",
         )
 
     def _project_guidance(self, update: GuidancePreferencesUpdate) -> None:
@@ -110,4 +111,5 @@ class UserPersistenceRuntimeModule:
                 command.operation_id,
                 "無法儲存回饋，請再試一次。",
             )),
+            task_class="interactive",
         )

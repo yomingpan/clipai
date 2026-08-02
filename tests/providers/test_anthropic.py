@@ -8,6 +8,7 @@ from ClipAI.core.state import CancellationToken
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.http_transport import HttpResponse
 from ClipAI.providers.settings import AnthropicSettings, ProviderCredential
+from tests.providers.async_helpers import complete
 
 
 class FakeTransport:
@@ -16,7 +17,7 @@ class FakeTransport:
         self.error = error
         self.calls: list[tuple[str, dict]] = []
 
-    def post(self, url: str, **kwargs):
+    async def post(self, url: str, **kwargs):
         self.calls.append((url, kwargs))
         if self.error:
             raise self.error
@@ -39,7 +40,7 @@ def test_anthropic_maps_messages_api() -> None:
         "usage": {"input_tokens": 2, "output_tokens": 6},
     }
     transport = FakeTransport(HttpResponse(200, "", payload))
-    result = AnthropicProvider(settings(), ProviderCredential("ANTHROPIC_KEY", "secret"), transport).complete(request(), CancellationToken())
+    result = complete(AnthropicProvider(settings(), ProviderCredential("ANTHROPIC_KEY", "secret"), transport), request())
     assert result.text == "Claude result"
     assert result.usage and result.usage.output_tokens == 6
     assert transport.calls[0][0] == "https://anthropic.test/v1/messages"
@@ -49,16 +50,16 @@ def test_anthropic_maps_messages_api() -> None:
 
 def test_anthropic_missing_key_is_auth_error() -> None:
     with pytest.raises(ProviderAuthError):
-        AnthropicProvider(settings("ANTHROPIC_MISSING"), ProviderCredential("ANTHROPIC_MISSING"), FakeTransport()).complete(request(), CancellationToken())
+        complete(AnthropicProvider(settings("ANTHROPIC_MISSING"), ProviderCredential("ANTHROPIC_MISSING"), FakeTransport()), request())
 
 
 def test_anthropic_preserves_timeout_error() -> None:
     provider = AnthropicProvider(settings(), ProviderCredential("ANTHROPIC_KEY", "secret"), FakeTransport(error=ProviderTimeoutError("timed out")))
     with pytest.raises(ProviderTimeoutError):
-        provider.complete(request(), CancellationToken())
+        complete(provider, request())
 
 
 def test_anthropic_invalid_json_is_response_error() -> None:
     provider = AnthropicProvider(settings(), ProviderCredential("ANTHROPIC_KEY", "secret"), FakeTransport(HttpResponse(200, "invalid", None)))
     with pytest.raises(ProviderResponseError, match="invalid JSON"):
-        provider.complete(request(), CancellationToken())
+        complete(provider, request())

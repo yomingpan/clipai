@@ -73,15 +73,21 @@ class SpeechCoordinator:
     def create_text_job(self, *, operation_id: str, workflow_id: str, text: str) -> SpeechJob:
         return self._create_job(operation_id=operation_id, workflow_id=workflow_id, text=text, track=False)
 
-    def speak_result(self, text: str, workflow_id: str, cancellation: CancellationToken) -> None:
+    def create_result_job(
+        self,
+        *,
+        text: str,
+        workflow_id: str,
+        cancellation: CancellationToken,
+    ) -> SpeechJob:
         operation_id = f"tts:sequence:{uuid.uuid4().hex}"
-        self._create_job(
+        return self._create_job(
             operation_id=operation_id,
             workflow_id=workflow_id,
             text=text,
             track=True,
             token=cancellation,
-        ).run()
+        )
 
     def _create_job(
         self,

@@ -55,7 +55,7 @@ def write_install_inputs(project_root: Path) -> None:
     (project_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     constraints = project_root / "constraints" / "windows.txt"
     constraints.parent.mkdir(exist_ok=True)
-    constraints.write_text("requests==2.32.3\n", encoding="utf-8")
+    constraints.write_text("httpx==0.28.1\n", encoding="utf-8")
 
 
 def test_prepare_reuses_a_ready_python_312_environment(tmp_path: Path) -> None:
@@ -154,6 +154,24 @@ def test_create_environment_uses_runtime_constraints(tmp_path: Path) -> None:
     assert "-c" in commands[2]
     assert ".[dev]" not in commands[2]
     assert bootstrap.environment_is_ready(tmp_path, python)
+
+
+def test_dependency_refresh_avoids_pip_and_system_truststore_double_patch(tmp_path: Path) -> None:
+    write_install_inputs(tmp_path)
+    python = tmp_path / ".venv" / "Scripts" / "python.exe"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    commands: list[list[str]] = []
+
+    def runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        commands.append(list(command))
+        return subprocess.CompletedProcess(command, 0)
+
+    bootstrap.install_project(tmp_path, python, runner)
+
+    pip_commands = [command for command in commands if command[1:3] == ["-m", "pip"]]
+    assert len(pip_commands) == 2
+    assert all("--use-deprecated=legacy-certs" in command for command in pip_commands)
 
 
 def test_create_environment_reports_missing_constraints(tmp_path: Path) -> None:

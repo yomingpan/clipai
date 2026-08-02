@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from dataclasses import dataclass
 
 from ClipAI.services.output_actions import OutputActions
-from ClipAI.core.models import ClipboardSnapshot, PasteTarget
+from ClipAI.core.models import PasteTarget
+from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.speech_text import SpeechTextPreprocessor
 
 
@@ -37,6 +39,11 @@ class Clipboard:
         return True
 
 
+@dataclass(frozen=True)
+class ClipboardSnapshot:
+    text: str
+
+
 class Keyboard:
     def __init__(self, fail: bool = False) -> None:
         self.fail = fail
@@ -56,7 +63,7 @@ def test_paste_restores_clipboard_after_focus_delay() -> None:
     clipboard = Clipboard("original")
     keyboard = Keyboard()
     waits: list[float] = []
-    actions = OutputActions(clipboard=clipboard, keyboard=keyboard, wait=waits.append, paste_restore_delay_sec=0.25)
+    actions = OutputActions(clipboard=clipboard, keyboard=keyboard, wait=waits.append, paste_restore_delay_sec=0.25, clipboard_transactions=ClipboardTransactionCoordinator(clipboard))
     actions.paste("result", TARGET)
     assert clipboard.writes == ["result", "original"]
     assert keyboard.calls == 1
@@ -65,7 +72,7 @@ def test_paste_restores_clipboard_after_focus_delay() -> None:
 
 def test_paste_restores_clipboard_when_keyboard_fails() -> None:
     clipboard = Clipboard("original")
-    actions = OutputActions(clipboard=clipboard, keyboard=Keyboard(fail=True), wait=lambda _delay: None)
+    actions = OutputActions(clipboard=clipboard, keyboard=Keyboard(fail=True), wait=lambda _delay: None, clipboard_transactions=ClipboardTransactionCoordinator(clipboard))
     with pytest.raises(RuntimeError, match="paste failed"):
         actions.paste("result", TARGET)
     assert clipboard.text == "original"
@@ -82,5 +89,5 @@ def test_paste_does_not_restore_over_newer_clipboard_content() -> None:
     def external_update(_delay: float) -> None:
         clipboard.write_text("new user content")
 
-    OutputActions(clipboard=clipboard, keyboard=Keyboard(), wait=external_update).paste("result", TARGET)
+    OutputActions(clipboard=clipboard, keyboard=Keyboard(), wait=external_update, clipboard_transactions=ClipboardTransactionCoordinator(clipboard)).paste("result", TARGET)
     assert clipboard.text == "new user content"

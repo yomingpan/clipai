@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import TypeAlias
 import uuid
 
-from ClipAI.app.task_supervisor import TaskSupervisor
+from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.core.commands import CloseProviderSettings, OpenProviderSettings, RefreshProviderModels, ReloadConfiguration, SelectProvider, SelectProviderModel, ValidateAndSaveProviderSettings
 from ClipAI.core.models import InterruptibleOperationRef
 from ClipAI.core.ports import ModelSelectionPresenter, OperationTracker, ProviderSelectionPresenter, ProviderSettingsPresenter
@@ -22,7 +22,7 @@ class ProviderConfigurationRuntimeModule:
         self,
         *,
         coordinator: ProviderConfigurationCoordinator,
-        supervisor: TaskSupervisor,
+        provider_execution: ProviderExecutionModule,
         enqueue: Callable[[object], None],
         operation_tracker: OperationTracker | None = None,
         model_selection_presenter: ModelSelectionPresenter | None = None,
@@ -31,7 +31,7 @@ class ProviderConfigurationRuntimeModule:
         user_control: UserControlCoordinator | None = None,
     ) -> None:
         self._coordinator = coordinator
-        self._supervisor = supervisor
+        self._provider_execution = provider_execution
         self._enqueue = enqueue
         self._operation_tracker = operation_tracker
         self._model_selection_presenter = model_selection_presenter
@@ -76,7 +76,7 @@ class ProviderConfigurationRuntimeModule:
         if active is not None:
             kind, operation_id = active
             self._project(self._coordinator.cancel_active())
-            self._supervisor.cancel(
+            self._provider_execution.cancel(
                 f"provider-settings:{operation_id}" if kind == "save" else f"provider-models:{operation_id}"
             )
             lease = self._leases.pop(operation_id, None)
@@ -97,13 +97,15 @@ class ProviderConfigurationRuntimeModule:
                 "provider_configuration",
                 surface_id="provider-settings",
             ))
-        self._supervisor.submit(
+        self._provider_execution.start(
             f"provider-settings:{operation_id}",
-            lambda: self._enqueue(self._coordinator.execute(work)),
+            lambda: self._coordinator.execute(work),
+            self._enqueue,
             lambda error: self._enqueue(ProviderConfigurationResult(
                 "save", operation_id, command.settings.provider,
                 error="Provider validation failed unexpectedly. Try again.",
             )),
+            lambda: None,
         )
 
     def _refresh(self, command: RefreshProviderModels) -> None:
@@ -119,13 +121,15 @@ class ProviderConfigurationRuntimeModule:
                 "provider_configuration",
                 surface_id="provider-settings",
             ))
-        self._supervisor.submit(
+        self._provider_execution.start(
             f"provider-models:{operation_id}",
-            lambda: self._enqueue(self._coordinator.execute(work)),
+            lambda: self._coordinator.execute(work),
+            self._enqueue,
             lambda error: self._enqueue(ProviderConfigurationResult(
                 "refresh", operation_id, provider,
                 error="The provider returned no usable models. The previous catalog remains active.",
             )),
+            lambda: None,
         )
 
     def _project(self, update: ProviderConfigurationUpdate) -> None:

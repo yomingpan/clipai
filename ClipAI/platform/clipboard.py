@@ -3,24 +3,59 @@ from __future__ import annotations
 from io import BytesIO
 import ctypes
 from ctypes import wintypes
+from dataclasses import dataclass
 import time
 
 import pyperclip
 
 from ClipAI.core.errors import InputError
-from ClipAI.core.models import ClipboardSnapshot, ImageContent
+from ClipAI.core.models import ImageContent
 
 MAX_CLIPBOARD_IMAGE_BYTES = 20 * 1024 * 1024
 
+# GetClipboardData does not always return an HGLOBAL. In particular, bitmap,
+# palette, metafile, private, and GDI-object formats return opaque native
+# handles that must never be passed to GlobalSize or GlobalLock. The standard
+# formats below are explicitly documented as global-memory backed. CF_DIB and
+# CF_DIBV5 preserve image clipboard content without copying the unsafe
+# synthesized CF_BITMAP handle.
+_HGLOBAL_CLIPBOARD_FORMATS = frozenset({
+    1,   # CF_TEXT
+    4,   # CF_SYLK
+    5,   # CF_DIF
+    6,   # CF_TIFF
+    7,   # CF_OEMTEXT
+    8,   # CF_DIB
+    10,  # CF_PENDATA
+    11,  # CF_RIFF
+    12,  # CF_WAVE
+    13,  # CF_UNICODETEXT
+    15,  # CF_HDROP
+    16,  # CF_LOCALE
+    17,  # CF_DIBV5
+    0x0081,  # CF_DSPTEXT
+})
+
+
+@dataclass(frozen=True)
+class _ClipboardFormatSnapshot:
+    format_id: int
+    data: bytes
+
+
+@dataclass(frozen=True)
+class WindowsClipboardSnapshot:
+    formats: tuple[_ClipboardFormatSnapshot, ...]
+
 
 class SystemClipboard:
-    def snapshot(self) -> ClipboardSnapshot:
-        return ClipboardSnapshot(text=self.read_text(), image=self.read_image())
+    def snapshot(self) -> WindowsClipboardSnapshot:
+        return _snapshot_native_formats()
 
     def sequence_number(self) -> int:
         return int(ctypes.windll.user32.GetClipboardSequenceNumber())
 
-    def restore_if_unchanged(self, snapshot: ClipboardSnapshot, expected_sequence: int) -> bool:
+    def restore_if_unchanged(self, snapshot: WindowsClipboardSnapshot, expected_sequence: int) -> bool:
         if self.sequence_number() != expected_sequence:
             return False
         _replace_clipboard(snapshot)
@@ -50,9 +85,67 @@ class SystemClipboard:
         pyperclip.copy(text)
 
 
-def _replace_clipboard(snapshot: ClipboardSnapshot) -> None:
+def _snapshot_native_formats() -> WindowsClipboardSnapshot:
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
+    _configure_clipboard_functions(user32, kernel32)
+    _open_clipboard(user32)
+    formats: list[_ClipboardFormatSnapshot] = []
+    try:
+        format_id = 0
+        while True:
+            format_id = int(user32.EnumClipboardFormats(format_id))
+            if format_id == 0:
+                break
+            if not _is_hglobal_clipboard_format(format_id):
+                continue
+            handle = user32.GetClipboardData(format_id)
+            if not handle:
+                continue
+            size = int(kernel32.GlobalSize(handle))
+            if size <= 0:
+                continue
+            pointer = kernel32.GlobalLock(handle)
+            if not pointer:
+                continue
+            try:
+                formats.append(_ClipboardFormatSnapshot(format_id, ctypes.string_at(pointer, size)))
+            finally:
+                kernel32.GlobalUnlock(handle)
+    finally:
+        user32.CloseClipboard()
+    return WindowsClipboardSnapshot(tuple(formats))
+
+
+def _is_hglobal_clipboard_format(format_id: int) -> bool:
+    return format_id in _HGLOBAL_CLIPBOARD_FORMATS
+
+
+def _replace_clipboard(snapshot: WindowsClipboardSnapshot) -> None:
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    _configure_clipboard_functions(user32, kernel32)
+    handles = [
+        (item.format_id, _global_memory(item.data, kernel32))
+        for item in snapshot.formats
+    ]
+    _open_clipboard(user32)
+    transferred: set[int] = set()
+    try:
+        if not user32.EmptyClipboard():
+            raise ctypes.WinError()
+        for clipboard_format, handle in handles:
+            if not user32.SetClipboardData(clipboard_format, handle):
+                raise ctypes.WinError()
+            transferred.add(handle)
+    finally:
+        user32.CloseClipboard()
+        for _format, handle in handles:
+            if handle not in transferred:
+                kernel32.GlobalFree(handle)
+
+
+def _configure_clipboard_functions(user32, kernel32) -> None:
     user32.OpenClipboard.argtypes = [wintypes.HWND]
     user32.OpenClipboard.restype = wintypes.BOOL
     user32.EmptyClipboard.restype = wintypes.BOOL
@@ -65,34 +158,21 @@ def _replace_clipboard(snapshot: ClipboardSnapshot) -> None:
     kernel32.GlobalLock.restype = ctypes.c_void_p
     kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
     kernel32.GlobalFree.argtypes = [wintypes.HGLOBAL]
-    cf_unicode_text = 13
-    cf_dib = 8
-    handles: list[tuple[int, int]] = []
+    kernel32.GlobalSize.argtypes = [wintypes.HGLOBAL]
+    kernel32.GlobalSize.restype = ctypes.c_size_t
+    user32.GetClipboardData.argtypes = [wintypes.UINT]
+    user32.GetClipboardData.restype = wintypes.HANDLE
+    user32.EnumClipboardFormats.argtypes = [wintypes.UINT]
+    user32.EnumClipboardFormats.restype = wintypes.UINT
 
-    if snapshot.text:
-        handles.append((cf_unicode_text, _global_memory(snapshot.text.encode("utf-16-le") + b"\x00\x00", kernel32)))
-    if snapshot.image is not None:
-        from PIL import Image
 
-        with Image.open(BytesIO(snapshot.image.data)) as image:
-            bitmap = BytesIO()
-            image.convert("RGB").save(bitmap, format="BMP")
-        handles.append((cf_dib, _global_memory(bitmap.getvalue()[14:], kernel32)))
-
+def _open_clipboard(user32) -> None:
     for attempt in range(10):
         if user32.OpenClipboard(None):
-            break
+            return
         if attempt == 9:
             raise OSError("Clipboard is busy")
         time.sleep(0.01)
-    try:
-        if not user32.EmptyClipboard():
-            raise ctypes.WinError()
-        for clipboard_format, handle in handles:
-            if not user32.SetClipboardData(clipboard_format, handle):
-                raise ctypes.WinError()
-    finally:
-        user32.CloseClipboard()
 
 
 def _global_memory(data: bytes, kernel32) -> int:

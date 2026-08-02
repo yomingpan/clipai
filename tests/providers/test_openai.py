@@ -8,6 +8,7 @@ from ClipAI.core.state import CancellationToken
 from ClipAI.providers.http_transport import HttpResponse
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import OpenAISettings, ProviderCredential
+from tests.providers.async_helpers import complete
 
 
 class FakeTransport:
@@ -16,7 +17,7 @@ class FakeTransport:
         self.error = error
         self.calls: list[tuple[str, dict]] = []
 
-    def post(self, url: str, **kwargs):
+    async def post(self, url: str, **kwargs):
         self.calls.append((url, kwargs))
         if self.error:
             raise self.error
@@ -36,7 +37,7 @@ def test_openai_maps_responses_api() -> None:
     }
     transport = FakeTransport(HttpResponse(200, "", payload))
     provider = OpenAIProvider(OpenAISettings("OPENAI_KEY", "https://openai.test", "gpt", 10), ProviderCredential("OPENAI_KEY", "secret"), transport)
-    result = provider.complete(request(), CancellationToken())
+    result = complete(provider, request())
     assert result.text == "OpenAI result"
     assert result.usage and result.usage.output_tokens == 5
     assert transport.calls[0][0] == "https://openai.test/v1/responses"
@@ -46,7 +47,7 @@ def test_openai_maps_responses_api() -> None:
 def test_openai_missing_key_is_auth_error() -> None:
     provider = OpenAIProvider(OpenAISettings("OPENAI_MISSING", "https://test", "gpt", 1), ProviderCredential("OPENAI_MISSING"), FakeTransport())
     with pytest.raises(ProviderAuthError):
-        provider.complete(request(), CancellationToken())
+        complete(provider, request())
 
 
 def test_openai_preserves_timeout_error() -> None:
@@ -55,7 +56,7 @@ def test_openai_preserves_timeout_error() -> None:
         ProviderCredential("OPENAI_KEY", "secret"), FakeTransport(error=ProviderTimeoutError("timed out")),
     )
     with pytest.raises(ProviderTimeoutError):
-        provider.complete(request(), CancellationToken())
+        complete(provider, request())
 
 
 def test_openai_invalid_json_is_response_error() -> None:
@@ -64,4 +65,4 @@ def test_openai_invalid_json_is_response_error() -> None:
         ProviderCredential("OPENAI_KEY", "secret"), FakeTransport(HttpResponse(200, "invalid", None)),
     )
     with pytest.raises(ProviderResponseError, match="invalid JSON"):
-        provider.complete(request(), CancellationToken())
+        complete(provider, request())

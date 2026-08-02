@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import TypeVar
+
 from ClipAI.core.errors import CancelledError, ClipAIError
-from ClipAI.core.models import ActionInvocation, InputDocument, LLMRequest, LLMResult, ResolvedAction
+from ClipAI.core.models import ActionInvocation, InputDocument, LLMCompleted, LLMProviderEvent, LLMRequest, LLMResult, LLMTextDelta, ResolvedAction
 from ClipAI.core.ports import OperationHandle, OperationTracker
 from ClipAI.core.state import SessionStatus
 from ClipAI.services.input_resolver import InputResolver
@@ -25,6 +29,7 @@ class ActionExecutor:
         operation_tracker: OperationTracker | None = None,
         result_router: ResultRouter | None = None,
         guidance_preferences: GuidancePreferencesCoordinator | None = None,
+        blocking_runner: Callable[[str, Callable[[], object]], Awaitable[object]] | None = None,
     ) -> None:
         self._input_resolver = input_resolver
         self._prompt_builder = prompt_builder
@@ -34,8 +39,9 @@ class ActionExecutor:
         self._operation_tracker = operation_tracker
         self._result_router = result_router or ResultRouter()
         self._guidance_preferences = guidance_preferences
+        self._blocking_runner = blocking_runner
 
-    def execute_invocation(
+    async def execute_invocation(
         self,
         action: ResolvedAction,
         invocation: ActionInvocation,
@@ -47,7 +53,10 @@ class ActionExecutor:
         try:
             if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id, binding):
                 return
-            document = invocation.input_target.document or self._input_resolver.resolve(action.input_mode)
+            document = invocation.input_target.document or await self._run_blocking(
+                f"input:{invocation.invocation_id}",
+                lambda: self._input_resolver.resolve(action.input_mode, token),
+            )
             if workflow.update(
                 invocation.invocation_id,
                 SessionStatus.PREPARING_REQUEST,
@@ -55,12 +64,15 @@ class ActionExecutor:
                 input_source=document.source,
             ) is None:
                 return
-            request = self._prompt_builder.build(
-                action,
-                document.text,
-                model=binding.model,
-                default_temperature=self._default_temperature,
-                image=document.image,
+            request = await self._run_blocking(
+                f"prompt:{invocation.invocation_id}",
+                lambda: self._prompt_builder.build(
+                    action,
+                    document.text,
+                    model=binding.model,
+                    default_temperature=self._default_temperature,
+                    image=document.image,
+                ),
             )
             if workflow.update(
                 invocation.invocation_id,
@@ -68,16 +80,19 @@ class ActionExecutor:
                 status_text=f"Asking {binding.provider_id}...",
             ) is None:
                 return
-            result = self._complete_provider_for_invocation(request, invocation.invocation_id, token, binding)
+            result = await self._complete_provider_for_invocation(request, invocation.invocation_id, token, binding, action.stream, workflow)
             if workflow.update(
                 invocation.invocation_id,
                 SessionStatus.PROCESSING_RESULT,
                 status_text="Rendering result...",
             ) is None:
                 return
-            processed = self._result_processor.process(result.text, action.output_profile)
+            processed = await self._run_blocking(
+                f"result:{invocation.invocation_id}",
+                lambda: self._result_processor.process(result.text, action.output_profile),
+            )
             show_guidance_hint = self._consume_guidance_hint(action, invocation)
-            self._result_router.route(
+            await self._result_router.route(
                 invocation.result_route,
                 processed,
                 workflow_id=invocation.workflow_id or invocation.invocation_id,
@@ -110,7 +125,7 @@ class ActionExecutor:
         except ClipAIError as exc:
             workflow.fail(invocation.invocation_id, str(exc))
 
-    def execute_follow_up_invocation(
+    async def execute_follow_up_invocation(
         self,
         action: ResolvedAction,
         question: str,
@@ -125,13 +140,16 @@ class ActionExecutor:
         try:
             if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id, binding):
                 return
-            request = self._prompt_builder.build_follow_up(
-                action,
-                original_input=original_input,
-                previous_result=previous_result,
-                question=question,
-                model=binding.model,
-                default_temperature=self._default_temperature,
+            request = await self._run_blocking(
+                f"prompt:{invocation.invocation_id}",
+                lambda: self._prompt_builder.build_follow_up(
+                    action,
+                    original_input=original_input,
+                    previous_result=previous_result,
+                    question=question,
+                    model=binding.model,
+                    default_temperature=self._default_temperature,
+                ),
             )
             if workflow.update(
                 invocation.invocation_id,
@@ -139,17 +157,20 @@ class ActionExecutor:
                 status_text=f"Asking {binding.provider_id}...",
             ) is None:
                 return
-            result = self._complete_provider_for_invocation(request, invocation.invocation_id, token, binding)
+            result = await self._complete_provider_for_invocation(request, invocation.invocation_id, token, binding, action.stream, workflow)
             if workflow.update(
                 invocation.invocation_id,
                 SessionStatus.PROCESSING_RESULT,
                 status_text="Rendering result...",
             ) is None:
                 return
-            processed = self._result_processor.process(result.text, action.output_profile)
+            processed = await self._run_blocking(
+                f"result:{invocation.invocation_id}",
+                lambda: self._result_processor.process(result.text, action.output_profile),
+            )
             show_guidance_hint = self._consume_guidance_hint(action, invocation)
             document = InputDocument(question, "workflow_result", workflow.snapshot.session_id, invocation.parent_step_id)
-            self._result_router.route(
+            await self._result_router.route(
                 invocation.result_route,
                 processed,
                 workflow_id=invocation.workflow_id or invocation.invocation_id,
@@ -179,18 +200,38 @@ class ActionExecutor:
             and self._guidance_preferences.consume_first_use_hint(f"{action.id}:{action.press_type}")
         )
 
-    def _complete_provider_for_invocation(
+    async def _run_blocking(self, task_id: str, work: Callable[[], object]):
+        if self._blocking_runner is None:
+            return await asyncio.to_thread(work)
+        return await self._blocking_runner(task_id, work)
+
+    async def _complete_provider_for_invocation(
         self,
         request: LLMRequest,
         invocation_id: str,
         cancellation,
         binding: ProviderExecutionBinding,
+        stream: bool,
+        workflow: WorkflowController,
     ) -> LLMResult:
         operation: OperationHandle | None = None
         if self._operation_tracker is not None:
             operation = self._operation_tracker.start(f"llm:{invocation_id}", "llm")
         try:
-            result = binding.provider.complete(request, cancellation)
+            result: LLMResult | None = None
+            events = binding.provider.execute(request, cancellation, stream=stream)
+            async for event in coalesce_provider_events(events):
+                if isinstance(event, LLMTextDelta):
+                    if workflow.append_provider_text(invocation_id, event.text) is None:
+                        raise CancelledError("action invocation was replaced")
+                elif isinstance(event, LLMCompleted):
+                    result = event.result
+            if result is None:
+                raise ClipAIError("AI provider did not return a terminal result")
+        except asyncio.CancelledError:
+            if operation is not None:
+                operation.cancel()
+            raise
         except CancelledError:
             if operation is not None:
                 operation.cancel()
@@ -203,6 +244,7 @@ class ActionExecutor:
             if operation is not None:
                 operation.cancel()
             raise CancelledError("action invocation was replaced")
+        assert result is not None
         if operation is not None:
             operation.succeed()
         return result
@@ -218,3 +260,45 @@ class ActionExecutor:
             return False
         workflow.fail(invocation_id, issue.message)
         return True
+
+
+async def coalesce_provider_events(
+    events: AsyncIterator[LLMProviderEvent],
+    *,
+    interval_seconds: float = 0.04,
+) -> AsyncIterator[LLMProviderEvent]:
+    """Bound partial projection frequency while flushing terminal events immediately."""
+
+    iterator = events.__aiter__()
+    pending: asyncio.Task[LLMProviderEvent] | None = asyncio.create_task(anext(iterator))
+    buffered: list[str] = []
+    loop = asyncio.get_running_loop()
+    deadline = 0.0
+    try:
+        while pending is not None:
+            timeout = max(0.0, deadline - loop.time()) if buffered else None
+            done, _ = await asyncio.wait((pending,), timeout=timeout)
+            if not done:
+                yield LLMTextDelta("".join(buffered))
+                buffered.clear()
+                continue
+            try:
+                event = pending.result()
+            except StopAsyncIteration:
+                pending = None
+                break
+            pending = asyncio.create_task(anext(iterator))
+            if isinstance(event, LLMTextDelta):
+                if not buffered:
+                    deadline = loop.time() + interval_seconds
+                buffered.append(event.text)
+                continue
+            if buffered:
+                yield LLMTextDelta("".join(buffered))
+                buffered.clear()
+            yield event
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+    if buffered:
+        yield LLMTextDelta("".join(buffered))
