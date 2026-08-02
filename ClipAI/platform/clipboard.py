@@ -13,6 +13,29 @@ from ClipAI.core.models import ImageContent
 
 MAX_CLIPBOARD_IMAGE_BYTES = 20 * 1024 * 1024
 
+# GetClipboardData does not always return an HGLOBAL. In particular, bitmap,
+# palette, metafile, private, and GDI-object formats return opaque native
+# handles that must never be passed to GlobalSize or GlobalLock. The standard
+# formats below are explicitly documented as global-memory backed. CF_DIB and
+# CF_DIBV5 preserve image clipboard content without copying the unsafe
+# synthesized CF_BITMAP handle.
+_HGLOBAL_CLIPBOARD_FORMATS = frozenset({
+    1,   # CF_TEXT
+    4,   # CF_SYLK
+    5,   # CF_DIF
+    6,   # CF_TIFF
+    7,   # CF_OEMTEXT
+    8,   # CF_DIB
+    10,  # CF_PENDATA
+    11,  # CF_RIFF
+    12,  # CF_WAVE
+    13,  # CF_UNICODETEXT
+    15,  # CF_HDROP
+    16,  # CF_LOCALE
+    17,  # CF_DIBV5
+    0x0081,  # CF_DSPTEXT
+})
+
 
 @dataclass(frozen=True)
 class _ClipboardFormatSnapshot:
@@ -74,6 +97,8 @@ def _snapshot_native_formats() -> WindowsClipboardSnapshot:
             format_id = int(user32.EnumClipboardFormats(format_id))
             if format_id == 0:
                 break
+            if not _is_hglobal_clipboard_format(format_id):
+                continue
             handle = user32.GetClipboardData(format_id)
             if not handle:
                 continue
@@ -90,6 +115,10 @@ def _snapshot_native_formats() -> WindowsClipboardSnapshot:
     finally:
         user32.CloseClipboard()
     return WindowsClipboardSnapshot(tuple(formats))
+
+
+def _is_hglobal_clipboard_format(format_id: int) -> bool:
+    return format_id in _HGLOBAL_CLIPBOARD_FORMATS
 
 
 def _replace_clipboard(snapshot: WindowsClipboardSnapshot) -> None:

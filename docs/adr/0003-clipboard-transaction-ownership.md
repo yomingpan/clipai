@@ -20,3 +20,8 @@ Selection timing and fallback policy live in services. The platform adapter expo
 - External clipboard changes are never overwritten by a late restore.
 - Text-only transactions avoid image conversion cost.
 - Snapshot representation can evolve inside the platform adapter without changing service contracts.
+- On Windows, native snapshots serialize only clipboard formats documented as
+  `HGLOBAL`-backed. Opaque bitmap, palette, metafile, private, registered, and
+  GDI-object handles are never passed to `GlobalSize` or `GlobalLock`; image
+  content remains restorable through the standard `CF_DIB` and `CF_DIBV5`
+  formats.
