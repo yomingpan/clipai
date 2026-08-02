@@ -352,7 +352,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 19
+    assert len(start_actions) == 20
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -369,6 +369,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "minimum_action": "ctrl+alt+a",
         "tradeoff_perspective": "ctrl+alt+d",
         "extract_keywords": "ctrl+alt+e",
+        "structure_score_prompt": "ctrl+alt+f",
         "extract_screenshot_text": "ctrl+alt+g",
         "speak_selection_or_clipboard": "ctrl+alt+q",
         "shorten_content": "ctrl+alt+x",
@@ -509,6 +510,37 @@ def test_command_copilot_combines_command_generation_and_risk_review() -> None:
     assert "不得為了縮短或安全而改變原 command 的行為" in action.system_prompt
     assert "風險層級" in action.prompt
     assert "更安全的做法" in action.prompt
+
+
+def test_score_action_classifies_before_compressing_and_supports_clarification() -> None:
+    bundle = load_config_bundle()
+    action = bundle.actions.get("structure_score_prompt")
+    shortcut = bundle.shortcuts.definition("structure_score_prompt")
+
+    assert action.name == "SCORE 需求整理"
+    assert action.input_mode == "selection_or_clipboard"
+    assert action.external_fallback == "selection_or_clipboard"
+    assert action.output_mode == "popup"
+    assert action.stream is None
+    assert action.temperature == 0.1
+    assert action.output_profile == "score_compact"
+    assert action.press_variants == {}
+    assert shortcut.hotkey == "ctrl+alt+f"
+    assert shortcut.action_id == action.id
+    assert action.feedback_contract is not None
+    assert action.feedback_contract.ai_does_not_label == "不替你補完缺失資訊、決定真正意圖或執行整理後的任務"
+    assert "把複合敘述拆成不可再拆的獨立語義" in action.system_prompt
+    assert "完成分類後才壓縮" in action.system_prompt
+    assert "至少兩個合理答案" in action.system_prompt
+    assert "重新拆解、分類、壓縮並輸出完整的新 SCORE" in action.system_prompt
+    assert "固定依序輸出 S:、C:、O:、R:、E:" in action.system_prompt
+    assert "剛好一點時，內容必須緊接冒號寫在同一實體行" in action.system_prompt
+    assert "單點欄位的錯誤格式" in action.system_prompt
+    assert "## 缺少資訊" in action.system_prompt
+    assert "## 需要確認" in action.system_prompt
+    assert "不得回答或執行" in action.system_prompt
+    assert "<source_material>" in action.prompt
+    assert "剛好一點時，必須把內容直接寫在欄位標籤後的同一實體行" in bundle.output_profiles.get("score_compact").instruction
 
 
 @pytest.mark.parametrize(

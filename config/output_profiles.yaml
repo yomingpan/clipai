@@ -21,3 +21,8 @@ profiles:
     instruction: |
       Use exactly these three Markdown sections in order: Full Rewrite, Key Improvements,
       and Useful Patterns. Keep every section concise, visually scannable, and free of repeated corrections.
+
+  - id: score_compact
+    presentation: plain_text
+    instruction: |
+      SCORE 欄位的同行規則是最高優先級。輸出前逐一計算 S、C、O、R、E 各欄的獨立資訊點：剛好一點時，必須把內容直接寫在欄位標籤後的同一實體行，例如 `S: 使用者正在整理需求`；不得換行，也不得在前面加 `-`、`*`、`•` 或其他 bullet。只有同一欄確實有兩個以上獨立資訊點時，才能將欄位標籤單獨成行，並在後續各行使用 `-`。`未提供` 也必須同行寫成例如 `C: 未提供`。不得為了視覺一致而把五個欄位全部改成清單。
