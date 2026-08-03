@@ -8,8 +8,8 @@ profiles:
   - id: english_learning_compact
     presentation: plain_text
     instruction: |
-      Put exactly one target English expression first, then give at most two short, conversational Traditional Chinese sentences combining its meaning with a concrete usage situation, followed by one practical English example.
-      Add `同義：` with 1-3 useful close alternatives only when genuinely helpful. End with `記憶：` and one concrete, short mnemonic or association.
+      Put exactly one target English expression by itself on the first line, without any spoken/written or formal/informal label. Then give at most two short, conversational Traditional Chinese sentences combining its meaning with a concrete usage situation, followed by one practical English example.
+      After the example, add a separate `語感：` line when a spoken/written or formal/informal distinction is useful. If the target is mainly written or formal, mention that gently and give its closest everyday spoken alternative. Add `同義：` with 1-3 useful close alternatives when helpful; for a mainly written or formal target, include and mark conversational alternatives with `（口語常用）`. End with `記憶：` and one concrete, short mnemonic or association.
       Keep the entire answer compact. Do not use Markdown headings or extra sections.
 
   - id: english_improvement

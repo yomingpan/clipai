@@ -107,11 +107,11 @@ actions:
       請為以下內容中最值得繼續發展的一條思考線命名。
 
       嚴格使用以下格式：
-      ## 洞察命名
-      以 4～6 個中文字為優先，必要時 6～10 字；像概念標籤而非完整句子，不只是重述主題。
+      第一段只放命名：以 4～6 個中文字為優先，必要時 6～10 字；像概念標籤而非完整句子，不只是重述主題。
 
-      ## 想法原貌
-      用 1～2 句、約 60～80 字保留原本脈絡與語氣，不補充新論點。
+      空一行後，第二段用 1～2 句、約 60～80 字保留原本脈絡與語氣，不補充新論點。
+
+      不要加入「洞察命名」、「想法原貌」或其他標題，也不要使用 Markdown heading。
 
       輸入：
       {input}
@@ -323,9 +323,11 @@ actions:
       - If any English is present, choose exactly one useful English word or phrase that appears literally in the input. When the input is one English word or phrase, use that exact item.
       - If the input is Chinese-only, teach exactly one natural English expression for its most likely everyday meaning.
 
-      Put the expression on the first line. Then use one very short Traditional Chinese paragraph (at most two sentences) to explain it in plain everyday language and show a concrete situation where people naturally use it. Avoid formulaic wording such as「X 指……」and generic claims about success or approval. Give one natural, practical English example on its own line.
+      Put only the expression on the first line. Do not attach any spoken/written or formal/informal label to that line. Then use one very short Traditional Chinese paragraph (at most two sentences) to explain it in plain everyday language and show a concrete situation where people naturally use it. Avoid formulaic wording such as「X 指……」and generic claims about success or approval. Give one natural, practical English example on its own line.
 
-      Add `同義：` followed by 1-3 genuinely close alternatives only when they help; do not list words that merely share a positive tone or broad topic. Briefly distinguish their usage in the same short line when needed. End with `記憶：` and one concrete, short mnemonic or association that helps a Traditional Chinese speaker remember the expression. Keep the entire answer compact; do not add Markdown headings, repeated field labels, or extra sections.
+      After the example, add a separate `語感：` line only when it is useful to distinguish spoken from written usage or formal from informal usage. Avoid forcing a simplistic label: say when the expression works naturally in both. If it is mainly written or formal, mention that gently and provide the closest expression people normally use in everyday conversation.
+
+      Add `同義：` followed by 1-3 genuinely close alternatives when they help. If the target is mainly written or formal, include its closest conversational alternative and mark each conversational option with `（口語常用）`. Do not list words that merely share a positive tone or broad topic. Briefly distinguish their usage in the same short line when needed. End with `記憶：` and one concrete, short mnemonic or association that helps a Traditional Chinese speaker remember the expression. Keep the entire answer compact; do not add Markdown headings or other extra sections.
 
       Input:
       {input}

@@ -34,7 +34,15 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "do not refuse merely because no English is present" in action.system_prompt
     assert "concrete real-life situation" in action.system_prompt
     assert "Avoid formulaic wording" in action.prompt
+    assert "Put only the expression on the first line" in action.prompt
+    assert "Do not attach any spoken/written or formal/informal label" in action.prompt
+    assert "After the example, add a separate `語感：` line" in action.prompt
+    assert "mark each conversational option with `（口語常用）`" in action.prompt
     assert "記憶：" in action.prompt
+    profile = bundle.output_profiles.get(action.output_profile)
+    assert "without any spoken/written or formal/informal label" in profile.instruction
+    assert "After the example, add a separate `語感：` line" in profile.instruction
+    assert "mark conversational alternatives with `（口語常用）`" in profile.instruction
     assert bundle.schema_versions.app == 2
     assert bundle.schema_versions.actions == 8
     assert bundle.schema_versions.output_profiles == 1
@@ -70,6 +78,16 @@ def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input()
         assert action.input_mode == "selection_or_clipboard"
         assert action.external_fallback == "selection_or_clipboard"
         assert "image" in action.system_prompt.lower() or "圖片" in action.system_prompt
+
+
+def test_name_idea_keeps_two_part_format_without_markdown_headings() -> None:
+    action = load_action_catalog("config/actions.yaml").get("name_idea")
+
+    assert "第一段只放命名" in action.prompt
+    assert "空一行後，第二段" in action.prompt
+    assert "不要使用 Markdown heading" in action.prompt
+    assert "## 洞察命名" not in action.prompt
+    assert "## 想法原貌" not in action.prompt
 
 
 def test_long_press_uses_variant_prompt() -> None:
