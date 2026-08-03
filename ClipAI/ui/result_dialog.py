@@ -269,16 +269,18 @@ class ResultDialogPresenter:
             pinned = view.paste_transition_pinned
             view.paste_transition_id = None
             view.paste_transition_pinned = False
-            if result.state == "succeeded":
+            if result.state == "failed":
+                view.dialog.restore_after_external_output(activate=True)
+            elif result.state in {"cancelled", "cleanup_failed"}:
+                view.dialog.restore_after_external_output(activate=False)
+            elif result.state == "dispatched_unconfirmed":
                 if pinned:
                     view.dialog.restore_after_external_output(activate=False)
-            elif result.state == "dispatched_unconfirmed" and not pinned:
-                # Preserve the Workflow while allowing the next shortcut to open
-                # a new visible Workflow instead of reusing this hidden view.
-                self._command_sink(ReleaseForegroundWorkflow(result.workflow_id))
-            else:
-                view.dialog.restore_after_external_output(activate=True)
-        if result.state == "succeeded":
+                else:
+                    # Preserve the Workflow while allowing the next shortcut to open
+                    # a new visible Workflow instead of reusing this hidden view.
+                    self._command_sink(ReleaseForegroundWorkflow(result.workflow_id))
+        if result.state == "succeeded" and result.kind != "paste":
             view.surface.pulse_standard_action(slot_id)
             if result.kind == "archive" and not view.surface.overflow_expanded:
                 view.surface.show_action_message("已封存", 1000)
@@ -290,6 +292,8 @@ class ResultDialogPresenter:
             view.surface.pulse_standard_action_error(slot_id)
             if result.message:
                 view.surface.show_action_message(result.message, 3000)
+        elif result.state == "cancelled" and result.kind == "paste":
+            view.surface.show_action_message(result.message or "已取消貼上", 1500)
         elif result.state == "failed":
             view.surface.pulse_standard_action_error(slot_id)
             if result.error is not None:

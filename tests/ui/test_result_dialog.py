@@ -236,7 +236,7 @@ def test_paste_emits_identified_command_and_waits_for_pending_projection() -> No
     assert presenter._views["s1"].paste_transition_id == events[1].operation_id
 
 
-def test_pinned_paste_success_restores_without_activation() -> None:
+def test_pinned_unconfirmed_paste_restores_without_activation() -> None:
     presenter, events = presenter_with_selection("selected")
     view = presenter._views["s1"]
     view.dialog.pinned = True
@@ -244,9 +244,15 @@ def test_pinned_paste_success_restores_without_activation() -> None:
     presenter._paste("s1")
     operation_id = events[-1].operation_id
     presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "pending"))
-    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "succeeded"))
+    presenter._apply_output_operation(OutputOperationResult(
+        operation_id,
+        "s1",
+        "paste",
+        "dispatched_unconfirmed",
+    ))
 
     assert "restore:False" in events
+    assert ReleaseForegroundWorkflow("s1") not in events
     assert view.paste_transition_id is None
     assert view.surface.focused is False
 
@@ -261,6 +267,42 @@ def test_unpinned_paste_failure_restores_with_focus() -> None:
     presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "failed"))
 
     assert "restore:True" in events
+    assert view.paste_transition_id is None
+
+
+def test_cancelled_paste_restores_without_stealing_focus() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+
+    presenter._paste("s1")
+    operation_id = events[-1].operation_id
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "pending"))
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "cancelled"))
+
+    assert "restore:False" in events
+    assert "restore:True" not in events
+    assert "message:已取消貼上:1500" in events
+    assert view.paste_transition_id is None
+
+
+def test_cleanup_failed_paste_restores_without_stealing_focus() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+
+    presenter._paste("s1")
+    operation_id = events[-1].operation_id
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "pending"))
+    presenter._apply_output_operation(OutputOperationResult(
+        operation_id,
+        "s1",
+        "paste",
+        "cleanup_failed",
+        message="Clipboard restore failed.",
+    ))
+
+    assert "restore:False" in events
+    assert "restore:True" not in events
+    assert "message:Clipboard restore failed.:3000" in events
     assert view.paste_transition_id is None
 
 
