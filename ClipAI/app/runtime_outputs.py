@@ -6,13 +6,13 @@ import logging
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ArchiveResult, CopyResult, ExportDiagnostics, PasteResult, SpeakSelectionOrClipboard, ToggleSpeech
+from ClipAI.core.commands import ArchiveResult, CopyResult, ExportDiagnostics, PasteOperationCompleted, PasteResult, SpeakSelectionOrClipboard, ToggleSpeech
 from ClipAI.core.models import InterruptibleOperationRef, OutputOperationIntent, PasteRequest, PasteTarget
 from ClipAI.core.ports import DiagnosticsExporter, OperationTracker, OutputOperationPresenter, UserNotifier
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.output_operation import OutputOperationCoordinator
 from ClipAI.services.paste_target import PasteTargetCoordinator
-from ClipAI.services.paste_operation import PasteOperation, PasteOperationCoordinator, PasteOperationInProgress
+from ClipAI.services.paste_operation import PasteOperationCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
@@ -20,7 +20,7 @@ from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime.outputs")
 
-ResultOutputRuntimeCommand: TypeAlias = CopyResult | PasteResult | ArchiveResult | ToggleSpeech | SpeakSelectionOrClipboard | ExportDiagnostics
+ResultOutputRuntimeCommand: TypeAlias = CopyResult | PasteResult | PasteOperationCompleted | ArchiveResult | ToggleSpeech | SpeakSelectionOrClipboard | ExportDiagnostics
 
 
 class ResultOutputRuntimeModule:
@@ -55,7 +55,6 @@ class ResultOutputRuntimeModule:
         self._operations = OutputOperationCoordinator(output_operation_presenter, operation_tracker)
         self._user_control = user_control
         self._interruption_leases: dict[str, InterruptibleOperationLease] = {}
-        self._paste_jobs: dict[str, PasteOperation] = {}
 
     def observe_paste_target(self, target: PasteTarget) -> None:
         self._paste_targets.observe(target)
@@ -68,6 +67,8 @@ class ResultOutputRuntimeModule:
             self._copy(command)
         elif isinstance(command, PasteResult):
             self._paste(command)
+        elif isinstance(command, PasteOperationCompleted):
+            self._paste_completed(command)
         elif isinstance(command, ArchiveResult):
             self._archive(command)
         elif isinstance(command, ToggleSpeech):
@@ -78,9 +79,9 @@ class ResultOutputRuntimeModule:
             self._export_diagnostics()
 
     def close_workflow(self, workflow_id: str) -> None:
-        for operation_id, job in tuple(self._paste_jobs.items()):
-            if job.request.workflow_id == workflow_id:
-                self.cancel_operation(operation_id)
+        paste_operation_id = self._paste_operations.request_cancel_for_workflow(workflow_id)
+        if paste_operation_id is not None:
+            self._supervisor.cancel_many((paste_operation_id,), lambda: None)
         if self._speech_coordinator is None:
             return
         operation_id = self._speech_coordinator.operation_for(workflow_id)
@@ -92,6 +93,9 @@ class ResultOutputRuntimeModule:
         self._finish_interruption(operation_id)
 
     def stop(self) -> None:
+        paste_operation_id = self._paste_operations.request_cancel_active()
+        if paste_operation_id is not None:
+            self._supervisor.cancel_many((paste_operation_id,), lambda: None)
         if self._speech_coordinator is not None:
             self._speech_coordinator.cancel_current()
 
@@ -99,15 +103,17 @@ class ResultOutputRuntimeModule:
         speech_identity = self._speech_coordinator.current_identity if self._speech_coordinator is not None else None
         if self._speech_coordinator is not None:
             self._speech_coordinator.cancel_current()
-        running_paste_ids: set[str] = set()
         task_ids: list[str] = []
-        for operation_id, job in tuple(self._paste_jobs.items()):
-            task_ids.append(operation_id)
-            if job.cancel():
-                self._paste_jobs.pop(operation_id, None)
-            else:
-                running_paste_ids.add(operation_id)
-        intents = self._operations.cancel_all(exclude_operation_ids=frozenset(running_paste_ids))
+        paste_operation_id = self._paste_operations.request_cancel_active()
+        if paste_operation_id is not None:
+            task_ids.append(paste_operation_id)
+        intents = self._operations.cancel_all(
+            exclude_operation_ids=(
+                frozenset({paste_operation_id})
+                if paste_operation_id is not None
+                else frozenset()
+            )
+        )
         for intent in intents:
             self._finish_interruption(intent.operation_id)
             task_ids.append(intent.operation_id)
@@ -124,13 +130,7 @@ class ResultOutputRuntimeModule:
         return tuple(dict.fromkeys(task_ids))
 
     def cancel_operation(self, operation_id: str) -> tuple[str, ...]:
-        paste_job = self._paste_jobs.get(operation_id)
-        if paste_job is not None:
-            safe_to_finish_now = paste_job.cancel()
-            if safe_to_finish_now:
-                self._paste_jobs.pop(operation_id, None)
-                self._operations.cancel_operation(operation_id)
-                self._finish_interruption(operation_id)
+        if self._paste_operations.request_cancel(operation_id):
             self._supervisor.cancel_many((operation_id,), lambda: None)
             return (operation_id,)
         identity = self._speech_coordinator.current_identity if self._speech_coordinator is not None else None
@@ -178,26 +178,22 @@ class ResultOutputRuntimeModule:
             return
         text = _selected_or_result(command.text, controller)
         intent = OutputOperationIntent(operation_id, command.session_id, "paste", text)
-        try:
-            job = self._paste_operations.create(PasteRequest(operation_id, command.session_id, text, target))
-        except PasteOperationInProgress:
+        self._begin_operation(intent)
+        if not self._paste_operations.admit(
+            PasteRequest(operation_id, command.session_id, text, target)
+        ):
             logger.warning("Ignored overlapping Paste Operation workflow_id=%s", command.session_id)
             return
-        self._paste_jobs[operation_id] = job
-        operation = self._begin_operation(intent)
         try:
             self._supervisor.submit(
                 intent.operation_id,
-                lambda: self._complete_paste(intent, operation, job),
+                lambda: self._paste_operations.execute(intent.operation_id),
                 lambda error: logger.error("Paste failed session_id=%s: %s", command.session_id, error),
                 task_class="interactive",
-                cancellation_hook=job.cancel,
+                cancellation_hook=lambda: self._paste_operations.request_cancel(intent.operation_id),
             )
         except BaseException as exc:
-            self._paste_jobs.pop(operation_id, None)
-            job.cancel()
-            self._operations.fail(intent, exc, operation)
-            self._finish_interruption(intent.operation_id)
+            self._paste_operations.fail_to_start(intent.operation_id, exc)
             logger.error("Could not schedule paste session_id=%s: %s", command.session_id, exc)
 
     def _reject_paste(self, operation_id: str, workflow_id: str, message: str) -> None:
@@ -232,30 +228,24 @@ class ResultOutputRuntimeModule:
             self._finish_interruption(intent.operation_id)
         self._operations.succeed(intent, operation)
 
-    def _complete_paste(self, intent, operation, job: PasteOperation) -> None:
-        try:
-            outcome = job.run()
-        except BaseException as exc:
-            self._operations.fail(intent, exc, operation)
-            raise
-        finally:
-            self._paste_jobs.pop(intent.operation_id, None)
-            self._finish_interruption(intent.operation_id)
+    def _paste_completed(self, command: PasteOperationCompleted) -> None:
+        outcome = command.outcome
+        intent = OutputOperationIntent(command.operation_id, command.workflow_id, "paste", "")
+        self._finish_interruption(intent.operation_id)
         if outcome.state == "failed":
-            self._operations.fail(intent, RuntimeError(outcome.message), operation)
+            self._operations.fail(intent, RuntimeError(outcome.message))
             return
         if outcome.state == "cancelled":
-            self._operations.cancel(intent, operation)
+            self._operations.cancel(intent)
             return
         if outcome.state in {"dispatched_unconfirmed", "cleanup_failed"}:
             self._operations.warn(
                 intent,
                 outcome.state,
                 outcome.message,
-                operation,
             )
             return
-        self._operations.fail(intent, RuntimeError(f"Unknown Paste outcome: {outcome.state}"), operation)
+        self._operations.fail(intent, RuntimeError(f"Unknown Paste outcome: {outcome.state}"))
 
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:

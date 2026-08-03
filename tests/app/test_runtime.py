@@ -8,7 +8,7 @@ from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -168,43 +168,95 @@ class FakeOutputs:
         self.archived.append(text)
 
 
-class FakePasteJob:
-    def __init__(self, owner, request: PasteRequest) -> None:
-        self.owner = owner
-        self.request = request
-        self.cancelled = False
-        self.has_started = False
+class FakePasteOperations:
+    def __init__(self, outputs: FakeOutputs, completion_sink) -> None:
+        self.outputs = outputs
+        self.completion_sink = completion_sink
+        self.active: PasteRequest | None = None
+        self.cancel_requested = False
+        self.running = False
 
-    def cancel(self) -> bool:
-        self.cancelled = True
-        return not self.has_started
+    def admit(self, request: PasteRequest) -> bool:
+        if self.active is not None:
+            self.completion_sink(PasteOperationCompleted(
+                request.operation_id,
+                request.workflow_id,
+                PasteOutcome("failed", "not_dispatched", "not_required", "Paste still in progress."),
+            ))
+            return False
+        self.active = request
+        self.cancel_requested = False
+        self.running = False
+        return True
 
-    def run(self) -> PasteOutcome:
-        self.has_started = True
-        if self.cancelled:
-            return PasteOutcome("cancelled", "not_dispatched", "not_required")
-        self.owner.outputs.pasted.append(self.request.text)
-        self.owner.outputs.paste_targets.append(self.request.target)
-        return PasteOutcome(
-            "dispatched_unconfirmed",
-            "dispatched_unconfirmed",
-            "restored",
-            "Paste command was sent; confirm the target before trying again.",
+    def execute(self, operation_id: str) -> None:
+        request = self.active
+        if request is None or request.operation_id != operation_id:
+            return
+        self.running = True
+        if self.cancel_requested:
+            outcome = PasteOutcome("cancelled", "not_dispatched", "not_required")
+        else:
+            self.outputs.pasted.append(request.text)
+            self.outputs.paste_targets.append(request.target)
+            outcome = PasteOutcome(
+                "dispatched_unconfirmed",
+                "dispatched_unconfirmed",
+                "restored",
+                "Paste command was sent; confirm the target before trying again.",
+            )
+        self._complete(request, outcome)
+
+    def request_cancel(self, operation_id: str) -> bool:
+        request = self.active
+        if request is None or request.operation_id != operation_id:
+            return False
+        self.cancel_requested = True
+        if not self.running:
+            self._complete(request, PasteOutcome("cancelled", "not_dispatched", "not_required"))
+        return True
+
+    def request_cancel_for_workflow(self, workflow_id: str) -> str | None:
+        request = self.active
+        if request is None or request.workflow_id != workflow_id:
+            return None
+        self.request_cancel(request.operation_id)
+        return request.operation_id
+
+    def request_cancel_active(self) -> str | None:
+        request = self.active
+        if request is None:
+            return None
+        self.request_cancel(request.operation_id)
+        return request.operation_id
+
+    def fail_to_start(self, operation_id: str, error: BaseException) -> bool:
+        request = self.active
+        if request is None or request.operation_id != operation_id:
+            return False
+        self._complete(
+            request,
+            PasteOutcome("failed", "not_dispatched", "not_required", str(error)),
+        )
+        return True
+
+    def mark_running(self, operation_id: str) -> None:
+        assert self.active is not None and self.active.operation_id == operation_id
+        self.running = True
+
+    def finish_running_cancel(self) -> None:
+        assert self.active is not None and self.cancel_requested
+        self._complete(
+            self.active,
+            PasteOutcome("cancelled", "not_dispatched", "not_required"),
         )
 
-
-class FakePasteOperations:
-    def __init__(self, outputs: FakeOutputs) -> None:
-        self.outputs = outputs
-        self.active = {}
-
-    def create(self, request: PasteRequest) -> FakePasteJob:
-        previous = self.active.get(request.workflow_id)
-        if previous is not None:
-            previous.cancel()
-        job = FakePasteJob(self, request)
-        self.active[request.workflow_id] = job
-        return job
+    def _complete(self, request: PasteRequest, outcome: PasteOutcome) -> None:
+        if self.active is not request:
+            return
+        self.completion_sink(PasteOperationCompleted(request.operation_id, request.workflow_id, outcome))
+        self.active = None
+        self.running = False
 
 
 class Listener:
@@ -541,7 +593,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
     )
     output_module = ResultOutputRuntimeModule(
         output_actions=outputs,
-        paste_operations=FakePasteOperations(outputs),
+        paste_operations=FakePasteOperations(outputs, enqueue),
         supervisor=supervisor,
         workflow_controller=workflow_module.controller_for,
         output_operation_presenter=view,
@@ -1787,26 +1839,35 @@ def test_pinned_unconfirmed_paste_preserves_workflow_and_foreground() -> None:
     assert view.output_results[-1].state == "dispatched_unconfirmed"
 
 
-def test_new_paste_cancels_older_side_effect_and_neither_claims_confirmed_completion() -> None:
+def test_overlapping_paste_from_another_workflow_is_rejected_without_cancelling_active_dispatch() -> None:
     runtime, view, supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
-    session_id = view.snapshots[-1].session_id
-    controller = workflow(view, session_id)
-    controller._snapshot = controller.snapshot.evolve(content="use me")
-
-    runtime.enqueue(PasteResult(session_id, operation_id="old-paste"))
-    runtime.enqueue(PasteResult(session_id, operation_id="new-paste"))
+    first_workflow_id = view.snapshots[-1].session_id
+    first = workflow(view, first_workflow_id)
+    first._snapshot = first.snapshot.evolve(content="first")
+    runtime.enqueue(TogglePin(first_workflow_id))
+    runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
+    second_workflow_id = view.snapshots[-1].session_id
+    second = workflow(view, second_workflow_id)
+    second._snapshot = second.snapshot.evolve(content="second")
+
+    runtime.enqueue(PasteResult(first_workflow_id, operation_id="old-paste"))
+    runtime.enqueue(PasteResult(second_workflow_id, operation_id="new-paste"))
+    runtime.drain_commands()
+
+    assert view.output_results[-1].operation_id == "new-paste"
+    assert view.output_results[-1].state == "failed"
+    assert "new-paste" not in supervisor.work
+
     supervisor.work["old-paste"]()
     runtime.drain_commands()
 
-    assert view.workflow_controller(session_id) is controller
-
-    supervisor.work["new-paste"]()
-    runtime.drain_commands()
-    assert view.workflow_controller(session_id) is controller
-    assert _outputs.pasted == ["use me"]
+    assert view.workflow_controller(first_workflow_id) is first
+    assert view.workflow_controller(second_workflow_id) is second
+    assert _outputs.pasted == ["first"]
+    assert view.output_results[-1].operation_id == "old-paste"
     assert view.output_results[-1].state == "dispatched_unconfirmed"
 
 

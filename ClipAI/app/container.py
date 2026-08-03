@@ -90,6 +90,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     clipboard = SystemClipboard()
     guidance_preferences = GuidancePreferencesCoordinator(JsonGuidancePreferencesStore())
     runtime_holder: list[AppRuntime] = []
+    enqueue = lambda command: runtime_holder[0].enqueue(command)
     tray = TrayController(
         lambda: runtime_holder[0].enqueue(ShutdownApplication()),
         lambda: runtime_holder[0].enqueue(ExportDiagnostics()),
@@ -156,6 +157,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     paste_operations = PasteOperationCoordinator(
         clipboard_transactions=clipboard_transactions,
         dispatcher=SystemKeyboardOutput(),
+        completion_sink=enqueue,
     )
     paste_targets = PasteTargetCoordinator(view)
     supervisor = TaskSupervisor(bundle.runtime.maintenance_workers)
@@ -192,7 +194,6 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
 
     user_control = UserControlCoordinator()
     incident_reporter = IncidentReporter()
-    enqueue = lambda command: runtime_holder[0].enqueue(command)
     workflow_module = WorkflowRuntimeModule(
         actions=bundle.actions,
         shortcuts=bundle.shortcuts,

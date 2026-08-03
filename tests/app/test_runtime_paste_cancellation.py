@@ -19,6 +19,7 @@ def test_queued_paste_cancellation_is_terminal_without_running_side_effect() -> 
     runtime, view, supervisor, outputs, _listener = _runtime_with_paste()
 
     assert runtime._result_output_module.cancel_operation("paste-op") == ("paste-op",)
+    runtime.drain_commands()
 
     assert view.output_results[-1].state == "cancelled"
     assert outputs.pasted == []
@@ -27,14 +28,14 @@ def test_queued_paste_cancellation_is_terminal_without_running_side_effect() -> 
 
 def test_running_paste_cancellation_waits_for_real_operation_outcome() -> None:
     runtime, view, supervisor, outputs, _listener = _runtime_with_paste()
-    job = runtime._result_output_module._paste_jobs["paste-op"]
-    job.has_started = True
+    paste_operations = runtime._result_output_module._paste_operations
+    paste_operations.mark_running("paste-op")
 
     runtime._result_output_module.cancel_operation("paste-op")
 
     assert view.output_results[-1].state == "pending"
-    job.has_started = False
-    supervisor.work["paste-op"]()
+    paste_operations.finish_running_cancel()
+    runtime.drain_commands()
     assert view.output_results[-1].state == "cancelled"
     assert outputs.pasted == []
 

@@ -72,11 +72,13 @@ class OutputOperationCoordinator:
         return intent
 
     def succeed(self, intent: OutputOperationIntent, handle: OperationHandle | None = None) -> bool:
+        handle = handle or self._active_handle(intent)
         if handle is not None:
             handle.succeed()
         return self._finish(intent, "succeeded")
 
     def fail(self, intent: OutputOperationIntent, error: BaseException, handle: OperationHandle | None = None) -> bool:
+        handle = handle or self._active_handle(intent)
         if handle is not None:
             handle.fail()
         return self._finish(
@@ -86,6 +88,7 @@ class OutputOperationCoordinator:
         )
 
     def cancel(self, intent: OutputOperationIntent, handle: OperationHandle | None = None) -> bool:
+        handle = handle or self._active_handle(intent)
         if handle is not None:
             handle.cancel()
         return self._finish(intent, "cancelled")
@@ -99,6 +102,7 @@ class OutputOperationCoordinator:
     ) -> bool:
         if intent.kind != "paste" or state not in {"dispatched_unconfirmed", "cleanup_failed"}:
             raise ValueError(f"unsupported output warning state: {state}")
+        handle = handle or self._active_handle(intent)
         if handle is not None:
             if state == "cleanup_failed":
                 handle.fail()
@@ -132,3 +136,11 @@ class OutputOperationCoordinator:
             OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, state, error, message)
         )
         return True
+
+    def _active_handle(self, intent: OutputOperationIntent) -> OperationHandle | None:
+        key = (intent.workflow_id, intent.kind)
+        with self._lock:
+            active = self._active.get(key)
+            if active is None or active[0].operation_id != intent.operation_id:
+                return None
+            return active[1]
