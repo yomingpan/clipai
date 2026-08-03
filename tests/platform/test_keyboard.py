@@ -4,6 +4,7 @@ import pytest
 
 from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.core.models import PasteTarget
+from ClipAI.core.state import CancellationToken
 
 
 TARGET = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
@@ -23,6 +24,7 @@ def test_paste_waits_for_physical_modifiers_to_be_released() -> None:
 
     keyboard = SystemKeyboardOutput(
         modifier_is_pressed=modifier_is_pressed,
+        paste_settle_sec=0,
         poll_sec=0.02,
         wait=wait,
         paste_shortcut=lambda: pasted.append("paste"),
@@ -31,10 +33,11 @@ def test_paste_waits_for_physical_modifiers_to_be_released() -> None:
         target_is_foreground=lambda target: target == TARGET,
     )
 
-    keyboard.paste(TARGET)
+    receipt = keyboard.dispatch(TARGET, CancellationToken())
 
     assert waits == [0.02]
     assert pasted == ["paste"]
+    assert receipt.state == "dispatched_unconfirmed"
 
 
 def test_paste_fails_without_injecting_when_modifiers_do_not_release() -> None:
@@ -50,7 +53,7 @@ def test_paste_fails_without_injecting_when_modifiers_do_not_release() -> None:
     )
 
     with pytest.raises(RuntimeError, match="modifiers were not released"):
-        keyboard.paste(TARGET)
+        keyboard.dispatch(TARGET, CancellationToken())
 
     assert pasted == []
 
@@ -66,6 +69,64 @@ def test_paste_rejects_invalid_target_without_injecting() -> None:
     )
 
     with pytest.raises(RuntimeError, match="找不到貼上目標"):
-        keyboard.paste(TARGET)
+        keyboard.dispatch(TARGET, CancellationToken())
 
     assert pasted == []
+
+
+def test_paste_cancellation_is_checked_immediately_before_dispatch() -> None:
+    cancellation = CancellationToken()
+    foreground_checks = 0
+    pasted: list[str] = []
+
+    def foreground(_target) -> bool:
+        nonlocal foreground_checks
+        foreground_checks += 1
+        if foreground_checks == 2:
+            cancellation.cancel()
+        return True
+
+    keyboard = SystemKeyboardOutput(
+        modifier_is_pressed=lambda _modifier: False,
+        paste_shortcut=lambda: pasted.append("paste"),
+        target_is_valid=lambda _target: True,
+        activate_target=lambda _target: True,
+        target_is_foreground=foreground,
+    )
+
+    with pytest.raises(RuntimeError, match="cancelled"):
+        keyboard.dispatch(TARGET, cancellation)
+
+    assert pasted == []
+
+
+def test_paste_revalidates_target_and_foreground_at_commit_gate() -> None:
+    validity = iter((True, False))
+    pasted: list[str] = []
+    keyboard = SystemKeyboardOutput(
+        modifier_is_pressed=lambda _modifier: False,
+        paste_shortcut=lambda: pasted.append("paste"),
+        target_is_valid=lambda _target: next(validity),
+        activate_target=lambda _target: True,
+        target_is_foreground=lambda _target: True,
+    )
+
+    with pytest.raises(RuntimeError):
+        keyboard.dispatch(TARGET, CancellationToken())
+
+    assert pasted == []
+
+
+def test_input_injection_error_after_commit_is_reported_as_unconfirmed_dispatch() -> None:
+    keyboard = SystemKeyboardOutput(
+        modifier_is_pressed=lambda _modifier: False,
+        paste_shortcut=lambda: (_ for _ in ()).throw(OSError("injection failed")),
+        target_is_valid=lambda _target: True,
+        activate_target=lambda _target: True,
+        target_is_foreground=lambda _target: True,
+    )
+
+    receipt = keyboard.dispatch(TARGET, CancellationToken())
+
+    assert receipt.state == "dispatched_unconfirmed"
+    assert "after the Paste Dispatch point" in receipt.detail

@@ -1,4 +1,4 @@
-schema_version: 8
+schema_version: 9
 
 actions:
   - id: translate_to_traditional_chinese
@@ -107,11 +107,11 @@ actions:
       請為以下內容中最值得繼續發展的一條思考線命名。
 
       嚴格使用以下格式：
-      ## 洞察命名
-      以 4～6 個中文字為優先，必要時 6～10 字；像概念標籤而非完整句子，不只是重述主題。
+      第一段只放命名：以 4～6 個中文字為優先，必要時 6～10 字；像概念標籤而非完整句子，不只是重述主題。
 
-      ## 想法原貌
-      用 1～2 句、約 60～80 字保留原本脈絡與語氣，不補充新論點。
+      空一行後，第二段用 1～2 句、約 60～80 字保留原本脈絡與語氣，不補充新論點。
+
+      不要加入「洞察命名」、「想法原貌」或其他標題，也不要使用 Markdown heading。
 
       輸入：
       {input}
@@ -323,9 +323,11 @@ actions:
       - If any English is present, choose exactly one useful English word or phrase that appears literally in the input. When the input is one English word or phrase, use that exact item.
       - If the input is Chinese-only, teach exactly one natural English expression for its most likely everyday meaning.
 
-      Put the expression on the first line. Then use one very short Traditional Chinese paragraph (at most two sentences) to explain it in plain everyday language and show a concrete situation where people naturally use it. Avoid formulaic wording such as「X 指……」and generic claims about success or approval. Give one natural, practical English example on its own line.
+      Put only the expression on the first line. Do not attach any spoken/written or formal/informal label to that line. Then use one very short Traditional Chinese paragraph (at most two sentences) to explain it in plain everyday language and show a concrete situation where people naturally use it. Avoid formulaic wording such as「X 指……」and generic claims about success or approval. Give one natural, practical English example on its own line.
 
-      Add `同義：` followed by 1-3 genuinely close alternatives only when they help; do not list words that merely share a positive tone or broad topic. Briefly distinguish their usage in the same short line when needed. End with `記憶：` and one concrete, short mnemonic or association that helps a Traditional Chinese speaker remember the expression. Keep the entire answer compact; do not add Markdown headings, repeated field labels, or extra sections.
+      After the example, add a separate `語感：` line only when it is useful to distinguish spoken from written usage or formal from informal usage. Avoid forcing a simplistic label: say when the expression works naturally in both. If it is mainly written or formal, mention that gently and provide the closest expression people normally use in everyday conversation.
+
+      Add `同義：` followed by 1-3 genuinely close alternatives when they help. If the target is mainly written or formal, include its closest conversational alternative and mark each conversational option with `（口語常用）`. Do not list words that merely share a positive tone or broad topic. Briefly distinguish their usage in the same short line when needed. End with `記憶：` and one concrete, short mnemonic or association that helps a Traditional Chinese speaker remember the expression. Keep the entire answer compact; do not add Markdown headings or other extra sections.
 
       Input:
       {input}
@@ -367,6 +369,77 @@ actions:
           End with only 2-3 genuinely reusable patterns, each followed by a brief usage situation in Traditional Chinese.
 
           Here is the content:
+          {input}
+
+  - id: expression_retrieval
+    name: Capture an Expression
+    input_mode: selection_or_clipboard
+    external_fallback: selection_or_clipboard
+    output_mode: popup
+    temperature: 0.2
+    stream: false
+    output_profile: expression_capture
+    feedback:
+      helps: 找出一個值得形成反射的英文表達，連結它的功能、骨架、情境與立即提取練習。
+      does_not: 不會一次教授所有語塊，也不會用大量文法、同義詞或測驗取代實際提取。
+      reasons:
+        - id: wrong_expression_selected
+          label: 選到的主表達不值得學，或沒有忠實對應輸入
+        - id: function_or_situation_inaccurate
+          label: 溝通功能或使用情境不準確
+        - id: pattern_or_examples_unhelpful
+          label: 骨架或三個替換例不自然、不實用
+        - id: retrieval_prompt_unhelpful
+          label: 提取題太模糊，或答案在嘗試前就被透露
+        - id: other
+          label: 其他
+    system_prompt: >
+      You are an expression retrieval coach for Traditional Chinese-speaking learners. Turn the user's selected text or clipboard content into one compact retrieval practice. The goal is not merely to explain English; it is to help the learner retrieve one useful expression the next time a similar situation occurs. For English input, preserve one valuable source sentence and bold at most three literal, natural chunks from it; never teach an error as a chunk. If no worthwhile natural chunk exists, infer the intended meaning and provide one corrected natural expression while making that correction clear. For Chinese-only input, choose exactly one natural everyday English expression worth forming into a speaking reflex. Select one primary chunk, explain its communicative function in concrete Traditional Chinese, extract a reusable semi-fixed pattern, bind it to a first-person situation, and create one retrieval prompt. Keep the response compact. On follow-up, answer the learner's question using the same expression and avoid restarting the whole lesson.
+    prompt: |
+      Build one Capture practice from the input below.
+
+      In `## Notice`, show one valuable source sentence. Bold at most three natural chunks, then identify exactly one primary expression and explain in short Traditional Chinese what communicative job it performs.
+
+      In `## Pattern`, show one semi-fixed reusable pattern and exactly three short substitution examples. The examples must demonstrate replaceable slots rather than introduce unrelated synonyms.
+
+      In `## Retrieve`, give one concrete first-person situation in Traditional Chinese and one short Chinese sentence for the learner to say in English. Tell the learner to say it aloud or silently before scrolling. Then output the exact marker `[[SCROLL_FOR_ANSWER]]` on its own line. The English answer must appear only after that marker and must naturally use the primary expression.
+
+      In `## Make It Yours`, give one short fill-in pattern that invites the learner to substitute personal content. Do not add extra sections, grammar lessons, scores, or multiple translations.
+
+      Input:
+      {input}
+    press_variants:
+      long:
+        name: Express Naturally
+        output_profile: expression_transfer
+        feedback:
+          helps: 把使用者想說的內容重建成自然、完整、可直接使用的英文，並要求使用者遷移一個可重用語塊。
+          does_not: 不會進行逐句文法批改，也不會為了塞入語塊而改變原意、事實或語氣。
+          reasons:
+            - id: intent_or_fact_changed
+              label: 自然版本改變了原意、事實或重要限制
+            - id: rewrite_not_natural_or_usable
+              label: 改寫仍不自然，或無法直接使用
+            - id: key_shift_unhelpful
+              label: 最關鍵的調整選錯了，或解釋沒有幫助
+            - id: transfer_chunks_unhelpful
+              label: 可帶走的語塊不自然、不實用或太多
+            - id: other
+              label: 其他
+        system_prompt: >
+          You are an English expression coach for Traditional Chinese-speaking learners. Rebuild the user's English, mixed Chinese-English, or Chinese idea into natural English that can be used immediately. Preserve intent, facts, names, numbers, constraints, tone, and scope. For a fragment or heading, remain at that scope. If the input is already natural, do not rewrite it merely for decoration. Explain only the one most important naturalness shift, extract one to three genuinely reusable chunks from the rewrite, and ask one transfer question that requires the learner to use one target chunk in a new personal sentence. When the user follows up with an attempted answer to that question, evaluate only that transfer attempt: say whether the target chunk is natural, make the smallest necessary correction, and give at most one conversational alternative. Do not rerun the complete rewrite or provide a general English lesson.
+        prompt: |
+          Help the user express the following content naturally in English.
+
+          In `## Natural Version`, put the complete polished version first so it can be used immediately. Preserve the input's meaning, facts, tone, and scope.
+
+          In `## Key Shift`, show only one most important naturalness shift as a concise original-to-improved comparison, followed by a short Traditional Chinese explanation.
+
+          In `## Transfer Chunks`, extract one to three reusable chunks from the natural version. Briefly explain their communicative function in Traditional Chinese. Do not add unrelated synonyms.
+
+          In `## Your Turn`, ask the user one concrete transfer question in Traditional Chinese. Name one target pattern from the previous section and require the user to actively type a new English sentence using it. End by telling the user to press `Ctrl+/` and enter the sentence in the follow-up field. Ask the user one concrete transfer question; do not include a model answer before the user responds.
+
+          Input:
           {input}
 
   - id: reflective_question

@@ -33,6 +33,16 @@ def test_supported_markdown_becomes_typed_blocks_and_spans() -> None:
     assert document.blocks[-1].ordinal == 2
 
 
+def test_supported_markdown_retains_canonical_fragments_for_selection() -> None:
+    document = MarkdownPresentationParser().parse("# Title\n\n- **First** item\n2) *Second*")
+
+    assert document.blocks[0].canonical_prefix == "# "
+    assert document.blocks[1].canonical_prefix == "- "
+    assert document.blocks[1].spans[0].canonical_text == "**First**"
+    assert document.blocks[2].canonical_prefix == "2. "
+    assert document.blocks[2].spans[0].canonical_text == "*Second*"
+
+
 def test_unsupported_indented_syntax_remains_readable_plain_text() -> None:
     document = MarkdownPresentationParser().parse("Paragraph\n    unsupported nested content")
     assert document.fallback_text == "Paragraph\n    unsupported nested content"
@@ -43,3 +53,24 @@ def test_compact_learning_lines_remain_on_separate_lines() -> None:
     text = "appetizer\n餐前小點\nLet's order appetizers.\nSynonym: starter"
     document = MarkdownPresentationParser().parse(text)
     assert document.blocks[0].spans[0].text == text
+
+
+def test_retrieval_marker_becomes_scroll_gap_without_leaking_into_canonical_text() -> None:
+    source = (
+        "## Retrieve\n\n"
+        "先試著說，再往下捲。\n\n"
+        "[[SCROLL_FOR_ANSWER]]\n\n"
+        "答案：I’m still putting sentences together.\n\n"
+        "## Make It Yours\n\n"
+        "I’m still putting ______ together."
+    )
+
+    document = MarkdownPresentationParser().parse(source)
+
+    assert [block.kind for block in document.blocks] == [
+        "heading", "paragraph", "spacer", "paragraph", "heading", "paragraph"
+    ]
+    spacer = document.blocks[2]
+    assert "".join(span.text for span in spacer.spans) == "\n" * 8
+    assert "[[SCROLL_FOR_ANSWER]]" not in document.fallback_text
+    assert "答案：I’m still putting sentences together." in document.fallback_text

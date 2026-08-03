@@ -23,3 +23,19 @@ operation is cancelled. Every Shortcut Press has its own identity, even when
 Ctrl, Alt, or Shift remain held between presses. Modifier Context is only the
 currently held modifiers and is not an Action identity.
 _Avoid_: Chord, gesture (when referring to one Action intent)
+
+**Paste Operation**:
+An explicit attempt to deliver canonical Workflow content to one captured
+external target. Each Paste Operation has its own identity and preserves the
+truth of whether delivery was not dispatched or dispatched without confirmation.
+_Avoid_: Paste action, keyboard job
+
+**Paste Dispatch**:
+The irreversible point in a Paste Operation after which ClipAI can no longer
+promise that cancellation prevented delivery.
+_Avoid_: Paste completion, successful paste
+
+**Clipboard Preservation**:
+The promise that temporary clipboard use either restores every original format
+or stops before Paste Dispatch. Partial restoration does not satisfy this promise.
+_Avoid_: Best-effort restore

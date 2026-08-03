@@ -78,6 +78,24 @@ def test_short_press_triggers_action_once() -> None:
     assert FakeTimer.timers[0].cancelled is True
 
 
+def test_short_press_matches_action_key_release_by_virtual_key() -> None:
+    events: list[tuple[str, str]] = []
+    dispatcher = create_hotkey_dispatcher(
+        {"speech": {"hotkey": "ctrl+alt+q"}},
+        semantic_recorder(events),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+    )
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="q", vk=0x51))
+    dispatcher.on_release(FakeKey(char="\x11", vk=0x51))
+    FakeTimer.timers[0].fire()
+
+    assert events == [("speech", "short")]
+
+
 @pytest.mark.parametrize(
     "action_key",
     [

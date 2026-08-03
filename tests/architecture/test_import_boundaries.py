@@ -121,3 +121,23 @@ def test_container_shares_one_clipboard_transaction_owner() -> None:
     assert source.count("ClipboardTransactionCoordinator(clipboard)") == 1
     assert "SelectionCaptureCoordinator(\n        clipboard_transactions," in source
     assert "clipboard_transactions=clipboard_transactions" in source
+
+
+def test_output_runtime_cannot_own_paste_handles_or_a_paste_registry() -> None:
+    path = Path("ClipAI/app/runtime_outputs.py")
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imported_paste_symbols = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "ClipAI.services.paste_operation"
+        for alias in node.names
+    }
+    attribute_names = {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+    }
+
+    assert imported_paste_symbols == {"PasteOperationCoordinator"}
+    assert "_paste_jobs" not in attribute_names

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from io import BytesIO
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
+import struct
 import time
 
 import pyperclip
@@ -13,12 +15,11 @@ from ClipAI.core.models import ImageContent
 
 MAX_CLIPBOARD_IMAGE_BYTES = 20 * 1024 * 1024
 
-# GetClipboardData does not always return an HGLOBAL. In particular, bitmap,
-# palette, metafile, private, and GDI-object formats return opaque native
-# handles that must never be passed to GlobalSize or GlobalLock. The standard
-# formats below are explicitly documented as global-memory backed. CF_DIB and
-# CF_DIBV5 preserve image clipboard content without copying the unsafe
-# synthesized CF_BITMAP handle.
+# GetClipboardData does not always return an HGLOBAL. Bitmap, palette,
+# metafile, owner-display, and private formats can expose opaque native handles.
+# The standard formats below, registered formats, and the CF_GDIOBJ range are
+# documented as global-memory backed. CF_DIB and CF_DIBV5 preserve image
+# content without copying a redundant synthesized CF_BITMAP handle.
 _HGLOBAL_CLIPBOARD_FORMATS = frozenset({
     1,   # CF_TEXT
     4,   # CF_SYLK
@@ -56,10 +57,7 @@ class SystemClipboard:
         return int(ctypes.windll.user32.GetClipboardSequenceNumber())
 
     def restore_if_unchanged(self, snapshot: WindowsClipboardSnapshot, expected_sequence: int) -> bool:
-        if self.sequence_number() != expected_sequence:
-            return False
-        _replace_clipboard(snapshot)
-        return True
+        return _replace_clipboard(snapshot, expected_sequence=expected_sequence)
 
     def read_image(self) -> ImageContent | None:
         try:
@@ -84,6 +82,9 @@ class SystemClipboard:
     def write_text(self, text: str) -> None:
         pyperclip.copy(text)
 
+    def write_transient_text(self, text: str) -> None:
+        _replace_clipboard(_transient_text_snapshot(text))
+
 
 def _snapshot_native_formats() -> WindowsClipboardSnapshot:
     user32 = ctypes.windll.user32
@@ -92,22 +93,30 @@ def _snapshot_native_formats() -> WindowsClipboardSnapshot:
     _open_clipboard(user32)
     formats: list[_ClipboardFormatSnapshot] = []
     try:
+        format_ids: list[int] = []
         format_id = 0
         while True:
             format_id = int(user32.EnumClipboardFormats(format_id))
             if format_id == 0:
                 break
-            if not _is_hglobal_clipboard_format(format_id):
+            format_ids.append(format_id)
+        available = frozenset(format_ids)
+        for format_id in format_ids:
+            if _is_redundant_opaque_format(format_id, available):
                 continue
+            if not _is_hglobal_clipboard_format(format_id):
+                raise InputError(
+                    f"Clipboard format {format_id} cannot be completely preserved safely."
+                )
             handle = user32.GetClipboardData(format_id)
             if not handle:
-                continue
+                raise InputError(f"Clipboard format {format_id} could not be rendered for preservation.")
             size = int(kernel32.GlobalSize(handle))
             if size <= 0:
-                continue
+                raise InputError(f"Clipboard format {format_id} has no preservable global-memory data.")
             pointer = kernel32.GlobalLock(handle)
             if not pointer:
-                continue
+                raise InputError(f"Clipboard format {format_id} could not be locked for preservation.")
             try:
                 formats.append(_ClipboardFormatSnapshot(format_id, ctypes.string_at(pointer, size)))
             finally:
@@ -118,31 +127,71 @@ def _snapshot_native_formats() -> WindowsClipboardSnapshot:
 
 
 def _is_hglobal_clipboard_format(format_id: int) -> bool:
-    return format_id in _HGLOBAL_CLIPBOARD_FORMATS
+    return (
+        format_id in _HGLOBAL_CLIPBOARD_FORMATS
+        or 0x0300 <= format_id <= 0x03FF
+        or 0xC000 <= format_id <= 0xFFFF
+    )
 
 
-def _replace_clipboard(snapshot: WindowsClipboardSnapshot) -> None:
+def _is_redundant_opaque_format(format_id: int, available: frozenset[int]) -> bool:
+    has_dib = 8 in available or 17 in available
+    return has_dib and format_id in {2, 9}
+
+
+def _replace_clipboard(
+    snapshot: WindowsClipboardSnapshot,
+    *,
+    expected_sequence: int | None = None,
+) -> bool:
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     _configure_clipboard_functions(user32, kernel32)
-    handles = [
-        (item.format_id, _global_memory(item.data, kernel32))
-        for item in snapshot.formats
-    ]
     _open_clipboard(user32)
+    handles: list[tuple[int, int]] = []
     transferred: set[int] = set()
     try:
+        if expected_sequence is not None and int(user32.GetClipboardSequenceNumber()) != expected_sequence:
+            return False
+        handles = [
+            (item.format_id, _global_memory(item.data, kernel32))
+            for item in snapshot.formats
+        ]
         if not user32.EmptyClipboard():
             raise ctypes.WinError()
         for clipboard_format, handle in handles:
             if not user32.SetClipboardData(clipboard_format, handle):
                 raise ctypes.WinError()
             transferred.add(handle)
+        return True
     finally:
         user32.CloseClipboard()
         for _format, handle in handles:
             if handle not in transferred:
                 kernel32.GlobalFree(handle)
+
+
+def _transient_text_snapshot(
+    text: str,
+    register_format: Callable[[str], int] | None = None,
+) -> WindowsClipboardSnapshot:
+    if register_format is None:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        _configure_clipboard_functions(user32, kernel32)
+        register_format = lambda name: int(user32.RegisterClipboardFormatW(name))
+    privacy_formats = (
+        "ExcludeClipboardContentFromMonitorProcessing",
+        "CanIncludeInClipboardHistory",
+        "CanUploadToCloudClipboard",
+    )
+    formats = [_ClipboardFormatSnapshot(13, text.encode("utf-16-le") + b"\x00\x00")]
+    for name in privacy_formats:
+        format_id = register_format(name)
+        if not format_id:
+            raise ctypes.WinError()
+        formats.append(_ClipboardFormatSnapshot(format_id, struct.pack("<I", 0)))
+    return WindowsClipboardSnapshot(tuple(formats))
 
 
 def _configure_clipboard_functions(user32, kernel32) -> None:
@@ -164,6 +213,9 @@ def _configure_clipboard_functions(user32, kernel32) -> None:
     user32.GetClipboardData.restype = wintypes.HANDLE
     user32.EnumClipboardFormats.argtypes = [wintypes.UINT]
     user32.EnumClipboardFormats.restype = wintypes.UINT
+    user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
+    user32.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
+    user32.RegisterClipboardFormatW.restype = wintypes.UINT
 
 
 def _open_clipboard(user32) -> None:

@@ -4,7 +4,9 @@ from collections.abc import Callable
 import ctypes
 import time
 
-from ClipAI.core.models import PasteTarget
+from ClipAI.core.errors import CancelledError
+from ClipAI.core.models import PasteDispatchReceipt, PasteTarget
+from ClipAI.core.state import CancellationToken
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_modifier_is_pressed
 
 
@@ -15,6 +17,7 @@ class SystemKeyboardOutput:
         modifier_is_pressed: Callable[[str], bool | None] = windows_modifier_is_pressed,
         modifier_release_timeout_sec: float = 1.0,
         target_activation_timeout_sec: float = 0.5,
+        paste_settle_sec: float = 0.25,
         poll_sec: float = 0.02,
         wait: Callable[[float], None] = time.sleep,
         paste_shortcut: Callable[[], None] | None = None,
@@ -25,6 +28,7 @@ class SystemKeyboardOutput:
         self._modifier_is_pressed = modifier_is_pressed
         self._modifier_release_timeout_sec = modifier_release_timeout_sec
         self._target_activation_timeout_sec = target_activation_timeout_sec
+        self._paste_settle_sec = paste_settle_sec
         self._poll_sec = poll_sec
         self._wait = wait
         self._paste_shortcut = paste_shortcut or _send_paste_shortcut
@@ -32,22 +36,38 @@ class SystemKeyboardOutput:
         self._activate_target = activate_target or _activate_windows_target
         self._target_is_foreground = target_is_foreground or _windows_target_is_foreground
 
-    def paste(self, target: PasteTarget) -> None:
+    def dispatch(self, target: PasteTarget, cancellation: CancellationToken) -> PasteDispatchReceipt:
         deadline = time.monotonic() + self._modifier_release_timeout_sec
         while any(self._modifier_is_pressed(modifier) is True for modifier in MODIFIER_KEYS):
+            _raise_if_cancelled(cancellation)
             if time.monotonic() >= deadline:
                 raise RuntimeError("Keyboard modifiers were not released in time.")
             self._wait(self._poll_sec)
+        _raise_if_cancelled(cancellation)
         if not self._target_is_valid(target):
             raise RuntimeError("找不到貼上目標。請先點選要貼入的視窗，再回到 ClipAI。")
         if not self._activate_target(target) and not self._target_is_foreground(target):
             raise RuntimeError("找不到貼上目標。請先點選要貼入的視窗，再回到 ClipAI。")
         activation_deadline = time.monotonic() + self._target_activation_timeout_sec
         while not self._target_is_foreground(target):
+            _raise_if_cancelled(cancellation)
             if time.monotonic() >= activation_deadline:
                 raise RuntimeError("找不到貼上目標。請先點選要貼入的視窗，再回到 ClipAI。")
             self._wait(self._poll_sec)
-        self._paste_shortcut()
+        _raise_if_cancelled(cancellation)
+        if not self._target_is_valid(target) or not self._target_is_foreground(target):
+            raise RuntimeError("Paste target changed before dispatch.")
+        _raise_if_cancelled(cancellation)
+        detail = ""
+        try:
+            self._paste_shortcut()
+        except Exception:
+            detail = "Input injection returned an error after the Paste Dispatch point."
+        # Input injection can return before the target consumes the clipboard.
+        # Keep the transient payload available without claiming confirmation.
+        if self._paste_settle_sec > 0:
+            self._wait(self._paste_settle_sec)
+        return PasteDispatchReceipt("dispatched_unconfirmed", detail)
 
 
 def _send_paste_shortcut() -> None:
@@ -57,6 +77,11 @@ def _send_paste_shortcut() -> None:
     with keyboard.pressed(Key.ctrl):
         keyboard.press("v")
         keyboard.release("v")
+
+
+def _raise_if_cancelled(cancellation: CancellationToken) -> None:
+    if cancellation.is_cancelled:
+        raise CancelledError("Paste was cancelled before dispatch.")
 
 
 def _windows_target_is_valid(target: PasteTarget) -> bool:

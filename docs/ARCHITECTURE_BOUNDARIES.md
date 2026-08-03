@@ -334,3 +334,77 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
 - `TaskSupervisor` owns only non-provider blocking work and isolates interactive, media, and maintenance capacity.
 - One container-scoped `ClipboardTransactionCoordinator` owns selection and paste clipboard transactions.
 - Workflow snapshots enter the UI through a per-Workflow latest-revision mailbox. Ordered output-operation acknowledgements remain separate and are never coalesced.
+- `PopupExternalOutputTransitions` is the single UI-internal owner of Popup
+  output-operation identity, stale acknowledgement rejection, Paste visibility,
+  captured pin policy, and toolkit focus generations. It returns explicit UI
+  actions; widgets and presenters only execute those actions.
+
+## Paste Operation ownership (ADR-0004)
+
+- `PasteOperationCoordinator` is the single owner of Paste Operation identity,
+  global active membership, at-most-once execution, cooperative cancellation,
+  Paste Dispatch truth, and the combined delivery/clipboard-cleanup outcome.
+- `ClipboardTransactionCoordinator` remains the only owner of temporary
+  clipboard mutation. Paste orchestration uses that owner; it does not create a
+  second lock, snapshot, sequence, or restore path.
+- Runtime schedules a Paste Operation and projects its typed outcome. Runtime
+  and UI must not infer target consumption from task completion, a fixed delay,
+  focus, visibility, or clipboard sequence changes.
+- Runtime carries Paste operation identities only. It must not retain a concrete
+  Paste operation handle or a parallel registry. `TaskSupervisor` owns worker
+  scheduling, not Paste membership or settlement.
+- The container admits one Paste Operation at a time. Overlap is rejected with
+  an identified failure; it is never queued and never replaces active work.
+- Cancellation is an intent. A running Paste Operation remains active until the
+  coordinator knows dispatch and cleanup truth. Exactly one typed
+  `PasteOperationCompleted` command carries that truth back through the ordered
+  application command queue.
+- `AppRuntime` routes that completion to output settlement and to
+  `WorkflowRuntimeModule`. Only the Workflow runtime may release semantic
+  Foreground Workflow, and only for the current visible, unpinned Workflow after
+  `dispatched_unconfirmed`.
+- Paste acknowledgement has no `succeeded` state. Legal terminal states are
+  `failed`, `cancelled`, `dispatched_unconfirmed`, and `cleanup_failed`.
+- Platform paste adapters own modifier state, target validation, activation,
+  final foreground validation, and input injection. Returning from input
+  injection proves dispatch only, not target consumption.
+- Clipboard Preservation is fail-closed. Unsupported non-redundant native
+  formats stop the Paste Operation before clipboard mutation and dispatch.
+
+## Canonical content, presentation, and selection ownership
+
+- Canonical result content is semantic data, independent of widget styling and
+  presentation parsing. Copy, paste, archive, and speech receive canonical text
+  or an explicit semantic selection; they never reconstruct content from widget
+  tags, rendered spans, or Markdown appearance.
+- `services` owns presentation parsing and produces a typed immutable
+  `PresentationDocument`. UI adapters render that document. Unsupported syntax
+  degrades to safe plain text without changing canonical content or crashing the
+  surface.
+- A Popup selection is resolved at the UI presentation boundary and carried in
+  the typed output command. It takes precedence over the displayed step's
+  canonical content. The runtime does not read a Tk widget to recover it.
+- For an external text-capable Action, selection is captured at the instant of
+  explicit user intent. A valid selection takes precedence; otherwise input
+  falls back to the configured clipboard policy. Selection capture and Paste
+  share the one container-scoped `ClipboardTransactionCoordinator`, so capture
+  cannot permanently replace newer clipboard content.
+- Workflow identity, output-operation identity, selection-capture identity, and
+  view lifecycle remain distinct. A Workflow snapshot revision cannot stand in
+  for any of those operation identities.
+
+## Output Profile ownership
+
+- `OutputProfileCatalog` owns reusable output-format instruction,
+  presentation mode, and structural marker validation. `PromptBuilder` consumes
+  the instruction and `ResultProcessor` consumes the same resolved profile.
+- An Action owns task semantics and genuinely Action-specific output content. It
+  references a profile ID; it must not create a second reusable presentation
+  schema that drifts from the catalog.
+- Configuration loading rejects unknown profile IDs. Tests must keep prompt
+  injection, result processing, and Action/variant resolution on the same
+  catalog entry.
+- Existing Action prompts that duplicate reusable profile wording are migration
+  debt, not a second accepted owner. Remove them incrementally only with prompt
+  regression coverage; do not silently change prompt behavior during unrelated
+  architecture or documentation work.

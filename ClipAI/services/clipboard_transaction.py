@@ -2,18 +2,28 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 import threading
 import time
 from typing import Generic, TypeVar
 import uuid
 
-from ClipAI.core.models import SelectionCaptureOutcome
+from ClipAI.core.models import PasteCleanupState, SelectionCaptureOutcome
 from ClipAI.core.ports import ClipboardTransactionStore, SelectionCaptureAdapter
 from ClipAI.core.state import CancellationToken
 
 
 SnapshotT = TypeVar("SnapshotT")
+ResultT = TypeVar("ResultT")
 _MODIFIER_KEYS = ("ctrl", "alt", "shift")
+
+
+@dataclass(frozen=True)
+class TemporaryTextResult(Generic[ResultT]):
+    value: ResultT | None = None
+    error: Exception | None = None
+    cancelled: bool = False
+    cleanup: PasteCleanupState = "not_required"
 
 
 class ClipboardTransactionCoordinator(Generic[SnapshotT]):
@@ -24,22 +34,64 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
         self._lock = threading.Lock()
         self._active_operation_id: str | None = None
 
-    @contextmanager
-    def temporary_text(
+    def use_temporary_text(
         self,
         operation_id: str,
         text: str,
+        work: Callable[[], ResultT],
         cancellation: CancellationToken | None = None,
-    ) -> Iterator[None]:
+    ) -> TemporaryTextResult[ResultT]:
+        """Run work while transient text is owned, preserving lifecycle truth."""
+
         with self._transaction(operation_id):
-            self._raise_if_cancelled(cancellation)
-            original = self._clipboard.snapshot()
-            self._clipboard.write_text(text)
-            owned_sequence = self._clipboard.sequence_number()
+            if self._cancelled(cancellation):
+                return TemporaryTextResult(cancelled=True)
             try:
-                yield
-            finally:
-                self._clipboard.restore_if_unchanged(original, owned_sequence)
+                if self._clipboard.sequence_number() <= 0:
+                    raise OSError("Clipboard sequence tracking is unavailable.")
+                original = self._clipboard.snapshot()
+            except Exception as exc:
+                return TemporaryTextResult(error=exc)
+            if self._cancelled(cancellation):
+                return TemporaryTextResult(cancelled=True)
+
+            try:
+                self._clipboard.write_transient_text(text)
+                owned_sequence = self._clipboard.sequence_number()
+                if owned_sequence <= 0:
+                    raise OSError("Clipboard sequence tracking was lost after mutation.")
+            except Exception as exc:
+                return TemporaryTextResult(
+                    error=exc,
+                    cleanup="failed",
+                )
+
+            value: ResultT | None = None
+            error: Exception | None = None
+            cancelled = False
+            try:
+                if self._cancelled(cancellation):
+                    cancelled = True
+                else:
+                    value = work()
+            except Exception as exc:
+                error = exc
+
+            cleanup = "restored"
+            try:
+                if not self._clipboard.restore_if_unchanged(original, owned_sequence):
+                    cleanup = "external_change"
+            except Exception as exc:
+                cleanup = "failed"
+                if error is None:
+                    error = exc
+
+            return TemporaryTextResult(
+                value=value,
+                error=error,
+                cancelled=cancelled,
+                cleanup=cleanup,
+            )
 
     def capture_selection(
         self,
@@ -66,7 +118,7 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
             marker = f"__CLIPAI_SELECTION_{uuid.uuid4().hex}__"
             owned_sequence: int | None = None
             try:
-                self._clipboard.write_text(marker)
+                self._clipboard.write_transient_text(marker)
                 owned_sequence = self._clipboard.sequence_number()
                 adapter.copy_selection()
                 deadline = monotonic() + timeout_sec

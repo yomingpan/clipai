@@ -46,6 +46,11 @@ shortcuts:
     command: start_action
     action_id: english_companion
 
+  - id: expression_retrieval
+    hotkey: ctrl+alt+u
+    command: start_action
+    action_id: expression_retrieval
+
   - id: reflective_question
     hotkey: ctrl+alt+9
     command: start_action

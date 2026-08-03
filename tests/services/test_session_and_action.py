@@ -334,3 +334,23 @@ def test_result_processor_warns_for_too_many_sections_and_nested_lists(caplog) -
     assert processed.document is not None
     assert "exceeds four top-level sections" in caplog.text
     assert "unsupported nested list structure" in caplog.text
+
+
+def test_result_processor_keeps_scroll_gap_out_of_canonical_output() -> None:
+    profile = OutputProfile(
+        "capture",
+        "",
+        ("[[SCROLL_FOR_ANSWER]]",),
+        "markdown_sections",
+    )
+    processor = ResultProcessor(OutputProfileCatalog([profile]))
+
+    result = processor.process(
+        "## Retrieve\n\nTry first.\n\n[[SCROLL_FOR_ANSWER]]\n\nAnswer: Use it.",
+        "capture",
+    )
+
+    assert "[[SCROLL_FOR_ANSWER]]" not in result.text
+    assert result.text.endswith("Answer: Use it.")
+    assert result.document is not None
+    assert any(block.kind == "spacer" for block in result.document.blocks)

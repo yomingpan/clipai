@@ -6,7 +6,7 @@ from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, ReleaseForegroundWorkflow, ShortcutPressInvoked, StartAction, TogglePin
+from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, PasteOperationCompleted, ShortcutPressInvoked, StartAction, TogglePin
 from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, InterruptibleOperationRef
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -51,7 +51,6 @@ WorkflowRuntimeCommand: TypeAlias = (
     | TogglePin
     | FollowUp
     | ActivateWorkflow
-    | ReleaseForegroundWorkflow
     | NavigateWorkflowBack
     | WorkflowInvocationFailed
     | HeadlessWorkflowFinished
@@ -130,6 +129,20 @@ class WorkflowRuntimeModule:
     def has_foreground_workflow(self) -> bool:
         return self._foreground_id in self._records
 
+    def observe_paste_completion(self, command: PasteOperationCompleted) -> bool:
+        """Apply semantic Foreground Workflow policy from authoritative Paste truth."""
+        record = self._records.get(command.workflow_id)
+        if (
+            command.outcome.state != "dispatched_unconfirmed"
+            or self._foreground_id != command.workflow_id
+            or record is None
+            or record.presentation != "visible"
+            or record.controller.snapshot.pinned
+        ):
+            return False
+        self._foreground_id = None
+        return True
+
     def resolve_shortcut(self, command: ShortcutPressInvoked) -> AppCommand | None:
         return self._shortcut_intents.resolve(command)
 
@@ -197,9 +210,6 @@ class WorkflowRuntimeModule:
             record = self._records.get(command.workflow_id)
             if record is not None and record.presentation == "visible":
                 self._foreground_id = command.workflow_id
-        elif isinstance(command, ReleaseForegroundWorkflow):
-            if self._foreground_id == command.workflow_id:
-                self._foreground_id = None
         elif isinstance(command, NavigateWorkflowBack):
             controller = self.controller_for(command.workflow_id)
             if controller is not None:

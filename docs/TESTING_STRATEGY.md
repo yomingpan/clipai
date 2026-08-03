@@ -91,31 +91,25 @@ python -m pytest -m integration
 
 ## Tests Folder 結構
 
-目標結構：
+目前結構：
 
 ```text
 tests/
   conftest.py
-  helpers/
-    fake_provider.py
-    fake_presenter.py
-    fake_clipboard.py
-    hotkey_driver.py
-    popup_driver.py
-  unit/
-    core/
-    services/
-    platform/
-    providers/
-    ui/
-    config/
-  integration/
-    platform/
-    ui/
-    runtime/
+  app/
+  architecture/
+  core/
+  platform/
+  providers/
+  services/
+  support/
+  ui/
 ```
 
-目前 repo 可以漸進搬移既有測試。新增測試時，優先放進 `unit/` 或 `integration/`；舊測試不用為了命名一次搬完。
+Unit、sim 與 integration tests 依被測 layer 共置；會接觸真實外部世界的
+case 以 `integration` marker 區分，不另建一套與 layer 重複的目錄樹。共用
+fake 優先放在最小可見範圍，只有跨多個 test module 使用時才提升至
+`tests/conftest.py` 或明確的 helper module。
 
 ## conftest.py 責任
 
@@ -187,6 +181,66 @@ Integration 應測：
 - streaming 中按 copy/speak/archive。
 - popup 關閉後 background callback 不造成 crash。
 - clipboard restore 在錯誤與取消情境下仍穩定。
+
+### Paste Operation 測試矩陣
+
+Service 與 runtime sims 必須覆蓋以下 dispatch × cleanup × cancellation
+矩陣：
+
+| 時機／條件 | Delivery | Cleanup | Terminal acknowledgement |
+| --- | --- | --- | --- |
+| global single-flight admission rejected | `not_dispatched` | `not_required` | `failed` |
+| worker 執行前取消或 submit 失敗 | `not_dispatched` | `not_required` | `cancelled` 或 `failed` |
+| fail-closed preservation 拒絕原生格式 | `not_dispatched` | `not_required` | `failed` |
+| clipboard mutation 後、dispatch gate 前取消 | `not_dispatched` | `restored` | `cancelled` |
+| dispatch 後成功恢復 | `dispatched_unconfirmed` | `restored` | `dispatched_unconfirmed` |
+| dispatch 後發現 external clipboard change | `dispatched_unconfirmed` | `external_change` | `dispatched_unconfirmed` |
+| dispatch 後恢復失敗 | `dispatched_unconfirmed` | `failed` | `cleanup_failed` |
+| mutation 後、尚未 dispatch 即恢復失敗 | `not_dispatched` | `failed` | `cleanup_failed` |
+| dispatch 後才收到取消 | 保留既有 dispatch truth | 實際 cleanup truth | 不得降級為 `cancelled` 或 `failed` |
+
+另外必須驗證：
+
+- container-wide single-flight；重疊請求明確失敗，不排隊、不取代。
+- worker 前取消回報 `cancelled / not_dispatched`，且 cleanup 後恰好一次完成。
+- worker 中取消等待真實 cleanup 與 dispatch outcome，不提早釋放 membership。
+- dispatch 後只有 `dispatched_unconfirmed` 或 `cleanup_failed`，不得出現
+  Paste `succeeded`。
+- completion 只經 typed `PasteOperationCompleted` command 回到 runtime。
+- `PasteOperationCompleted` 與其他 output acknowledgements 保持 ordered、
+  exactly-once，且不得進入可 coalesce 的 Workflow snapshot mailbox。
+- runtime 不持有 concrete Paste handle 或 `_paste_jobs` registry；architecture
+  test 必須防止這個 ownership 退化。
+- stale、重複或晚到 completion 不得完成較新的 output operation。
+- Popup outcome/focus matrix 與 `docs/specs/paste-target-focus-adr.md` 一致。
+
+Windows integration smoke 必須覆蓋 clipboard snapshot、temporary text、
+conditional restoration 與 external clipboard change；它驗證 adapter seam，
+不把 input injection 當成目標程式已消費內容的證明。
+
+### Canonical selection 與 presentation 測試
+
+- 外部 text-capable Action 在 trigger time 擷取 selection；有效 selection
+  優先於 clipboard image 與 clipboard text。
+- Popup output action 的明確 selection 優先於 displayed step canonical
+  content；沒有 selection 才 fallback，且 typed command 攜帶 semantic text。
+- Copy、Paste、Archive、Speech 共用 canonical source，不從 styled widget 或
+  presentation text 反推內容。
+- Markdown parser 保留 canonical fragments；unsupported syntax 安全降級為
+  plain text，不遺失 canonical content。
+- Selection Capture 與 Paste 共用 clipboard transaction owner；late restore
+  不得覆寫使用者或較新的 operation 所做的 clipboard change。
+
+### Physical-key release 測試
+
+- 每個完整 shortcut match 建立獨立 press identity，直到 non-modifier
+  function key release 或明確 cancellation 才結束。
+- Release 必須能以 physical／virtual-key identity 對應原 press；modifier
+  持續按住時，下一次 function-key press 仍建立新 identity。
+- Long-press deadline 必須重新檢查 physical key state；已放開的 action key
+  不得被 late timer 誤判為 long press。
+- Missing release 的 stale recovery、listener shutdown 與 injected key events
+  不得產生第二次 terminal outcome 或污染下一個 press。
 
 Recipe 回饋與使用引導應測：
 

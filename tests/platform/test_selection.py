@@ -44,6 +44,9 @@ class Clipboard:
         self.writes.append(text)
         self.sequence += 1
 
+    def write_transient_text(self, text: str) -> None:
+        self.write_text(text)
+
     def snapshot(self) -> ClipboardSnapshot:
         return ClipboardSnapshot(self.value, self.image)
 

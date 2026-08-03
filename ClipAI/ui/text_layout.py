@@ -20,6 +20,28 @@ def strip_display_break_hints(text: str) -> str:
     return text.replace(DISPLAY_BREAK_HINT, "")
 
 
+def strip_display_break_hint_boundaries(
+    text: str,
+    *,
+    leading: bool = False,
+    trailing: bool = False,
+) -> str:
+    """Remove complete hints plus fragments cut by a Tk selection boundary."""
+    if leading and not text.startswith(DISPLAY_BREAK_HINT):
+        for start in range(1, len(DISPLAY_BREAK_HINT)):
+            fragment = DISPLAY_BREAK_HINT[start:]
+            if text.startswith(fragment):
+                text = text[len(fragment):]
+                break
+    if trailing and not text.endswith(DISPLAY_BREAK_HINT):
+        for end in range(len(DISPLAY_BREAK_HINT) - 1, 0, -1):
+            fragment = DISPLAY_BREAK_HINT[:end]
+            if text.endswith(fragment):
+                text = text[:-len(fragment)]
+                break
+    return strip_display_break_hints(text)
+
+
 def add_display_break_hints(text: str) -> str:
     """Add reversible Tk break opportunities without changing semantic text."""
     canonical = strip_display_break_hints(text)

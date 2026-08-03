@@ -14,6 +14,7 @@ from ClipAI.ui.base_dialog import (
     CONTENT_COLOR,
     CHECK_ICON,
     COPY_ICON,
+    DISPLAY_BREAK_HINT,
     DISPLAY_BREAK_TAG,
     PASTE_ICON,
     POPUP_FONT_SIZES,
@@ -48,6 +49,8 @@ from ClipAI.ui.base_dialog import (
     configure_tooltip_layer,
     insert_display_text,
     paste_target_display_text,
+    _CanonicalSelectionSegment,
+    _canonical_selection_text,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
@@ -121,6 +124,40 @@ def test_windows_popup_restore_preserves_external_foreground_window() -> None:
     assert window.deiconified is True
     assert user32.shown == (20, 4)
     assert user32.restored == 30
+
+
+def test_external_output_visibility_actions_are_mechanical(monkeypatch) -> None:
+    events = []
+
+    class Window:
+        def withdraw(self) -> None:
+            events.append("withdraw")
+
+        def deiconify(self) -> None:
+            events.append("deiconify")
+
+    class Lifecycle:
+        def focus(self) -> None:
+            events.append("focus")
+
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog.root = Window()
+    dialog.lifecycle = Lifecycle()
+    monkeypatch.setattr(
+        "ClipAI.ui.base_dialog.show_window_without_activation",
+        lambda window: events.append(("show_no_activate", window)),
+    )
+
+    dialog.apply_external_output_visibility("hidden")
+    dialog.apply_external_output_visibility("visible_activate")
+    dialog.apply_external_output_visibility("visible_no_activate")
+
+    assert events == [
+        "withdraw",
+        "deiconify",
+        "focus",
+        ("show_no_activate", dialog.root),
+    ]
 
 
 class FakeCanvas:
@@ -713,6 +750,107 @@ def test_stream_append_preserves_scroll_and_does_not_replace_existing_text() -> 
     assert not any(call[0] == "delete" for call in surface.content_text.calls)
     assert not any(call[0] == "see" for call in surface.content_text.calls)
     assert any(call[0] == "insert" for call in surface.content_text.calls)
+
+
+def test_canonical_selection_restores_markdown_bullets_and_inline_styles() -> None:
+    segments = (
+        _CanonicalSelectionSegment(0, "• ", "- "),
+        _CanonicalSelectionSegment(2, "First", "**First**"),
+        _CanonicalSelectionSegment(7, " item", " item"),
+        _CanonicalSelectionSegment(12, "\n", "\n"),
+        _CanonicalSelectionSegment(13, "• ", "- "),
+        _CanonicalSelectionSegment(15, "Second", "*Second*"),
+    )
+
+    assert _canonical_selection_text(segments, 0, 21) == "- **First** item\n- *Second*"
+
+
+def test_presentation_surface_returns_canonical_markdown_for_rendered_selection() -> None:
+    from ClipAI.services.presentation import MarkdownPresentationParser
+
+    class Textbox:
+        def __init__(self) -> None:
+            self.text = ""
+            self.selection = (0, 0)
+
+        def configure(self, **_kwargs) -> None:
+            pass
+
+        def delete(self, *_args) -> None:
+            self.text = ""
+
+        def insert(self, _index, text, _tags) -> None:
+            self.text += text
+
+        def get(self, start, end) -> str:
+            first, last = self.selection
+            if (start, end) == ("sel.first", "sel.last"):
+                return self.text[first:last]
+            if (start, end) == ("1.0", "sel.first"):
+                return self.text[:first]
+            raise AssertionError((start, end))
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._list_indent_prefixes = {}
+    surface.set_presentation_document(
+        MarkdownPresentationParser().parse("- **First** item\n- *Second*")
+    )
+    surface.content_text.selection = (0, len(surface.content_text.text.rstrip("\n")))
+
+    assert surface.selected_text() == "- **First** item\n- *Second*"
+
+
+def test_presentation_surface_projects_double_clicked_word_without_partial_break_hints() -> None:
+    class Textbox:
+        def get(self, start, end) -> str:
+            if (start, end) == ("sel.first", "sel.last"):
+                # Tk's word selection starts and ends inside the adjacent
+                # U+2063 SPACE U+2063 display-only break hints.
+                return "\u2063appetizer\u2063"
+            if (start, end) == ("1.0", "sel.first"):
+                return f"prefix{DISPLAY_BREAK_HINT} {DISPLAY_BREAK_HINT[:2]}"
+            raise AssertionError((start, end))
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._canonical_selection_segments = (
+        _CanonicalSelectionSegment(0, "prefix appetizer pronunciation", "prefix appetizer pronunciation"),
+    )
+
+    assert surface.selected_text() == "appetizer"
+
+
+def test_presentation_surface_renders_retrieval_spacer_without_showing_marker() -> None:
+    from ClipAI.services.presentation import MarkdownPresentationParser
+
+    class Textbox:
+        def __init__(self) -> None:
+            self.text = ""
+            self.insertions = []
+
+        def configure(self, **_kwargs) -> None:
+            pass
+
+        def delete(self, *_args) -> None:
+            self.text = ""
+            self.insertions.clear()
+
+        def insert(self, _index, text, tags) -> None:
+            self.text += text
+            self.insertions.append((text, tags))
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._list_indent_prefixes = {}
+    surface.set_presentation_document(
+        MarkdownPresentationParser().parse(
+            "## Retrieve\n\nTry first.\n\n[[SCROLL_FOR_ANSWER]]\n\nAnswer: Use it."
+        )
+    )
+
+    assert "[[SCROLL_FOR_ANSWER]]" not in surface.content_text.text
+    assert any(text == "\n" * 8 and "retrieval_spacer" in tags for text, tags in surface.content_text.insertions)
 
 
 @pytest.mark.parametrize("scale", [1.0, 1.33, 2.0])

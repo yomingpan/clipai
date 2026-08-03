@@ -38,7 +38,7 @@ class ResultProcessor:
         if any(line.startswith(("  - ", "  * ", "  + ")) for line in result.splitlines()):
             logger.warning("Output profile %s contains unsupported nested list structure", profile.id)
         return ProcessedResult(
-            text=result,
+            text=document.fallback_text,
             output_profile=profile.id,
             presentation=profile.presentation,
             document=document,

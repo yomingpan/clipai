@@ -8,8 +8,8 @@ profiles:
   - id: english_learning_compact
     presentation: plain_text
     instruction: |
-      Put exactly one target English expression first, then give at most two short, conversational Traditional Chinese sentences combining its meaning with a concrete usage situation, followed by one practical English example.
-      Add `同義：` with 1-3 useful close alternatives only when genuinely helpful. End with `記憶：` and one concrete, short mnemonic or association.
+      Put exactly one target English expression by itself on the first line, without any spoken/written or formal/informal label. Then give at most two short, conversational Traditional Chinese sentences combining its meaning with a concrete usage situation, followed by one practical English example.
+      After the example, add a separate `語感：` line when a spoken/written or formal/informal distinction is useful. If the target is mainly written or formal, mention that gently and give its closest everyday spoken alternative. Add `同義：` with 1-3 useful close alternatives when helpful; for a mainly written or formal target, include and mark conversational alternatives with `（口語常用）`. End with `記憶：` and one concrete, short mnemonic or association.
       Keep the entire answer compact. Do not use Markdown headings or extra sections.
 
   - id: english_improvement
@@ -21,6 +21,33 @@ profiles:
     instruction: |
       Use exactly these three Markdown sections in order: Full Rewrite, Key Improvements,
       and Useful Patterns. Keep every section concise, visually scannable, and free of repeated corrections.
+
+  - id: expression_capture
+    presentation: markdown_sections
+    required_markers:
+      - "## Notice"
+      - "## Pattern"
+      - "## Retrieve"
+      - "[[SCROLL_FOR_ANSWER]]"
+      - "## Make It Yours"
+    instruction: |
+      Use exactly these four Markdown sections in order: Notice, Pattern, Retrieve, and Make It Yours.
+      Notice preserves one valuable source sentence, bolds at most three natural chunks, and selects one primary expression.
+      Pattern contains one reusable semi-fixed pattern and exactly three short substitution examples.
+      Retrieve contains one concrete Traditional Chinese situation and one Chinese retrieval prompt. Tell the learner to try saying it before scrolling, then put `[[SCROLL_FOR_ANSWER]]` alone on a line. Put the English answer only after that marker.
+      Make It Yours contains one concise fill-in pattern. Keep the result compact and do not add other sections.
+
+  - id: expression_transfer
+    presentation: markdown_sections
+    required_markers:
+      - "## Natural Version"
+      - "## Key Shift"
+      - "## Transfer Chunks"
+      - "## Your Turn"
+    instruction: |
+      For the initial response, use exactly these four Markdown sections in order: Natural Version, Key Shift, Transfer Chunks, and Your Turn.
+      Put the complete usable English first. Explain only one key naturalness shift. Extract one to three reusable chunks. End with one concrete question that asks the learner to press `Ctrl+/` and type a new English sentence using one named target pattern in the follow-up field, without revealing a model answer.
+      If the latest user message is an attempted answer to Your Turn, do not repeat the four-section lesson. Evaluate only the target chunk usage, make the smallest necessary correction, and give at most one conversational alternative.
 
   - id: score_compact
     presentation: plain_text

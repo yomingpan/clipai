@@ -52,14 +52,6 @@ def _normalize_key(key) -> str | None:
     vk = getattr(key, "vk", None)
     if vk == _VK_OEM_3:
         return GRAVE_KEY_TOKEN
-
-    char = getattr(key, "char", None)
-    if char:
-        normalized = str(char).lower()
-        if normalized in GRAVE_KEY_ALIASES:
-            return GRAVE_KEY_TOKEN
-        return _SHIFTED_DIGIT_MAP.get(normalized, normalized)
-
     if isinstance(vk, int):
         if vk in _VK_DIGIT_MAP:
             return _VK_DIGIT_MAP[vk]
@@ -67,6 +59,13 @@ def _normalize_key(key) -> str | None:
             return _VK_NUMPAD_MAP[vk]
         if vk in _VK_ALPHA_MAP:
             return _VK_ALPHA_MAP[vk]
+
+    char = getattr(key, "char", None)
+    if char:
+        normalized = str(char).lower()
+        if normalized in GRAVE_KEY_ALIASES:
+            return GRAVE_KEY_TOKEN
+        return _SHIFTED_DIGIT_MAP.get(normalized, normalized)
     return None
 
 
@@ -238,6 +237,25 @@ class _HotkeyDispatcher:
                 or state.timer_generation != timer_generation
                 or state.press_id != press_id
             ):
+                return
+            trigger_tokens = state.binding_tokens.difference(MODIFIER_KEYS)
+            released_tokens = {
+                token
+                for token in trigger_tokens
+                if self._key_is_pressed is not None
+                and self._key_is_pressed(token) is False
+            }
+            if released_tokens:
+                self._active.pop(action_id, None)
+                self._pressed.difference_update(released_tokens)
+                self._report_key_state()
+                self._emit(
+                    ShortcutPressEnded(
+                        state.press_id,
+                        state.shortcut_id,
+                        "cancelled",
+                    )
+                )
                 return
             state.long_fired = True
             logger.info(

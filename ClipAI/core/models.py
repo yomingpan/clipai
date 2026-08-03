@@ -20,11 +20,21 @@ ApplicationStatus = Literal["idle", "processing", "success", "warning", "error",
 OperationKind = Literal["llm", "tts", "copy", "paste", "archive"]
 FeedbackOutcome = Literal["helpful", "needs_adjustment", "not_applicable"]
 FeedbackOperationState = Literal["idle", "pending", "succeeded", "failed"]
-PresentationBlockKind = Literal["paragraph", "heading", "unordered_item", "ordered_item"]
+PresentationBlockKind = Literal["paragraph", "heading", "unordered_item", "ordered_item", "spacer"]
 InlineStyle = Literal["plain", "bold", "italic"]
 ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
-OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
+OutputOperationState = Literal[
+    "pending",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "dispatched_unconfirmed",
+    "cleanup_failed",
+]
+PasteDeliveryState = Literal["not_dispatched", "dispatched_unconfirmed"]
+PasteCleanupState = Literal["not_required", "restored", "external_change", "failed"]
+PasteCompletionState = Literal["failed", "cancelled", "dispatched_unconfirmed", "cleanup_failed"]
 ResultCompleteness = Literal["none", "partial", "complete"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
@@ -204,6 +214,16 @@ class OutputOperationResult:
     kind: OutputActionKind
     state: OutputOperationState
     error: UserFacingError | None = None
+    message: str = ""
+
+    def __post_init__(self) -> None:
+        common_states = {"pending", "failed", "cancelled"}
+        paste_states = common_states | {"dispatched_unconfirmed", "cleanup_failed"}
+        allowed = paste_states if self.kind == "paste" else common_states | {"succeeded"}
+        if self.state not in allowed:
+            raise ValueError(
+                f"unsupported {self.kind} output-operation state: {self.state}"
+            )
 
 
 @dataclass(frozen=True)
@@ -428,6 +448,28 @@ class PasteTarget:
 
 
 @dataclass(frozen=True)
+class PasteRequest:
+    operation_id: str
+    workflow_id: str
+    text: str
+    target: PasteTarget
+
+
+@dataclass(frozen=True)
+class PasteDispatchReceipt:
+    state: Literal["dispatched_unconfirmed"]
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class PasteOutcome:
+    state: PasteCompletionState
+    delivery: PasteDeliveryState
+    cleanup: PasteCleanupState
+    message: str = ""
+
+
+@dataclass(frozen=True)
 class ProcessedResult:
     text: str
     output_profile: str = "plain_text"
@@ -439,6 +481,7 @@ class ProcessedResult:
 class InlineSpan:
     text: str
     style: InlineStyle = "plain"
+    canonical_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -447,6 +490,7 @@ class PresentationBlock:
     spans: tuple[InlineSpan, ...]
     level: int = 0
     ordinal: int | None = None
+    canonical_prefix: str = ""
 
 
 @dataclass(frozen=True)
