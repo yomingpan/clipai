@@ -24,6 +24,7 @@ def test_paste_waits_for_physical_modifiers_to_be_released() -> None:
 
     keyboard = SystemKeyboardOutput(
         modifier_is_pressed=modifier_is_pressed,
+        paste_settle_sec=0,
         poll_sec=0.02,
         wait=wait,
         paste_shortcut=lambda: pasted.append("paste"),

@@ -7,6 +7,7 @@ import pytest
 
 from ClipAI.core.errors import CancelledError, InputError
 from ClipAI.core.models import PasteDispatchReceipt, PasteRequest, PasteTarget
+from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.paste_operation import PasteOperationCoordinator, PasteOperationInProgress
 
@@ -130,6 +131,27 @@ def test_normal_dispatch_is_reported_as_unconfirmed_and_restores_clipboard() -> 
     assert dispatcher.calls == 1
     assert clipboard.transient_writes == ["result"]
     assert clipboard.value == "original"
+
+
+def test_system_dispatch_keeps_transient_text_until_target_consumes_paste() -> None:
+    clipboard = Clipboard()
+    consumed = []
+    dispatcher = SystemKeyboardOutput(
+        modifier_is_pressed=lambda _modifier: False,
+        wait=lambda _delay: consumed.append(clipboard.read_text()),
+        paste_shortcut=lambda: None,
+        target_is_valid=lambda _target: True,
+        activate_target=lambda _target: True,
+        target_is_foreground=lambda _target: True,
+    )
+
+    outcome = coordinator(clipboard, dispatcher).create(request()).run()
+
+    assert (consumed, clipboard.value, outcome.state) == (
+        ["result"],
+        "original",
+        "dispatched_unconfirmed",
+    )
 
 
 def test_cleanup_failure_preserves_dispatch_truth_and_does_not_become_failed() -> None:

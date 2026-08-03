@@ -17,6 +17,7 @@ class SystemKeyboardOutput:
         modifier_is_pressed: Callable[[str], bool | None] = windows_modifier_is_pressed,
         modifier_release_timeout_sec: float = 1.0,
         target_activation_timeout_sec: float = 0.5,
+        paste_settle_sec: float = 0.25,
         poll_sec: float = 0.02,
         wait: Callable[[float], None] = time.sleep,
         paste_shortcut: Callable[[], None] | None = None,
@@ -27,6 +28,7 @@ class SystemKeyboardOutput:
         self._modifier_is_pressed = modifier_is_pressed
         self._modifier_release_timeout_sec = modifier_release_timeout_sec
         self._target_activation_timeout_sec = target_activation_timeout_sec
+        self._paste_settle_sec = paste_settle_sec
         self._poll_sec = poll_sec
         self._wait = wait
         self._paste_shortcut = paste_shortcut or _send_paste_shortcut
@@ -56,14 +58,16 @@ class SystemKeyboardOutput:
         if not self._target_is_valid(target) or not self._target_is_foreground(target):
             raise RuntimeError("Paste target changed before dispatch.")
         _raise_if_cancelled(cancellation)
+        detail = ""
         try:
             self._paste_shortcut()
         except Exception:
-            return PasteDispatchReceipt(
-                "dispatched_unconfirmed",
-                "Input injection returned an error after the Paste Dispatch point.",
-            )
-        return PasteDispatchReceipt("dispatched_unconfirmed")
+            detail = "Input injection returned an error after the Paste Dispatch point."
+        # Input injection can return before the target consumes the clipboard.
+        # Keep the transient payload available without claiming confirmation.
+        if self._paste_settle_sec > 0:
+            self._wait(self._paste_settle_sec)
+        return PasteDispatchReceipt("dispatched_unconfirmed", detail)
 
 
 def _send_paste_shortcut() -> None:
