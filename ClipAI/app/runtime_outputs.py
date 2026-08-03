@@ -229,23 +229,9 @@ class ResultOutputRuntimeModule:
         self._operations.succeed(intent, operation)
 
     def _paste_completed(self, command: PasteOperationCompleted) -> None:
-        outcome = command.outcome
         intent = OutputOperationIntent(command.operation_id, command.workflow_id, "paste", "")
         self._finish_interruption(intent.operation_id)
-        if outcome.state == "failed":
-            self._operations.fail(intent, RuntimeError(outcome.message))
-            return
-        if outcome.state == "cancelled":
-            self._operations.cancel(intent)
-            return
-        if outcome.state in {"dispatched_unconfirmed", "cleanup_failed"}:
-            self._operations.warn(
-                intent,
-                outcome.state,
-                outcome.message,
-            )
-            return
-        self._operations.fail(intent, RuntimeError(f"Unknown Paste outcome: {outcome.state}"))
+        self._operations.finish_paste(intent, command.outcome)
 
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:

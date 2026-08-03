@@ -216,6 +216,15 @@ class OutputOperationResult:
     error: UserFacingError | None = None
     message: str = ""
 
+    def __post_init__(self) -> None:
+        common_states = {"pending", "failed", "cancelled"}
+        paste_states = common_states | {"dispatched_unconfirmed", "cleanup_failed"}
+        allowed = paste_states if self.kind == "paste" else common_states | {"succeeded"}
+        if self.state not in allowed:
+            raise ValueError(
+                f"unsupported {self.kind} output-operation state: {self.state}"
+            )
+
 
 @dataclass(frozen=True)
 class LLMResult:

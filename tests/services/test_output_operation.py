@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ClipAI.core.models import OutputOperationIntent
+from ClipAI.core.models import OutputOperationIntent, OutputOperationResult, PasteOutcome
 from ClipAI.services.output_operation import OutputOperationCoordinator
 
 
@@ -82,6 +82,51 @@ def test_paste_warning_preserves_dispatch_specific_terminal_state() -> None:
 
     assert presenter.results[-1].state == "dispatched_unconfirmed"
     assert presenter.results[-1].message == "Confirm the target before trying again."
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_state"),
+    [
+        (PasteOutcome("failed", "not_dispatched", "not_required", "Paste failed."), "failed"),
+        (PasteOutcome("cancelled", "not_dispatched", "not_required"), "cancelled"),
+        (
+            PasteOutcome("dispatched_unconfirmed", "dispatched_unconfirmed", "restored", "Paste was sent."),
+            "dispatched_unconfirmed",
+        ),
+        (
+            PasteOutcome("cleanup_failed", "dispatched_unconfirmed", "failed", "Clipboard restore failed."),
+            "cleanup_failed",
+        ),
+    ],
+)
+def test_finish_paste_maps_only_legal_terminal_states(outcome, expected_state) -> None:
+    presenter = Presenter()
+    coordinator = OutputOperationCoordinator(presenter)
+    intent = OutputOperationIntent("paste-op", "workflow", "paste", "text")
+    coordinator.begin(intent)
+
+    assert coordinator.finish_paste(intent, outcome) is True
+
+    assert presenter.results[-1].state == expected_state
+
+
+def test_paste_cannot_report_confirmed_success() -> None:
+    presenter = Presenter()
+    coordinator = OutputOperationCoordinator(presenter)
+    intent = OutputOperationIntent("paste-op", "workflow", "paste", "text")
+    coordinator.begin(intent)
+
+    with pytest.raises(ValueError, match="cannot report confirmed success"):
+        coordinator.succeed(intent)
+
+
+@pytest.mark.parametrize(
+    ("kind", "state"),
+    [("paste", "succeeded"), ("copy", "dispatched_unconfirmed"), ("archive", "cleanup_failed")],
+)
+def test_output_operation_result_rejects_incompatible_kind_and_state(kind, state) -> None:
+    with pytest.raises(ValueError, match="unsupported"):
+        OutputOperationResult("op", "workflow", kind, state)
 
 
 def test_cancel_all_can_wait_for_running_paste_truth_while_cancelling_other_outputs() -> None:

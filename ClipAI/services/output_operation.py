@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from ClipAI.core.models import OutputOperationIntent, OutputOperationResult, OutputOperationState, UserFacingError
+from ClipAI.core.models import OutputOperationIntent, OutputOperationResult, OutputOperationState, PasteOutcome, UserFacingError
 from ClipAI.core.ports import OperationHandle, OperationTracker, OutputOperationPresenter
 
 
@@ -72,6 +72,8 @@ class OutputOperationCoordinator:
         return intent
 
     def succeed(self, intent: OutputOperationIntent, handle: OperationHandle | None = None) -> bool:
+        if intent.kind == "paste":
+            raise ValueError("Paste Operation cannot report confirmed success")
         handle = handle or self._active_handle(intent)
         if handle is not None:
             handle.succeed()
@@ -109,6 +111,17 @@ class OutputOperationCoordinator:
             else:
                 handle.succeed()
         return self._finish(intent, state, message=message)
+
+    def finish_paste(self, intent: OutputOperationIntent, outcome: PasteOutcome) -> bool:
+        if intent.kind != "paste":
+            raise ValueError("Paste outcome requires a Paste Operation intent")
+        if outcome.state == "failed":
+            return self.fail(intent, RuntimeError(outcome.message))
+        if outcome.state == "cancelled":
+            return self.cancel(intent)
+        if outcome.state in {"dispatched_unconfirmed", "cleanup_failed"}:
+            return self.warn(intent, outcome.state, outcome.message)
+        raise ValueError(f"unsupported Paste outcome state: {outcome.state}")
 
     def run(self, intent: OutputOperationIntent, work: Callable[[], None]) -> None:
         handle = self.begin(intent)

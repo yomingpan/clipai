@@ -335,7 +335,7 @@ def test_stale_paste_result_does_not_restore_current_transition() -> None:
     current_id = events[-1].operation_id
     view.output_operations["paste"] = current_id
 
-    presenter._apply_output_operation(OutputOperationResult("old", "s1", "paste", "succeeded"))
+    presenter._apply_output_operation(OutputOperationResult("old", "s1", "paste", "cancelled"))
 
     assert not any(event.startswith("restore:") for event in events if isinstance(event, str))
     assert view.paste_transition_id == current_id
