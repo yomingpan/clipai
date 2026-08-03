@@ -125,6 +125,40 @@ def test_windows_popup_restore_preserves_external_foreground_window() -> None:
     assert user32.restored == 30
 
 
+def test_external_output_visibility_actions_are_mechanical(monkeypatch) -> None:
+    events = []
+
+    class Window:
+        def withdraw(self) -> None:
+            events.append("withdraw")
+
+        def deiconify(self) -> None:
+            events.append("deiconify")
+
+    class Lifecycle:
+        def focus(self) -> None:
+            events.append("focus")
+
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog.root = Window()
+    dialog.lifecycle = Lifecycle()
+    monkeypatch.setattr(
+        "ClipAI.ui.base_dialog.show_window_without_activation",
+        lambda window: events.append(("show_no_activate", window)),
+    )
+
+    dialog.apply_external_output_visibility("hidden")
+    dialog.apply_external_output_visibility("visible_activate")
+    dialog.apply_external_output_visibility("visible_no_activate")
+
+    assert events == [
+        "withdraw",
+        "deiconify",
+        "focus",
+        ("show_no_activate", dialog.root),
+    ]
+
+
 class FakeCanvas:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple, dict]] = []

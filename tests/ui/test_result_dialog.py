@@ -3,10 +3,11 @@ from __future__ import annotations
 import queue
 from dataclasses import replace
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, ReleaseForegroundWorkflow, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, OutputOperationResult, PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.ui.result_dialog import LatestSnapshotMailbox, PopupFocusLifecycle, ResultDialogPresenter, _SessionView, _content_render_key, workflow_render_patch
+from ClipAI.ui.popup_external_output import FocusEntered, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown
+from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, workflow_render_patch
 
 
 class Root:
@@ -33,11 +34,8 @@ class Dialog:
         self.alive = False
         self.root.events.append("close")
 
-    def hide_for_external_output(self) -> None:
-        self.root.events.append("hide")
-
-    def restore_after_external_output(self, *, activate: bool) -> None:
-        self.root.events.append(f"restore:{activate}")
+    def apply_external_output_visibility(self, visibility: str) -> None:
+        self.root.events.append(f"visibility:{visibility}")
 
 
 class Surface:
@@ -101,13 +99,11 @@ class Surface:
 def presenter_with_selection(selected: str | None):
     events: list[str] = []
     presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
-    lifecycle = PopupFocusLifecycle(
-        registered=True,
-        shown=True,
-        initial_focus_established=True,
-        focused_inside=True,
-    )
-    presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events), focus_lifecycle=lifecycle)}
+    external_output = PopupExternalOutputTransitions()
+    external_output.focus(PopupRegistered())
+    external_output.focus(PopupShown())
+    external_output.focus(FocusEntered())
+    presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events), external_output=external_output)}
     presenter._command_sink = lambda command: events.append(command)
     presenter._paste_target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
     presenter._paste_target_updates = queue.Queue()
@@ -133,7 +129,7 @@ def test_copy_and_archive_wait_for_typed_acknowledgment() -> None:
 
 def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:
     presenter, events = presenter_with_selection("selected")
-    presenter._views["s1"].output_operations["archive"] = "new"
+    presenter._views["s1"].external_output.begin("archive", "new")
     presenter._apply_output_operation(OutputOperationResult("old", "s1", "archive", "succeeded"))
     assert events == []
     presenter._apply_output_operation(OutputOperationResult("new", "s1", "archive", "succeeded"))
@@ -215,6 +211,7 @@ def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:
 
 def test_speech_operation_projects_to_speaker_slot() -> None:
     presenter, events = presenter_with_selection("selected")
+    presenter._views["s1"].external_output.begin("speech", "speech-op")
     presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "pending"))
     presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "succeeded"))
     assert "speaker:pulse:1000" in events
@@ -222,6 +219,7 @@ def test_speech_operation_projects_to_speaker_slot() -> None:
 
 def test_speech_failure_projects_to_speaker_slot() -> None:
     presenter, events = presenter_with_selection("selected")
+    presenter._views["s1"].external_output.begin("speech", "speech-op")
     presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "pending"))
     presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "failed"))
     assert "speaker:error:1000" in events
@@ -231,9 +229,8 @@ def test_paste_emits_identified_command_and_waits_for_pending_projection() -> No
     presenter, events = presenter_with_selection("selected")
     presenter._paste("s1")
     assert len(events) == 2
-    assert events[0] == "hide"
+    assert events[0] == "visibility:hidden"
     assert isinstance(events[1], PasteResult) and events[1].text == "selected" and events[1].operation_id
-    assert presenter._views["s1"].paste_transition_id == events[1].operation_id
 
 
 def test_pinned_unconfirmed_paste_restores_without_activation() -> None:
@@ -251,9 +248,7 @@ def test_pinned_unconfirmed_paste_restores_without_activation() -> None:
         "dispatched_unconfirmed",
     ))
 
-    assert "restore:False" in events
-    assert ReleaseForegroundWorkflow("s1") not in events
-    assert view.paste_transition_id is None
+    assert "visibility:visible_no_activate" in events
     assert view.surface.focused is False
 
 
@@ -266,8 +261,7 @@ def test_unpinned_paste_failure_restores_with_focus() -> None:
     presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "pending"))
     presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "failed"))
 
-    assert "restore:True" in events
-    assert view.paste_transition_id is None
+    assert "visibility:visible_activate" in events
 
 
 def test_cancelled_paste_restores_without_stealing_focus() -> None:
@@ -279,10 +273,9 @@ def test_cancelled_paste_restores_without_stealing_focus() -> None:
     presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "pending"))
     presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "cancelled"))
 
-    assert "restore:False" in events
-    assert "restore:True" not in events
+    assert "visibility:visible_no_activate" in events
+    assert "visibility:visible_activate" not in events
     assert "message:已取消貼上:1500" in events
-    assert view.paste_transition_id is None
 
 
 def test_cleanup_failed_paste_restores_without_stealing_focus() -> None:
@@ -300,10 +293,9 @@ def test_cleanup_failed_paste_restores_without_stealing_focus() -> None:
         message="Clipboard restore failed.",
     ))
 
-    assert "restore:False" in events
-    assert "restore:True" not in events
+    assert "visibility:visible_no_activate" in events
+    assert "visibility:visible_activate" not in events
     assert "message:Clipboard restore failed.:3000" in events
-    assert view.paste_transition_id is None
 
 
 def test_unpinned_unconfirmed_paste_stays_hidden_without_stealing_focus() -> None:
@@ -321,10 +313,9 @@ def test_unpinned_unconfirmed_paste_stays_hidden_without_stealing_focus() -> Non
         message="Paste was sent; confirm before trying again.",
     ))
 
-    assert not any(event.startswith("restore:") for event in events if isinstance(event, str))
+    assert "visibility:visible_activate" not in events
+    assert "visibility:visible_no_activate" not in events
     assert presenter._views["s1"] is view
-    assert view.paste_transition_id is None
-    assert ReleaseForegroundWorkflow("s1") in events
     assert "message:Paste was sent; confirm before trying again.:2500" in events
 
 
@@ -332,13 +323,11 @@ def test_stale_paste_result_does_not_restore_current_transition() -> None:
     presenter, events = presenter_with_selection("selected")
     view = presenter._views["s1"]
     presenter._paste("s1")
-    current_id = events[-1].operation_id
-    view.output_operations["paste"] = current_id
 
     presenter._apply_output_operation(OutputOperationResult("old", "s1", "paste", "cancelled"))
 
-    assert not any(event.startswith("restore:") for event in events if isinstance(event, str))
-    assert view.paste_transition_id == current_id
+    assert "visibility:visible_activate" not in events
+    assert "visibility:visible_no_activate" not in events
 
 
 def test_pin_updates_visual_state_before_emitting_command() -> None:
@@ -429,7 +418,7 @@ def test_ctrl_v_pastes_only_for_active_popup() -> None:
     assert events == ["paste:s1"]
 
     events.clear()
-    view.focus_lifecycle.focused_inside = False
+    view.external_output.focus(OwnedDialogOpened())
     result = view.dialog.root.bindings["<Control-v>"](None)
 
     assert result == "break"
@@ -481,7 +470,7 @@ def test_ctrl_e_toggles_pin_for_active_popup() -> None:
     assert events == ["pin:toggled", TogglePin("s1")]
 
     events.clear()
-    view.focus_lifecycle.focused_inside = False
+    view.external_output.focus(OwnedDialogOpened())
     result = view.dialog.root.bindings["<Control-e>"](CtrlWithNumLockEvent())
 
     assert result == "break"
@@ -571,30 +560,6 @@ def test_native_close_request_immediately_excludes_popup_content_and_emits_close
     assert presenter.workflow_context("s1") is None
 
 
-def test_focus_lifecycle_ignores_focus_out_until_registered_shown_and_focused() -> None:
-    lifecycle = PopupFocusLifecycle()
-    assert lifecycle.request_outside_check() is None
-    lifecycle.registered = True
-    lifecycle.shown = True
-    assert lifecycle.request_outside_check() is None
-    lifecycle.mark_focused()
-    assert lifecycle.request_outside_check() is not None
-    assert lifecycle.request_outside_check() is None
-
-
-def test_focus_lifecycle_closes_only_for_unpinned_outside_focus() -> None:
-    lifecycle = PopupFocusLifecycle(True, True, True)
-    generation = lifecycle.request_outside_check()
-    assert generation is not None
-    assert lifecycle.finish_outside_check(generation, pinned=False, focused_inside=True) is False
-    generation = lifecycle.request_outside_check()
-    assert generation is not None
-    assert lifecycle.finish_outside_check(generation, pinned=True, focused_inside=False) is False
-    generation = lifecycle.request_outside_check()
-    assert generation is not None
-    assert lifecycle.finish_outside_check(generation, pinned=False, focused_inside=False) is True
-
-
 def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
     class Guide:
         def show(self, _snapshot) -> None:
@@ -617,17 +582,8 @@ def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
     presenter._shortcut_guide_dialog = Guide()
     presenter._shortcut_guide_focus_return = None
 
-    assert view.focus_lifecycle is not None
-    stale_outside_generation = view.focus_lifecycle.request_outside_check()
-    assert stale_outside_generation is not None
     presenter.show_shortcut_guide(object())
 
-    assert view.focus_lifecycle.finish_outside_check(
-        stale_outside_generation,
-        pinned=False,
-        focused_inside=False,
-    ) is False
-    assert view.focus_lifecycle.request_outside_check() is None
     assert view.surface.focused is False
 
     presenter.close_shortcut_guide()
@@ -635,7 +591,7 @@ def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
 
     assert events[:3] == ["guide:show", "guide:close", "focus"]
     assert isinstance(events[3], CopyResult)
-    assert view.focus_lifecycle.focused_inside is True
+    assert view.external_output.focused_inside is True
     assert view.surface.focused is True
 
 
@@ -657,8 +613,7 @@ def test_shortcut_guide_does_not_restore_a_popup_that_started_closing() -> None:
     presenter.close_shortcut_guide()
 
     assert events == ["guide:close"]
-    assert view.focus_lifecycle is not None
-    assert view.focus_lifecycle.focused_inside is False
+    assert view.external_output.focused_inside is False
 
 
 def test_shortcut_guide_without_an_original_popup_does_not_force_focus() -> None:
@@ -682,24 +637,6 @@ def test_shortcut_guide_without_an_original_popup_does_not_force_focus() -> None
 
     assert events == ["guide:show", "guide:close"]
     assert presenter._shortcut_guide_focus_return is None
-
-
-def test_focus_lifecycle_can_cancel_outside_check_during_paste_transition() -> None:
-    lifecycle = PopupFocusLifecycle(True, True, True)
-    assert lifecycle.request_outside_check() is not None
-    lifecycle.cancel_outside_check()
-    assert lifecycle.request_outside_check() is not None
-
-
-def test_new_focus_invalidates_stale_outside_check() -> None:
-    lifecycle = PopupFocusLifecycle(True, True, True)
-    generation = lifecycle.request_outside_check()
-    assert generation is not None
-
-    lifecycle.mark_focused()
-
-    assert lifecycle.finish_outside_check(generation, pinned=False, focused_inside=False) is False
-    assert lifecycle.focused_inside is True
 
 
 def test_latest_paste_target_updates_visible_focus_projection() -> None:

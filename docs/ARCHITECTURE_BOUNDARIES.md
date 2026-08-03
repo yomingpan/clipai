@@ -334,6 +334,10 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
 - `TaskSupervisor` owns only non-provider blocking work and isolates interactive, media, and maintenance capacity.
 - One container-scoped `ClipboardTransactionCoordinator` owns selection and paste clipboard transactions.
 - Workflow snapshots enter the UI through a per-Workflow latest-revision mailbox. Ordered output-operation acknowledgements remain separate and are never coalesced.
+- `PopupExternalOutputTransitions` is the single UI-internal owner of Popup
+  output-operation identity, stale acknowledgement rejection, Paste visibility,
+  captured pin policy, and toolkit focus generations. It returns explicit UI
+  actions; widgets and presenters only execute those actions.
 
 ## Paste Operation ownership (ADR-0004)
 
@@ -355,6 +359,10 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
   coordinator knows dispatch and cleanup truth. Exactly one typed
   `PasteOperationCompleted` command carries that truth back through the ordered
   application command queue.
+- `AppRuntime` routes that completion to output settlement and to
+  `WorkflowRuntimeModule`. Only the Workflow runtime may release semantic
+  Foreground Workflow, and only for the current visible, unpinned Workflow after
+  `dispatched_unconfirmed`.
 - Paste acknowledgement has no `succeeded` state. Legal terminal states are
   `failed`, `cancelled`, `dispatched_unconfirmed`, and `cleanup_failed`.
 - Platform paste adapters own modifier state, target validation, activation,

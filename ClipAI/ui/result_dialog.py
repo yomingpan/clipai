@@ -9,11 +9,12 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, ReleaseForegroundWorkflow, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
+from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
@@ -32,14 +33,11 @@ class _SessionView:
     speaking: bool = False
     content: str = ""
     step_id: str | None = None
-    focus_lifecycle: PopupFocusLifecycle | None = None
+    external_output: PopupExternalOutputTransitions = field(default_factory=PopupExternalOutputTransitions)
     flashed_completion_keys: set[str] = field(default_factory=set)
-    output_operations: dict[str, str] = field(default_factory=dict)
     rendered_content_key: tuple[object, ...] | None = None
     shown_guidance_keys: set[str] = field(default_factory=set)
     close_requested: bool = False
-    paste_transition_id: str | None = None
-    paste_transition_pinned: bool = False
     last_snapshot: SessionSnapshot | None = None
 
 
@@ -69,64 +67,6 @@ class LatestSnapshotMailbox:
         with self._lock:
             latest, self._latest = self._latest, {}
         return tuple(latest.values())
-
-
-@dataclass
-class PopupFocusLifecycle:
-    """Gate toolkit focus events until a popup is registered and shown."""
-
-    registered: bool = False
-    shown: bool = False
-    initial_focus_established: bool = False
-    outside_check_pending: bool = False
-    focused_inside: bool = False
-    transition_generation: int = 0
-    owned_dialog_active: bool = False
-
-    @property
-    def ready(self) -> bool:
-        return self.registered and self.shown and self.initial_focus_established
-
-    def mark_focused(self) -> None:
-        self.initial_focus_established = True
-        self.focused_inside = True
-        self.outside_check_pending = False
-        self.transition_generation += 1
-
-    def mark_unfocused(self) -> None:
-        self.focused_inside = False
-        self.outside_check_pending = False
-        self.transition_generation += 1
-
-    def request_outside_check(self) -> int | None:
-        if not self.ready or self.outside_check_pending or self.owned_dialog_active:
-            return None
-        self.outside_check_pending = True
-        self.transition_generation += 1
-        return self.transition_generation
-
-    def finish_outside_check(self, generation: int, *, pinned: bool, focused_inside: bool) -> bool:
-        if generation != self.transition_generation:
-            return False
-        self.outside_check_pending = False
-        self.focused_inside = focused_inside
-        return self.ready and not pinned and not focused_inside
-
-    def cancel_outside_check(self) -> None:
-        self.outside_check_pending = False
-
-    def hold_for_owned_dialog(self) -> None:
-        self.owned_dialog_active = True
-        self.focused_inside = False
-        self.outside_check_pending = False
-        self.transition_generation += 1
-
-    def release_owned_dialog(self, *, restored: bool) -> None:
-        self.owned_dialog_active = False
-        if restored:
-            self.mark_focused()
-        else:
-            self.mark_unfocused()
 
 
 class ResultDialogPresenter:
@@ -208,15 +148,16 @@ class ResultDialogPresenter:
         self._shortcut_guide_focus_hold_active = True
         self._shortcut_guide_focus_return = None
         for workflow_id, view in self._views.items():
-            lifecycle = view.focus_lifecycle
             if (
-                lifecycle is None
-                or self._interactive_view(workflow_id) is not view
-                or not (lifecycle.focused_inside or lifecycle.outside_check_pending)
+                self._interactive_view(workflow_id) is not view
+                or not view.external_output.owns_focus
             ):
                 continue
-            lifecycle.hold_for_owned_dialog()
-            view.surface.set_paste_focus_state(False, self._paste_target)
+            self._apply_transition_actions(
+                workflow_id,
+                view,
+                view.external_output.focus(OwnedDialogOpened()),
+            )
             self._shortcut_guide_focus_return = (workflow_id, view)
             return
 
@@ -228,20 +169,19 @@ class ResultDialogPresenter:
         if target is None:
             return
         workflow_id, held_view = target
-        lifecycle = held_view.focus_lifecycle
-        if lifecycle is None:
-            return
         if self._interactive_view(workflow_id) is not held_view:
-            lifecycle.release_owned_dialog(restored=False)
+            held_view.external_output.focus(OwnedDialogClosed(restored=False))
             return
 
         def restore() -> None:
             if self._interactive_view(workflow_id) is not held_view:
-                lifecycle.release_owned_dialog(restored=False)
+                held_view.external_output.focus(OwnedDialogClosed(restored=False))
                 return
-            held_view.dialog.lifecycle.focus()
-            lifecycle.release_owned_dialog(restored=True)
-            held_view.surface.set_paste_focus_state(True, self._paste_target)
+            self._apply_transition_actions(
+                workflow_id,
+                held_view,
+                held_view.external_output.focus(OwnedDialogClosed(restored=True)),
+            )
 
         held_view.dialog.lifecycle.schedule(0, restore)
 
@@ -252,52 +192,71 @@ class ResultDialogPresenter:
         if not view.dialog.is_alive():
             self._evict_view(result.workflow_id, view)
             return
-        slot_id = "speaker" if result.kind == "speech" else result.kind
-        if result.state == "pending":
-            if result.kind == "paste" and view.paste_transition_id not in {None, result.operation_id}:
+        self._apply_transition_actions(
+            result.workflow_id,
+            view,
+            view.external_output.acknowledge(result),
+        )
+
+    def _apply_transition_actions(
+        self,
+        workflow_id: str,
+        view: _SessionView,
+        actions: tuple[PopupTransitionAction, ...],
+    ) -> None:
+        for action in actions:
+            if isinstance(action, SetPopupVisibility):
+                view.dialog.apply_external_output_visibility(action.visibility)
+            elif isinstance(action, SetFocusProjection):
+                view.surface.set_paste_focus_state(action.focused, self._paste_target)
+            elif isinstance(action, FocusPopup):
+                view.dialog.lifecycle.focus()
+            elif isinstance(action, ScheduleOutsideFocusCheck):
+                self._schedule_outside_focus_check(workflow_id, view, action)
+            elif isinstance(action, ReportControlSurfaceReleased):
+                self._command_sink(ControlSurfaceReleased(ControlSurfaceRef(workflow_id, "workflow")))
+            elif isinstance(action, RequestPopupClose):
+                view.surface.collapse_overflow()
+                self._request_close(workflow_id)
+            elif isinstance(action, SetOutputActionEnabled):
+                view.surface.set_standard_action_enabled(action.slot_id, action.enabled)
+            elif isinstance(action, PulseOutputAction):
+                pulse = (
+                    view.surface.pulse_standard_action_error
+                    if action.error
+                    else view.surface.pulse_standard_action
+                )
+                pulse(action.slot_id)
+            elif isinstance(action, ShowOutputMessage):
+                if not action.only_when_overflow_collapsed or not view.surface.overflow_expanded:
+                    view.surface.show_action_message(action.message, action.duration_ms)
+
+    def _schedule_outside_focus_check(
+        self,
+        workflow_id: str,
+        scheduled_view: _SessionView,
+        action: ScheduleOutsideFocusCheck,
+    ) -> None:
+        def check() -> None:
+            view = self._views.get(workflow_id)
+            if view is not scheduled_view:
                 return
-            view.output_operations[result.kind] = result.operation_id
-            if result.kind in {"copy", "paste", "archive"}:
-                view.surface.set_standard_action_enabled(slot_id, False)
-            return
-        if view.output_operations.get(result.kind) != result.operation_id:
-            return
-        view.output_operations.pop(result.kind, None)
-        if result.kind in {"copy", "paste", "archive"}:
-            view.surface.set_standard_action_enabled(slot_id, True)
-        if result.kind == "paste" and view.paste_transition_id == result.operation_id:
-            pinned = view.paste_transition_pinned
-            view.paste_transition_id = None
-            view.paste_transition_pinned = False
-            if result.state == "failed":
-                view.dialog.restore_after_external_output(activate=True)
-            elif result.state in {"cancelled", "cleanup_failed"}:
-                view.dialog.restore_after_external_output(activate=False)
-            elif result.state == "dispatched_unconfirmed":
-                if pinned:
-                    view.dialog.restore_after_external_output(activate=False)
-                else:
-                    # Preserve the Workflow while allowing the next shortcut to open
-                    # a new visible Workflow instead of reusing this hidden view.
-                    self._command_sink(ReleaseForegroundWorkflow(result.workflow_id))
-        if result.state == "succeeded" and result.kind != "paste":
-            view.surface.pulse_standard_action(slot_id)
-            if result.kind == "archive" and not view.surface.overflow_expanded:
-                view.surface.show_action_message("已封存", 1000)
-        elif result.state == "dispatched_unconfirmed":
-            view.surface.pulse_standard_action(slot_id)
-            if result.message:
-                view.surface.show_action_message(result.message, 2500)
-        elif result.state == "cleanup_failed":
-            view.surface.pulse_standard_action_error(slot_id)
-            if result.message:
-                view.surface.show_action_message(result.message, 3000)
-        elif result.state == "cancelled" and result.kind == "paste":
-            view.surface.show_action_message(result.message or "已取消貼上", 1500)
-        elif result.state == "failed":
-            view.surface.pulse_standard_action_error(slot_id)
-            if result.error is not None:
-                view.surface.show_action_message(result.error.message, 1500)
+            try:
+                focused = view.dialog.root.focus_get()
+                focused_inside = focused is not None and focused.winfo_toplevel() is view.dialog.root
+            except tk.TclError:
+                focused_inside = False
+            self._apply_transition_actions(
+                workflow_id,
+                view,
+                view.external_output.focus(OutsideFocusObserved(
+                    action.generation,
+                    pinned=view.dialog.pinned,
+                    focused_inside=focused_inside,
+                )),
+            )
+
+        self._root.after(action.delay_ms, check)
 
     def run(self, command_pump: Callable[[], None]) -> None:
         def tick() -> None:
@@ -373,9 +332,8 @@ class ResultDialogPresenter:
                 return
         self._paste_target = target
         for view in self._views.values():
-            lifecycle = view.focus_lifecycle
             view.surface.set_paste_focus_state(
-                bool(lifecycle and lifecycle.focused_inside),
+                view.external_output.focused_inside,
                 target,
             )
 
@@ -409,9 +367,8 @@ class ResultDialogPresenter:
             view.surface.set_title(snapshot.title)
             view.surface.set_source_preview(snapshot.source_preview)
             view.surface.set_model(snapshot.model)
-            lifecycle = view.focus_lifecycle
             view.surface.set_paste_focus_state(
-                bool(lifecycle and lifecycle.focused_inside),
+                view.external_output.focused_inside,
                 self._paste_target,
             )
             view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
@@ -532,7 +489,7 @@ class ResultDialogPresenter:
         if view is None:
             return
         operation_id = uuid.uuid4().hex
-        view.output_operations["copy"] = operation_id
+        view.external_output.begin("copy", operation_id)
         text = view.surface.selected_text()
         self._command_sink(CopyResult(session_id, text, operation_id))
 
@@ -541,28 +498,33 @@ class ResultDialogPresenter:
         if view is None:
             return
         text = view.surface.selected_text()
-        self._command_sink(ToggleSpeech(session_id, text, uuid.uuid4().hex))
+        operation_id = uuid.uuid4().hex
+        if not view.speaking:
+            view.external_output.begin("speech", operation_id)
+        self._command_sink(ToggleSpeech(session_id, text, operation_id))
 
     def _archive(self, session_id: str) -> None:
         view = self._interactive_view(session_id)
         if view is None:
             return
         operation_id = uuid.uuid4().hex
-        view.output_operations["archive"] = operation_id
+        view.external_output.begin("archive", operation_id)
         self._command_sink(ArchiveResult(session_id, view.surface.selected_text(), operation_id))
 
     def _paste(self, session_id: str) -> None:
         view = self._interactive_view(session_id)
-        if view is None or view.paste_transition_id is not None:
+        if view is None:
             return
         operation_id = uuid.uuid4().hex
         text = view.surface.selected_text()
-        view.paste_transition_id = operation_id
-        view.paste_transition_pinned = view.dialog.pinned
-        if view.focus_lifecycle is not None:
-            view.focus_lifecycle.mark_unfocused()
-        view.surface.set_paste_focus_state(False, self._paste_target)
-        view.dialog.hide_for_external_output()
+        transition = view.external_output.begin(
+            "paste",
+            operation_id,
+            pinned=view.dialog.pinned,
+        )
+        if not transition.accepted:
+            return
+        self._apply_transition_actions(session_id, view, transition.actions)
         self._command_sink(PasteResult(session_id, text, operation_id))
 
     def _toggle_pin(self, session_id: str) -> None:
@@ -642,12 +604,10 @@ class ResultDialogPresenter:
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
-        return _SessionView(dialog=dialog, surface=surface, focus_lifecycle=PopupFocusLifecycle())
+        return _SessionView(dialog=dialog, surface=surface)
 
     def _register_view(self, session_id: str, view: _SessionView) -> None:
-        lifecycle = view.focus_lifecycle or PopupFocusLifecycle()
-        view.focus_lifecycle = lifecycle
-        lifecycle.registered = True
+        view.external_output.focus(PopupRegistered())
         dialog = view.dialog
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
         dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._focus_in(sid), add="+")
@@ -660,21 +620,23 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-v>", lambda event, sid=session_id: self._paste_shortcut(event, sid), add="+")
         dialog.root.bind("<Control-slash>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_follow_up, sid), add="+")
         view.surface.bind_header_double_click(lambda _event, sid=session_id: self._header_double_click(sid))
-        lifecycle.shown = True
+        view.external_output.focus(PopupShown())
 
         def establish_initial_focus() -> None:
             if session_id not in self._views:
                 return
             dialog.lifecycle.focus()
-            lifecycle.mark_focused()
-            view.surface.set_paste_focus_state(True, self._paste_target)
+            self._apply_transition_actions(
+                session_id,
+                view,
+                view.external_output.focus(FocusEntered()),
+            )
 
         dialog.lifecycle.schedule(0, establish_initial_focus)
 
     def _shortcut(self, action: Callable[[str], None], session_id: str) -> str:
         view = self._views.get(session_id)
-        lifecycle = view.focus_lifecycle if view is not None else None
-        if lifecycle is not None and lifecycle.focused_inside:
+        if view is not None and view.external_output.focused_inside:
             action(session_id)
         return "break"
 
@@ -696,10 +658,13 @@ class ResultDialogPresenter:
 
     def _focus_in(self, session_id: str) -> None:
         view = self._views.get(session_id)
-        if view is None or view.focus_lifecycle is None:
+        if view is None:
             return
-        view.focus_lifecycle.mark_focused()
-        view.surface.set_paste_focus_state(True, self._paste_target)
+        self._apply_transition_actions(
+            session_id,
+            view,
+            view.external_output.focus(FocusEntered()),
+        )
         self._command_sink(ControlSurfaceActivated(ControlSurfaceRef(session_id, "workflow")))
         self._activate(session_id)
 
@@ -710,47 +675,11 @@ class ResultDialogPresenter:
         view = self._views.get(session_id)
         if view is None:
             return
-        lifecycle = view.focus_lifecycle
-        if lifecycle is None:
-            return
-        generation = lifecycle.request_outside_check()
-        if generation is None:
-            return
-
-        def check() -> None:
-            view = self._views.get(session_id)
-            if view is None:
-                return
-            if view.paste_transition_id is not None:
-                lifecycle.cancel_outside_check()
-                return
-            try:
-                focused = view.dialog.root.focus_get()
-                focused_inside = focused is not None and focused.winfo_toplevel() is view.dialog.root
-                should_close = lifecycle.finish_outside_check(
-                    generation,
-                    pinned=view.dialog.pinned,
-                    focused_inside=focused_inside,
-                )
-                view.surface.set_paste_focus_state(focused_inside, self._paste_target)
-                if not focused_inside:
-                    self._command_sink(ControlSurfaceReleased(ControlSurfaceRef(session_id, "workflow")))
-                if should_close:
-                    view.surface.collapse_overflow()
-                    self._request_close(session_id)
-            except tk.TclError:
-                should_close = lifecycle.finish_outside_check(
-                    generation,
-                    pinned=view.dialog.pinned,
-                    focused_inside=False,
-                )
-                view.surface.set_paste_focus_state(False, self._paste_target)
-                self._command_sink(ControlSurfaceReleased(ControlSurfaceRef(session_id, "workflow")))
-                if should_close:
-                    view.surface.collapse_overflow()
-                    self._request_close(session_id)
-
-        self._root.after(100, check)
+        self._apply_transition_actions(
+            session_id,
+            view,
+            view.external_output.focus(OutsideFocusCheckRequested()),
+        )
 
 
 def _content_render_key(snapshot: SessionSnapshot) -> tuple[object, ...]:

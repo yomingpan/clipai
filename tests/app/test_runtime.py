@@ -8,8 +8,8 @@ from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, WorkflowStep
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -1355,7 +1355,11 @@ def test_released_hidden_workflow_does_not_capture_the_next_shortcut() -> None:
     )
     view.context = ActiveWorkflowContext(hidden_id, step.step_id, step.result_text, "selected hidden text")
 
-    runtime.enqueue(ReleaseForegroundWorkflow(hidden_id))
+    runtime.enqueue(PasteOperationCompleted(
+        "paste-op",
+        hidden_id,
+        PasteOutcome("dispatched_unconfirmed", "dispatched_unconfirmed", "restored"),
+    ))
     runtime.enqueue(StartAction("shorten", "short"))
     runtime.drain_commands()
 
@@ -1803,6 +1807,9 @@ def test_paste_and_archive_flow_through_typed_commands_without_claiming_delivery
     session_id = view.snapshots[-1].session_id
     controller = workflow(view, session_id)
     controller._snapshot = controller.snapshot.evolve(content="use me")
+    runtime.enqueue(ActivateWorkflow(session_id))
+    runtime.drain_commands()
+    assert runtime._user_control.focused_surface == ControlSurfaceRef(session_id, "workflow")
     runtime.enqueue(ArchiveResult(session_id, operation_id="archive-op"))
     runtime.drain_commands()
     _supervisor.work["archive-op"]()
@@ -1815,6 +1822,8 @@ def test_paste_and_archive_flow_through_typed_commands_without_claiming_delivery
     assert view.workflow_controller(session_id) is controller
     assert outputs.pasted == ["selected"]
     assert view.output_results[-1].state == "dispatched_unconfirmed"
+    assert runtime._workflow_module.has_foreground_workflow() is False
+    assert runtime._user_control.focused_surface is None
 
 
 def test_pinned_unconfirmed_paste_preserves_workflow_and_foreground() -> None:
@@ -1837,6 +1846,47 @@ def test_pinned_unconfirmed_paste_preserves_workflow_and_foreground() -> None:
     assert runtime._workflow_module.has_foreground_workflow() is True
     assert outputs.pasted == ["use me"]
     assert view.output_results[-1].state == "dispatched_unconfirmed"
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    (
+        PasteOutcome("failed", "not_dispatched", "not_required"),
+        PasteOutcome("cancelled", "not_dispatched", "restored"),
+        PasteOutcome("cleanup_failed", "not_dispatched", "failed"),
+    ),
+)
+def test_non_dispatched_paste_completion_does_not_release_foreground(outcome) -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+
+    runtime.enqueue(PasteOperationCompleted("paste-op", workflow_id, outcome))
+    runtime.drain_commands()
+
+    assert runtime._workflow_module.has_foreground_workflow() is True
+
+
+def test_completion_for_non_foreground_workflow_does_not_release_current_foreground() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    old_workflow_id = view.snapshots[-1].session_id
+    runtime.enqueue(TogglePin(old_workflow_id))
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    current_workflow_id = view.snapshots[-1].session_id
+
+    runtime.enqueue(PasteOperationCompleted(
+        "old-paste",
+        old_workflow_id,
+        PasteOutcome("dispatched_unconfirmed", "dispatched_unconfirmed", "restored"),
+    ))
+    runtime.drain_commands()
+
+    assert runtime._workflow_module.has_foreground_workflow() is True
+    assert runtime._workflow_module._foreground_id == current_workflow_id
 
 
 def test_overlapping_paste_from_another_workflow_is_rejected_without_cancelling_active_dispatch() -> None:

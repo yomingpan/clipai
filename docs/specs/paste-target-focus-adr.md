@@ -38,10 +38,19 @@ An older operation acknowledgement cannot restore, hide, or focus the current
 Paste transition.
 
 Hiding an unpinned Popup after `dispatched_unconfirmed` does not delete its
-Workflow. The UI releases semantic Foreground Workflow so later global input is
-not routed to a hidden surface, while Workflow membership and canonical result
-remain available under `WorkflowRuntimeModule` ownership. Cleanup failure keeps
-the dispatch fact visible because an automatic retry could duplicate content.
+Workflow. `AppRuntime` routes authoritative `PasteOperationCompleted` truth to
+`WorkflowRuntimeModule`, which releases semantic Foreground Workflow so later
+global input is not routed to a hidden surface. The UI acknowledgement controls
+only Popup presentation. Workflow membership and canonical result remain
+available under runtime ownership. Cleanup failure keeps the dispatch fact
+visible because an automatic retry could duplicate content.
+
+`PopupExternalOutputTransitions` owns the Popup's local transition table for
+copy, archive, speech, and Paste acknowledgements. Its small interface accepts
+operation begin, acknowledgement, and toolkit focus facts, then returns explicit
+UI actions. It owns stale acknowledgement rejection, Paste pin capture,
+hide/restore/no-activate decisions, and focus-check generations. BaseDialog and
+the presenter execute those actions without duplicating their policy.
 
 ## Alternatives
 
@@ -52,6 +61,9 @@ review options if observed paste-target failures remain common.
 ## Consequences and review trigger
 
 The runtime gains a focused foreground observation seam and targeted keyboard
-port, while semantic Foreground Workflow ownership remains unchanged. Review
-this decision if target activation failures are common in Windows smoke tests,
-or before supporting paste destinations on another operating system.
+port, while semantic Foreground Workflow ownership remains unchanged. The
+Popup transition table is local and replaceable without changing runtime
+semantics. Review this decision if another Popup output mechanism needs a second
+identity, visibility, or focus policy; if target activation failures are common
+in Windows smoke tests; or before supporting paste destinations on another
+operating system.

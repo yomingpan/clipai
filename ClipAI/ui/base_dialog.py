@@ -550,21 +550,27 @@ class BaseDialog:
     def close(self) -> None:
         self.lifecycle.close()
 
-    def hide_for_external_output(self) -> None:
-        try:
-            self.root.withdraw()
-        except tk.TclError:
-            pass
-
-    def restore_after_external_output(self, *, activate: bool) -> None:
-        if activate:
+    def apply_external_output_visibility(
+        self,
+        visibility: Literal["hidden", "visible_activate", "visible_no_activate"],
+    ) -> None:
+        if visibility == "hidden":
+            try:
+                self.root.withdraw()
+            except tk.TclError:
+                pass
+            return
+        if visibility == "visible_activate":
             try:
                 self.root.deiconify()
             except tk.TclError:
                 return
             self.lifecycle.focus()
             return
-        show_window_without_activation(self.root)
+        if visibility == "visible_no_activate":
+            show_window_without_activation(self.root)
+            return
+        raise ValueError(f"unsupported popup visibility: {visibility}")
 
     def request_close(self) -> str:
         """Emit the semantic close request; only the presenter destroys views."""
