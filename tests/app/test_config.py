@@ -113,14 +113,14 @@ def test_long_press_uses_variant_prompt() -> None:
     assert resolved.feedback_contract != catalog.resolve("english_companion", "short").feedback_contract
 
 
-def test_ctrl_alt_i_resolves_capture_and_express_as_distinct_learning_intents() -> None:
+def test_ctrl_alt_u_resolves_capture_and_express_as_distinct_learning_intents() -> None:
     bundle = load_config_bundle()
 
     shortcut = bundle.shortcuts.definition("expression_retrieval")
     capture = bundle.actions.resolve(shortcut.action_id, "short")
     express = bundle.actions.resolve(shortcut.action_id, "long")
 
-    assert shortcut.hotkey == "ctrl+alt+i"
+    assert shortcut.hotkey == "ctrl+alt+u"
     assert shortcut.action_id == "expression_retrieval"
     assert capture.name == "Capture an Expression"
     assert capture.stream is False
@@ -424,7 +424,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "explain_like_friend": "ctrl+alt+6",
         "article_structure": "ctrl+alt+7",
         "english_companion": "ctrl+alt+8",
-        "expression_retrieval": "ctrl+alt+i",
+        "expression_retrieval": "ctrl+alt+u",
         "reflective_question": "ctrl+alt+9",
         "critical_thinking": "ctrl+alt+0",
         "mece_decomposition": "ctrl+alt+s",
