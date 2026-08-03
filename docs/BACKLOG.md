@@ -1,5 +1,29 @@
 # ClipAI Next-gen Backlog
 
+> Completed sections and historical test counts below are an implementation
+> record, not the current normative architecture. Current Paste and clipboard
+> behavior is defined by
+> [ADR-0003](adr/0003-clipboard-transaction-ownership.md),
+> [ADR-0004](adr/0004-paste-operation-commit-truth.md), and the
+> [Popup output actions contract](contracts/services/popup-output-actions-contract.md).
+> Current test layout and required coverage live in
+> [TESTING_STRATEGY.md](TESTING_STRATEGY.md).
+
+## Architecture: Complete OutputProfile Ownership Migration
+
+Status: planned; classified Yellow in the
+[Result Output Profile contract](contracts/services/result-output-profile-contract.md).
+
+- Add golden prompt-composition and representative result-validation coverage
+  for the duplicated English-learning, English-improvement, and SCORE rules.
+- Move reusable section names, ordering, markers, presentation mode, and generic
+  formatting constraints to `config/output_profiles.yaml` one profile at a time.
+- Keep task semantics and domain-specific content in `config/actions.yaml`.
+- Add an automated configuration safeguard that rejects newly duplicated
+  reusable profile instructions.
+- Completion means each reusable rule has one owner, each profile is injected
+  exactly once, and canonical text remains unchanged by presentation fallback.
+
 ## Completed 2026-07-12: Context Actions, Selection Priority, And Popup Readability
 
 Status: implemented across the latest five commits; `07a1bad` is the merge of the popup UI work in `6b40aee`, and `8cc8b13` is the preceding backlog update.
@@ -221,8 +245,15 @@ Commits: `69637e6`, `fe7eebe`, `c1be04c`, `696dc15`.
 
 ## 2026-07-11 Interaction Contract Decisions
 
+Historical snapshot. Paste restoration and Popup-close wording in this section
+is superseded by ADR-0003/0004: preservation is fail-closed, dispatch is
+unconfirmed, cleanup is reported independently, and an unpinned Popup may remain
+hidden while its Workflow membership is retained.
+
 - Result popup 永遠 topmost；pin 只控制 focus out 留存，且 pin/unpin 必須有明確 icon、tooltip 與 active state。
-- Speaker、copy、paste 統一 selection-first；paste 隱藏 popup 後貼回原應用並恢復原 clipboard。
+- Speaker、copy、paste 統一 selection-first。Paste 的現行 dispatch、cleanup、
+  retry 與 hidden Workflow 行為以 ADR-0003/0004 為準；不得把 clipboard restore
+  或 target consumption 當成無條件成功。
 - TTS 使用獨立 speech text preprocessing，避免朗讀 Markdown 符號。
 - LLM 格式由集中式 output profile 管理，action 與 press variant 只引用 profile ID。
 - Tray 使用雙斜線 status icon；memory 黃點只預留 contract，等待真實 memory service。
@@ -665,7 +696,9 @@ Synonym: starter, hors d'oeuvre
 - Immediate popup lifecycle feedback：reading、preparing、provider、rendering、success 與 failure。
 - Gemini/OpenAI/Anthropic provider adapters、fake provider、timeout/readiness 與 redacted diagnostics foundation。
 - Selection-first、clipboard fallback 與 typed input resolver。
-- Popup output actions：copy、paste with clipboard restore、archive、speaker/stop 與 follow-up。
+- Popup output actions：copy、Paste Operation（fail-closed preservation、
+  `dispatched_unconfirmed`／`cleanup_failed` truth）、archive、speaker/stop 與
+  follow-up。現行契約見 ADR-0003/0004。
 - Tray startup/shutdown、operation lifecycle status 與 concurrent operation identity handling。
 - Centralized output profiles、result preprocessing 與 speech-text preprocessing。
 - Language-aware TTS voice selection，以及 `Ctrl+Alt+Q` selection/clipboard direct speech。
