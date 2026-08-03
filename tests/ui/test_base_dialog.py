@@ -800,6 +800,38 @@ def test_presentation_surface_returns_canonical_markdown_for_rendered_selection(
     assert surface.selected_text() == "- **First** item\n- *Second*"
 
 
+def test_presentation_surface_renders_retrieval_spacer_without_showing_marker() -> None:
+    from ClipAI.services.presentation import MarkdownPresentationParser
+
+    class Textbox:
+        def __init__(self) -> None:
+            self.text = ""
+            self.insertions = []
+
+        def configure(self, **_kwargs) -> None:
+            pass
+
+        def delete(self, *_args) -> None:
+            self.text = ""
+            self.insertions.clear()
+
+        def insert(self, _index, text, tags) -> None:
+            self.text += text
+            self.insertions.append((text, tags))
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._list_indent_prefixes = {}
+    surface.set_presentation_document(
+        MarkdownPresentationParser().parse(
+            "## Retrieve\n\nTry first.\n\n[[SCROLL_FOR_ANSWER]]\n\nAnswer: Use it."
+        )
+    )
+
+    assert "[[SCROLL_FOR_ANSWER]]" not in surface.content_text.text
+    assert any(text == "\n" * 8 and "retrieval_spacer" in tags for text, tags in surface.content_text.insertions)
+
+
 @pytest.mark.parametrize("scale", [1.0, 1.33, 2.0])
 def test_hanging_indent_tracks_measured_prefix_width_at_each_dpi_scale(monkeypatch, scale) -> None:
     class TkText:

@@ -44,7 +44,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "After the example, add a separate `語感：` line" in profile.instruction
     assert "mark conversational alternatives with `（口語常用）`" in profile.instruction
     assert bundle.schema_versions.app == 2
-    assert bundle.schema_versions.actions == 8
+    assert bundle.schema_versions.actions == 9
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
@@ -111,6 +111,49 @@ def test_long_press_uses_variant_prompt() -> None:
         "## Useful Patterns",
     )
     assert resolved.feedback_contract != catalog.resolve("english_companion", "short").feedback_contract
+
+
+def test_ctrl_alt_i_resolves_capture_and_express_as_distinct_learning_intents() -> None:
+    bundle = load_config_bundle()
+
+    shortcut = bundle.shortcuts.definition("expression_retrieval")
+    capture = bundle.actions.resolve(shortcut.action_id, "short")
+    express = bundle.actions.resolve(shortcut.action_id, "long")
+
+    assert shortcut.hotkey == "ctrl+alt+i"
+    assert shortcut.action_id == "expression_retrieval"
+    assert capture.name == "Capture an Expression"
+    assert capture.stream is False
+    assert capture.output_profile == "expression_capture"
+    assert "exactly three short substitution examples" in capture.prompt
+    assert "[[SCROLL_FOR_ANSWER]]" in capture.prompt
+    assert "answer must appear only after" in capture.prompt
+    assert express.name == "Express Naturally"
+    assert express.stream is False
+    assert express.output_profile == "expression_transfer"
+    assert "one most important naturalness shift" in express.prompt
+    assert "Ask the user one concrete transfer question" in express.prompt
+    assert "Ctrl+/" in express.prompt
+    assert "evaluate only that transfer attempt" in express.system_prompt
+    assert capture.feedback_contract is not None
+    assert express.feedback_contract is not None
+    assert capture.feedback_contract != express.feedback_contract
+
+    capture_profile = bundle.output_profiles.get(capture.output_profile)
+    express_profile = bundle.output_profiles.get(express.output_profile)
+    assert capture_profile.required_markers == (
+        "## Notice",
+        "## Pattern",
+        "## Retrieve",
+        "[[SCROLL_FOR_ANSWER]]",
+        "## Make It Yours",
+    )
+    assert express_profile.required_markers == (
+        "## Natural Version",
+        "## Key Shift",
+        "## Transfer Chunks",
+        "## Your Turn",
+    )
 
 
 def test_long_press_ctrl_alt_2_translates_to_japanese() -> None:
@@ -313,8 +356,8 @@ def test_future_catalog_schema_version_is_rejected(tmp_path: Path, filename: str
 
 def test_future_actions_schema_version_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "actions.yaml"
-    path.write_text("schema_version: 9\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 9"):
+    path.write_text("schema_version: 10\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 10"):
         load_action_catalog(path)
 
 
@@ -370,7 +413,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 20
+    assert len(start_actions) == 21
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -381,6 +424,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "explain_like_friend": "ctrl+alt+6",
         "article_structure": "ctrl+alt+7",
         "english_companion": "ctrl+alt+8",
+        "expression_retrieval": "ctrl+alt+i",
         "reflective_question": "ctrl+alt+9",
         "critical_thinking": "ctrl+alt+0",
         "mece_decomposition": "ctrl+alt+s",

@@ -22,6 +22,33 @@ profiles:
       Use exactly these three Markdown sections in order: Full Rewrite, Key Improvements,
       and Useful Patterns. Keep every section concise, visually scannable, and free of repeated corrections.
 
+  - id: expression_capture
+    presentation: markdown_sections
+    required_markers:
+      - "## Notice"
+      - "## Pattern"
+      - "## Retrieve"
+      - "[[SCROLL_FOR_ANSWER]]"
+      - "## Make It Yours"
+    instruction: |
+      Use exactly these four Markdown sections in order: Notice, Pattern, Retrieve, and Make It Yours.
+      Notice preserves one valuable source sentence, bolds at most three natural chunks, and selects one primary expression.
+      Pattern contains one reusable semi-fixed pattern and exactly three short substitution examples.
+      Retrieve contains one concrete Traditional Chinese situation and one Chinese retrieval prompt. Tell the learner to try saying it before scrolling, then put `[[SCROLL_FOR_ANSWER]]` alone on a line. Put the English answer only after that marker.
+      Make It Yours contains one concise fill-in pattern. Keep the result compact and do not add other sections.
+
+  - id: expression_transfer
+    presentation: markdown_sections
+    required_markers:
+      - "## Natural Version"
+      - "## Key Shift"
+      - "## Transfer Chunks"
+      - "## Your Turn"
+    instruction: |
+      For the initial response, use exactly these four Markdown sections in order: Natural Version, Key Shift, Transfer Chunks, and Your Turn.
+      Put the complete usable English first. Explain only one key naturalness shift. Extract one to three reusable chunks. End with one concrete question that asks the learner to press `Ctrl+/` and type a new English sentence using one named target pattern in the follow-up field, without revealing a model answer.
+      If the latest user message is an attempted answer to Your Turn, do not repeat the four-section lesson. Evaluate only the target chunk usage, make the smallest necessary correction, and give at most one conversational alternative.
+
   - id: score_compact
     presentation: plain_text
     instruction: |

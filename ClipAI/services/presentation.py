@@ -9,6 +9,8 @@ _HEADING = re.compile(r"^(#{1,6})\s+(.+)$")
 _UNORDERED = re.compile(r"^([-+*])\s+(.+)$")
 _ORDERED = re.compile(r"^(\d+)[.)]\s+(.+)$")
 _INLINE = re.compile(r"(\*\*[^*\n]+\*\*|__[^_\n]+__|(?<!\*)\*[^*\n]+\*(?!\*)|(?<!_)_[^_\n]+_(?!_))")
+_SCROLL_FOR_ANSWER = "[[SCROLL_FOR_ANSWER]]"
+_SCROLL_GAP_LINES = 8
 
 
 class MarkdownPresentationParser:
@@ -50,6 +52,14 @@ class MarkdownPresentationParser:
                 else:
                     paragraph.append(line.strip())
                 continue
+            if line.strip() == _SCROLL_FOR_ANSWER:
+                flush_list_item()
+                flush_paragraph()
+                blocks.append(PresentationBlock(
+                    "spacer",
+                    (InlineSpan("\n" * _SCROLL_GAP_LINES, canonical_text=""),),
+                ))
+                continue
             heading = _HEADING.match(line)
             unordered = _UNORDERED.match(line)
             ordered = _ORDERED.match(line)
@@ -78,7 +88,10 @@ class MarkdownPresentationParser:
         flush_paragraph()
         if not blocks and text:
             blocks.append(PresentationBlock("paragraph", (InlineSpan(text),)))
-        return PresentationDocument(tuple(blocks), text)
+        fallback_text = "\n".join(
+            line for line in text.splitlines() if line.strip() != _SCROLL_FOR_ANSWER
+        )
+        return PresentationDocument(tuple(blocks), fallback_text)
 
     @staticmethod
     def _inline(text: str, *, continuation_indent: str = "") -> tuple[InlineSpan, ...]:

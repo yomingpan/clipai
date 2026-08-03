@@ -18,7 +18,7 @@ from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
 APP_CONFIG_SCHEMA_VERSION = 2
-ACTIONS_SCHEMA_VERSION = 8
+ACTIONS_SCHEMA_VERSION = 9
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):

@@ -129,6 +129,7 @@ PRESENTATION_TAG_STYLES: dict[str, dict[str, object]] = {
     "italic": {"foreground": "#AFC0D2"},
     "paragraph": {"spacing3": 10},
     "list": {"spacing1": 1, "spacing3": 4},
+    "retrieval_spacer": {"spacing1": 0, "spacing3": 0},
 }
 TITLE_COLOR = PRESENTATION_TAG_STYLES["heading_1"]["foreground"]
 
@@ -1481,6 +1482,8 @@ class BaseResultSurface:
                     block_tag, prefix = "list", "• "
                 elif block.kind == "ordered_item":
                     block_tag, prefix = "list", f"{block.ordinal or 1}. "
+                elif block.kind == "spacer":
+                    block_tag = "retrieval_spacer"
                 indent_tag: str | None = None
                 if prefix:
                     indent_tag = f"list_indent_{block_index}"
