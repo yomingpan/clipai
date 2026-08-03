@@ -93,8 +93,8 @@ class Dispatcher:
         return PasteDispatchReceipt("dispatched_unconfirmed")
 
 
-def request(operation_id: str = "paste-1") -> PasteRequest:
-    return PasteRequest(operation_id, "workflow-1", "result", TARGET)
+def request(operation_id: str = "paste-1", workflow_id: str = "workflow-1") -> PasteRequest:
+    return PasteRequest(operation_id, workflow_id, "result", TARGET)
 
 
 def coordinator(clipboard: Clipboard, dispatcher: Dispatcher) -> PasteOperationCoordinator:
@@ -223,14 +223,18 @@ def test_cancellation_after_dispatch_never_erases_commit_truth() -> None:
     assert dispatcher.calls == 1
 
 
-def test_new_operation_cancels_older_workflow_operation_before_it_runs() -> None:
+def test_new_operation_is_rejected_until_older_operation_reaches_terminal_outcome() -> None:
     clipboard = Clipboard()
     dispatcher = Dispatcher()
     paste = coordinator(clipboard, dispatcher)
     older = paste.create(request("older"))
-    newer = paste.create(request("newer"))
 
+    with pytest.raises(PasteOperationInProgress, match="still in progress"):
+        paste.create(request("newer"))
+
+    older.cancel()
     older_outcome = older.run()
+    newer = paste.create(request("newer"))
     newer_outcome = newer.run()
 
     assert older_outcome.state == "cancelled"
@@ -250,7 +254,7 @@ def test_running_same_operation_twice_never_dispatches_twice() -> None:
     assert dispatcher.calls == 1
 
 
-def test_running_workflow_operation_rejects_overlapping_dispatch() -> None:
+def test_running_operation_rejects_overlap_from_another_workflow() -> None:
     clipboard = Clipboard()
     dispatcher = Dispatcher()
     dispatcher.dispatch_started = threading.Event()
@@ -263,12 +267,12 @@ def test_running_workflow_operation_rejects_overlapping_dispatch() -> None:
     assert dispatcher.dispatch_started.wait(1)
 
     with pytest.raises(PasteOperationInProgress):
-        paste.create(request("newer"))
+        paste.create(request("newer", "workflow-2"))
 
     dispatcher.release_dispatch.set()
     worker.join(1)
-    assert outcomes[0].state == "cancelled"
-    assert dispatcher.calls == 0
+    assert outcomes[0].state == "dispatched_unconfirmed"
+    assert dispatcher.calls == 1
 
 
 def test_external_clipboard_change_is_not_overwritten_and_is_visible_in_outcome() -> None:

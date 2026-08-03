@@ -20,18 +20,17 @@ class PasteOperationCoordinator:
     ) -> None:
         self._clipboard_transactions = clipboard_transactions
         self._dispatcher = dispatcher
-        self._active_by_workflow: dict[str, PasteOperation] = {}
+        self._active: PasteOperation | None = None
         self._lock = threading.RLock()
 
     def create(self, request: PasteRequest) -> PasteOperation:
         operation = PasteOperation(self, request)
         with self._lock:
-            previous = self._active_by_workflow.get(request.workflow_id)
-            if previous is not None and not previous.cancel():
+            if self._active is not None:
                 raise PasteOperationInProgress(
-                    "A Paste Operation for this Workflow is already running."
+                    "Another Paste Operation is still in progress."
                 )
-            self._active_by_workflow[request.workflow_id] = operation
+            self._active = operation
         return operation
 
     def _execute(self, operation: PasteOperation) -> PasteOutcome:
@@ -46,8 +45,8 @@ class PasteOperationCoordinator:
 
     def _release(self, operation: PasteOperation) -> None:
         with self._lock:
-            if self._active_by_workflow.get(operation.request.workflow_id) is operation:
-                self._active_by_workflow.pop(operation.request.workflow_id, None)
+            if self._active is operation:
+                self._active = None
 
 
 class PasteOperation:
