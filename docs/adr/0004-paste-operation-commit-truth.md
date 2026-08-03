@@ -22,6 +22,22 @@ delay. ADR-0003 remains in force: the container-scoped
 `ClipboardTransactionCoordinator` is the only owner of temporary clipboard
 mutation and conditional restoration.
 
+`PasteOperationCoordinator` is also the single owner of active membership and
+terminal settlement. The application admits at most one Paste Operation across
+the container. A concurrent request is rejected explicitly; it is not queued
+and does not replace the active operation. `ResultOutputRuntimeModule` may keep
+only the operation identity needed for scheduling and interruption. It must not
+hold a concrete Paste handle or a parallel Paste registry.
+
+Cancellation is an intent, not a terminal claim. A cancellation accepted before
+worker execution settles immediately as `cancelled / not_dispatched`. Once
+execution has started, the coordinator requests cooperative cancellation and
+waits for clipboard cleanup and dispatch truth before emitting the terminal
+outcome. The terminal outcome is emitted exactly once as
+`PasteOperationCompleted` through the application command queue. `TaskSupervisor`
+continues to own worker scheduling only; its task completion is not Paste
+completion truth.
+
 Clipboard Preservation is fail-closed. If the Windows adapter cannot safely
 preserve every non-redundant original format, dispatch does not occur. A result
 that was dispatched without target confirmation remains explicitly
@@ -39,3 +55,6 @@ an explicit Copy remains normal clipboard content.
 - Windows target and clipboard details remain behind platform adapters.
 - A synthetic keyboard adapter cannot claim that the target application consumed
   clipboard content merely because input injection returned.
+- Paste has no `succeeded` acknowledgement because target consumption cannot be
+  observed. Its terminal acknowledgement is exactly one of `failed`,
+  `cancelled`, `dispatched_unconfirmed`, or `cleanup_failed`.

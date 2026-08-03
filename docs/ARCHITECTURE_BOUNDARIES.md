@@ -338,14 +338,25 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
 ## Paste Operation ownership (ADR-0004)
 
 - `PasteOperationCoordinator` is the single owner of Paste Operation identity,
-  at-most-once execution, cooperative cancellation, Paste Dispatch truth, and
-  the combined delivery/clipboard-cleanup outcome.
+  global active membership, at-most-once execution, cooperative cancellation,
+  Paste Dispatch truth, and the combined delivery/clipboard-cleanup outcome.
 - `ClipboardTransactionCoordinator` remains the only owner of temporary
   clipboard mutation. Paste orchestration uses that owner; it does not create a
   second lock, snapshot, sequence, or restore path.
 - Runtime schedules a Paste Operation and projects its typed outcome. Runtime
   and UI must not infer target consumption from task completion, a fixed delay,
   focus, visibility, or clipboard sequence changes.
+- Runtime carries Paste operation identities only. It must not retain a concrete
+  Paste operation handle or a parallel registry. `TaskSupervisor` owns worker
+  scheduling, not Paste membership or settlement.
+- The container admits one Paste Operation at a time. Overlap is rejected with
+  an identified failure; it is never queued and never replaces active work.
+- Cancellation is an intent. A running Paste Operation remains active until the
+  coordinator knows dispatch and cleanup truth. Exactly one typed
+  `PasteOperationCompleted` command carries that truth back through the ordered
+  application command queue.
+- Paste acknowledgement has no `succeeded` state. Legal terminal states are
+  `failed`, `cancelled`, `dispatched_unconfirmed`, and `cleanup_failed`.
 - Platform paste adapters own modifier state, target validation, activation,
   final foreground validation, and input injection. Returning from input
   injection proves dispatch only, not target consumption.

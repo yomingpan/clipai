@@ -188,6 +188,25 @@ Integration 應測：
 - popup 關閉後 background callback 不造成 crash。
 - clipboard restore 在錯誤與取消情境下仍穩定。
 
+### Paste Operation 測試矩陣
+
+Service 與 runtime sims 必須驗證：
+
+- container-wide single-flight；重疊請求明確失敗，不排隊、不取代。
+- worker 前取消回報 `cancelled / not_dispatched`，且 cleanup 後恰好一次完成。
+- worker 中取消等待真實 cleanup 與 dispatch outcome，不提早釋放 membership。
+- dispatch 後只有 `dispatched_unconfirmed` 或 `cleanup_failed`，不得出現
+  Paste `succeeded`。
+- completion 只經 typed `PasteOperationCompleted` command 回到 runtime。
+- runtime 不持有 concrete Paste handle 或 `_paste_jobs` registry；architecture
+  test 必須防止這個 ownership 退化。
+- stale、重複或晚到 completion 不得完成較新的 output operation。
+- Popup outcome/focus matrix 與 `docs/specs/paste-target-focus-adr.md` 一致。
+
+Windows integration smoke 必須覆蓋 clipboard snapshot、temporary text、
+conditional restoration 與 external clipboard change；它驗證 adapter seam，
+不把 input injection 當成目標程式已消費內容的證明。
+
 Recipe 回饋與使用引導應測：
 
 - Popup 原始尺寸與結果區高度不因契約、回饋或 coachmark 縮小。

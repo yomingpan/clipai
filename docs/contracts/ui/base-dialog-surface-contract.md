@@ -107,6 +107,12 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - `pin`：固定 surface，避免 focus out 時自動關閉。Pin 必須保留為 base slot。
 - `speaker`、`copy`、`paste` 採 selection-first；沒有非空 selection 時才使用完整 result。
 - Paste 必須先隱藏 surface、釋放 focus，再送出 typed command；UI 不得直接操作 clipboard 或 keyboard。
+- Paste 的 `pending` 與 terminal acknowledgement 必須以相同 operation ID
+  配對；stale acknowledgement 不得改變目前 surface、focus 或 transition。
+- `failed` 恢復並聚焦 surface；`cancelled` 恢復但不搶 focus；未 pinned 的
+  `dispatched_unconfirmed` 保持隱藏並釋放 semantic foreground；pinned 的
+  `dispatched_unconfirmed` 保持可見但不搶 focus；`cleanup_failed` 恢復並顯示
+  警告但不搶 focus。Paste 不得顯示 confirmed success。
 - Result surface 的 focus state 以邊框作為主要提示。Focused surface 的 footer
   只顯示最近的外部 paste target，不重複標示「已聚焦」；pinned 且 unfocused 時必須說明
   `Ctrl+V` 會由目前外部視窗使用原剪貼簿內容。

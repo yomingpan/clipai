@@ -22,6 +22,21 @@ focus or the destination of the paste side effect.
   fall back to whichever window happens to be foreground.
 - Keep window titles out of persistence, logs, and diagnostics.
 
+### Terminal outcome and Popup behavior
+
+| Paste terminal outcome | Popup behavior | Focus behavior |
+| --- | --- | --- |
+| `failed` before dispatch | restore the Popup and show failure | activate the Popup |
+| `cancelled` | restore the Popup without claiming failure | do not steal focus |
+| `dispatched_unconfirmed`, unpinned | keep the Popup hidden and release semantic foreground | do not steal focus |
+| `dispatched_unconfirmed`, pinned | keep the Popup visible and show the warning | do not steal focus |
+| `cleanup_failed` | restore the Popup and show the cleanup warning | do not steal focus |
+
+There is no Paste `succeeded` state. Returning from keyboard injection proves
+dispatch only, so the UI must ask the user to confirm the target before retrying.
+An older operation acknowledgement cannot restore, hide, or focus the current
+Paste transition.
+
 ## Alternatives
 
 A new shortcut would reduce focus ambiguity but add learning cost. A
