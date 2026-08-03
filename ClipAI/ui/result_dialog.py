@@ -278,6 +278,14 @@ class ResultDialogPresenter:
             view.surface.pulse_standard_action(slot_id)
             if result.kind == "archive" and not view.surface.overflow_expanded:
                 view.surface.show_action_message("已封存", 1000)
+        elif result.state == "dispatched_unconfirmed":
+            view.surface.pulse_standard_action(slot_id)
+            if result.message:
+                view.surface.show_action_message(result.message, 2500)
+        elif result.state == "cleanup_failed":
+            view.surface.pulse_standard_action_error(slot_id)
+            if result.message:
+                view.surface.show_action_message(result.message, 3000)
         elif result.state == "failed":
             view.surface.pulse_standard_action_error(slot_id)
             if result.error is not None:

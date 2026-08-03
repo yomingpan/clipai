@@ -264,6 +264,26 @@ def test_unpinned_paste_failure_restores_with_focus() -> None:
     assert view.paste_transition_id is None
 
 
+def test_unconfirmed_paste_keeps_workflow_and_explains_that_retry_may_duplicate() -> None:
+    presenter, events = presenter_with_selection("selected")
+    view = presenter._views["s1"]
+
+    presenter._paste("s1")
+    operation_id = events[-1].operation_id
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "pending"))
+    presenter._apply_output_operation(OutputOperationResult(
+        operation_id,
+        "s1",
+        "paste",
+        "dispatched_unconfirmed",
+        message="Paste was sent; confirm before trying again.",
+    ))
+
+    assert "restore:True" in events
+    assert view.paste_transition_id is None
+    assert "message:Paste was sent; confirm before trying again.:2500" in events
+
+
 def test_stale_paste_result_does_not_restore_current_transition() -> None:
     presenter, events = presenter_with_selection("selected")
     view = presenter._views["s1"]

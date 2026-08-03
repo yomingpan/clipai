@@ -1,30 +1,17 @@
 from __future__ import annotations
 
-import time
-from collections.abc import Callable
-
-from ClipAI.core.models import PasteTarget
-from ClipAI.core.ports import ArchiveStore, ClipboardTransactionStore, TargetedKeyboardOutput
-from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
+from ClipAI.core.ports import ArchiveStore, ClipboardWriter
 
 
 class OutputActions:
     def __init__(
         self,
         *,
-        clipboard: ClipboardTransactionStore,
+        clipboard: ClipboardWriter,
         archive: ArchiveStore | None = None,
-        keyboard: TargetedKeyboardOutput | None = None,
-        paste_restore_delay_sec: float = 0.25,
-        wait: Callable[[float], None] = time.sleep,
-        clipboard_transactions: ClipboardTransactionCoordinator,
     ) -> None:
         self._clipboard = clipboard
         self._archive = archive
-        self._keyboard = keyboard
-        self._paste_restore_delay_sec = paste_restore_delay_sec
-        self._wait = wait
-        self._clipboard_transactions = clipboard_transactions
 
     def copy(self, text: str) -> None:
         self._clipboard.write_text(text)
@@ -37,17 +24,3 @@ class OutputActions:
     @property
     def can_archive(self) -> bool:
         return self._archive is not None
-
-    def paste(self, text: str, target: PasteTarget) -> None:
-        if self._keyboard is None:
-            raise RuntimeError("keyboard output is not configured")
-        with self._clipboard_transactions.temporary_text(
-            f"paste:{target.window_token}:{target.observation_sequence}",
-            text,
-        ):
-            self._keyboard.paste(target)
-            self._wait(self._paste_restore_delay_sec)
-
-    @property
-    def can_paste(self) -> bool:
-        return self._keyboard is not None

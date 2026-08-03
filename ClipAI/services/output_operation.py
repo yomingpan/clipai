@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from ClipAI.core.models import OutputOperationIntent, OutputOperationResult, UserFacingError
+from ClipAI.core.models import OutputOperationIntent, OutputOperationResult, OutputOperationState, UserFacingError
 from ClipAI.core.ports import OperationHandle, OperationTracker, OutputOperationPresenter
 
 
@@ -30,10 +30,18 @@ class OutputOperationCoordinator:
         )
         return handle
 
-    def cancel_all(self) -> tuple[OutputOperationIntent, ...]:
+    def cancel_all(self, *, exclude_operation_ids: frozenset[str] = frozenset()) -> tuple[OutputOperationIntent, ...]:
         with self._lock:
-            active = tuple(self._active.values())
-            self._active.clear()
+            active = tuple(
+                value
+                for value in self._active.values()
+                if value[0].operation_id not in exclude_operation_ids
+            )
+            self._active = {
+                key: value
+                for key, value in self._active.items()
+                if value[0].operation_id in exclude_operation_ids
+            }
         for intent, handle in active:
             if handle is not None:
                 handle.cancel()
@@ -82,6 +90,22 @@ class OutputOperationCoordinator:
             handle.cancel()
         return self._finish(intent, "cancelled")
 
+    def warn(
+        self,
+        intent: OutputOperationIntent,
+        state: OutputOperationState,
+        message: str,
+        handle: OperationHandle | None = None,
+    ) -> bool:
+        if intent.kind != "paste" or state not in {"dispatched_unconfirmed", "cleanup_failed"}:
+            raise ValueError(f"unsupported output warning state: {state}")
+        if handle is not None:
+            if state == "cleanup_failed":
+                handle.fail()
+            else:
+                handle.succeed()
+        return self._finish(intent, state, message=message)
+
     def run(self, intent: OutputOperationIntent, work: Callable[[], None]) -> None:
         handle = self.begin(intent)
         try:
@@ -91,7 +115,13 @@ class OutputOperationCoordinator:
             raise
         self.succeed(intent, handle)
 
-    def _finish(self, intent: OutputOperationIntent, state: str, error: UserFacingError | None = None) -> bool:
+    def _finish(
+        self,
+        intent: OutputOperationIntent,
+        state: OutputOperationState,
+        error: UserFacingError | None = None,
+        message: str = "",
+    ) -> bool:
         key = (intent.workflow_id, intent.kind)
         with self._lock:
             active = self._active.get(key)
@@ -99,6 +129,6 @@ class OutputOperationCoordinator:
                 return False
             self._active.pop(key, None)
         self._presenter.present_output_operation(
-            OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, state, error)  # type: ignore[arg-type]
+            OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, state, error, message)
         )
         return True

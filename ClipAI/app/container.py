@@ -48,6 +48,7 @@ from ClipAI.services.provider_configuration import ProviderConfigurationCoordina
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.paste_target import PasteTargetCoordinator
+from ClipAI.services.paste_operation import PasteOperationCoordinator
 from ClipAI.services.operation_lifecycle import OperationLifecycleCoordinator
 from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
@@ -151,8 +152,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     output_actions = OutputActions(
         clipboard=clipboard,
         archive=JsonlArchiveStore(),
-        keyboard=SystemKeyboardOutput(),
+    )
+    paste_operations = PasteOperationCoordinator(
         clipboard_transactions=clipboard_transactions,
+        dispatcher=SystemKeyboardOutput(),
     )
     paste_targets = PasteTargetCoordinator(view)
     supervisor = TaskSupervisor(bundle.runtime.maintenance_workers)
@@ -207,10 +210,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
     result_output_module = ResultOutputRuntimeModule(
         output_actions=output_actions,
+        paste_operations=paste_operations,
         supervisor=supervisor,
         workflow_controller=workflow_module.controller_for,
         output_operation_presenter=view,
-        enqueue=enqueue,
         incident_reporter=incident_reporter,
         operation_tracker=operation_tracker,
         diagnostics_exporter=diagnostics_exporter,

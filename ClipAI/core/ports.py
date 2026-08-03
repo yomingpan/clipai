@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, UserFacingError
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, UserFacingError
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -31,6 +31,8 @@ ClipboardSnapshotT = TypeVar("ClipboardSnapshotT")
 
 class ClipboardTransactionStore(ClipboardStore, Protocol[ClipboardSnapshotT]):
     def snapshot(self) -> ClipboardSnapshotT: ...
+
+    def write_transient_text(self, text: str) -> None: ...
 
     def sequence_number(self) -> int: ...
 
@@ -90,8 +92,8 @@ class SpeechOutput(Protocol):
     def stop(self) -> None: ...
 
 
-class TargetedKeyboardOutput(Protocol):
-    def paste(self, target: PasteTarget) -> None: ...
+class TargetedPasteOutput(Protocol):
+    def dispatch(self, target: PasteTarget, cancellation: CancellationToken) -> PasteDispatchReceipt: ...
 
 
 class PasteTargetPresenter(Protocol):

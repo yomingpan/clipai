@@ -24,7 +24,17 @@ PresentationBlockKind = Literal["paragraph", "heading", "unordered_item", "order
 InlineStyle = Literal["plain", "bold", "italic"]
 ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard"]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
-OutputOperationState = Literal["pending", "succeeded", "failed", "cancelled"]
+OutputOperationState = Literal[
+    "pending",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "dispatched_unconfirmed",
+    "cleanup_failed",
+]
+PasteDeliveryState = Literal["not_dispatched", "dispatched_unconfirmed"]
+PasteCleanupState = Literal["not_required", "restored", "external_change", "failed"]
+PasteCompletionState = Literal["failed", "cancelled", "dispatched_unconfirmed", "cleanup_failed"]
 ResultCompleteness = Literal["none", "partial", "complete"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
@@ -204,6 +214,7 @@ class OutputOperationResult:
     kind: OutputActionKind
     state: OutputOperationState
     error: UserFacingError | None = None
+    message: str = ""
 
 
 @dataclass(frozen=True)
@@ -425,6 +436,28 @@ class PasteTarget:
     application_name: str
     window_title: str
     observation_sequence: int
+
+
+@dataclass(frozen=True)
+class PasteRequest:
+    operation_id: str
+    workflow_id: str
+    text: str
+    target: PasteTarget
+
+
+@dataclass(frozen=True)
+class PasteDispatchReceipt:
+    state: Literal["dispatched_unconfirmed"]
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class PasteOutcome:
+    state: PasteCompletionState
+    delivery: PasteDeliveryState
+    cleanup: PasteCleanupState
+    message: str = ""
 
 
 @dataclass(frozen=True)

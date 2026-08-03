@@ -14,7 +14,7 @@ class Snapshot:
 class Clipboard:
     def __init__(self) -> None:
         self.value = "original"
-        self.sequence = 0
+        self.sequence = 1
         self.writes: list[str] = []
 
     def snapshot(self):
@@ -27,6 +27,9 @@ class Clipboard:
         self.value = text
         self.sequence += 1
         self.writes.append(text)
+
+    def write_transient_text(self, text):
+        self.write_text(text)
 
     def sequence_number(self):
         return self.sequence
@@ -60,10 +63,12 @@ def test_selection_waits_for_active_paste_transaction_and_uses_same_owner() -> N
     calls: list[str] = []
 
     def paste() -> None:
-        with coordinator.temporary_text("paste-1", "result"):
+        def work() -> None:
             calls.append("paste")
             paste_active.set()
             release_paste.wait(1)
+
+        coordinator.use_temporary_text("paste-1", "result", work)
 
     def capture() -> None:
         outcome = coordinator.capture_selection(
@@ -92,6 +97,8 @@ def test_selection_waits_for_active_paste_transaction_and_uses_same_owner() -> N
 def test_external_clipboard_mutation_is_never_restored_over() -> None:
     clipboard = Clipboard()
     coordinator = ClipboardTransactionCoordinator(clipboard)
-    with coordinator.temporary_text("paste-1", "result"):
+    def mutate() -> None:
         clipboard.write_text("external")
+    outcome = coordinator.use_temporary_text("paste-1", "result", mutate)
     assert clipboard.value == "external"
+    assert outcome.cleanup == "external_change"
