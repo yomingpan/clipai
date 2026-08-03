@@ -264,7 +264,7 @@ def test_unpinned_paste_failure_restores_with_focus() -> None:
     assert view.paste_transition_id is None
 
 
-def test_unconfirmed_paste_keeps_workflow_and_explains_that_retry_may_duplicate() -> None:
+def test_unpinned_unconfirmed_paste_stays_hidden_without_stealing_focus() -> None:
     presenter, events = presenter_with_selection("selected")
     view = presenter._views["s1"]
 
@@ -279,7 +279,8 @@ def test_unconfirmed_paste_keeps_workflow_and_explains_that_retry_may_duplicate(
         message="Paste was sent; confirm before trying again.",
     ))
 
-    assert "restore:True" in events
+    assert not any(event.startswith("restore:") for event in events if isinstance(event, str))
+    assert presenter._views["s1"] is view
     assert view.paste_transition_id is None
     assert "message:Paste was sent; confirm before trying again.:2500" in events
 

@@ -272,6 +272,9 @@ class ResultDialogPresenter:
             if result.state == "succeeded":
                 if pinned:
                     view.dialog.restore_after_external_output(activate=False)
+            elif result.state == "dispatched_unconfirmed" and not pinned:
+                # Preserve the Workflow while leaving focus with the paste target.
+                pass
             else:
                 view.dialog.restore_after_external_output(activate=True)
         if result.state == "succeeded":
