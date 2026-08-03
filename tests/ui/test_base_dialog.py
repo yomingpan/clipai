@@ -14,6 +14,7 @@ from ClipAI.ui.base_dialog import (
     CONTENT_COLOR,
     CHECK_ICON,
     COPY_ICON,
+    DISPLAY_BREAK_HINT,
     DISPLAY_BREAK_TAG,
     PASTE_ICON,
     POPUP_FONT_SIZES,
@@ -798,6 +799,26 @@ def test_presentation_surface_returns_canonical_markdown_for_rendered_selection(
     surface.content_text.selection = (0, len(surface.content_text.text.rstrip("\n")))
 
     assert surface.selected_text() == "- **First** item\n- *Second*"
+
+
+def test_presentation_surface_projects_double_clicked_word_without_partial_break_hints() -> None:
+    class Textbox:
+        def get(self, start, end) -> str:
+            if (start, end) == ("sel.first", "sel.last"):
+                # Tk's word selection starts and ends inside the adjacent
+                # U+2063 SPACE U+2063 display-only break hints.
+                return "\u2063appetizer\u2063"
+            if (start, end) == ("1.0", "sel.first"):
+                return f"prefix{DISPLAY_BREAK_HINT} {DISPLAY_BREAK_HINT[:2]}"
+            raise AssertionError((start, end))
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._canonical_selection_segments = (
+        _CanonicalSelectionSegment(0, "prefix appetizer pronunciation", "prefix appetizer pronunciation"),
+    )
+
+    assert surface.selected_text() == "appetizer"
 
 
 def test_presentation_surface_renders_retrieval_spacer_without_showing_marker() -> None:

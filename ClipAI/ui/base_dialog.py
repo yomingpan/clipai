@@ -11,7 +11,7 @@ import customtkinter as ctk
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PresentationDocument
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
-from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hints
+from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
 
 DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
@@ -1522,10 +1522,17 @@ class BaseResultSurface:
 
     def selected_text(self) -> str | None:
         try:
-            selected_display = strip_display_break_hints(self.content_text.get("sel.first", "sel.last"))
+            selected_display = strip_display_break_hint_boundaries(
+                self.content_text.get("sel.first", "sel.last"),
+                leading=True,
+                trailing=True,
+            )
             segments = getattr(self, "_canonical_selection_segments", ())
             if segments:
-                before_selection = strip_display_break_hints(self.content_text.get("1.0", "sel.first"))
+                before_selection = strip_display_break_hint_boundaries(
+                    self.content_text.get("1.0", "sel.first"),
+                    trailing=True,
+                )
                 selected = _canonical_selection_text(
                     segments,
                     len(before_selection),
