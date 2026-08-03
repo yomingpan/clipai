@@ -472,6 +472,7 @@ class ProcessedResult:
 class InlineSpan:
     text: str
     style: InlineStyle = "plain"
+    canonical_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -480,6 +481,7 @@ class PresentationBlock:
     spans: tuple[InlineSpan, ...]
     level: int = 0
     ordinal: int | None = None
+    canonical_prefix: str = ""
 
 
 @dataclass(frozen=True)

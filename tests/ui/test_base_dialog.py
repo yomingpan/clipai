@@ -48,6 +48,8 @@ from ClipAI.ui.base_dialog import (
     configure_tooltip_layer,
     insert_display_text,
     paste_target_display_text,
+    _CanonicalSelectionSegment,
+    _canonical_selection_text,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
@@ -713,6 +715,55 @@ def test_stream_append_preserves_scroll_and_does_not_replace_existing_text() -> 
     assert not any(call[0] == "delete" for call in surface.content_text.calls)
     assert not any(call[0] == "see" for call in surface.content_text.calls)
     assert any(call[0] == "insert" for call in surface.content_text.calls)
+
+
+def test_canonical_selection_restores_markdown_bullets_and_inline_styles() -> None:
+    segments = (
+        _CanonicalSelectionSegment(0, "• ", "- "),
+        _CanonicalSelectionSegment(2, "First", "**First**"),
+        _CanonicalSelectionSegment(7, " item", " item"),
+        _CanonicalSelectionSegment(12, "\n", "\n"),
+        _CanonicalSelectionSegment(13, "• ", "- "),
+        _CanonicalSelectionSegment(15, "Second", "*Second*"),
+    )
+
+    assert _canonical_selection_text(segments, 0, 21) == "- **First** item\n- *Second*"
+
+
+def test_presentation_surface_returns_canonical_markdown_for_rendered_selection() -> None:
+    from ClipAI.services.presentation import MarkdownPresentationParser
+
+    class Textbox:
+        def __init__(self) -> None:
+            self.text = ""
+            self.selection = (0, 0)
+
+        def configure(self, **_kwargs) -> None:
+            pass
+
+        def delete(self, *_args) -> None:
+            self.text = ""
+
+        def insert(self, _index, text, _tags) -> None:
+            self.text += text
+
+        def get(self, start, end) -> str:
+            first, last = self.selection
+            if (start, end) == ("sel.first", "sel.last"):
+                return self.text[first:last]
+            if (start, end) == ("1.0", "sel.first"):
+                return self.text[:first]
+            raise AssertionError((start, end))
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._list_indent_prefixes = {}
+    surface.set_presentation_document(
+        MarkdownPresentationParser().parse("- **First** item\n- *Second*")
+    )
+    surface.content_text.selection = (0, len(surface.content_text.text.rstrip("\n")))
+
+    assert surface.selected_text() == "- **First** item\n- *Second*"
 
 
 @pytest.mark.parametrize("scale", [1.0, 1.33, 2.0])

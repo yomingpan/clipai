@@ -3,7 +3,7 @@ from __future__ import annotations
 import queue
 from dataclasses import replace
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, ReleaseForegroundWorkflow, SubmitActionFeedback, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, OutputOperationResult, PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, PopupFocusLifecycle, ResultDialogPresenter, _SessionView, _content_render_key, workflow_render_patch
@@ -282,6 +282,7 @@ def test_unpinned_unconfirmed_paste_stays_hidden_without_stealing_focus() -> Non
     assert not any(event.startswith("restore:") for event in events if isinstance(event, str))
     assert presenter._views["s1"] is view
     assert view.paste_transition_id is None
+    assert ReleaseForegroundWorkflow("s1") in events
     assert "message:Paste was sent; confirm before trying again.:2500" in events
 
 

@@ -29,7 +29,13 @@ class MarkdownPresentationParser:
             if pending_list_item is None:
                 return
             kind, ordinal, lines = pending_list_item
-            blocks.append(PresentationBlock(kind, self._inline("\n".join(lines)), ordinal=ordinal))
+            prefix = "- " if kind == "unordered_item" else f"{ordinal or 1}. "
+            blocks.append(PresentationBlock(
+                kind,
+                self._inline("\n".join(lines), continuation_indent="  "),
+                ordinal=ordinal,
+                canonical_prefix=prefix,
+            ))
             pending_list_item = None
 
         for raw_line in text.splitlines():
@@ -50,7 +56,13 @@ class MarkdownPresentationParser:
             if heading:
                 flush_list_item()
                 flush_paragraph()
-                blocks.append(PresentationBlock("heading", self._inline(heading.group(2)), len(heading.group(1))))
+                level = len(heading.group(1))
+                blocks.append(PresentationBlock(
+                    "heading",
+                    self._inline(heading.group(2)),
+                    level,
+                    canonical_prefix=f"{'#' * level} ",
+                ))
             elif unordered:
                 flush_list_item()
                 flush_paragraph()
@@ -69,18 +81,22 @@ class MarkdownPresentationParser:
         return PresentationDocument(tuple(blocks), text)
 
     @staticmethod
-    def _inline(text: str) -> tuple[InlineSpan, ...]:
+    def _inline(text: str, *, continuation_indent: str = "") -> tuple[InlineSpan, ...]:
         spans: list[InlineSpan] = []
         cursor = 0
         for match in _INLINE.finditer(text):
             if match.start() > cursor:
-                spans.append(InlineSpan(text[cursor : match.start()]))
+                plain = text[cursor : match.start()]
+                canonical = plain.replace("\n", f"\n{continuation_indent}") if continuation_indent else None
+                spans.append(InlineSpan(plain, canonical_text=canonical))
             token = match.group(0)
             if token.startswith(("**", "__")):
-                spans.append(InlineSpan(token[2:-2], "bold"))
+                spans.append(InlineSpan(token[2:-2], "bold", token))
             else:
-                spans.append(InlineSpan(token[1:-1], "italic"))
+                spans.append(InlineSpan(token[1:-1], "italic", token))
             cursor = match.end()
         if cursor < len(text):
-            spans.append(InlineSpan(text[cursor:]))
+            plain = text[cursor:]
+            canonical = plain.replace("\n", f"\n{continuation_indent}") if continuation_indent else None
+            spans.append(InlineSpan(plain, canonical_text=canonical))
         return tuple(spans) or (InlineSpan(""),)

@@ -9,7 +9,7 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, ReleaseForegroundWorkflow, SubmitActionFeedback, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -273,8 +273,9 @@ class ResultDialogPresenter:
                 if pinned:
                     view.dialog.restore_after_external_output(activate=False)
             elif result.state == "dispatched_unconfirmed" and not pinned:
-                # Preserve the Workflow while leaving focus with the paste target.
-                pass
+                # Preserve the Workflow while allowing the next shortcut to open
+                # a new visible Workflow instead of reusing this hidden view.
+                self._command_sink(ReleaseForegroundWorkflow(result.workflow_id))
             else:
                 view.dialog.restore_after_external_output(activate=True)
         if result.state == "succeeded":

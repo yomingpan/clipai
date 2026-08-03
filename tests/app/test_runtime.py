@@ -8,7 +8,7 @@ from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteResult, RefreshProviderModels, ReleaseForegroundWorkflow, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
@@ -1285,6 +1285,32 @@ def test_contextual_action_reuses_active_workflow_and_prefers_popup_selection() 
     invocation = view.execute_action.invocations[-1]
     assert invocation.input_target.document.text == "selected popup text"
     assert invocation.parent_step_id == "step-1"
+
+
+def test_released_hidden_workflow_does_not_capture_the_next_shortcut() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    hidden_id = view.snapshots[-1].session_id
+    controller = workflow(view, hidden_id)
+    step = WorkflowStep("step-1", "a", "Action", "input", "hidden result", "plain_text")
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        content=step.result_text,
+        steps=(step,),
+        displayed_step_index=0,
+        active_invocation_id=None,
+    )
+    view.context = ActiveWorkflowContext(hidden_id, step.step_id, step.result_text, "selected hidden text")
+
+    runtime.enqueue(ReleaseForegroundWorkflow(hidden_id))
+    runtime.enqueue(StartAction("shorten", "short"))
+    runtime.drain_commands()
+
+    workflow_ids = {snapshot.session_id for snapshot in view.snapshots}
+    assert len(workflow_ids) == 2
+    assert hidden_id in workflow_ids
+    assert runtime._workflow_module.controller_for(hidden_id) is controller
 
 
 def test_contextual_action_without_popup_context_creates_external_workflow() -> None:

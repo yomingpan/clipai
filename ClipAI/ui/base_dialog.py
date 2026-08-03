@@ -19,6 +19,38 @@ SOURCE_PREVIEW_MAX_CHARS = 36
 DISPLAY_BREAK_TAG = "display_break_hint"
 
 
+@dataclass(frozen=True)
+class _CanonicalSelectionSegment:
+    offset: int
+    display_text: str
+    canonical_text: str
+
+    @property
+    def end(self) -> int:
+        return self.offset + len(self.display_text)
+
+
+def _canonical_selection_text(
+    segments: tuple[_CanonicalSelectionSegment, ...],
+    selection_start: int,
+    selection_end: int,
+) -> str:
+    """Project a rendered selection back to canonical presentation fragments."""
+    projected: list[str] = []
+    for segment in segments:
+        overlap_start = max(selection_start, segment.offset)
+        overlap_end = min(selection_end, segment.end)
+        if overlap_start >= overlap_end:
+            continue
+        if overlap_start == segment.offset and overlap_end == segment.end:
+            projected.append(segment.canonical_text)
+        else:
+            relative_start = overlap_start - segment.offset
+            relative_end = overlap_end - segment.offset
+            projected.append(segment.display_text[relative_start:relative_end])
+    return "".join(projected)
+
+
 class _TextInserter(Protocol):
     def insert(self, index: str, text: str, tags: tuple[str, ...]) -> object: ...
 
@@ -1391,6 +1423,7 @@ class BaseResultSurface:
         self.set_content_chunks(chunks)
 
     def set_content_chunks(self, chunks: list[tuple[str, str]]) -> None:
+        self._canonical_selection_segments = ()
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         for text, tag in chunks:
@@ -1400,6 +1433,7 @@ class BaseResultSurface:
     def append_content_text(self, text: str, tag: str = "body") -> None:
         if not text:
             return
+        self._canonical_selection_segments = ()
         try:
             at_bottom = self.content_text.yview()[1] >= 0.999
         except (tk.TclError, AttributeError, IndexError):
@@ -1417,6 +1451,19 @@ class BaseResultSurface:
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         self._list_indent_prefixes.clear()
+        selection_segments: list[_CanonicalSelectionSegment] = []
+        selection_offset = 0
+
+        def record_selection_segment(display_text: str, canonical_text: str) -> None:
+            nonlocal selection_offset
+            if display_text:
+                selection_segments.append(_CanonicalSelectionSegment(
+                    selection_offset,
+                    display_text,
+                    canonical_text,
+                ))
+                selection_offset += len(display_text)
+
         try:
             for block_index, block in enumerate(document.blocks):
                 previous_last_char = ""
@@ -1436,19 +1483,28 @@ class BaseResultSurface:
                 if prefix:
                     assert indent_tag is not None
                     insert_display_text(self.content_text, "end", prefix, (block_tag, indent_tag))
-                for span in block.spans:
+                    record_selection_segment(prefix, block.canonical_prefix or prefix)
+                canonical_prefix = "" if prefix else block.canonical_prefix
+                for span_index, span in enumerate(block.spans):
                     tags: tuple[str, ...] = ((block_tag,) if span.style == "plain" else (block_tag, span.style))
                     if indent_tag is not None:
                         tags += (indent_tag,)
                     if previous_last_char and span.text and display_break_opportunity(previous_last_char, span.text[0]):
                         self.content_text.insert("end", DISPLAY_BREAK_HINT, (*tags, DISPLAY_BREAK_TAG))
                     insert_display_text(self.content_text, "end", span.text, tags)
+                    canonical_text = span.canonical_text if span.canonical_text is not None else span.text
+                    if span_index == 0:
+                        canonical_text = f"{canonical_prefix}{canonical_text}"
+                    record_selection_segment(span.text, canonical_text)
                     if span.text:
                         previous_last_char = span.text[-1]
                 self.content_text.insert("end", "\n", (block_tag,) if indent_tag is None else (block_tag, indent_tag))
+                record_selection_segment("\n", "\n")
         except (tk.TclError, ValueError):
+            selection_segments.clear()
             self.content_text.delete("1.0", "end")
             insert_display_text(self.content_text, "end", document.fallback_text, "body")
+        self._canonical_selection_segments = tuple(selection_segments)
         self.content_text.configure(state="disabled")
 
     def _reapply_list_indents(self) -> None:
@@ -1457,7 +1513,17 @@ class BaseResultSurface:
 
     def selected_text(self) -> str | None:
         try:
-            selected = strip_display_break_hints(self.content_text.get("sel.first", "sel.last")).strip()
+            selected_display = strip_display_break_hints(self.content_text.get("sel.first", "sel.last"))
+            segments = getattr(self, "_canonical_selection_segments", ())
+            if segments:
+                before_selection = strip_display_break_hints(self.content_text.get("1.0", "sel.first"))
+                selected = _canonical_selection_text(
+                    segments,
+                    len(before_selection),
+                    len(before_selection) + len(selected_display),
+                ).strip()
+            else:
+                selected = selected_display.strip()
         except (tk.TclError, AttributeError):
             return None
         return selected or None
