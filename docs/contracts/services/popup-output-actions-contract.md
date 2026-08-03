@@ -8,7 +8,11 @@ Speaker、copy、paste、archive 使用 selection-first：有非空 selection �
 
 Paste 使用共用 `ClipboardTransactionCoordinator`：保存完整文字／圖片 snapshot、寫入文字、記錄 owned sequence、送出 paste，並只在 sequence 未被使用者或其他程式更新時還原。它不得建立第二套 clipboard lock、snapshot 或 restoration owner。
 
+Clipboard Preservation 採 fail-closed。只要 adapter 無法安全保存任一非冗餘原生格式，就必須在 clipboard mutation 與 Paste Dispatch 前以 `failed / not_dispatched` 結束。若 dispatch 已發生，cleanup failure 不得把 delivery truth 改寫成一般失敗；必須回報 `cleanup_failed` 並警告使用者先確認目標，避免盲目重試造成重複內容。
+
 取消只表示 intent。Worker 尚未開始時可在 cleanup 後立即回報 `cancelled / not_dispatched`；worker 已開始後必須等待 coordinator 確認 dispatch 與 cleanup truth。Coordinator 恰好一次以 `PasteOperationCompleted` 經 application command queue 回報；TaskSupervisor task completion 不代表 Paste completion。
+
+Popup visibility 與 Workflow lifetime 分離。未 pinned Popup 收到 `dispatched_unconfirmed` 後保持隱藏並釋放 semantic Foreground Workflow，但 Workflow membership 與結果仍保留，不能把 view 隱藏誤解為 operation success 或 Workflow deletion。Pinned Popup 可恢復顯示警告；`failed`、`cancelled` 與 `cleanup_failed` 依 UI contract 恢復 surface，但只有 dispatch 前 `failed` 可以主動取回 focus。
 
 Speech preprocessing 屬於 service，移除 Markdown heading、emphasis、list marker、code fence 與 URL 噪音，但不得修改 popup、copy 或 paste 的原文。
 

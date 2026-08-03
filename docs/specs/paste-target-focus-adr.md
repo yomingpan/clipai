@@ -37,6 +37,12 @@ dispatch only, so the UI must ask the user to confirm the target before retrying
 An older operation acknowledgement cannot restore, hide, or focus the current
 Paste transition.
 
+Hiding an unpinned Popup after `dispatched_unconfirmed` does not delete its
+Workflow. The UI releases semantic Foreground Workflow so later global input is
+not routed to a hidden surface, while Workflow membership and canonical result
+remain available under `WorkflowRuntimeModule` ownership. Cleanup failure keeps
+the dispatch fact visible because an automatic retry could duplicate content.
+
 ## Alternatives
 
 A new shortcut would reduce focus ambiguity but add learning cost. A

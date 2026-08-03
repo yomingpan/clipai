@@ -6,11 +6,11 @@ Base dialog surface 的核心意圖是讓 ClipAI 的 desktop UI 有一致、快�
 
 使用者按下 action 後，如果結果以 dialog 或 popup surface 呈現，視窗必須先快速出現，讓使用者知道系統已收到操作。LLM 內容可以稍後 streaming 或更新，但 UI surface 不能等到模型完成才出現。
 
-這份 contract 是人類意圖、UI 邊界、使用者可見行為、event lifecycle 與測試案例之間的中介層。它同時作為規範文件與 AI coding context。
+這份 contract 是人類意圖、UI 邊界、使用者可見行為、toolkit lifecycle 與測試案例之間的中介層。它同時作為規範文件與 AI coding context。
 
 ## Boundary
 
-`clipai/ui/base_dialog.py` 屬於 `ui/`，責任是提供 dialog shell、base style 與 lifecycle 接縫。
+`ClipAI/ui/base_dialog.py` 屬於 `ui/`，責任是提供 dialog shell、base style 與 lifecycle 接縫。
 
 Base dialog surface 可以做：
 
@@ -19,7 +19,7 @@ Base dialog surface 可以做：
 - 提供內容容器，例如 `main_frame`，讓具體 dialog 填入內容。
 - 建立與暴露 `DialogLifecycle`。
 - 定義 shared surface vocabulary，例如 base border、header、status line、standard action slots。
-- 接收 UI-safe event 或 presenter callback，更新純 UI state。
+- 接收 immutable UI projection 或 toolkit callback，更新純 UI state。
 
 Base dialog surface 不可以做：
 
@@ -32,7 +32,7 @@ Base dialog surface 不可以做：
 - 決定使用者應該看到哪個業務結果。
 - 根據不同 action 任意改變基礎 UI 操作語言。
 
-依賴方向必須符合 `docs/ARCHITECTURE_BOUNDARIES.md`：`ui` 可依賴 `core` event contract 與 service session model，但不得 import concrete provider。需要服務時，必須透過 callback、gateway、event 或 app composition 注入。
+依賴方向必須符合 `docs/ARCHITECTURE_BOUNDARIES.md`：`ui` 可依賴 `core` typed commands、immutable models 與 ports，但不得 import concrete provider 或 service implementation。跨層使用者操作必須送出 typed semantic command；狀態由 app composition 注入的 presenter port 或 immutable projection 進入 UI。不得建立另一套跨層訊息、Workflow identity 或依賴解析機制。
 
 ## Surface Scope
 
@@ -45,7 +45,7 @@ Base dialog surface 規範的是外殼與 lifecycle 接縫，不規範每個具�
 - 更新資料內容。
 - 綁定按鈕 command。
 - 決定要不要顯示某個 optional action。
-- 將使用者操作轉成 callback 或 event。
+- 將使用者操作轉成 typed semantic command；toolkit callback 只負責轉譯 UI intent。
 
 Base dialog surface 負責：
 
@@ -90,10 +90,10 @@ Base dialog surface 必須提供一致的視覺語言。
 - Pin 與 unpin 必須使用固定 icon、tooltip 與 active style，snapshot 更新時同步校正視覺狀態。
 - Header 的非互動區域皆可拖曳，包含 model label；close、pin 與其他 control 不得被 drag binding 攔截。
 
-目前實作參考：
+目前實作：
 
-- `clipai/ui/base_dialog.py` 提供 `CTk` root、`main_frame`、geometry、minsize、position 與 `DialogLifecycle`。
-- `clipai/ui/popup_presenter.py` 提供 result surface 的實作參考，包含 cursor 附近定位、header action bar、border status color 與 completion flash。
+- `ClipAI/ui/base_dialog.py` 提供 `CTk` root、`main_frame`、geometry、minsize、position 與 `DialogLifecycle`。
+- `ClipAI/ui/result_dialog.py` 的 `ResultDialogPresenter` 使用 `BaseDialog`／`BaseResultSurface`，並負責 Workflow projection、typed output commands、cursor 附近定位、header action bar、border status color 與 completion flash。
 
 ## Standard Action Slots
 
@@ -105,7 +105,7 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - `copy`：複製目前可見結果或 selection。視覺上應使用 copy icon。
 - `follow_up`：開啟追問輸入。視覺上應使用 pen icon。
 - `pin`：固定 surface，避免 focus out 時自動關閉。Pin 必須保留為 base slot。
-- `speaker`、`copy`、`paste` 採 selection-first；沒有非空 selection 時才使用完整 result。
+- `speaker`、`copy`、`paste` 採 selection-first；沒有非空 semantic selection 時才使用 displayed step 的 canonical content。
 - Paste 必須先隱藏 surface、釋放 focus，再送出 typed command；UI 不得直接操作 clipboard 或 keyboard。
 - Paste 的 `pending` 與 terminal acknowledgement 必須以相同 operation ID
   配對；stale acknowledgement 不得改變目前 surface、focus 或 transition。
@@ -161,9 +161,11 @@ Slot command 綁定規則：
 
 Success green 是「內容已完成，可以閱讀」的訊號。它不能代表 provider 成功率、模型品質或使用者是否應該採納內容。
 
-## Event / Callback Contract
+## Projection / Typed Command Contract
 
-Base dialog surface 可以透過 event 或 callback 接收 UI-safe state change。
+Base dialog surface 透過 immutable projection 或 presenter call 接收 UI-safe
+state change。Toolkit focus、activation、geometry 與 close events 可以在 adapter
+內解讀，但跨層輸入必須轉成 typed semantic command，不得廣播 global event。
 
 允許的訊號類型：
 
@@ -182,13 +184,12 @@ Base dialog surface 可以透過 event 或 callback 接收 UI-safe state change�
 - 在 BaseDialog 中直接讀寫 clipboard。
 - 在 BaseDialog 中直接決定 action variant 或 prompt。
 
-Base dialog surface 的 event 反應只能改變 UI state，例如文字、enabled state、focus、border color、button state、visibility。
+Base dialog surface 對 projection 的反應只能改變 UI state，例如文字、enabled state、focus、border color、button state、visibility。
 
 ## Current Implementation Notes
 
-目前 `clipai/ui/base_dialog.py` 已承擔通用 dialog shell 與 lifecycle 接線。
-
-目前 `clipai/ui/popup_presenter.py` 尚未收斂到 `BaseDialog`，但它是重要參考實作，因為它已包含：
+目前 `ClipAI/ui/base_dialog.py` 承擔通用 dialog shell 與 lifecycle 接線；
+`ClipAI/ui/result_dialog.py` 的 `ResultDialogPresenter` 已組合該 surface，並包含：
 
 - result surface 快速顯示。
 - speaker、copy、pin 與其他 action buttons。
@@ -197,7 +198,7 @@ Base dialog surface 的 event 反應只能改變 UI state，例如文字、enabl
 - success/error border flash。
 - focus out close 與 pin 行為。
 
-未來若重構 popup presenter，應朝本 contract 收斂，而不是讓 BaseDialog 直接承擔 provider、clipboard、TTS 或 action workflow。
+後續 UI 調整必須維持這個 composition，不得讓 BaseDialog 直接承擔 provider、clipboard、TTS 或 Action Workflow。
 
 ## Forbidden Decisions
 
@@ -213,13 +214,14 @@ Base dialog surface 不得做以下決策：
 - LLM result 的業務解讀。
 - 使用者是否應該採納或執行結果。
 
-Base dialog surface 只呈現狀態、接收操作，並把操作轉成 callback 或 event。
+Base dialog surface 只呈現狀態、接收操作，並把操作轉成 typed semantic command。
 
 ## Testing Links
 
 已存在測試參考：
 
-- `tests/ui/test_popup_presenter.py`
+- `tests/ui/test_base_dialog.py`
+- `tests/ui/test_result_dialog.py`
 
 目前覆蓋：
 
@@ -229,7 +231,7 @@ Base dialog surface 只呈現狀態、接收操作，並把操作轉成 callback
 - copy / archive handler 可被 fake clipboard 與 fake archive service 測試。
 - toggle speak 可透過 fake TTS service 測試。
 - follow-up toggle 會插入到 meta row 前並 focus entry。
-- popup presenter dispose 會 unsubscribe TTS subscription。
+- Workflow close、stale acknowledgement 與 lifecycle cleanup 不會更新已銷毀的 surface。
 
 應補 unit / sims 測試：
 
@@ -254,7 +256,7 @@ Base dialog surface 只呈現狀態、接收操作，並把操作轉成 callback
 - Copy button 對 selection 與 full result 行為符合預期。
 - Follow-up pen button 開啟追問輸入，並受回合限制控制。
 - Pin 開啟後 focus out 不關閉 surface。
-- Dialog 關閉後不再收到 event update，不 crash。
+- Dialog 關閉後的 late projection 不更新 destroyed widget，也不 crash。
 
 ## Decision Log
 
@@ -266,4 +268,4 @@ Base dialog surface 只呈現狀態、接收操作，並把操作轉成 callback
 - `archive`、`overflow`、`delete`、`deep`、`refine` 先列為 optional slots。
 - `follow_up` 視覺語言是 pen icon。
 - 所有承載 LLM result 的 surface 都必須在 result finalized 後閃爍 success green `1000ms`。
-- `PopupPresenter` 是目前尚未收斂到 BaseDialog surface 的重要參考實作。
+- `ResultDialogPresenter` 已使用 `BaseDialog`／`BaseResultSurface`；後續不得重新建立平行 popup shell。
