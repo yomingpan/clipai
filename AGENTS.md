@@ -48,6 +48,7 @@ unless the user explicitly asks for implementation.
 8. `TaskSupervisor` owns only non-provider blocking work and isolates interactive, media, and maintenance capacity. Provider networking must not consume its worker capacity, and blocking side effects must not run on the provider event loop.
 9. One container-scoped `ClipboardTransactionCoordinator` owns selection and paste clipboard transactions. No feature may create a parallel clipboard restoration or transaction-ownership mechanism.
 10. Workflow snapshots enter the UI through a per-Workflow latest-revision mailbox and may be coalesced by revision. Ordered output-operation acknowledgements are a separate channel and must never be coalesced with snapshots.
+11. `PasteOperationCoordinator` is the single owner of container-wide Paste Operation membership, cancellation intent, dispatch truth, and terminal settlement. Runtime may schedule by operation identity but must not retain concrete Paste handles or a parallel registry. Paste never reports confirmed success; its legal terminal acknowledgements are `failed`, `cancelled`, `dispatched_unconfirmed`, and `cleanup_failed`.
 
 ## Dependency boundaries
 

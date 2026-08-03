@@ -362,3 +362,41 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
   injection proves dispatch only, not target consumption.
 - Clipboard Preservation is fail-closed. Unsupported non-redundant native
   formats stop the Paste Operation before clipboard mutation and dispatch.
+
+## Canonical content, presentation, and selection ownership
+
+- Canonical result content is semantic data, independent of widget styling and
+  presentation parsing. Copy, paste, archive, and speech receive canonical text
+  or an explicit semantic selection; they never reconstruct content from widget
+  tags, rendered spans, or Markdown appearance.
+- `services` owns presentation parsing and produces a typed immutable
+  `PresentationDocument`. UI adapters render that document. Unsupported syntax
+  degrades to safe plain text without changing canonical content or crashing the
+  surface.
+- A Popup selection is resolved at the UI presentation boundary and carried in
+  the typed output command. It takes precedence over the displayed step's
+  canonical content. The runtime does not read a Tk widget to recover it.
+- For an external text-capable Action, selection is captured at the instant of
+  explicit user intent. A valid selection takes precedence; otherwise input
+  falls back to the configured clipboard policy. Selection capture and Paste
+  share the one container-scoped `ClipboardTransactionCoordinator`, so capture
+  cannot permanently replace newer clipboard content.
+- Workflow identity, output-operation identity, selection-capture identity, and
+  view lifecycle remain distinct. A Workflow snapshot revision cannot stand in
+  for any of those operation identities.
+
+## Output Profile ownership
+
+- `OutputProfileCatalog` owns reusable output-format instruction,
+  presentation mode, and structural marker validation. `PromptBuilder` consumes
+  the instruction and `ResultProcessor` consumes the same resolved profile.
+- An Action owns task semantics and genuinely Action-specific output content. It
+  references a profile ID; it must not create a second reusable presentation
+  schema that drifts from the catalog.
+- Configuration loading rejects unknown profile IDs. Tests must keep prompt
+  injection, result processing, and Action/variant resolution on the same
+  catalog entry.
+- Existing Action prompts that duplicate reusable profile wording are migration
+  debt, not a second accepted owner. Remove them incrementally only with prompt
+  regression coverage; do not silently change prompt behavior during unrelated
+  architecture or documentation work.
