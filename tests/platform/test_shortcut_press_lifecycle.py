@@ -104,6 +104,41 @@ def test_stale_recovery_cancels_the_exact_active_press() -> None:
     ]
 
 
+def test_long_press_deadline_cancels_when_action_key_is_physically_released() -> None:
+    events = []
+    timers = []
+    physical = {"ctrl": True, "alt": True, "q": True}
+
+    def timer_factory(delay, callback):
+        timer = Timer(delay, callback)
+        timers.append(timer)
+        return timer
+
+    dispatcher = create_hotkey_dispatcher(
+        {"speech": {"hotkey": "ctrl+alt+q"}},
+        events.append,
+        modifier_mode="ctrl_alt",
+        timer_factory=timer_factory,
+        key_is_pressed=physical.get,
+    )
+    dispatcher.on_press(Key("ctrl"))
+    dispatcher.on_press(Key("alt"))
+    dispatcher.on_press(Key("q"))
+    started = next(event for event in events if isinstance(event, ShortcutPressStarted))
+
+    physical["q"] = False
+    timers[0].callback()
+
+    lifecycle = [
+        event
+        for event in events
+        if isinstance(event, (ShortcutPressInvoked, ShortcutPressEnded))
+    ]
+    assert lifecycle == [
+        ShortcutPressEnded(started.press_id, "speech", "cancelled")
+    ]
+
+
 def test_observation_close_stops_key_events_but_not_terminal_lifecycle() -> None:
     events = []
     dispatcher = create_hotkey_dispatcher(
