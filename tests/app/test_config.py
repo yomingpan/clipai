@@ -125,15 +125,19 @@ def test_ctrl_alt_u_resolves_capture_and_express_as_distinct_learning_intents() 
     assert capture.name == "Capture an Expression"
     assert capture.stream is False
     assert capture.output_profile == "expression_capture"
-    assert "exactly three short substitution examples" in capture.prompt
+    assert "without a Notice heading" in capture.prompt
+    assert "without a Primary expression label" in capture.prompt
+    assert "Without a Pattern heading" in capture.prompt
+    assert "exactly three unnumbered bullet examples" in capture.prompt
     assert "[[SCROLL_FOR_ANSWER]]" in capture.prompt
     assert "answer must appear only after" in capture.prompt
     assert express.name == "Express Naturally"
     assert express.stream is False
     assert express.output_profile == "expression_transfer"
-    assert "one most important naturalness shift" in express.prompt
-    assert "Ask the user one concrete transfer question" in express.prompt
-    assert "Ctrl+/" in express.prompt
+    assert "without a Natural Version heading" in express.prompt
+    assert "smallest original-to-improved comparison" in express.prompt
+    assert "exactly one primary transfer chunk" in express.prompt
+    assert "按 Ctrl+/ 回答" in express.prompt
     assert "evaluate only that transfer attempt" in express.system_prompt
     assert capture.feedback_contract is not None
     assert express.feedback_contract is not None
@@ -142,18 +146,25 @@ def test_ctrl_alt_u_resolves_capture_and_express_as_distinct_learning_intents() 
     capture_profile = bundle.output_profiles.get(capture.output_profile)
     express_profile = bundle.output_profiles.get(express.output_profile)
     assert capture_profile.required_markers == (
-        "## Notice",
-        "## Pattern",
         "## Retrieve",
         "[[SCROLL_FOR_ANSWER]]",
         "## Make It Yours",
     )
+    assert "Start with one valuable source sentence before any Markdown heading" in capture_profile.instruction
+    assert "without a Primary expression label" in capture_profile.instruction
+    assert "Never format English learning content as inline code or with backticks" in capture_profile.instruction
+    assert "Use bold or italics for visual emphasis" in capture_profile.instruction
+    assert "Do not prefix content with redundant field labels" in capture_profile.instruction
+    assert "without a Pattern heading" in capture_profile.instruction
+    assert "exactly three short unnumbered bullet examples" in capture_profile.instruction
     assert express_profile.required_markers == (
-        "## Natural Version",
         "## Key Shift",
-        "## Transfer Chunks",
+        "## Transfer Chunk",
         "## Your Turn",
     )
+    assert "without a Natural Version heading" in express_profile.instruction
+    assert "exactly one bold primary reusable chunk" in express_profile.instruction
+    assert "按 Ctrl+/ 回答" in express_profile.instruction
 
 
 def test_long_press_ctrl_alt_2_translates_to_japanese() -> None:

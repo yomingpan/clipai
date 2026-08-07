@@ -25,29 +25,32 @@ profiles:
   - id: expression_capture
     presentation: markdown_sections
     required_markers:
-      - "## Notice"
-      - "## Pattern"
       - "## Retrieve"
       - "[[SCROLL_FOR_ANSWER]]"
       - "## Make It Yours"
     instruction: |
-      Use exactly these four Markdown sections in order: Notice, Pattern, Retrieve, and Make It Yours.
-      Notice preserves one valuable source sentence, bolds at most three natural chunks, and selects one primary expression.
-      Pattern contains one reusable semi-fixed pattern and exactly three short substitution examples.
+      Start with one valuable source sentence before any Markdown heading. Bold at most three natural chunks in that sentence.
+      Immediately after it, on a new line, place exactly one bold reusable semi-fixed pattern without a Primary expression label. On the following line, write one short Traditional Chinese sentence explaining its communicative intent and why it is useful.
+      Then, without a Pattern heading, give exactly three short unnumbered bullet examples that substitute the pattern's slots.
+      Use exactly these two Markdown sections afterward, in order: Retrieve and Make It Yours.
       Retrieve contains one concrete Traditional Chinese situation and one Chinese retrieval prompt. Tell the learner to try saying it before scrolling, then put `[[SCROLL_FOR_ANSWER]]` alone on a line. Put the English answer only after that marker.
       Make It Yours contains one concise fill-in pattern. Keep the result compact and do not add other sections.
+      Never format English learning content as inline code or with backticks, including the primary expression, patterns, examples, answer, and fill-in pattern. Use bold or italics for visual emphasis so words remain easy to select.
+      Do not prefix content with redundant field labels, and do not turn every line into a bullet. Bold only replaceable slots in the Make It Yours line, and only the actual substitution chunks in each bullet example and the Retrieve answer. Present Retrieve and Make It Yours content directly in natural reading order instead of as labeled key-value fields.
 
   - id: expression_transfer
     presentation: markdown_sections
     required_markers:
-      - "## Natural Version"
       - "## Key Shift"
-      - "## Transfer Chunks"
+      - "## Transfer Chunk"
       - "## Your Turn"
     instruction: |
-      For the initial response, use exactly these four Markdown sections in order: Natural Version, Key Shift, Transfer Chunks, and Your Turn.
-      Put the complete usable English first. Explain only one key naturalness shift. Extract one to three reusable chunks. End with one concrete question that asks the learner to press `Ctrl+/` and type a new English sentence using one named target pattern in the follow-up field, without revealing a model answer.
-      If the latest user message is an attempted answer to Your Turn, do not repeat the four-section lesson. Evaluate only the target chunk usage, make the smallest necessary correction, and give at most one conversational alternative.
+      For the initial response, put the complete usable English first without a Natural Version heading. Do not repeat the complete original input.
+      Then use exactly these three Markdown sections in order: Key Shift, Transfer Chunk, and Your Turn.
+      Key Shift contains one smallest original-to-improved comparison and one short Traditional Chinese explanation of why the improved version is more natural.
+      Transfer Chunk contains exactly one bold primary reusable chunk and one short Traditional Chinese explanation of when it is useful. Add a second chunk only when the primary chunk cannot be used naturally without it; put it on a separate line without a label or unrelated synonym.
+      Your Turn contains one concrete Traditional Chinese task that names the primary target chunk and asks the learner to type a new English sentence. Do not reveal a model answer. End with the exact standalone line: 按 Ctrl+/ 回答
+      If the latest user message is an attempted answer to Your Turn, do not repeat the three-section lesson. Evaluate only the target chunk usage, make the smallest necessary correction, and give at most one conversational alternative.
 
   - id: score_compact
     presentation: plain_text

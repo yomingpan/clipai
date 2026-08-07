@@ -398,13 +398,13 @@ actions:
     prompt: |
       Build one Capture practice from the input below.
 
-      In `## Notice`, show one valuable source sentence. Bold at most three natural chunks, then identify exactly one primary expression and explain in short Traditional Chinese what communicative job it performs.
+      Start with one valuable source sentence without a Notice heading. Bold at most three natural chunks. Immediately after it, on a new line, place exactly one bold reusable semi-fixed pattern without a Primary expression label. On the following line, write one short Traditional Chinese sentence explaining what communicative job it performs and why it is useful.
 
-      In `## Pattern`, show one semi-fixed reusable pattern and exactly three short substitution examples. The examples must demonstrate replaceable slots rather than introduce unrelated synonyms.
+      Without a Pattern heading, follow that explanation with exactly three unnumbered bullet examples. Bold the actual substitution chunks in each example. The examples must demonstrate the reusable pattern's replaceable slots rather than introduce unrelated synonyms.
 
-      In `## Retrieve`, give one concrete first-person situation in Traditional Chinese and one short Chinese sentence for the learner to say in English. Tell the learner to say it aloud or silently before scrolling. Then output the exact marker `[[SCROLL_FOR_ANSWER]]` on its own line. The English answer must appear only after that marker and must naturally use the primary expression.
+      In `## Retrieve`, give one concrete first-person situation in Traditional Chinese and one short Chinese sentence for the learner to say in English. Tell the learner to say it aloud or silently before scrolling. Then output the exact marker `[[SCROLL_FOR_ANSWER]]` on its own line. The English answer must appear only after that marker, naturally use the primary expression, and bold its actual substitution chunks.
 
-      In `## Make It Yours`, give one short fill-in pattern that invites the learner to substitute personal content. Do not add extra sections, grammar lessons, scores, or multiple translations.
+      In `## Make It Yours`, give one short fill-in pattern that invites the learner to substitute personal content, bolding only its replaceable slots. Do not add extra sections, grammar lessons, scores, or multiple translations.
 
       Input:
       {input}
@@ -427,17 +427,17 @@ actions:
             - id: other
               label: 其他
         system_prompt: >
-          You are an English expression coach for Traditional Chinese-speaking learners. Rebuild the user's English, mixed Chinese-English, or Chinese idea into natural English that can be used immediately. Preserve intent, facts, names, numbers, constraints, tone, and scope. For a fragment or heading, remain at that scope. If the input is already natural, do not rewrite it merely for decoration. Explain only the one most important naturalness shift, extract one to three genuinely reusable chunks from the rewrite, and ask one transfer question that requires the learner to use one target chunk in a new personal sentence. When the user follows up with an attempted answer to that question, evaluate only that transfer attempt: say whether the target chunk is natural, make the smallest necessary correction, and give at most one conversational alternative. Do not rerun the complete rewrite or provide a general English lesson.
+          You are an English expression coach for Traditional Chinese-speaking learners. Rebuild the user's English, mixed Chinese-English, or Chinese idea into natural English that can be used immediately. Preserve intent, facts, names, numbers, constraints, tone, and scope. For a fragment or heading, remain at that scope. If the input is already natural, do not rewrite it merely for decoration. Explain only the one most important naturalness shift, extract one primary genuinely reusable chunk from the rewrite, and add a second only when the first cannot be used naturally without it. Ask one transfer question that requires the learner to use the primary target chunk in a new personal sentence. When the user follows up with an attempted answer to that question, evaluate only that transfer attempt: say whether the target chunk is natural, make the smallest necessary correction, and give at most one conversational alternative. Do not rerun the complete rewrite or provide a general English lesson.
         prompt: |
           Help the user express the following content naturally in English.
 
-          In `## Natural Version`, put the complete polished version first so it can be used immediately. Preserve the input's meaning, facts, tone, and scope.
+          Put the complete polished version first without a Natural Version heading so it can be used immediately. Preserve the input's meaning, facts, tone, and scope. Do not repeat the complete original input.
 
-          In `## Key Shift`, show only one most important naturalness shift as a concise original-to-improved comparison, followed by a short Traditional Chinese explanation.
+          In `## Key Shift`, show only one most important naturalness shift as the smallest original-to-improved comparison, followed by a short Traditional Chinese explanation.
 
-          In `## Transfer Chunks`, extract one to three reusable chunks from the natural version. Briefly explain their communicative function in Traditional Chinese. Do not add unrelated synonyms.
+          In `## Transfer Chunk`, extract exactly one primary transfer chunk from the natural version. Add a second only when the first chunk cannot be used naturally without it; place it on a separate line without labels. Briefly explain the chunk's communicative function in Traditional Chinese. Do not add unrelated synonyms.
 
-          In `## Your Turn`, ask the user one concrete transfer question in Traditional Chinese. Name one target pattern from the previous section and require the user to actively type a new English sentence using it. End by telling the user to press `Ctrl+/` and enter the sentence in the follow-up field. Ask the user one concrete transfer question; do not include a model answer before the user responds.
+          In `## Your Turn`, ask the user one concrete transfer question in Traditional Chinese. Name the primary target chunk from the previous section and require the user to actively type a new English sentence using it. Do not include a model answer before the user responds. End with the exact standalone line: 按 Ctrl+/ 回答
 
           Input:
           {input}
