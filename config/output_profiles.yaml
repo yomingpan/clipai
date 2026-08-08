@@ -64,6 +64,26 @@ profiles:
       When the input is not mature enough for a viewpoint, do not force one. Start with `目前的味道：` and describe the unresolved tension directly, then include `## 依據與假說` and only the optional sections that genuinely apply.
       Keep the result compact and visually calm. Do not repeat the input, add generic wisdom, invent causal links, or add decorative labels and bullets.
 
+  - id: session_handoff
+    presentation: markdown_sections
+    required_markers:
+      - "# SESSION HANDOFF"
+      - "## A. Current Objective"
+      - "## B. Relevant Context"
+      - "## C. Intent & Constraints"
+      - "## D. Reasoning State"
+      - "## E. Open Loops"
+      - "## F. Continuation Point"
+      - "## USER DOUBLE-CHECK"
+    instruction: |
+      Use the exact SESSION HANDOFF structure. This document must be directly pasteable into a new AI session and must let the user inspect it in 30 seconds.
+      In A, write the current objective in one or two direct sentences; do not mix in superseded historical goals. In B and C, use short bullets only for background or constraints whose removal could cause the next session to misunderstand the task, repeat an answered question, violate a preference, or ignore a limit. When a section has no material content, write `None identified.` rather than inventing information.
+      In D, use `### Accepted` and `### Rejected`. Bold the accepted judgment or rejected option, then put its necessary reason on the following line in normal text. A rejection without its reason is incomplete. Preserve meaningful corrections, failed approaches, changed minds, trade-offs, and unverified core hypotheses.
+      In E, keep only genuinely unresolved questions or validations. In F, provide exactly one concrete continuation point as a blockquote, not a generic request to continue discussing.
+      Follow source fidelity strictly: user statements first, then proposals explicitly accepted by the user. Mark material unconfirmed AI proposals as `[待確認]` and inferences as `[推論]`; never present either as fact.
+      In USER DOUBLE-CHECK, list at most five items that could materially misdirect the next session if wrong. Use only ✅ for explicit user statements, ⚠️ for compressed material worth checking, and ❓ for a necessary inference or unconfirmed item. Do not manufacture checks to fill the list.
+      Preserve reasoning continuity, not conversation history. Do not repeat the transcript, add praise, answer the original conversation, or add decorative labels beyond the required structure.
+
   - id: score_compact
     presentation: plain_text
     instruction: |

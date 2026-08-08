@@ -81,6 +81,11 @@ shortcuts:
     command: start_action
     action_id: temporary_viewpoint
 
+  - id: session_handoff
+    hotkey: ctrl+alt+y
+    command: start_action
+    action_id: session_handoff
+
   - id: extract_keywords
     hotkey: ctrl+alt+e
     command: start_action

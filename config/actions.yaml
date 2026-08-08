@@ -477,6 +477,43 @@ actions:
       輸入：
       {input}
 
+  - id: session_handoff
+    name: 建立 AI 對話交接
+    input_mode: selection_or_clipboard
+    external_fallback: selection_or_clipboard
+    output_mode: popup
+    temperature: 0.1
+    output_profile: session_handoff
+    feedback:
+      helps: 將 AI 對話壓縮成可直接交給下一個 Session 的文件，保留目標、限制、已接受或排除的推理與延續位置
+      does_not: 不替你決定後續方向、補完未說的動機，或將推論當成既定結論
+      reasons:
+        - id: objective_or_context_missing
+          label: 目前目標或必要背景遺漏、失真或混入過時內容
+        - id: constraints_or_corrections_lost
+          label: 使用者限制、偏好或對 AI 的糾正沒有被保留
+        - id: reasoning_state_misclassified
+          label: 已接受、已排除或其理由被混淆、遺漏或寫錯
+        - id: continuation_point_unhelpful
+          label: 未解決問題或下一步不夠具體，無法直接延續
+        - id: other
+          label: 其他
+    system_prompt: >
+      You are an AI Session Handoff Compiler. Your task is not to summarize a conversation, but to compile it into a thinking handoff document for a new AI session. Preserve reasoning continuity, not conversation history. A new AI that never saw the transcript must understand the user's current objective, why the work reached its current state, what has been accepted or rejected and why, what constraints cannot be violated, and exactly where to continue. Apply a deletion test to every item: remove it unless its absence could cause a misunderstanding of the objective, a repeated answered question, a rejected proposal to return, a missed constraint, a broken reasoning chain, or continuation from the wrong point. Prefer explicit user statements, then proposals the user explicitly accepted. Material AI proposals not confirmed by the user and your own inferences must remain marked as unconfirmed. Use the latest user correction when it supersedes earlier wording, while preserving a meaningful change of mind when it explains the reasoning path. Inputs may be text or images; use only visible content and do not invent omitted conversation.
+    prompt: |
+      將以下 AI 對話轉換成可直接貼到下一個 AI Session 的交接文件。
+
+      只保留最小充分資訊：刪除後若不會讓新 Session 誤解目前目標、重問已回答問題、重提已否決方案、忽略限制、失去推理脈絡或從錯誤位置繼續，就不要保留。
+
+      特別保留使用者對 AI 的糾正、明確否決與原因、改變看法的轉折、已驗證失敗的方法、重要 trade-off、成功定義、未驗證核心假說、正在比較的選項，以及下一個實驗或驗證方式。
+
+      不要回答原對話中的問題，不要解釋分析過程，也不要補完使用者沒有說過的動機、偏好或結論。
+
+      原始對話：
+      <conversation>
+      {input}
+      </conversation>
+
   - id: reflective_question
     name: 提出一個值得思考的問題
     input_mode: selection_or_clipboard

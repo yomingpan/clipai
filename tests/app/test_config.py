@@ -425,7 +425,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 22
+    assert len(start_actions) == 23
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -443,6 +443,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "minimum_action": "ctrl+alt+a",
         "tradeoff_perspective": "ctrl+alt+d",
         "temporary_viewpoint": "ctrl+alt+t",
+        "session_handoff": "ctrl+alt+y",
         "extract_keywords": "ctrl+alt+e",
         "structure_score_prompt": "ctrl+alt+f",
         "extract_screenshot_text": "ctrl+alt+g",
@@ -591,6 +592,42 @@ def test_temporary_viewpoint_preserves_an_unfinished_thought_without_forcing_a_c
     assert "without a 暫時觀點 heading" in profile.instruction
     assert "目前的味道" in profile.instruction
     assert "尚未馴化" in profile.instruction
+
+
+def test_session_handoff_preserves_reasoning_continuity_for_a_new_ai_session() -> None:
+    bundle = load_config_bundle()
+    action = bundle.actions.get("session_handoff")
+    shortcut = bundle.shortcuts.definition("session_handoff")
+    profile = bundle.output_profiles.get(action.output_profile)
+
+    assert action.name == "建立 AI 對話交接"
+    assert shortcut.hotkey == "ctrl+alt+y"
+    assert shortcut.action_id == action.id
+    assert action.input_mode == "selection_or_clipboard"
+    assert action.external_fallback == "selection_or_clipboard"
+    assert action.output_mode == "popup"
+    assert action.temperature == 0.1
+    assert action.output_profile == "session_handoff"
+    assert action.press_variants == {}
+    assert action.feedback_contract is not None
+    assert action.feedback_contract.ai_does_not_label == "不替你決定後續方向、補完未說的動機，或將推論當成既定結論"
+    assert "Preserve reasoning continuity, not conversation history" in action.system_prompt
+    assert "user explicitly accepted" in action.system_prompt
+    assert "不要回答原對話中的問題" in action.prompt
+    assert profile.presentation == "markdown_sections"
+    assert profile.required_markers == (
+        "# SESSION HANDOFF",
+        "## A. Current Objective",
+        "## B. Relevant Context",
+        "## C. Intent & Constraints",
+        "## D. Reasoning State",
+        "## E. Open Loops",
+        "## F. Continuation Point",
+        "## USER DOUBLE-CHECK",
+    )
+    assert "30 seconds" in profile.instruction
+    assert "[待確認]" in profile.instruction
+    assert "None identified." in profile.instruction
 
 
 def test_command_copilot_combines_command_generation_and_risk_review() -> None:
