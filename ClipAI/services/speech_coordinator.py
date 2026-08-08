@@ -49,6 +49,7 @@ class SpeechCoordinator:
         voice_selector: SpeechVoiceSelector,
         operation_tracker: OperationTracker | None = None,
         speech_text: SpeechTextPreprocessor | None = None,
+        speech_rate: Callable[[], str] | None = None,
     ) -> None:
         self._clipboard = clipboard
         self._selection_reader = selection_reader
@@ -56,6 +57,7 @@ class SpeechCoordinator:
         self._voice_selector = voice_selector
         self._operation_tracker = operation_tracker
         self._speech_text = speech_text or SpeechTextPreprocessor()
+        self._speech_rate = speech_rate or (lambda: "+0%")
         self._lock = threading.RLock()
         self._current: tuple[str, str, CancellationToken, OperationHandle | None] | None = None
 
@@ -110,7 +112,12 @@ class SpeechCoordinator:
                     return
                 prepared = self._speech_text.prepare(text)
                 if prepared and not token.is_cancelled:
-                    request = SpeechRequest(prepared, self._voice_selector.select(prepared), token)
+                    request = SpeechRequest(
+                        prepared,
+                        self._voice_selector.select(prepared),
+                        token,
+                        rate_override=self._speech_rate(),
+                    )
                     self._speech.speak(request)
                 if operation is not None:
                     if not token.is_cancelled:

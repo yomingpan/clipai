@@ -8,15 +8,15 @@ from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, WorkflowStep
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
-from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
+from ClipAI.services.user_preferences import UserPreferencesCoordinator
 from ClipAI.services.paste_target import PasteTargetCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
 
@@ -296,6 +296,7 @@ class Tray:
         self.model_selections = []
         self.provider_selections = []
         self.guidance_preferences = []
+        self.speech_speeds = []
 
     def start(self) -> None:
         self.started = True
@@ -311,6 +312,9 @@ class Tray:
 
     def set_guidance_preferences(self, preferences) -> None:
         self.guidance_preferences.append(preferences)
+
+    def set_speech_speed(self, state) -> None:
+        self.speech_speeds.append(state)
 
 
 class ModelPreferences:
@@ -525,7 +529,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, submit_error=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None):
     action = ActionDefinition("a", "Action", "system", "{input}", {})
     shorten = ActionDefinition(
         "shorten",
@@ -616,8 +620,10 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         workflow_controller=workflow_module.controller_for,
         enqueue=enqueue,
         action_feedback=action_feedback,
-        guidance_preferences=guidance_preferences,
+        user_preferences=guidance_preferences,
         guidance_preferences_presenter=guidance_preferences_presenter,
+        speech_speed_presenter=speech_speed_presenter,
+        operation_tracker=operation_tracker,
         notifier=notifier,
     )
     view.workflow_controller = workflow_module.controller_for
@@ -658,7 +664,7 @@ class FakeActionFeedback:
 
 class GuidanceStore:
     def __init__(self, preferences=None, error=None) -> None:
-        self.preferences = preferences or GuidancePreferences()
+        self.preferences = preferences or UserPreferences()
         self.error = error
 
     def load(self):
@@ -671,7 +677,7 @@ class GuidanceStore:
 
 
 def test_guidance_setting_waits_for_persistence_before_changing_checked_state() -> None:
-    coordinator = GuidancePreferencesCoordinator(GuidanceStore(GuidancePreferences(True)))
+    coordinator = UserPreferencesCoordinator(GuidanceStore(UserPreferences(True)))
     presenter = Tray(lambda: None)
     runtime, _view, supervisor, _outputs, _listener = make_runtime(
         guidance_preferences=coordinator,
@@ -688,7 +694,7 @@ def test_guidance_setting_waits_for_persistence_before_changing_checked_state() 
 
 
 def test_reset_guidance_keeps_global_switch_and_only_clears_seen_actions() -> None:
-    coordinator = GuidancePreferencesCoordinator(GuidanceStore(GuidancePreferences(False, frozenset({"shorten"}))))
+    coordinator = UserPreferencesCoordinator(GuidanceStore(UserPreferences(False, frozenset({"shorten"}))))
     presenter = Tray(lambda: None)
     runtime, _view, supervisor, _outputs, _listener = make_runtime(
         guidance_preferences=coordinator,
@@ -701,6 +707,49 @@ def test_reset_guidance_keeps_global_switch_and_only_clears_seen_actions() -> No
     runtime.drain_commands()
 
     assert presenter.guidance_preferences[-1] == GuidancePreferences(False)
+
+
+def test_speech_speed_waits_for_persistence_before_changing_checked_state() -> None:
+    coordinator = UserPreferencesCoordinator(GuidanceStore(UserPreferences()), base_speech_rate="+0%")
+    presenter = Tray(lambda: None)
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(
+        guidance_preferences=coordinator,
+        guidance_preferences_presenter=presenter,
+        speech_speed_presenter=presenter,
+    )
+
+    runtime.enqueue(SetSpeechSpeed("super_fast", "speed-1"))
+    runtime.drain_commands()
+    assert presenter.speech_speeds[-1].selected_speed == "normal"
+    assert presenter.speech_speeds[-1].pending_speed == "super_fast"
+
+    supervisor.work["speech-speed-preferences:speed-1"]()
+    runtime.drain_commands()
+    assert presenter.speech_speeds[-1].selected_speed == "super_fast"
+    assert presenter.speech_speeds[-1].pending_speed is None
+
+
+def test_speech_speed_save_failure_restores_selection_and_marks_tray_error() -> None:
+    coordinator = UserPreferencesCoordinator(
+        GuidanceStore(UserPreferences(), error=OSError("read only")),
+        base_speech_rate="+0%",
+    )
+    presenter = Tray(lambda: None)
+    operations = OperationTracker()
+    runtime, _view, supervisor, _outputs, _listener = make_runtime(
+        operation_tracker=operations,
+        guidance_preferences=coordinator,
+        speech_speed_presenter=presenter,
+    )
+
+    runtime.enqueue(SetSpeechSpeed("fast", "speed-1"))
+    runtime.drain_commands()
+    supervisor.work["speech-speed-preferences:speed-1"]()
+    runtime.drain_commands()
+
+    assert presenter.speech_speeds[-1].selected_speed == "normal"
+    assert presenter.speech_speeds[-1].update_pending is False
+    assert operations.events[-1][0] == "report_error"
 
 
 def test_feedback_is_typed_supervised_work_and_projects_real_completion() -> None:

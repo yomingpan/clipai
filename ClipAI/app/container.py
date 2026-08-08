@@ -17,13 +17,13 @@ from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
-from ClipAI.core.commands import ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, ShortcutInputEvent, ShutdownApplication
+from ClipAI.core.commands import ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutInputEvent, ShutdownApplication
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
 from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.action_feedback import JsonlActionFeedbackStore
-from ClipAI.platform.guidance_preferences import JsonGuidancePreferencesStore
+from ClipAI.platform.user_preferences import JsonUserPreferencesStore
 from ClipAI.platform.hotkey import register_hotkeys_with_long_press
 from ClipAI.platform.selection import SystemSelectionCaptureAdapter
 from ClipAI.platform.filesystem import JsonlArchiveStore
@@ -42,7 +42,7 @@ from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.action_feedback import ActionFeedbackService
-from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
+from ClipAI.services.user_preferences import UserPreferencesCoordinator
 from ClipAI.services.provider_binding import ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.input_resolver import InputResolver
@@ -88,7 +88,12 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     readiness_issues = active_binding.readiness_issues
     available_models = active_option.available_models
     clipboard = SystemClipboard()
-    guidance_preferences = GuidancePreferencesCoordinator(JsonGuidancePreferencesStore())
+    speech_available = bundle.tts.enabled and bool(bundle.tts.voice)
+    user_preferences = UserPreferencesCoordinator(
+        JsonUserPreferencesStore(),
+        base_speech_rate=bundle.tts.rate,
+        speech_available=speech_available,
+    )
     runtime_holder: list[AppRuntime] = []
     enqueue = lambda command: runtime_holder[0].enqueue(command)
     tray = TrayController(
@@ -99,9 +104,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         provider_selection=ProviderSelectionState(snapshot.options, snapshot.active_provider),
         on_open_provider_settings=lambda: runtime_holder[0].enqueue(OpenProviderSettings()),
         on_open_shortcut_guide=lambda: runtime_holder[0].enqueue(OpenShortcutGuide(uuid.uuid4().hex)),
-        guidance_preferences=guidance_preferences.preferences,
+        guidance_preferences=user_preferences.guidance_preferences,
         on_set_first_use_hints=lambda enabled: runtime_holder[0].enqueue(SetFirstUseHintsEnabled(enabled, uuid.uuid4().hex)),
         on_reset_first_use_hints=lambda: runtime_holder[0].enqueue(ResetFirstUseHints(uuid.uuid4().hex)),
+        speech_speed=user_preferences.speech_speed_state,
+        on_set_speech_speed=lambda speed: runtime_holder[0].enqueue(SetSpeechSpeed(speed, uuid.uuid4().hex)),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
@@ -127,7 +134,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
     speech = (
         EdgeSpeechOutput(voice=bundle.tts.voice, rate=bundle.tts.rate, volume=bundle.tts.volume)
-        if bundle.tts.enabled and bundle.tts.voice
+        if speech_available
         else None
     )
     clipboard_transactions = ClipboardTransactionCoordinator(clipboard)
@@ -146,6 +153,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             speech=speech,
             voice_selector=voice_selector,
             operation_tracker=operation_tracker,
+            speech_rate=user_preferences.current_speech_rate,
         )
         if speech is not None
         else None
@@ -173,7 +181,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             if speech_coordinator is not None
             else None
         ),
-        guidance_preferences=guidance_preferences,
+        guidance_preferences=user_preferences,
         blocking_runner=lambda task_id, work: supervisor.run(
             task_id,
             work,
@@ -238,8 +246,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         workflow_controller=workflow_module.controller_for,
         enqueue=enqueue,
         action_feedback=ActionFeedbackService(JsonlActionFeedbackStore()),
-        guidance_preferences=guidance_preferences,
+        user_preferences=user_preferences,
         guidance_preferences_presenter=tray,
+        speech_speed_presenter=tray,
+        operation_tracker=operation_tracker,
         notifier=tray,
     )
     shortcut_guide_module = ShortcutGuideRuntimeModule(

@@ -54,7 +54,7 @@ class Tracker:
         return handle
 
 
-def make_coordinator(*, clipboard="clipboard", selection="selected", speech=None, tracker=None):
+def make_coordinator(*, clipboard="clipboard", selection="selected", speech=None, tracker=None, speech_rate=None):
     clipboard_reader = Reader(clipboard)
     selection_reader = Reader(selection)
     speech = speech or Speech()
@@ -65,6 +65,7 @@ def make_coordinator(*, clipboard="clipboard", selection="selected", speech=None
         speech=speech,
         voice_selector=SpeechVoiceSelector("en-GB-TestVoice"),
         operation_tracker=tracker,
+        speech_rate=speech_rate,
     )
     return coordinator, clipboard_reader, selection_reader, speech, tracker
 
@@ -153,6 +154,20 @@ def test_selection_is_captured_when_job_is_created_not_when_worker_runs() -> Non
     job.run()
 
     assert speech.requests[0].text == "captured now"
+
+
+def test_speech_speed_is_captured_when_worker_starts() -> None:
+    active_rate = ["+0%"]
+    coordinator, _clipboard, _selection, speech, _tracker = make_coordinator(
+        speech_rate=lambda: active_rate[0],
+    )
+    job = coordinator.create_text_job(operation_id="speech-1", workflow_id="workflow", text="hello")
+    active_rate[0] = "+25%"
+
+    job.run()
+    active_rate[0] = "+50%"
+
+    assert speech.requests[0].rate_override == "+25%"
 
 
 def test_speech_error_marks_operation_failed() -> None:

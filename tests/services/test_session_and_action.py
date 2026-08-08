@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 
-from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, GuidancePreferences, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, ReadinessIssue, ResolvedAction
+from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, ReadinessIssue, ResolvedAction, UserPreferences
 from ClipAI.core.errors import ProviderResponseError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.providers.fake import FakeProvider
@@ -14,7 +14,7 @@ from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.workflow_controller import WorkflowController
-from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
+from ClipAI.services.user_preferences import UserPreferencesCoordinator
 
 
 class FakeClipboard:
@@ -127,7 +127,7 @@ def run_invocation(
 
 class GuidanceStore:
     def __init__(self) -> None:
-        self.preferences = GuidancePreferences(True)
+        self.preferences = UserPreferences(True)
 
     def load(self):
         return self.preferences
@@ -138,7 +138,7 @@ class GuidanceStore:
 
 def test_first_successful_feedback_recipe_projects_guidance_once() -> None:
     store = GuidanceStore()
-    guidance = GuidancePreferencesCoordinator(store)
+    guidance = UserPreferencesCoordinator(store)
     resolved = replace(action(), feedback_contract=ActionFeedbackContract(
         "Translate",
         "Do not change intent",
