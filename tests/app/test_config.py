@@ -548,7 +548,7 @@ def test_thinking_actions_have_distinct_outputs_and_ai_boundaries() -> None:
         "minimum_action": {
             "name": "最小行動",
             "hotkey": "ctrl+alt+a",
-            "prompt_markers": ("## 最小行動", "## 為什麼是這一步", "## 完成條件"),
+            "prompt_markers": ("## 為什麼是這一步", "## 完成條件"),
             "does_not": "不替你決定是否採用、何時投入、如何修改或是否不行動",
         },
         "tradeoff_perspective": {
@@ -581,6 +581,27 @@ def test_thinking_actions_have_distinct_outputs_and_ai_boundaries() -> None:
     assert "不要先列出多套框架" in bundle.actions.get("mece_decomposition").system_prompt
     assert "只提出一個行動" in bundle.actions.get("minimum_action").system_prompt
     assert "不替使用者排序價值" in bundle.actions.get("tradeoff_perspective").system_prompt
+
+
+def test_popup_prompts_do_not_repeat_action_titles_as_the_first_heading() -> None:
+    bundle = load_config_bundle()
+
+    redundant_headings = {
+        "pyramid_position": "## 建議立場",
+        "article_structure": "## 文章架構",
+        "reflective_question": "## 核心問題",
+        "minimum_action": "## 最小行動",
+        "extract_keywords": "## 核心關鍵字",
+    }
+
+    for action_id, heading in redundant_headings.items():
+        assert heading not in bundle.actions.get(action_id).prompt
+
+    assert "## 核心理由" in bundle.actions.get("pyramid_position").prompt
+    assert "## 重要觀點" in bundle.actions.get("article_structure").prompt
+    assert "## 為什麼值得思考" in bundle.actions.get("reflective_question").prompt
+    assert "## 為什麼是這一步" in bundle.actions.get("minimum_action").prompt
+    assert "## 閱讀提示" in bundle.actions.get("extract_keywords").prompt
 
 
 def test_temporary_viewpoint_preserves_an_unfinished_thought_without_forcing_a_conclusion() -> None:
@@ -632,7 +653,6 @@ def test_session_handoff_preserves_reasoning_continuity_for_a_new_ai_session() -
     assert "不要回答原對話中的問題" in action.prompt
     assert profile.presentation == "markdown_sections"
     assert profile.required_markers == (
-        "# SESSION HANDOFF",
         "## A. Current Objective",
         "## B. Relevant Context",
         "## C. Intent & Constraints",
@@ -641,6 +661,7 @@ def test_session_handoff_preserves_reasoning_continuity_for_a_new_ai_session() -
         "## F. Continuation Point",
         "## USER DOUBLE-CHECK",
     )
+    assert "without a SESSION HANDOFF heading" in profile.instruction
     assert "30 seconds" in profile.instruction
     assert "[待確認]" in profile.instruction
     assert "None identified." in profile.instruction

@@ -11,6 +11,7 @@ Before changing this repository, read:
 1. Every user action must produce an immediate, visible response. A control must show a pending, active, success, or failure state as appropriate; examples include Speak changing to Stop while active and Copy or Archive briefly confirming completion.
 2. UI feedback must reflect the real lifecycle. Do not show success before the operation succeeds, and do not infer external API activity from unrelated UI or workflow snapshot revisions.
 3. Accessibility and clarity take priority over decorative effects. Use a stable icon vocabulary, tooltips, enabled/disabled states, and state changes that remain understandable without animation.
+4. Treat the Popup Action title as part of the content hierarchy. When adding or modifying an Action, check whether the first output heading merely restates the Action title; if it does, start directly with the content. Keep a first heading only when it adds distinct structural meaning or the content must remain identifiable outside the Popup.
 
 ## Architecture-first rule
 

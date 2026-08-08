@@ -69,7 +69,6 @@ profiles:
   - id: session_handoff
     presentation: markdown_sections
     required_markers:
-      - "# SESSION HANDOFF"
       - "## A. Current Objective"
       - "## B. Relevant Context"
       - "## C. Intent & Constraints"
@@ -78,7 +77,7 @@ profiles:
       - "## F. Continuation Point"
       - "## USER DOUBLE-CHECK"
     instruction: |
-      Use the exact SESSION HANDOFF structure. This document must be directly pasteable into a new AI session and must let the user inspect it in 30 seconds.
+      Start directly with `## A. Current Objective`, without a SESSION HANDOFF heading, and use the exact section structure below. This document must be directly pasteable into a new AI session and must let the user inspect it in 30 seconds.
       In A, write the current objective in one or two direct sentences; do not mix in superseded historical goals. In B and C, use short bullets only for background or constraints whose removal could cause the next session to misunderstand the task, repeat an answered question, violate a preference, or ignore a limit. When a section has no material content, write `None identified.` rather than inventing information.
       In D, use `### Accepted` and `### Rejected`. Bold the accepted judgment or rejected option, then put its necessary reason on the following line in normal text. A rejection without its reason is incomplete. Preserve meaningful corrections, failed approaches, changed minds, trade-offs, and unverified core hypotheses.
       In E, keep only genuinely unresolved questions or validations. In F, provide exactly one concrete continuation point as a blockquote, not a generic request to continue discussing.
