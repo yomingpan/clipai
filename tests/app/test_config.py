@@ -65,9 +65,10 @@ def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input()
         "reflective_question": "ctrl+alt+9",
         "critical_thinking": "ctrl+alt+0",
         "mece_decomposition": "ctrl+alt+s",
-        "minimum_action": "ctrl+alt+a",
-        "tradeoff_perspective": "ctrl+alt+d",
-        "extract_keywords": "ctrl+alt+e",
+            "minimum_action": "ctrl+alt+a",
+            "tradeoff_perspective": "ctrl+alt+d",
+            "temporary_viewpoint": "ctrl+alt+t",
+            "extract_keywords": "ctrl+alt+e",
     }
 
     for shortcut_id, hotkey in expected.items():
@@ -125,15 +126,19 @@ def test_ctrl_alt_u_resolves_capture_and_express_as_distinct_learning_intents() 
     assert capture.name == "Capture an Expression"
     assert capture.stream is False
     assert capture.output_profile == "expression_capture"
-    assert "exactly three short substitution examples" in capture.prompt
+    assert "without a Notice heading" in capture.prompt
+    assert "without a Primary expression label" in capture.prompt
+    assert "Without a Pattern heading" in capture.prompt
+    assert "exactly three unnumbered bullet examples" in capture.prompt
     assert "[[SCROLL_FOR_ANSWER]]" in capture.prompt
     assert "answer must appear only after" in capture.prompt
     assert express.name == "Express Naturally"
     assert express.stream is False
     assert express.output_profile == "expression_transfer"
-    assert "one most important naturalness shift" in express.prompt
-    assert "Ask the user one concrete transfer question" in express.prompt
-    assert "Ctrl+/" in express.prompt
+    assert "without a Natural Version heading" in express.prompt
+    assert "smallest original-to-improved comparison" in express.prompt
+    assert "exactly one primary transfer chunk" in express.prompt
+    assert "按 Ctrl+/ 回答" in express.prompt
     assert "evaluate only that transfer attempt" in express.system_prompt
     assert capture.feedback_contract is not None
     assert express.feedback_contract is not None
@@ -142,18 +147,25 @@ def test_ctrl_alt_u_resolves_capture_and_express_as_distinct_learning_intents() 
     capture_profile = bundle.output_profiles.get(capture.output_profile)
     express_profile = bundle.output_profiles.get(express.output_profile)
     assert capture_profile.required_markers == (
-        "## Notice",
-        "## Pattern",
         "## Retrieve",
         "[[SCROLL_FOR_ANSWER]]",
         "## Make It Yours",
     )
+    assert "Start with one valuable source sentence before any Markdown heading" in capture_profile.instruction
+    assert "without a Primary expression label" in capture_profile.instruction
+    assert "Never format English learning content as inline code or with backticks" in capture_profile.instruction
+    assert "Use bold or italics for visual emphasis" in capture_profile.instruction
+    assert "Do not prefix content with redundant field labels" in capture_profile.instruction
+    assert "without a Pattern heading" in capture_profile.instruction
+    assert "exactly three short unnumbered bullet examples" in capture_profile.instruction
     assert express_profile.required_markers == (
-        "## Natural Version",
         "## Key Shift",
-        "## Transfer Chunks",
+        "## Transfer Chunk",
         "## Your Turn",
     )
+    assert "without a Natural Version heading" in express_profile.instruction
+    assert "exactly one bold primary reusable chunk" in express_profile.instruction
+    assert "按 Ctrl+/ 回答" in express_profile.instruction
 
 
 def test_long_press_ctrl_alt_2_translates_to_japanese() -> None:
@@ -413,7 +425,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 21
+    assert len(start_actions) == 23
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -430,6 +442,8 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "mece_decomposition": "ctrl+alt+s",
         "minimum_action": "ctrl+alt+a",
         "tradeoff_perspective": "ctrl+alt+d",
+        "temporary_viewpoint": "ctrl+alt+t",
+        "session_handoff": "ctrl+alt+y",
         "extract_keywords": "ctrl+alt+e",
         "structure_score_prompt": "ctrl+alt+f",
         "extract_screenshot_text": "ctrl+alt+g",
@@ -551,6 +565,69 @@ def test_thinking_actions_have_distinct_outputs_and_ai_boundaries() -> None:
     assert "不要先列出多套框架" in bundle.actions.get("mece_decomposition").system_prompt
     assert "只提出一個行動" in bundle.actions.get("minimum_action").system_prompt
     assert "不替使用者排序價值" in bundle.actions.get("tradeoff_perspective").system_prompt
+
+
+def test_temporary_viewpoint_preserves_an_unfinished_thought_without_forcing_a_conclusion() -> None:
+    bundle = load_config_bundle()
+    action = bundle.actions.get("temporary_viewpoint")
+    shortcut = bundle.shortcuts.definition("temporary_viewpoint")
+    profile = bundle.output_profiles.get(action.output_profile)
+
+    assert action.name == "保存暫時觀點"
+    assert shortcut.hotkey == "ctrl+alt+t"
+    assert shortcut.action_id == action.id
+    assert action.input_mode == "selection_or_clipboard"
+    assert action.external_fallback == "selection_or_clipboard"
+    assert action.output_mode == "popup"
+    assert action.output_profile == "temporary_viewpoint"
+    assert action.press_variants == {}
+    assert action.feedback_contract is not None
+    assert action.feedback_contract.ai_does_not_label == "不替你證明觀點、補完因果、決定最後立場或把未知說成結論"
+    assert "觀點顯影師" in action.system_prompt
+    assert "尚未馴化" in action.system_prompt
+    assert "不超出現有資訊" in action.prompt
+    assert "反轉條件" in action.prompt
+    assert profile.presentation == "markdown_sections"
+    assert profile.required_markers == ("## 依據與假說",)
+    assert "without a 暫時觀點 heading" in profile.instruction
+    assert "目前的味道" in profile.instruction
+    assert "尚未馴化" in profile.instruction
+
+
+def test_session_handoff_preserves_reasoning_continuity_for_a_new_ai_session() -> None:
+    bundle = load_config_bundle()
+    action = bundle.actions.get("session_handoff")
+    shortcut = bundle.shortcuts.definition("session_handoff")
+    profile = bundle.output_profiles.get(action.output_profile)
+
+    assert action.name == "建立 AI 對話交接"
+    assert shortcut.hotkey == "ctrl+alt+y"
+    assert shortcut.action_id == action.id
+    assert action.input_mode == "selection_or_clipboard"
+    assert action.external_fallback == "selection_or_clipboard"
+    assert action.output_mode == "popup"
+    assert action.temperature == 0.1
+    assert action.output_profile == "session_handoff"
+    assert action.press_variants == {}
+    assert action.feedback_contract is not None
+    assert action.feedback_contract.ai_does_not_label == "不替你決定後續方向、補完未說的動機，或將推論當成既定結論"
+    assert "Preserve reasoning continuity, not conversation history" in action.system_prompt
+    assert "user explicitly accepted" in action.system_prompt
+    assert "不要回答原對話中的問題" in action.prompt
+    assert profile.presentation == "markdown_sections"
+    assert profile.required_markers == (
+        "# SESSION HANDOFF",
+        "## A. Current Objective",
+        "## B. Relevant Context",
+        "## C. Intent & Constraints",
+        "## D. Reasoning State",
+        "## E. Open Loops",
+        "## F. Continuation Point",
+        "## USER DOUBLE-CHECK",
+    )
+    assert "30 seconds" in profile.instruction
+    assert "[待確認]" in profile.instruction
+    assert "None identified." in profile.instruction
 
 
 def test_command_copilot_combines_command_generation_and_risk_review() -> None:

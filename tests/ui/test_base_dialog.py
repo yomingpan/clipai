@@ -821,6 +821,62 @@ def test_presentation_surface_projects_double_clicked_word_without_partial_break
     assert surface.selected_text() == "appetizer"
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("A I", "I"),
+        (
+            "- I went from [not doing X] to [basically doing Y].",
+            "I went from [not doing X] to [basically doing Y].",
+        ),
+    ),
+)
+def test_presentation_surface_preserves_selection_after_a_semantic_space(
+    source: str,
+    expected: str,
+) -> None:
+    from ClipAI.services.presentation import MarkdownPresentationParser
+
+    class Textbox:
+        def __init__(self) -> None:
+            self.text = ""
+            self.selection = (0, 0)
+
+        def configure(self, **_kwargs) -> None:
+            pass
+
+        def delete(self, *_args) -> None:
+            self.text = ""
+
+        def insert(self, _index, text, _tags) -> None:
+            self.text += text
+
+        def get(self, start, end) -> str:
+            first, last = self.selection
+            if (start, end) == ("sel.first", "sel.last"):
+                return self.text[first:last]
+            if (start, end) == ("1.0", "sel.first"):
+                return self.text[:first]
+            raise AssertionError((start, end))
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._list_indent_prefixes = {}
+    surface.set_presentation_document(MarkdownPresentationParser().parse(source))
+    selected_character = surface.content_text.text.index("I")
+    boundary_hint = surface.content_text.text.rfind(
+        DISPLAY_BREAK_HINT,
+        0,
+        selected_character,
+    )
+    surface.content_text.selection = (
+        boundary_hint,
+        surface.content_text.text.index("\n", selected_character),
+    )
+
+    assert surface.selected_text() == expected
+
+
 def test_presentation_surface_renders_retrieval_spacer_without_showing_marker() -> None:
     from ClipAI.services.presentation import MarkdownPresentationParser
 

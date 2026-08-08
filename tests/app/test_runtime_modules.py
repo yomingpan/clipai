@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from ClipAI.core.commands import CloseSession, CopyResult, SelectProviderModel, SetFirstUseHintsEnabled, StartAction
-from ClipAI.core.models import GuidancePreferences
-from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
+from ClipAI.core.models import UserPreferences
+from ClipAI.services.user_preferences import UserPreferencesCoordinator
 from tests.app.test_runtime import GuidanceStore, ModelPreferences, make_runtime
 
 
@@ -44,21 +44,21 @@ def test_provider_configuration_module_interface_projects_committed_selection() 
     assert runtime._provider_configuration_module.coordinator.active_binding.model == "new-model"
 
 
-def test_user_persistence_module_interface_waits_for_completion_projection() -> None:
-    store = GuidanceStore(GuidancePreferences(False))
-    guidance = GuidancePreferencesCoordinator(store)
+def test_user_preferences_module_interface_waits_for_completion_projection() -> None:
+    store = GuidanceStore(UserPreferences(False))
+    guidance = UserPreferencesCoordinator(store)
     runtime, _view, supervisor, _outputs, _listener = make_runtime(
         guidance_preferences=guidance,
         guidance_preferences_presenter=None,
     )
 
-    runtime._user_persistence_module.handle(SetFirstUseHintsEnabled(True, "guidance-op"))
-    assert guidance.preferences.first_use_hints_enabled is False
+    runtime._user_preferences_module.handle(SetFirstUseHintsEnabled(True, "guidance-op"))
+    assert guidance.guidance_preferences.first_use_hints_enabled is False
 
     supervisor.work["guidance-preferences:guidance-op"]()
     runtime.drain_commands()
 
-    assert guidance.preferences.first_use_hints_enabled is True
+    assert guidance.guidance_preferences.first_use_hints_enabled is True
 
 
 def test_runtime_routes_close_output_cleanup_before_workflow_close() -> None:

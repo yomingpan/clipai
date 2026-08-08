@@ -16,6 +16,7 @@ InputMode = Literal["clipboard", "clipboard_image", "selection_or_clipboard"]
 OutputMode = Literal["popup"]
 ExternalFallback = Literal["selection_or_clipboard", "clipboard"]
 ResultRoute = Literal["popup", "speech"]
+SpeechSpeed = Literal["slow", "normal", "fast", "super_fast"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
 OperationKind = Literal["llm", "tts", "copy", "paste", "archive"]
 FeedbackOutcome = Literal["helpful", "needs_adjustment", "not_applicable"]
@@ -120,6 +121,14 @@ class ProviderSelectionState:
     pending_provider: str | None = None
     reloading: bool = False
     configuration_pending: bool = False
+
+
+@dataclass(frozen=True)
+class SpeechSpeedState:
+    selected_speed: SpeechSpeed | None
+    pending_speed: SpeechSpeed | None = None
+    update_pending: bool = False
+    available: bool = True
 
 
 @dataclass(frozen=True)
@@ -344,6 +353,7 @@ class SpeechRequest:
     text: str
     voice_override: str | None
     cancellation: CancellationToken
+    rate_override: str | None = None
 
 
 @dataclass(frozen=True)
@@ -403,6 +413,13 @@ class GuidancePreferences:
     first_use_hints_enabled: bool = False
     seen_action_ids: frozenset[str] = frozenset()
     update_pending: bool = False
+
+
+@dataclass(frozen=True)
+class UserPreferences:
+    first_use_hints_enabled: bool = False
+    seen_action_ids: frozenset[str] = frozenset()
+    speech_speed: SpeechSpeed | None = None
 
 
 @dataclass(frozen=True)

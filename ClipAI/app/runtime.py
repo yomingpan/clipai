@@ -7,11 +7,12 @@ import queue
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeCommand, ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule, ProviderRuntimeCommand
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeCommand, ShortcutGuideRuntimeModule
-from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeCommand, UserPersistenceRuntimeModule
+from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeCommand, ActionFeedbackRuntimeModule
+from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeCommand, UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvocationFailed, WorkflowRuntimeCommand, WorkflowRuntimeModule, WorkflowSnapshotReady
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.app.provider_execution import ProviderExecutionModule
-from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseProviderSettings, CloseSession, CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseProviderSettings, CloseSession, CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ControlSurfaceRef, InterruptionPlan, ShortcutObservationSnapshot
 from ClipAI.core.ports import ApplicationView, ForegroundWindowMonitor, OperationTracker, RuntimeComponent, ShortcutInput, ShortcutObservationLease
 from ClipAI.services.provider_configuration import ProviderConfigurationResult
@@ -22,7 +23,8 @@ from ClipAI.services.user_control import UserControlCoordinator
 _WORKFLOW_COMMANDS = (StartAction, CloseSession, CancelSession, TogglePin, FollowUp, ActivateWorkflow, NavigateWorkflowBack, WorkflowInvocationFailed, HeadlessWorkflowFinished, WorkflowSnapshotReady)
 _OUTPUT_COMMANDS = (CopyResult, PasteResult, ArchiveResult, ToggleSpeech, SpeakSelectionOrClipboard, ExportDiagnostics)
 _PROVIDER_COMMANDS = (SelectProviderModel, SelectProvider, ReloadConfiguration, OpenProviderSettings, CloseProviderSettings, ValidateAndSaveProviderSettings, RefreshProviderModels, ProviderConfigurationResult)
-_USER_PERSISTENCE_COMMANDS = (SubmitActionFeedback, ActionFeedbackCompleted, SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted)
+_ACTION_FEEDBACK_COMMANDS = (SubmitActionFeedback, ActionFeedbackCompleted)
+_USER_PREFERENCES_COMMANDS = (SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted, SetSpeechSpeed, SpeechSpeedPreferencesCompleted)
 _SHORTCUT_GUIDE_COMMANDS = (OpenShortcutGuide, CloseShortcutGuide, SelectShortcutGuideItem)
 _SHORTCUT_INPUT_EVENTS = (
     ShortcutKeyStateChanged,
@@ -46,7 +48,8 @@ class AppRuntime:
         workflows: WorkflowRuntimeModule,
         result_output: ResultOutputRuntimeModule,
         provider_configuration: ProviderConfigurationRuntimeModule,
-        user_persistence: UserPersistenceRuntimeModule,
+        action_feedback: ActionFeedbackRuntimeModule,
+        user_preferences: UserPreferencesRuntimeModule,
         hotkey_registrar: Callable[
             [
                 dict[str, dict[str, str]],
@@ -67,7 +70,8 @@ class AppRuntime:
         self._workflow_module = workflows
         self._result_output_module = result_output
         self._provider_configuration_module = provider_configuration
-        self._user_persistence_module = user_persistence
+        self._action_feedback_module = action_feedback
+        self._user_preferences_module = user_preferences
         self._hotkey_registrar = hotkey_registrar
         self._tray_factory = tray_factory
         self._operation_tracker = operation_tracker
@@ -236,8 +240,10 @@ class AppRuntime:
             self._result_output_module.handle(cast(ResultOutputRuntimeCommand, command))
         elif isinstance(command, _PROVIDER_COMMANDS):
             self._provider_configuration_module.handle(cast(ProviderRuntimeCommand, command))
-        elif isinstance(command, _USER_PERSISTENCE_COMMANDS):
-            self._user_persistence_module.handle(cast(UserPersistenceRuntimeCommand, command))
+        elif isinstance(command, _ACTION_FEEDBACK_COMMANDS):
+            self._action_feedback_module.handle(cast(ActionFeedbackRuntimeCommand, command))
+        elif isinstance(command, _USER_PREFERENCES_COMMANDS):
+            self._user_preferences_module.handle(cast(UserPreferencesRuntimeCommand, command))
 
     def _execute_interruption(self, plan: InterruptionPlan) -> None:
         surface = plan.surface

@@ -319,14 +319,16 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
 - Raw input and output are excluded from feedback records unless the user explicitly elects to preserve that positive or negative case.
 - Feedback never changes an Action automatically. A future prompt-improvement workflow must use a separate explicit user intent, candidate version, and regression check.
 
-## First-use guidance ownership
+## User preferences ownership
 
-- `GuidancePreferencesCoordinator` is the single owner of the enabled flag, seen Action ids, and preference-operation identity.
+- `UserPreferencesCoordinator` is the single owner of first-use guidance, Speech Speed, and preference-operation identity. Explicit preference writes share one operation gate because they update the same persisted aggregate.
 - Tray emits typed preference intents and projects authoritative preferences; it never reads or writes JSON and never changes the checked state before persistence succeeds.
-- A platform `GuidancePreferencesStore` adapter owns `data/user_preferences.json` and writes it atomically. `.env` is not a user-interaction preference store.
+- A platform `UserPreferencesStore` adapter owns `data/user_preferences.json` and writes it atomically. `.env` remains independently owned provider configuration and does not share this gate.
 - First-use hints are disabled by default and the tray toggle is initially unchecked. When explicitly enabled, a successful feedback-enabled Recipe may consume its first-use hint once per Action and press type. The visible Workflow surface projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.
-- Legacy preference schema v1 migrates to disabled while preserving seen Action ids, so the former default-on value does not survive as an accidental opt-in. Schema v2 persists subsequent explicit user choices.
+- Legacy preference schema v1 migrates to disabled while preserving seen Action ids, and schema v2 loads without a Speech Speed override. Schema v3 persists subsequent explicit choices.
 - Reset clears only seen Action ids. It does not enable first-use hints or change any Recipe.
+- Missing Speech Speed preserves `config.yaml`'s `tts.rate`; the four known rates project as presets and any other legacy rate projects as Custom until the user explicitly selects a preset.
+- A speech request captures the current persisted speed when its worker starts. Later preference changes affect only subsequent speech and never mutate, stop, or restart active playback.
 
 ## Runtime ownership additions (ADR-0002 / ADR-0003)
 

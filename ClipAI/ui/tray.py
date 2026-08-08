@@ -7,10 +7,16 @@ import time
 
 from PIL import Image, ImageDraw
 
-from ClipAI.core.models import ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState
+from ClipAI.core.models import ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
 
 logger = logging.getLogger("clipai.tray")
 SHORTCUT_GUIDE_MENU_LABEL = "Keyboard Shortcuts..."
+SPEECH_SPEED_LABELS: tuple[tuple[SpeechSpeed, str], ...] = (
+    ("slow", "Slow"),
+    ("normal", "Normal"),
+    ("fast", "Fast"),
+    ("super_fast", "Super Fast"),
+)
 
 STATUS_COLORS: dict[ApplicationStatus, tuple[int, int, int]] = {
     "idle": (0, 82, 184),
@@ -85,6 +91,8 @@ class TrayController:
         guidance_preferences: GuidancePreferences | None = None,
         on_set_first_use_hints: Callable[[bool], None] | None = None,
         on_reset_first_use_hints: Callable[[], None] | None = None,
+        speech_speed: SpeechSpeedState | None = None,
+        on_set_speech_speed: Callable[[SpeechSpeed], None] | None = None,
     ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
@@ -100,6 +108,8 @@ class TrayController:
         self._guidance_preferences = guidance_preferences
         self._on_set_first_use_hints = on_set_first_use_hints
         self._on_reset_first_use_hints = on_reset_first_use_hints
+        self._speech_speed = speech_speed
+        self._on_set_speech_speed = on_set_speech_speed
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -122,6 +132,10 @@ class TrayController:
             menu_items.append(pystray.MenuItem("Settings and Models...", lambda _icon, _item: self._on_open_provider_settings()))
         if self._on_open_shortcut_guide is not None:
             menu_items.append(pystray.MenuItem(SHORTCUT_GUIDE_MENU_LABEL, lambda _icon, _item: self._on_open_shortcut_guide()))
+        speech_speed_menu = self._build_speech_speed_menu(pystray)
+        if speech_speed_menu is not None:
+            menu_items.append(speech_speed_menu)
+            menu_items.append(pystray.Menu.SEPARATOR)
         guidance_menu = self._build_guidance_menu(pystray)
         if guidance_menu is not None:
             menu_items.append(guidance_menu)
@@ -207,8 +221,61 @@ class TrayController:
             ),
         )
 
+    def _build_speech_speed_menu(self, pystray):
+        if self._speech_speed is None or self._on_set_speech_speed is None:
+            return None
+        return pystray.MenuItem(
+            lambda _item: self._speech_speed_label(),
+            pystray.Menu(*(
+                pystray.MenuItem(
+                    label,
+                    self._speech_speed_action(speed),
+                    checked=lambda _item, chosen=speed: self._speech_speed is not None and self._speech_speed.selected_speed == chosen,
+                    radio=True,
+                    enabled=lambda _item, chosen=speed: (
+                        self._speech_speed is not None
+                        and self._speech_speed.available
+                        and not self._speech_speed.update_pending
+                        and self._speech_speed.selected_speed != chosen
+                    ),
+                )
+                for speed, label in SPEECH_SPEED_LABELS
+            )),
+        )
+
+    def _speech_speed_label(self) -> str:
+        state = self._speech_speed
+        if state is None:
+            return "Speech Speed"
+        if not state.available:
+            return "Speech Speed (unavailable)"
+        if state.pending_speed is not None:
+            return "Speech Speed (saving...)"
+        if state.selected_speed is None:
+            return "Speech Speed (Custom)"
+        return "Speech Speed"
+
+    def _speech_speed_action(self, speed: SpeechSpeed):
+        def select(_icon, _item) -> None:
+            state = self._speech_speed
+            if (
+                state is None
+                or self._on_set_speech_speed is None
+                or not state.available
+                or state.update_pending
+                or state.selected_speed == speed
+            ):
+                return
+            self._on_set_speech_speed(speed)
+
+        return select
+
     def set_guidance_preferences(self, preferences: GuidancePreferences) -> None:
         self._guidance_preferences = preferences
+        self._refresh_menu()
+
+    def set_speech_speed(self, state: SpeechSpeedState) -> None:
+        self._speech_speed = state
         self._refresh_menu()
 
     def _provider_action(self, provider: str):

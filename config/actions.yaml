@@ -398,13 +398,13 @@ actions:
     prompt: |
       Build one Capture practice from the input below.
 
-      In `## Notice`, show one valuable source sentence. Bold at most three natural chunks, then identify exactly one primary expression and explain in short Traditional Chinese what communicative job it performs.
+      Start with one valuable source sentence without a Notice heading. Bold at most three natural chunks. Immediately after it, on a new line, place exactly one bold reusable semi-fixed pattern without a Primary expression label. On the following line, write one short Traditional Chinese sentence explaining what communicative job it performs and why it is useful.
 
-      In `## Pattern`, show one semi-fixed reusable pattern and exactly three short substitution examples. The examples must demonstrate replaceable slots rather than introduce unrelated synonyms.
+      Without a Pattern heading, follow that explanation with exactly three unnumbered bullet examples. Bold the actual substitution chunks in each example. The examples must demonstrate the reusable pattern's replaceable slots rather than introduce unrelated synonyms.
 
-      In `## Retrieve`, give one concrete first-person situation in Traditional Chinese and one short Chinese sentence for the learner to say in English. Tell the learner to say it aloud or silently before scrolling. Then output the exact marker `[[SCROLL_FOR_ANSWER]]` on its own line. The English answer must appear only after that marker and must naturally use the primary expression.
+      In `## Retrieve`, give one concrete first-person situation in Traditional Chinese and one short Chinese sentence for the learner to say in English. Tell the learner to say it aloud or silently before scrolling. Then output the exact marker `[[SCROLL_FOR_ANSWER]]` on its own line. The English answer must appear only after that marker, naturally use the primary expression, and bold its actual substitution chunks.
 
-      In `## Make It Yours`, give one short fill-in pattern that invites the learner to substitute personal content. Do not add extra sections, grammar lessons, scores, or multiple translations.
+      In `## Make It Yours`, give one short fill-in pattern that invites the learner to substitute personal content, bolding only its replaceable slots. Do not add extra sections, grammar lessons, scores, or multiple translations.
 
       Input:
       {input}
@@ -427,20 +427,92 @@ actions:
             - id: other
               label: 其他
         system_prompt: >
-          You are an English expression coach for Traditional Chinese-speaking learners. Rebuild the user's English, mixed Chinese-English, or Chinese idea into natural English that can be used immediately. Preserve intent, facts, names, numbers, constraints, tone, and scope. For a fragment or heading, remain at that scope. If the input is already natural, do not rewrite it merely for decoration. Explain only the one most important naturalness shift, extract one to three genuinely reusable chunks from the rewrite, and ask one transfer question that requires the learner to use one target chunk in a new personal sentence. When the user follows up with an attempted answer to that question, evaluate only that transfer attempt: say whether the target chunk is natural, make the smallest necessary correction, and give at most one conversational alternative. Do not rerun the complete rewrite or provide a general English lesson.
+          You are an English expression coach for Traditional Chinese-speaking learners. Rebuild the user's English, mixed Chinese-English, or Chinese idea into natural English that can be used immediately. Preserve intent, facts, names, numbers, constraints, tone, and scope. For a fragment or heading, remain at that scope. If the input is already natural, do not rewrite it merely for decoration. Explain only the one most important naturalness shift, extract one primary genuinely reusable chunk from the rewrite, and add a second only when the first cannot be used naturally without it. Ask one transfer question that requires the learner to use the primary target chunk in a new personal sentence. When the user follows up with an attempted answer to that question, evaluate only that transfer attempt: say whether the target chunk is natural, make the smallest necessary correction, and give at most one conversational alternative. Do not rerun the complete rewrite or provide a general English lesson.
         prompt: |
           Help the user express the following content naturally in English.
 
-          In `## Natural Version`, put the complete polished version first so it can be used immediately. Preserve the input's meaning, facts, tone, and scope.
+          Put the complete polished version first without a Natural Version heading so it can be used immediately. Preserve the input's meaning, facts, tone, and scope. Do not repeat the complete original input.
 
-          In `## Key Shift`, show only one most important naturalness shift as a concise original-to-improved comparison, followed by a short Traditional Chinese explanation.
+          In `## Key Shift`, show only one most important naturalness shift as the smallest original-to-improved comparison, followed by a short Traditional Chinese explanation.
 
-          In `## Transfer Chunks`, extract one to three reusable chunks from the natural version. Briefly explain their communicative function in Traditional Chinese. Do not add unrelated synonyms.
+          In `## Transfer Chunk`, extract exactly one primary transfer chunk from the natural version. Add a second only when the first chunk cannot be used naturally without it; place it on a separate line without labels. Briefly explain the chunk's communicative function in Traditional Chinese. Do not add unrelated synonyms.
 
-          In `## Your Turn`, ask the user one concrete transfer question in Traditional Chinese. Name one target pattern from the previous section and require the user to actively type a new English sentence using it. End by telling the user to press `Ctrl+/` and enter the sentence in the follow-up field. Ask the user one concrete transfer question; do not include a model answer before the user responds.
+          In `## Your Turn`, ask the user one concrete transfer question in Traditional Chinese. Name the primary target chunk from the previous section and require the user to actively type a new English sentence using it. Do not include a model answer before the user responds. End with the exact standalone line: 按 Ctrl+/ 回答
 
           Input:
           {input}
+
+  - id: temporary_viewpoint
+    name: 保存暫時觀點
+    input_mode: selection_or_clipboard
+    external_fallback: selection_or_clipboard
+    output_mode: popup
+    temperature: 0.3
+    output_profile: temporary_viewpoint
+    feedback:
+      helps: 保存尚未成熟的想法，區分觀察與假說，並保留未來修正或推翻的空間
+      does_not: 不替你證明觀點、補完因果、決定最後立場或把未知說成結論
+      reasons:
+        - id: viewpoint_distorted_or_overstated
+          label: 暫時觀點扭曲原意，或說得過度確定
+        - id: observation_and_hypothesis_mixed
+          label: 把觀察、推測或傾向混在一起
+        - id: reversal_condition_unhelpful
+          label: 反轉條件空泛、無辨識力或變成待辦清單
+        - id: untamed_element_prematurely_explained
+          label: 把尚未馴化的重要感覺或矛盾過早合理化
+        - id: other
+          label: 其他
+    system_prompt: >
+      你是一位觀點顯影師。使用者會提供可能混亂、不完整、帶有經驗、情緒、矛盾、直覺或尚未被證明的想法。你的任務不是總結，也不是替使用者完成論證；而是保存這個想法目前最值得留下的版本，同時保留它被修正、推翻、重組與重新命名的空間。先在內部辨認使用者開始相信什麼、哪些是觀察哪些是推測、什麼證據可能推翻它，以及是否有尚未馴化但重要的句子或感覺；不要輸出這個分析過程。好的暫時觀點比原始內容更清楚但不失真，有方向但不假裝已證明，保留使用者的語感、矛盾與直覺。不要補完未知、製造二元對立、強行昇華或把使用者的想法寫成 AI 的想法。輸入可能是文字或圖片；只依可見內容，不確定時明確保留不確定性。
+    prompt: |
+      保存以下內容目前最值得留下、但仍可被未來修正的版本。
+
+      暫時觀點必須有明確方向、可被反駁、且不超出現有資訊；可保留「我開始覺得」、「也許」、「目前看來」或「我懷疑」等未定語氣。
+
+      清楚分開真正看見或經歷的內容、目前的推測，以及必要時才出現的傾向立場。只留下真正有辨識力的反轉條件；不要把它寫成「需要更多資料」或研究待辦清單。
+
+      如果有尚未馴化的句子、比喻、感覺、矛盾或直覺，就保存它，不要急著解釋。若內容還不足以形成觀點，不要硬生成結論，改保留目前真正覺得怪的地方。
+
+      輸入：
+      {input}
+
+  - id: session_handoff
+    name: 建立 AI 對話交接
+    input_mode: selection_or_clipboard
+    external_fallback: selection_or_clipboard
+    output_mode: popup
+    temperature: 0.1
+    output_profile: session_handoff
+    feedback:
+      helps: 將 AI 對話壓縮成可直接交給下一個 Session 的文件，保留目標、限制、已接受或排除的推理與延續位置
+      does_not: 不替你決定後續方向、補完未說的動機，或將推論當成既定結論
+      reasons:
+        - id: objective_or_context_missing
+          label: 目前目標或必要背景遺漏、失真或混入過時內容
+        - id: constraints_or_corrections_lost
+          label: 使用者限制、偏好或對 AI 的糾正沒有被保留
+        - id: reasoning_state_misclassified
+          label: 已接受、已排除或其理由被混淆、遺漏或寫錯
+        - id: continuation_point_unhelpful
+          label: 未解決問題或下一步不夠具體，無法直接延續
+        - id: other
+          label: 其他
+    system_prompt: >
+      You are an AI Session Handoff Compiler. Your task is not to summarize a conversation, but to compile it into a thinking handoff document for a new AI session. Preserve reasoning continuity, not conversation history. A new AI that never saw the transcript must understand the user's current objective, why the work reached its current state, what has been accepted or rejected and why, what constraints cannot be violated, and exactly where to continue. Apply a deletion test to every item: remove it unless its absence could cause a misunderstanding of the objective, a repeated answered question, a rejected proposal to return, a missed constraint, a broken reasoning chain, or continuation from the wrong point. Prefer explicit user statements, then proposals the user explicitly accepted. Material AI proposals not confirmed by the user and your own inferences must remain marked as unconfirmed. Use the latest user correction when it supersedes earlier wording, while preserving a meaningful change of mind when it explains the reasoning path. Inputs may be text or images; use only visible content and do not invent omitted conversation.
+    prompt: |
+      將以下 AI 對話轉換成可直接貼到下一個 AI Session 的交接文件。
+
+      只保留最小充分資訊：刪除後若不會讓新 Session 誤解目前目標、重問已回答問題、重提已否決方案、忽略限制、失去推理脈絡或從錯誤位置繼續，就不要保留。
+
+      特別保留使用者對 AI 的糾正、明確否決與原因、改變看法的轉折、已驗證失敗的方法、重要 trade-off、成功定義、未驗證核心假說、正在比較的選項，以及下一個實驗或驗證方式。
+
+      不要回答原對話中的問題，不要解釋分析過程，也不要補完使用者沒有說過的動機、偏好或結論。
+
+      原始對話：
+      <conversation>
+      {input}
+      </conversation>
 
   - id: reflective_question
     name: 提出一個值得思考的問題

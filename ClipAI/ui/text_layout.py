@@ -27,6 +27,7 @@ def strip_display_break_hint_boundaries(
     trailing: bool = False,
 ) -> str:
     """Remove complete hints plus fragments cut by a Tk selection boundary."""
+    text = strip_display_break_hints(text)
     if leading and not text.startswith(DISPLAY_BREAK_HINT):
         for start in range(1, len(DISPLAY_BREAK_HINT)):
             fragment = DISPLAY_BREAK_HINT[start:]
@@ -39,7 +40,7 @@ def strip_display_break_hint_boundaries(
             if text.endswith(fragment):
                 text = text[:-len(fragment)]
                 break
-    return strip_display_break_hints(text)
+    return text
 
 
 def add_display_break_hints(text: str) -> str:

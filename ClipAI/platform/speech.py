@@ -29,7 +29,12 @@ class EdgeSpeechOutput:
             path = Path(tempfile.gettempdir()) / f"clipai-speech-{threading.get_ident()}.mp3"
             try:
                 voice = request.voice_override or self._voice
-                communicate = edge_tts.Communicate(request.text, voice, rate=self._rate, volume=self._volume)
+                communicate = edge_tts.Communicate(
+                    request.text,
+                    voice,
+                    rate=request.rate_override or self._rate,
+                    volume=self._volume,
+                )
                 asyncio.run(communicate.save(str(path)))
                 if self._stop.is_set() or request.cancellation.is_cancelled:
                     return

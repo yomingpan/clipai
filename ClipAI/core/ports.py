@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, UserFacingError
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 
 
@@ -80,10 +80,10 @@ class ActionFeedbackStore(Protocol):
     def append(self, record: ActionFeedbackRecord) -> None: ...
 
 
-class GuidancePreferencesStore(Protocol):
-    def load(self) -> GuidancePreferences: ...
+class UserPreferencesStore(Protocol):
+    def load(self) -> UserPreferences: ...
 
-    def save(self, preferences: GuidancePreferences) -> None: ...
+    def save(self, preferences: UserPreferences) -> None: ...
 
 
 class SpeechOutput(Protocol):
@@ -124,6 +124,10 @@ class ProviderSettingsPresenter(Protocol):
 
 class GuidancePreferencesPresenter(Protocol):
     def set_guidance_preferences(self, preferences: GuidancePreferences) -> None: ...
+
+
+class SpeechSpeedPresenter(Protocol):
+    def set_speech_speed(self, state: SpeechSpeedState) -> None: ...
 
 
 class ShortcutGuidePresenter(Protocol):

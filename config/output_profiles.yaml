@@ -25,29 +25,64 @@ profiles:
   - id: expression_capture
     presentation: markdown_sections
     required_markers:
-      - "## Notice"
-      - "## Pattern"
       - "## Retrieve"
       - "[[SCROLL_FOR_ANSWER]]"
       - "## Make It Yours"
     instruction: |
-      Use exactly these four Markdown sections in order: Notice, Pattern, Retrieve, and Make It Yours.
-      Notice preserves one valuable source sentence, bolds at most three natural chunks, and selects one primary expression.
-      Pattern contains one reusable semi-fixed pattern and exactly three short substitution examples.
+      Start with one valuable source sentence before any Markdown heading. Bold at most three natural chunks in that sentence.
+      Immediately after it, on a new line, place exactly one bold reusable semi-fixed pattern without a Primary expression label. On the following line, write one short Traditional Chinese sentence explaining its communicative intent and why it is useful.
+      Then, without a Pattern heading, give exactly three short unnumbered bullet examples that substitute the pattern's slots.
+      Use exactly these two Markdown sections afterward, in order: Retrieve and Make It Yours.
       Retrieve contains one concrete Traditional Chinese situation and one Chinese retrieval prompt. Tell the learner to try saying it before scrolling, then put `[[SCROLL_FOR_ANSWER]]` alone on a line. Put the English answer only after that marker.
       Make It Yours contains one concise fill-in pattern. Keep the result compact and do not add other sections.
+      Never format English learning content as inline code or with backticks, including the primary expression, patterns, examples, answer, and fill-in pattern. Use bold or italics for visual emphasis so words remain easy to select.
+      Do not prefix content with redundant field labels, and do not turn every line into a bullet. Bold only replaceable slots in the Make It Yours line, and only the actual substitution chunks in each bullet example and the Retrieve answer. Present Retrieve and Make It Yours content directly in natural reading order instead of as labeled key-value fields.
 
   - id: expression_transfer
     presentation: markdown_sections
     required_markers:
-      - "## Natural Version"
       - "## Key Shift"
-      - "## Transfer Chunks"
+      - "## Transfer Chunk"
       - "## Your Turn"
     instruction: |
-      For the initial response, use exactly these four Markdown sections in order: Natural Version, Key Shift, Transfer Chunks, and Your Turn.
-      Put the complete usable English first. Explain only one key naturalness shift. Extract one to three reusable chunks. End with one concrete question that asks the learner to press `Ctrl+/` and type a new English sentence using one named target pattern in the follow-up field, without revealing a model answer.
-      If the latest user message is an attempted answer to Your Turn, do not repeat the four-section lesson. Evaluate only the target chunk usage, make the smallest necessary correction, and give at most one conversational alternative.
+      For the initial response, put the complete usable English first without a Natural Version heading. Do not repeat the complete original input.
+      Then use exactly these three Markdown sections in order: Key Shift, Transfer Chunk, and Your Turn.
+      Key Shift contains one smallest original-to-improved comparison and one short Traditional Chinese explanation of why the improved version is more natural.
+      Transfer Chunk contains exactly one bold primary reusable chunk and one short Traditional Chinese explanation of when it is useful. Add a second chunk only when the primary chunk cannot be used naturally without it; put it on a separate line without a label or unrelated synonym.
+      Your Turn contains one concrete Traditional Chinese task that names the primary target chunk and asks the learner to type a new English sentence. Do not reveal a model answer. End with the exact standalone line: 按 Ctrl+/ 回答
+      If the latest user message is an attempted answer to Your Turn, do not repeat the three-section lesson. Evaluate only the target chunk usage, make the smallest necessary correction, and give at most one conversational alternative.
+
+  - id: temporary_viewpoint
+    presentation: markdown_sections
+    required_markers:
+      - "## 依據與假說"
+    instruction: |
+      For a developed thought, start directly with the temporary viewpoint in one to four short paragraphs, without a 暫時觀點 heading. Preserve the user's uncertainty, tension, and voice; do not turn a summary into a conclusion.
+      Then use `## 依據與假說`. Use **觀察** for what is actually seen, experienced, or known, and **假說** for the explanation currently being inferred. Add **傾向** only when the user genuinely leans toward a belief that is not established. Do not create categories merely to fill the format, and do not promote a hypothesis to an observation.
+      Add `## 反轉條件` only when a genuinely discriminating future observation, experience, or result could lower confidence, revise, or overturn the viewpoint. State it as a concrete “如果看到 X，我會改變目前看法” condition, not a research to-do list. If no meaningful condition is available, say directly that this uncertainty should be retained.
+      Add `## 尚未馴化` only when the input contains an important but not-yet-explainable phrase, metaphor, feeling, contradiction, or intuition. Preserve it alone on its own line; do not explain, define, or rationalize it.
+      When the input is not mature enough for a viewpoint, do not force one. Start with `目前的味道：` and describe the unresolved tension directly, then include `## 依據與假說` and only the optional sections that genuinely apply.
+      Keep the result compact and visually calm. Do not repeat the input, add generic wisdom, invent causal links, or add decorative labels and bullets.
+
+  - id: session_handoff
+    presentation: markdown_sections
+    required_markers:
+      - "# SESSION HANDOFF"
+      - "## A. Current Objective"
+      - "## B. Relevant Context"
+      - "## C. Intent & Constraints"
+      - "## D. Reasoning State"
+      - "## E. Open Loops"
+      - "## F. Continuation Point"
+      - "## USER DOUBLE-CHECK"
+    instruction: |
+      Use the exact SESSION HANDOFF structure. This document must be directly pasteable into a new AI session and must let the user inspect it in 30 seconds.
+      In A, write the current objective in one or two direct sentences; do not mix in superseded historical goals. In B and C, use short bullets only for background or constraints whose removal could cause the next session to misunderstand the task, repeat an answered question, violate a preference, or ignore a limit. When a section has no material content, write `None identified.` rather than inventing information.
+      In D, use `### Accepted` and `### Rejected`. Bold the accepted judgment or rejected option, then put its necessary reason on the following line in normal text. A rejection without its reason is incomplete. Preserve meaningful corrections, failed approaches, changed minds, trade-offs, and unverified core hypotheses.
+      In E, keep only genuinely unresolved questions or validations. In F, provide exactly one concrete continuation point as a blockquote, not a generic request to continue discussing.
+      Follow source fidelity strictly: user statements first, then proposals explicitly accepted by the user. Mark material unconfirmed AI proposals as `[待確認]` and inferences as `[推論]`; never present either as fact.
+      In USER DOUBLE-CHECK, list at most five items that could materially misdirect the next session if wrong. Use only ✅ for explicit user statements, ⚠️ for compressed material worth checking, and ❓ for a necessary inference or unconfirmed item. Do not manufacture checks to fill the list.
+      Preserve reasoning continuity, not conversation history. Do not repeat the transcript, add praise, answer the original conversation, or add decorative labels beyond the required structure.
 
   - id: score_compact
     presentation: plain_text

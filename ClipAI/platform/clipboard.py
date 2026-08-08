@@ -5,6 +5,7 @@ from io import BytesIO
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
+import html
 import struct
 import time
 
@@ -80,7 +81,7 @@ class SystemClipboard:
         return "" if value is None else str(value)
 
     def write_text(self, text: str) -> None:
-        pyperclip.copy(text)
+        _replace_clipboard(_text_snapshot(text, private=False))
 
     def write_transient_text(self, text: str) -> None:
         _replace_clipboard(_transient_text_snapshot(text))
@@ -175,23 +176,78 @@ def _transient_text_snapshot(
     text: str,
     register_format: Callable[[str], int] | None = None,
 ) -> WindowsClipboardSnapshot:
+    return _text_snapshot(text, register_format=register_format, private=True)
+
+
+def _text_snapshot(
+    text: str,
+    register_format: Callable[[str], int] | None = None,
+    *,
+    private: bool,
+) -> WindowsClipboardSnapshot:
     if register_format is None:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
         _configure_clipboard_functions(user32, kernel32)
         register_format = lambda name: int(user32.RegisterClipboardFormatW(name))
-    privacy_formats = (
+    html_format = register_format("HTML Format")
+    if not html_format:
+        raise ctypes.WinError()
+    clipboard_text = _normalize_windows_text_lines(text)
+    formats = [
+        _ClipboardFormatSnapshot(13, clipboard_text.encode("utf-16-le") + b"\x00\x00"),
+        _ClipboardFormatSnapshot(html_format, _html_clipboard_payload(text)),
+    ]
+    privacy_formats = () if not private else (
         "ExcludeClipboardContentFromMonitorProcessing",
         "CanIncludeInClipboardHistory",
         "CanUploadToCloudClipboard",
     )
-    formats = [_ClipboardFormatSnapshot(13, text.encode("utf-16-le") + b"\x00\x00")]
     for name in privacy_formats:
         format_id = register_format(name)
         if not format_id:
             raise ctypes.WinError()
         formats.append(_ClipboardFormatSnapshot(format_id, struct.pack("<I", 0)))
     return WindowsClipboardSnapshot(tuple(formats))
+
+
+def _normalize_windows_text_lines(text: str) -> str:
+    """Encode every logical line break in the native Windows clipboard form."""
+
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")
+
+
+def _html_clipboard_payload(text: str) -> bytes:
+    """Return a safe CF_HTML fragment whose only markup is explicit line breaks."""
+
+    logical_text = text.replace("\r\n", "\n").replace("\r", "\n")
+    fragment = html.escape(logical_text, quote=False).replace("\n", "<br>").encode("utf-8")
+    prefix = b"<html><body><!--StartFragment-->"
+    suffix = b"<!--EndFragment--></body></html>"
+    header_template = (
+        "Version:1.0\r\n"
+        "StartHTML:{start_html:010d}\r\n"
+        "EndHTML:{end_html:010d}\r\n"
+        "StartFragment:{start_fragment:010d}\r\n"
+        "EndFragment:{end_fragment:010d}\r\n"
+    )
+    empty_header = header_template.format(
+        start_html=0,
+        end_html=0,
+        start_fragment=0,
+        end_fragment=0,
+    ).encode("ascii")
+    start_html = len(empty_header)
+    start_fragment = start_html + len(prefix)
+    end_fragment = start_fragment + len(fragment)
+    end_html = end_fragment + len(suffix)
+    header = header_template.format(
+        start_html=start_html,
+        end_html=end_html,
+        start_fragment=start_fragment,
+        end_fragment=end_fragment,
+    ).encode("ascii")
+    return header + prefix + fragment + suffix + b"\x00"
 
 
 def _configure_clipboard_functions(user32, kernel32) -> None:

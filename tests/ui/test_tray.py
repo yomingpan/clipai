@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from ClipAI.core.models import GuidancePreferences, ModelSelectionState, ProviderOption, ProviderSelectionState
+import sys
+
+from ClipAI.core.models import GuidancePreferences, ModelSelectionState, ProviderOption, ProviderSelectionState, SpeechSpeedState
 from ClipAI.ui.tray import SHORTCUT_GUIDE_MENU_LABEL, STATUS_COLORS, TrayController, create_tray_image
 
 
@@ -12,6 +14,7 @@ class MenuItem:
         self.action = action
         self.checked = kwargs.get("checked")
         self.enabled = kwargs.get("enabled")
+        self.radio = kwargs.get("radio", False)
 
 
 class Menu:
@@ -24,6 +27,22 @@ class Menu:
 class Pystray:
     Menu = Menu
     MenuItem = MenuItem
+
+    class Icon:
+        def __init__(self, name, icon, title, *, menu) -> None:
+            self.name = name
+            self.icon = icon
+            self.title = title
+            self.menu = menu
+
+        def run(self) -> None:
+            pass
+
+        def stop(self) -> None:
+            pass
+
+        def update_menu(self) -> None:
+            pass
 
 
 class NotificationIcon:
@@ -235,3 +254,78 @@ def test_guidance_menu_reflects_only_authoritative_saved_projection() -> None:
     toggle = tray._build_guidance_menu(Pystray).action.items[0]
     assert toggle.checked(None) is False
     assert toggle.enabled(None) is True
+
+
+def test_speech_speed_menu_lists_four_presets_and_emits_without_optimistic_selection() -> None:
+    events = []
+    tray = TrayController(
+        lambda: None,
+        speech_speed=SpeechSpeedState("normal"),
+        on_set_speech_speed=events.append,
+    )
+
+    menu = tray._build_speech_speed_menu(Pystray)
+    items = menu.action.items
+
+    assert menu.text(None) == "Speech Speed"
+    assert [item.text for item in items] == ["Slow", "Normal", "Fast", "Super Fast"]
+    assert [item.checked(None) for item in items] == [False, True, False, False]
+    assert all(item.radio is True for item in items)
+    assert items[1].enabled(None) is False
+
+    items[2].action(None, None)
+    assert events == ["fast"]
+    assert items[1].checked(None) is True
+
+
+def test_speech_speed_menu_projects_saving_without_changing_authoritative_check() -> None:
+    tray = TrayController(
+        lambda: None,
+        speech_speed=SpeechSpeedState("normal", "fast", update_pending=True),
+        on_set_speech_speed=lambda _speed: None,
+    )
+
+    menu = tray._build_speech_speed_menu(Pystray)
+
+    assert menu.text(None) == "Speech Speed (saving...)"
+    assert [item.checked(None) for item in menu.action.items] == [False, True, False, False]
+    assert all(item.enabled(None) is False for item in menu.action.items)
+
+
+def test_speech_speed_menu_distinguishes_custom_and_unavailable_states() -> None:
+    tray = TrayController(
+        lambda: None,
+        speech_speed=SpeechSpeedState(None),
+        on_set_speech_speed=lambda _speed: None,
+    )
+    assert tray._build_speech_speed_menu(Pystray).text(None) == "Speech Speed (Custom)"
+
+    tray.set_speech_speed(SpeechSpeedState("normal", available=False))
+    menu = tray._build_speech_speed_menu(Pystray)
+    assert menu.text(None) == "Speech Speed (unavailable)"
+    assert all(item.enabled(None) is False for item in menu.action.items)
+
+
+def test_speech_speed_follows_keyboard_shortcuts_and_is_separated_from_guidance(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "pystray", Pystray)
+    tray = TrayController(
+        lambda: None,
+        on_open_provider_settings=lambda: None,
+        on_open_shortcut_guide=lambda: None,
+        speech_speed=SpeechSpeedState("normal"),
+        on_set_speech_speed=lambda _speed: None,
+        guidance_preferences=GuidancePreferences(),
+        on_set_first_use_hints=lambda _enabled: None,
+        on_reset_first_use_hints=lambda: None,
+    )
+
+    tray.start()
+    tray._thread.join(timeout=1)
+    items = tray._icon.menu.items
+    shortcut_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "Keyboard Shortcuts...")
+    speech_index = next(index for index, item in enumerate(items) if callable(getattr(item, "text", None)) and item.text(None) == "Speech Speed")
+    guidance_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "Usage Guidance")
+
+    assert speech_index == shortcut_index + 1
+    assert items[speech_index + 1] is Menu.SEPARATOR
+    assert guidance_index == speech_index + 2

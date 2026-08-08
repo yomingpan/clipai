@@ -14,7 +14,7 @@ from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.workflow_controller import WorkflowController
-from ClipAI.services.guidance_preferences import GuidancePreferencesCoordinator
+from ClipAI.services.user_preferences import UserPreferencesCoordinator
 
 
 class ActionExecutor:
@@ -28,7 +28,7 @@ class ActionExecutor:
         available_actions: tuple[str, ...] = ("copy", "follow_up"),
         operation_tracker: OperationTracker | None = None,
         result_router: ResultRouter | None = None,
-        guidance_preferences: GuidancePreferencesCoordinator | None = None,
+        guidance_preferences: UserPreferencesCoordinator | None = None,
         blocking_runner: Callable[[str, Callable[[], object]], Awaitable[object]] | None = None,
     ) -> None:
         self._input_resolver = input_resolver
