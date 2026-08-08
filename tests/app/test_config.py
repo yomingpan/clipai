@@ -130,6 +130,15 @@ def test_ctrl_alt_u_resolves_capture_and_express_as_distinct_learning_intents() 
     assert "without a Primary expression label" in capture.prompt
     assert "Without a Pattern heading" in capture.prompt
     assert "exactly three unnumbered bullet examples" in capture.prompt
+    assert "Every bullet example must be a complete natural English sentence" in capture.prompt
+    assert "Every example line must begin with the literal Markdown bullet `- `" in capture.prompt
+    assert "smallest high-frequency spoken chunk" in capture.prompt
+    assert "usually contain 2-8 English words" in capture.prompt
+    assert "Use at most two semantic slots" in capture.prompt
+    assert "Do not use grammar-class slots such as `[subject]`, `[noun phrase]`, or `[verb-ed]`" in capture.prompt
+    assert "Bold only the fixed reusable words" in capture.prompt
+    assert "Keep all replacement content unbolded" in capture.prompt
+    assert "meaningfully different content" in capture.prompt
     assert "[[SCROLL_FOR_ANSWER]]" in capture.prompt
     assert "answer must appear only after" in capture.prompt
     assert express.name == "Express Naturally"
@@ -154,10 +163,17 @@ def test_ctrl_alt_u_resolves_capture_and_express_as_distinct_learning_intents() 
     assert "Start with one valuable source sentence before any Markdown heading" in capture_profile.instruction
     assert "without a Primary expression label" in capture_profile.instruction
     assert "Never format English learning content as inline code or with backticks" in capture_profile.instruction
-    assert "Use bold or italics for visual emphasis" in capture_profile.instruction
     assert "Do not prefix content with redundant field labels" in capture_profile.instruction
     assert "without a Pattern heading" in capture_profile.instruction
     assert "exactly three short unnumbered bullet examples" in capture_profile.instruction
+    assert "Every bullet example and the Retrieve answer must be a complete English sentence" in capture_profile.instruction
+    assert "Never use nested or unbalanced Markdown bold markers" in capture_profile.instruction
+    assert "Every example line begins with the literal Markdown bullet `- `" in capture_profile.instruction
+    assert "usually 2-8 English words" in capture_profile.instruction
+    assert "at most two plain-language semantic slots" in capture_profile.instruction
+    assert "Bold only the fixed reusable chunk" in capture_profile.instruction
+    assert "Never bold slot labels or replacement content" in capture_profile.instruction
+    assert "at most two bold spans per line" in capture_profile.instruction
     assert express_profile.required_markers == (
         "## Key Shift",
         "## Transfer Chunk",
