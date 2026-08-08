@@ -14,7 +14,8 @@ from ClipAI.app.runtime import AppRuntime
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
-from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
+from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
+from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
 from ClipAI.core.commands import ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutInputEvent, ShutdownApplication
@@ -241,11 +242,15 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         provider_settings_presenter=view,
         user_control=user_control,
     )
-    user_persistence_module = UserPersistenceRuntimeModule(
+    action_feedback_module = ActionFeedbackRuntimeModule(
         supervisor=supervisor,
         workflow_controller=workflow_module.controller_for,
         enqueue=enqueue,
         action_feedback=ActionFeedbackService(JsonlActionFeedbackStore()),
+    )
+    user_preferences_module = UserPreferencesRuntimeModule(
+        supervisor=supervisor,
+        enqueue=enqueue,
         user_preferences=user_preferences,
         guidance_preferences_presenter=tray,
         speech_speed_presenter=tray,
@@ -269,7 +274,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         workflows=workflow_module,
         result_output=result_output_module,
         provider_configuration=provider_configuration_module,
-        user_persistence=user_persistence_module,
+        action_feedback=action_feedback_module,
+        user_preferences=user_preferences_module,
         hotkey_registrar=register,
         tray_factory=lambda _on_exit: tray,
         operation_tracker=operation_tracker,

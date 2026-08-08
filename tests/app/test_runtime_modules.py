@@ -44,7 +44,7 @@ def test_provider_configuration_module_interface_projects_committed_selection() 
     assert runtime._provider_configuration_module.coordinator.active_binding.model == "new-model"
 
 
-def test_user_persistence_module_interface_waits_for_completion_projection() -> None:
+def test_user_preferences_module_interface_waits_for_completion_projection() -> None:
     store = GuidanceStore(UserPreferences(False))
     guidance = UserPreferencesCoordinator(store)
     runtime, _view, supervisor, _outputs, _listener = make_runtime(
@@ -52,7 +52,7 @@ def test_user_persistence_module_interface_waits_for_completion_projection() -> 
         guidance_preferences_presenter=None,
     )
 
-    runtime._user_persistence_module.handle(SetFirstUseHintsEnabled(True, "guidance-op"))
+    runtime._user_preferences_module.handle(SetFirstUseHintsEnabled(True, "guidance-op"))
     assert guidance.guidance_preferences.first_use_hints_enabled is False
 
     supervisor.work["guidance-preferences:guidance-op"]()

@@ -6,7 +6,8 @@ import pytest
 from ClipAI.app.runtime import AppRuntime
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
-from ClipAI.app.runtime_user_persistence import UserPersistenceRuntimeModule
+from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
+from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
@@ -615,11 +616,15 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         operation_tracker=operation_tracker,
         provider_settings_presenter=view,
     )
-    persistence_module = UserPersistenceRuntimeModule(
+    action_feedback_module = ActionFeedbackRuntimeModule(
         supervisor=supervisor,
         workflow_controller=workflow_module.controller_for,
         enqueue=enqueue,
         action_feedback=action_feedback,
+    )
+    user_preferences_module = UserPreferencesRuntimeModule(
+        supervisor=supervisor,
+        enqueue=enqueue,
         user_preferences=guidance_preferences,
         guidance_preferences_presenter=guidance_preferences_presenter,
         speech_speed_presenter=speech_speed_presenter,
@@ -638,7 +643,8 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         workflows=workflow_module,
         result_output=output_module,
         provider_configuration=provider_module,
-        user_persistence=persistence_module,
+        action_feedback=action_feedback_module,
+        user_preferences=user_preferences_module,
         hotkey_registrar=lambda _map, _callback: listener,
         tray_factory=Tray if with_tray else None,
         operation_tracker=operation_tracker,
