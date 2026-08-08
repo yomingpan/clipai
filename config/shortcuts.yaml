@@ -76,6 +76,11 @@ shortcuts:
     command: start_action
     action_id: tradeoff_perspective
 
+  - id: temporary_viewpoint
+    hotkey: ctrl+alt+t
+    command: start_action
+    action_id: temporary_viewpoint
+
   - id: extract_keywords
     hotkey: ctrl+alt+e
     command: start_action

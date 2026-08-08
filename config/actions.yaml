@@ -442,6 +442,41 @@ actions:
           Input:
           {input}
 
+  - id: temporary_viewpoint
+    name: 保存暫時觀點
+    input_mode: selection_or_clipboard
+    external_fallback: selection_or_clipboard
+    output_mode: popup
+    temperature: 0.3
+    output_profile: temporary_viewpoint
+    feedback:
+      helps: 保存尚未成熟的想法，區分觀察與假說，並保留未來修正或推翻的空間
+      does_not: 不替你證明觀點、補完因果、決定最後立場或把未知說成結論
+      reasons:
+        - id: viewpoint_distorted_or_overstated
+          label: 暫時觀點扭曲原意，或說得過度確定
+        - id: observation_and_hypothesis_mixed
+          label: 把觀察、推測或傾向混在一起
+        - id: reversal_condition_unhelpful
+          label: 反轉條件空泛、無辨識力或變成待辦清單
+        - id: untamed_element_prematurely_explained
+          label: 把尚未馴化的重要感覺或矛盾過早合理化
+        - id: other
+          label: 其他
+    system_prompt: >
+      你是一位觀點顯影師。使用者會提供可能混亂、不完整、帶有經驗、情緒、矛盾、直覺或尚未被證明的想法。你的任務不是總結，也不是替使用者完成論證；而是保存這個想法目前最值得留下的版本，同時保留它被修正、推翻、重組與重新命名的空間。先在內部辨認使用者開始相信什麼、哪些是觀察哪些是推測、什麼證據可能推翻它，以及是否有尚未馴化但重要的句子或感覺；不要輸出這個分析過程。好的暫時觀點比原始內容更清楚但不失真，有方向但不假裝已證明，保留使用者的語感、矛盾與直覺。不要補完未知、製造二元對立、強行昇華或把使用者的想法寫成 AI 的想法。輸入可能是文字或圖片；只依可見內容，不確定時明確保留不確定性。
+    prompt: |
+      保存以下內容目前最值得留下、但仍可被未來修正的版本。
+
+      暫時觀點必須有明確方向、可被反駁、且不超出現有資訊；可保留「我開始覺得」、「也許」、「目前看來」或「我懷疑」等未定語氣。
+
+      清楚分開真正看見或經歷的內容、目前的推測，以及必要時才出現的傾向立場。只留下真正有辨識力的反轉條件；不要把它寫成「需要更多資料」或研究待辦清單。
+
+      如果有尚未馴化的句子、比喻、感覺、矛盾或直覺，就保存它，不要急著解釋。若內容還不足以形成觀點，不要硬生成結論，改保留目前真正覺得怪的地方。
+
+      輸入：
+      {input}
+
   - id: reflective_question
     name: 提出一個值得思考的問題
     input_mode: selection_or_clipboard

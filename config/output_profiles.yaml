@@ -52,6 +52,18 @@ profiles:
       Your Turn contains one concrete Traditional Chinese task that names the primary target chunk and asks the learner to type a new English sentence. Do not reveal a model answer. End with the exact standalone line: 按 Ctrl+/ 回答
       If the latest user message is an attempted answer to Your Turn, do not repeat the three-section lesson. Evaluate only the target chunk usage, make the smallest necessary correction, and give at most one conversational alternative.
 
+  - id: temporary_viewpoint
+    presentation: markdown_sections
+    required_markers:
+      - "## 依據與假說"
+    instruction: |
+      For a developed thought, start directly with the temporary viewpoint in one to four short paragraphs, without a 暫時觀點 heading. Preserve the user's uncertainty, tension, and voice; do not turn a summary into a conclusion.
+      Then use `## 依據與假說`. Use **觀察** for what is actually seen, experienced, or known, and **假說** for the explanation currently being inferred. Add **傾向** only when the user genuinely leans toward a belief that is not established. Do not create categories merely to fill the format, and do not promote a hypothesis to an observation.
+      Add `## 反轉條件` only when a genuinely discriminating future observation, experience, or result could lower confidence, revise, or overturn the viewpoint. State it as a concrete “如果看到 X，我會改變目前看法” condition, not a research to-do list. If no meaningful condition is available, say directly that this uncertainty should be retained.
+      Add `## 尚未馴化` only when the input contains an important but not-yet-explainable phrase, metaphor, feeling, contradiction, or intuition. Preserve it alone on its own line; do not explain, define, or rationalize it.
+      When the input is not mature enough for a viewpoint, do not force one. Start with `目前的味道：` and describe the unresolved tension directly, then include `## 依據與假說` and only the optional sections that genuinely apply.
+      Keep the result compact and visually calm. Do not repeat the input, add generic wisdom, invent causal links, or add decorative labels and bullets.
+
   - id: score_compact
     presentation: plain_text
     instruction: |
