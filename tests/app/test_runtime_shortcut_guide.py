@@ -33,10 +33,10 @@ class Key:
 def guide_module() -> tuple[ShortcutGuideRuntimeModule, GuidePresenter]:
     presenter = GuidePresenter()
     shortcuts = ShortcutCatalog([
-        ShortcutDefinition("english", "ctrl+alt+8", "start_action", "english"),
+        ShortcutDefinition("a", "ctrl+alt+8", "start_action", "a"),
     ])
     actions = ActionCatalog([
-        ActionDefinition("english", "English Companion", "system", "{input}", {}),
+        ActionDefinition("a", "English Companion", "system", "{input}", {}),
     ])
     module = ShortcutGuideRuntimeModule(
         catalog=ShortcutGuideCatalog(shortcuts, actions, modifier_mode="ctrl_alt"),
@@ -50,7 +50,7 @@ def test_runtime_module_projects_open_select_key_state_and_close() -> None:
     module, presenter = guide_module()
 
     module.handle(OpenShortcutGuide("guide-1"))
-    module.handle(SelectShortcutGuideItem("english"))
+    module.handle(SelectShortcutGuideItem("a"))
     module.consume(ShortcutKeyStateChanged(frozenset({"ctrl"})))
     module.handle(CloseShortcutGuide("guide-1"))
 
@@ -63,12 +63,12 @@ def test_runtime_module_consumes_trigger_and_projects_verification() -> None:
     module, presenter = guide_module()
     module.handle(OpenShortcutGuide("guide-1"))
     press_id = ShortcutPressId(5)
-    module.consume(ShortcutPressStarted(press_id, "english"))
+    module.consume(ShortcutPressStarted(press_id, "a"))
 
-    consumed = module.consume(ShortcutPressInvoked(press_id, "english", "short"))
+    consumed = module.consume(ShortcutPressInvoked(press_id, "a", "short"))
 
     assert consumed is True
-    assert presenter.updated[-1].verified == frozenset({("english", "short")})
+    assert presenter.updated[-1].verified == frozenset({("a", "short")})
 
 
 def test_app_runtime_routes_shortcut_to_open_guide_before_workflow() -> None:
@@ -78,8 +78,8 @@ def test_app_runtime_routes_shortcut_to_open_guide_before_workflow() -> None:
     runtime._shortcut_guide_module = module
     press_id = ShortcutPressId(5)
 
-    runtime.enqueue(ShortcutPressStarted(press_id, "english"))
-    runtime.enqueue(ShortcutPressInvoked(press_id, "english", "short"))
+    runtime.enqueue(ShortcutPressStarted(press_id, "a"))
+    runtime.enqueue(ShortcutPressInvoked(press_id, "a", "short"))
     runtime.drain_commands()
 
     assert view.snapshots == []
