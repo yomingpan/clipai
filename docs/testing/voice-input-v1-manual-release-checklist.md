@@ -4,6 +4,15 @@ Run this checklist on both Windows 10 and Windows 11 with Edge WebView2 Runtime
 installed. Record the OS build, WebView2 Runtime version, microphone device, and
 whether browser permission was new or previously granted.
 
+Before the hardware matrix, run the controlled WebView bridge integration on an
+interactive Windows desktop (it uses fake media and recognition, not the real
+microphone):
+
+```powershell
+$env:CLIPAI_RUN_VOICE_WEBVIEW_INTEGRATION = "1"
+python -m pytest -m integration tests/platform/test_voice_webview_host_integration.py
+```
+
 ## Short end-to-end smoke test
 
 1. Start ClipAI and focus a writable external app such as Notepad.

@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ClipAI Voice Test Host</title>
+<script>
+(() => {
+  let capture = null;
+  let nextStreamKind = "setup";
+  let setupTrackStops = 0;
+  let captureTrackStops = 0;
+  const emit = payload => window.pywebview.api.emit(payload);
+  const stream = kind => ({getTracks: () => [{stop: () => {
+    if (kind === "setup") setupTrackStops += 1;
+    else captureTrackStops += 1;
+  }}]});
+  navigator.mediaDevices = {getUserMedia: async () => stream(nextStreamKind)};
+  class FakeRecognition {
+    start() { this.onstart(); }
+    stop() { this.onend(); }
+    abort() { this.onend(); }
+  }
+  window.SpeechRecognition = FakeRecognition;
+  const finish = item => {
+    if (!item || item.finished) return;
+    item.finished = true;
+    item.stream.getTracks().forEach(track => track.stop());
+    emit({kind: "test_state", setup_track_stops: setupTrackStops, capture_track_stops: captureTrackStops});
+    emit({kind: "ended", capture_id: item.id});
+    if (capture === item) capture = null;
+  };
+  window.clipaiVoice = {
+    async command(command) {
+      if (command.command === "prepare") {
+        nextStreamKind = "setup";
+        const setup = await navigator.mediaDevices.getUserMedia({audio: true});
+        setup.getTracks().forEach(track => track.stop());
+        emit({kind: "test_state", setup_track_stops: setupTrackStops, capture_track_stops: captureTrackStops});
+        emit({kind: "setup_ready", setup_id: command.setup_id});
+        return;
+      }
+      if (command.command === "start") {
+        nextStreamKind = "capture";
+        const item = {id: command.capture_id, stream: await navigator.mediaDevices.getUserMedia({audio: true}), recognition: null, finished: false};
+        capture = item;
+        item.recognition = new FakeRecognition();
+        item.recognition.onstart = () => emit({kind: "listening", capture_id: item.id});
+        item.recognition.onend = () => finish(item);
+        item.recognition.start();
+        return;
+      }
+      if (capture && capture.id === command.capture_id) {
+        command.command === "cancel" ? capture.recognition.abort() : capture.recognition.stop();
+      }
+    },
+    shutdown() { if (capture) capture.recognition.abort(); }
+  };
+})();
+</script>

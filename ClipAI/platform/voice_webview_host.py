@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any
 
@@ -22,12 +23,12 @@ class _Api:
             self.window.hide()
 
 
-def main() -> None:
+def main(*, test_page: Path | None = None) -> None:
     import webview
 
     api = _Api()
     loaded = threading.Event()
-    html = Path(__file__).with_name("voice_webview_host.html").resolve()
+    html = (test_page or Path(__file__).with_name("voice_webview_host.html")).resolve()
     window = webview.create_window(
         "ClipAI Voice Engine",
         url=str(html),
@@ -59,7 +60,7 @@ def main() -> None:
             if name not in {"prepare", "start", "stop", "cancel"} or not loaded.wait(10):
                 _emit_command_failure(api, command, "initialization_failed")
                 continue
-            if name == "prepare":
+            if name == "prepare" and test_page is None:
                 try:
                     window.show()
                     window.restore()
@@ -73,6 +74,8 @@ def main() -> None:
 
     def on_loaded() -> None:
         loaded.set()
+        if test_page is not None:
+            api.emit({"kind": "test_loaded"})
 
     window.events.loaded += on_loaded
     threading.Thread(target=read_commands, daemon=True).start()
@@ -90,4 +93,6 @@ def _emit_command_failure(api: _Api, command: dict[str, object], failure: str) -
 
 
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser()
+    parser.add_argument("--test-page", type=Path)
+    main(test_page=parser.parse_args().test_page)
