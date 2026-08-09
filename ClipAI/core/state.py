@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, PresentationDocument, ResultCompleteness, WorkflowStep
+    from ClipAI.core.voice import VoiceCaptureId, VoiceOrigin
 
 
 class SessionStatus(str, Enum):
@@ -15,6 +16,10 @@ class SessionStatus(str, Enum):
     PREPARING_REQUEST = "preparing_request"
     REQUESTING_PROVIDER = "requesting_provider"
     PROCESSING_RESULT = "processing_result"
+    VOICE_PREPARING = "voice_preparing"
+    VOICE_LISTENING = "voice_listening"
+    VOICE_FINALIZING = "voice_finalizing"
+    VOICE_REVIEW = "voice_review"
     COMPLETED = "completed"
     FAILED = "failed"
     STOPPED = "stopped"
@@ -37,6 +42,10 @@ ALLOWED_TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
     SessionStatus.REQUESTING_PROVIDER: {SessionStatus.PROCESSING_RESULT, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.PROCESSING_RESULT: {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.COMPLETED: {SessionStatus.PREPARING_REQUEST, SessionStatus.CLOSED},
+    SessionStatus.VOICE_PREPARING: {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING, SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
+    SessionStatus.VOICE_LISTENING: {SessionStatus.VOICE_FINALIZING, SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
+    SessionStatus.VOICE_FINALIZING: {SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
+    SessionStatus.VOICE_REVIEW: {SessionStatus.VOICE_PREPARING, SessionStatus.CLOSED},
     SessionStatus.FAILED: {SessionStatus.CLOSED},
     SessionStatus.STOPPED: {SessionStatus.CLOSED},
     SessionStatus.CANCELLED: {SessionStatus.CLOSED},
@@ -85,6 +94,8 @@ class SessionSnapshot:
     feedback_message: str = ""
     show_guidance_hint: bool = False
     result_completeness: ResultCompleteness = "none"
+    voice_origin: VoiceOrigin | None = None
+    voice_capture_id: VoiceCaptureId | None = None
 
     def evolve(self, **changes: object) -> SessionSnapshot:
         return replace(self, revision=self.revision + 1, **changes)

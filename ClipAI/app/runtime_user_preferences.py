@@ -12,7 +12,7 @@ from ClipAI.core.commands import (
     SetSpeechSpeed,
     SpeechSpeedPreferencesCompleted,
 )
-from ClipAI.core.models import SpeechSpeed
+from ClipAI.core.models import SpeechSpeed, VoiceLanguagePreference
 from ClipAI.core.ports import GuidancePreferencesPresenter, OperationTracker, SpeechSpeedPresenter, UserNotifier
 from ClipAI.services.user_preferences import UserPreferencesCoordinator, UserPreferencesUpdate
 
@@ -58,6 +58,56 @@ class UserPreferencesRuntimeModule:
         elif isinstance(command, (GuidancePreferencesCompleted, SpeechSpeedPreferencesCompleted)):
             if self._user_preferences is not None:
                 self._project_preferences(self._user_preferences.complete(command.operation_id, command.error))
+
+    def begin_voice_enabled(self, enabled: bool, operation_id: str, completion: Callable[[str], object]) -> None:
+        """Persist one Voice enablement request, then return through its typed caller command."""
+        if self._user_preferences is None:
+            self._enqueue(completion("Voice Input preferences are unavailable."))
+            return
+        update = self._user_preferences.begin_set_voice_enabled(enabled, operation_id)
+        self._project_preferences(update)
+        if update.work is None:
+            current = self._user_preferences.voice_preferences
+            self._enqueue(completion("" if current.enabled == enabled else "Another settings update is in progress."))
+            return
+        user_preferences = self._user_preferences
+        work = update.work
+
+        def save() -> None:
+            self._enqueue(completion(user_preferences.execute(work)))
+
+        self._supervisor.submit(
+            f"voice-preferences:{operation_id}",
+            save,
+            lambda _error: self._enqueue(completion("Could not save Voice Input settings.")),
+            task_class="interactive",
+        )
+
+    def complete_voice_enabled(self, operation_id: str, error: str = "") -> None:
+        if self._user_preferences is not None:
+            self._project_preferences(self._user_preferences.complete(operation_id, error))
+
+    def begin_voice_language(self, language: VoiceLanguagePreference, operation_id: str, completion: Callable[[str], object]) -> None:
+        if self._user_preferences is None:
+            self._enqueue(completion("Voice Input preferences are unavailable."))
+            return
+        update = self._user_preferences.begin_set_voice_language(language, operation_id)
+        self._project_preferences(update)
+        if update.work is None:
+            current = self._user_preferences.voice_preferences
+            self._enqueue(completion("" if current.language == language else "Another settings update is in progress."))
+            return
+        user_preferences, work = self._user_preferences, update.work
+
+        def save() -> None:
+            self._enqueue(completion(user_preferences.execute(work)))
+
+        self._supervisor.submit(
+            f"voice-language-preferences:{operation_id}",
+            save,
+            lambda _error: self._enqueue(completion("Could not save Voice Input language.")),
+            task_class="interactive",
+        )
 
     def _begin_preference(
         self,

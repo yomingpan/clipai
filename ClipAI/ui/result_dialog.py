@@ -9,7 +9,7 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelVoiceCapture, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft
 from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -18,6 +18,7 @@ from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFoc
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
+from ClipAI.ui.voice_setup import VoiceSetupDialog
 
 
 # Windows Tk maps Num Lock to Mod1 (0x0008), while physical Alt uses
@@ -39,6 +40,10 @@ class _SessionView:
     shown_guidance_keys: set[str] = field(default_factory=set)
     close_requested: bool = False
     last_snapshot: SessionSnapshot | None = None
+    voice_draft_revision: int = 0
+    voice_draft_editing: bool = True
+    voice_stop_button: object | None = None
+    voice_cancel_button: object | None = None
 
 
 @dataclass(frozen=True)
@@ -90,20 +95,33 @@ class ResultDialogPresenter:
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
+        self._voice_setup_dialog: VoiceSetupDialog | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
 
     def workflow_context(self, workflow_id: str) -> ActiveWorkflowContext | None:
         view = self._interactive_view(workflow_id)
-        if view is None or view.step_id is None or not view.content.strip():
+        if view is None or not view.content.strip():
             return None
+        if view.step_id is None:
+            if view.last_snapshot is None or view.last_snapshot.status is not SessionStatus.VOICE_REVIEW:
+                return None
+            step_id = "voice-origin"
+        else:
+            step_id = view.step_id
         return ActiveWorkflowContext(
             workflow_id,
-            view.step_id,
+            step_id,
             view.content,
             view.surface.selected_text(),
         )
+
+    def voice_draft_selection_range(self, workflow_id: str) -> tuple[int, int] | None:
+        view = self._interactive_view(workflow_id)
+        if view is None or view.last_snapshot is None or view.last_snapshot.status is not SessionStatus.VOICE_REVIEW:
+            return None
+        return view.surface.selection_range()
 
     def render(self, snapshot: SessionSnapshot) -> None:
         self._updates.put(snapshot)
@@ -141,6 +159,19 @@ class ResultDialogPresenter:
         if self._shortcut_guide_dialog is not None:
             self._shortcut_guide_dialog.close()
         self._restore_focus_after_shortcut_guide()
+
+    def show_voice_setup(self) -> None:
+        if self._voice_setup_dialog is None:
+            self._voice_setup_dialog = VoiceSetupDialog(self._root, self._command_sink)
+        self._voice_setup_dialog.show()
+
+    def close_voice_setup(self) -> None:
+        if self._voice_setup_dialog is not None:
+            self._voice_setup_dialog.close()
+
+    def set_voice_projection(self, projection) -> None:
+        if self._voice_setup_dialog is not None:
+            self._voice_setup_dialog.set_voice_projection(projection)
 
     def _hold_focus_for_shortcut_guide(self) -> None:
         if self._shortcut_guide_focus_hold_active:
@@ -208,7 +239,11 @@ class ResultDialogPresenter:
             if isinstance(action, SetPopupVisibility):
                 view.dialog.apply_external_output_visibility(action.visibility)
             elif isinstance(action, SetFocusProjection):
-                view.surface.set_paste_focus_state(action.focused, self._paste_target)
+                view.surface.set_paste_focus_state(
+                    action.focused,
+                    self._paste_target,
+                    voice_draft_editing=_voice_draft_editing(view),
+                )
             elif isinstance(action, FocusPopup):
                 view.dialog.lifecycle.focus()
             elif isinstance(action, ScheduleOutsideFocusCheck):
@@ -335,6 +370,7 @@ class ResultDialogPresenter:
             view.surface.set_paste_focus_state(
                 view.external_output.focused_inside,
                 target,
+                voice_draft_editing=_voice_draft_editing(view),
             )
 
     def _apply(self, snapshot: SessionSnapshot) -> None:
@@ -352,8 +388,19 @@ class ResultDialogPresenter:
         if view is None:
             view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
-            self._register_view(snapshot.session_id, view)
+            self._register_view(
+                snapshot.session_id,
+                view,
+                focus_on_show=snapshot.status not in {
+                    SessionStatus.VOICE_LISTENING,
+                    SessionStatus.VOICE_FINALIZING,
+                },
+            )
         previous = view.last_snapshot
+        if snapshot.status is SessionStatus.VOICE_REVIEW and (
+            previous is None or previous.status is not SessionStatus.VOICE_REVIEW
+        ):
+            view.voice_draft_editing = True
         patch = workflow_render_patch(previous, snapshot)
         view.revision = snapshot.revision
         previous_step_id = view.step_id
@@ -370,6 +417,11 @@ class ResultDialogPresenter:
             view.surface.set_paste_focus_state(
                 view.external_output.focused_inside,
                 self._paste_target,
+                voice_draft_editing=(
+                    view.voice_draft_editing
+                    if snapshot.status is SessionStatus.VOICE_REVIEW
+                    else None
+                ),
             )
             view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
         guidance_key = view.step_id or ""
@@ -391,7 +443,19 @@ class ResultDialogPresenter:
             )
         content_key = _content_render_key(snapshot)
         content_changed = patch.content
-        if snapshot.status == SessionStatus.FAILED:
+        if snapshot.status == SessionStatus.VOICE_REVIEW:
+            origin = snapshot.voice_origin
+            if origin is not None:
+                view.voice_draft_revision = origin.revision
+
+                def update_voice_draft(text: str, sid=snapshot.session_id, rendered=view) -> None:
+                    expected_revision = rendered.voice_draft_revision
+                    rendered.voice_draft_revision += 1
+                    self._command_sink(UpdateVoiceDraft(sid, expected_revision, text))
+
+                view.surface.set_editable_content(snapshot.content, update_voice_draft)
+                view.surface.set_voice_draft_editing(view.voice_draft_editing)
+        elif snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
             if content_changed:
                 if snapshot.content:
@@ -446,6 +510,7 @@ class ResultDialogPresenter:
                 on_archive=(lambda sid=snapshot.session_id: self._archive(sid)) if "archive" in snapshot.available_actions else None,
                 on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions else None,
             )
+        self._configure_voice_capture_controls(snapshot, view)
         view.speaking = snapshot.speaking
         if patch.visual_state:
             view.surface.set_speaker_active(snapshot.speaking)
@@ -460,6 +525,12 @@ class ResultDialogPresenter:
             )
         elif patch.feedback:
             view.surface.hide_feedback()
+        if (
+            previous is not None
+            and previous.status in {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING}
+            and snapshot.status is SessionStatus.VOICE_REVIEW
+        ):
+            self._schedule_initial_focus(snapshot.session_id, view)
         view.last_snapshot = snapshot
 
     def _evict_view(self, session_id: str, view: _SessionView) -> None:
@@ -517,6 +588,8 @@ class ResultDialogPresenter:
             return
         operation_id = uuid.uuid4().hex
         text = view.surface.selected_text()
+        if view.last_snapshot is not None and view.last_snapshot.status is SessionStatus.VOICE_REVIEW:
+            text = text if text is not None else view.surface.semantic_content()
         transition = view.external_output.begin(
             "paste",
             operation_id,
@@ -604,11 +677,44 @@ class ResultDialogPresenter:
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
-        return _SessionView(dialog=dialog, surface=surface)
+        stop = surface.add_action_slot("voice_stop", "Stop", None, width=46, tooltip="Stop Voice Input")
+        cancel = surface.add_action_slot("voice_cancel", "Cancel", None, width=54, tooltip="Cancel Voice Input")
+        stop.pack_forget()
+        cancel.pack_forget()
+        return _SessionView(dialog=dialog, surface=surface, voice_stop_button=stop, voice_cancel_button=cancel)
 
-    def _register_view(self, session_id: str, view: _SessionView) -> None:
+    def _configure_voice_capture_controls(self, snapshot: SessionSnapshot, view: _SessionView) -> None:
+        capture_id = snapshot.voice_capture_id
+        stop, cancel = view.voice_stop_button, view.voice_cancel_button
+        if stop is None or cancel is None:
+            return
+        listening = snapshot.status is SessionStatus.VOICE_LISTENING and capture_id is not None
+        finalizing = snapshot.status is SessionStatus.VOICE_FINALIZING and capture_id is not None
+        if listening:
+            stop.configure(command=lambda cid=capture_id: self._command_sink(StopVoiceCapture(cid)), state="normal")
+            if not stop.winfo_manager(): stop.pack(side="left", padx=(0, 5))
+        else:
+            stop.pack_forget()
+        if listening or finalizing:
+            cancel.configure(command=lambda cid=capture_id: self._command_sink(CancelVoiceCapture(cid)), state="normal")
+            if not cancel.winfo_manager(): cancel.pack(side="left", padx=(0, 5))
+        else:
+            cancel.pack_forget()
+
+    def _register_view(
+        self,
+        session_id: str,
+        view: _SessionView,
+        *,
+        focus_on_show: bool = True,
+    ) -> None:
         view.external_output.focus(PopupRegistered())
         dialog = view.dialog
+        toggle_voice_draft_mode = lambda event, sid=session_id: self._popup_shortcut(
+            event,
+            self._toggle_voice_draft_mode,
+            sid,
+        )
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
         dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._focus_in(sid), add="+")
         dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
@@ -618,21 +724,28 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-s>", lambda event, sid=session_id: self._popup_shortcut(event, self._archive, sid), add="+")
         dialog.root.bind("<Control-r>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_feedback, sid), add="+")
         dialog.root.bind("<Control-v>", lambda event, sid=session_id: self._paste_shortcut(event, sid), add="+")
+        dialog.root.bind("<Control-Return>", toggle_voice_draft_mode, add="+")
+        dialog.root.bind("<Control-KP_Enter>", toggle_voice_draft_mode, add="+")
         dialog.root.bind("<Control-slash>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_follow_up, sid), add="+")
         view.surface.bind_header_double_click(lambda _event, sid=session_id: self._header_double_click(sid))
+        view.surface.bind_voice_draft_mode_toggle(toggle_voice_draft_mode)
         view.external_output.focus(PopupShown())
+        if focus_on_show:
+            self._schedule_initial_focus(session_id, view)
 
+    def _schedule_initial_focus(self, session_id: str, view: _SessionView) -> None:
         def establish_initial_focus() -> None:
-            if session_id not in self._views:
+            if self._views.get(session_id) is not view or view.external_output.focused_inside:
                 return
-            dialog.lifecycle.focus()
+            if not view.surface.focus_content():
+                return
             self._apply_transition_actions(
                 session_id,
                 view,
                 view.external_output.focus(FocusEntered()),
             )
 
-        dialog.lifecycle.schedule(0, establish_initial_focus)
+        view.dialog.lifecycle.schedule(0, establish_initial_focus)
 
     def _shortcut(self, action: Callable[[str], None], session_id: str) -> str:
         view = self._views.get(session_id)
@@ -650,7 +763,22 @@ class ResultDialogPresenter:
             return "break"
         if _accepts_native_paste(getattr(event, "widget", None)):
             return None
+        view = self._views.get(session_id)
+        if view is not None and view.last_snapshot is not None and view.last_snapshot.status is SessionStatus.VOICE_REVIEW:
+            return self._shortcut(self._paste, session_id)
         return self._shortcut(self._paste, session_id)
+
+    def _toggle_voice_draft_mode(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None or view.last_snapshot is None or view.last_snapshot.status is not SessionStatus.VOICE_REVIEW:
+            return
+        view.voice_draft_editing = not view.voice_draft_editing
+        view.surface.set_voice_draft_editing(view.voice_draft_editing)
+        view.surface.set_paste_focus_state(
+            view.external_output.focused_inside,
+            self._paste_target,
+            voice_draft_editing=view.voice_draft_editing,
+        )
 
     def _header_double_click(self, session_id: str) -> str:
         self._toggle_pin(session_id)
@@ -680,6 +808,15 @@ class ResultDialogPresenter:
             view,
             view.external_output.focus(OutsideFocusCheckRequested()),
         )
+
+
+def _voice_draft_editing(view: _SessionView) -> bool | None:
+    snapshot = view.last_snapshot
+    return (
+        view.voice_draft_editing
+        if snapshot is not None and snapshot.status is SessionStatus.VOICE_REVIEW
+        else None
+    )
 
 
 def _content_render_key(snapshot: SessionSnapshot) -> tuple[object, ...]:

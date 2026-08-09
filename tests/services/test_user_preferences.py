@@ -106,3 +106,21 @@ def test_stale_work_cannot_overwrite_a_newer_preference() -> None:
     assert coordinator.execute(newer) == ""
     coordinator.complete("speed-2")
     assert coordinator.current_speech_rate() == "+50%"
+
+
+def test_voice_enablement_and_language_use_the_existing_single_preference_gate() -> None:
+    store = MemoryStore()
+    coordinator = UserPreferencesCoordinator(store)
+    enabled = coordinator.begin_set_voice_enabled(True, "voice-enable")
+
+    assert enabled.voice.enabled is False
+    assert enabled.voice.update_pending is True
+    assert coordinator.begin_set_voice_language("en-US", "voice-language").ignored is True
+    assert coordinator.execute(enabled.work) == ""
+    coordinator.complete("voice-enable")
+    assert coordinator.voice_preferences.enabled is True
+
+    language = coordinator.begin_set_voice_language("en-US", "voice-language")
+    assert coordinator.execute(language.work) == ""
+    coordinator.complete("voice-language")
+    assert coordinator.voice_preferences.language == "en-US"

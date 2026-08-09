@@ -750,7 +750,7 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
         active_color="#00B04F",
         active_hover_color="#00B04F",
     ),
-    ResultActionSpec(slot_id="paste", icon=PASTE_ICON, tooltip="Paste result (Ctrl+V)"),
+    ResultActionSpec(slot_id="paste", icon=PASTE_ICON, tooltip="Paste result to target"),
     ResultActionSpec(
         slot_id="archive",
         icon=ARCHIVE_ICON,
@@ -999,6 +999,7 @@ class BaseResultSurface:
         configure_display_break_typography(self.content_text)
         self._list_indent_prefixes: dict[str, str] = {}
         self.content_text._on_scaling_changed = self._reapply_list_indents
+        self._editable_content_changed: Callable[[str], None] | None = None
 
         self.footer = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.footer.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 2))
@@ -1154,14 +1155,49 @@ class BaseResultSurface:
     def set_model(self, model: str) -> None:
         self.model_label.configure(text=f"model: {model}")
 
-    def set_paste_focus_state(self, focused: bool, target: PasteTarget | None) -> None:
+    def set_paste_focus_state(
+        self,
+        focused: bool,
+        target: PasteTarget | None,
+        *,
+        voice_draft_editing: bool | None = None,
+    ) -> None:
         self.dialog.set_focus_active(focused)
+        if voice_draft_editing is not None:
+            mode = "編輯模式" if voice_draft_editing else "閱讀模式"
+            if not focused:
+                self.paste_target_label.configure(
+                    text=f"{mode}｜未聚焦；Ctrl+V 使用原剪貼簿",
+                )
+                self.set_action_tooltip("paste", "Popup 未聚焦；Ctrl+V 會使用原剪貼簿內容")
+                return
+            if voice_draft_editing:
+                self.paste_target_label.configure(
+                    text="編輯模式｜Ctrl+V 貼入｜Ctrl+Enter 閱讀",
+                )
+                self.set_action_tooltip("paste", "編輯模式：Ctrl+V 貼入草稿；Ctrl+Enter 切換閱讀模式")
+                return
+            if target is not None:
+                destination = paste_target_display_text(target)
+                self.paste_target_label.configure(
+                    text=f"閱讀模式｜Ctrl+V → {destination}｜Ctrl+Enter 編輯",
+                )
+                self.set_action_tooltip(
+                    "paste",
+                    f"閱讀模式：Ctrl+V 貼上目前內容到 {destination}；Ctrl+Enter 切換編輯模式",
+                )
+                return
+            self.paste_target_label.configure(
+                text="閱讀模式｜Ctrl+V 無外部目標｜Ctrl+Enter 編輯",
+            )
+            self.set_action_tooltip("paste", "閱讀模式：找不到外部貼上目標；Ctrl+Enter 切換編輯模式")
+            return
         if focused and target is not None:
             destination = paste_target_display_text(target)
             self.paste_target_label.configure(
                 text=f"貼到：{destination}",
             )
-            self.set_action_tooltip("paste", f"貼上辨識文字到 {destination} (Ctrl+V)")
+            self.set_action_tooltip("paste", f"貼上目前內容到 {destination}")
             return
         if focused:
             self.paste_target_label.configure(
@@ -1430,12 +1466,73 @@ class BaseResultSurface:
         self.set_content_chunks(chunks)
 
     def set_content_chunks(self, chunks: list[tuple[str, str]]) -> None:
+        self._editable_content_changed = None
+        self.content_text.unbind("<KeyRelease>")
         self._canonical_selection_segments = ()
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         for text, tag in chunks:
             insert_display_text(self.content_text, "end", text, tag)
         self.content_text.configure(state="disabled")
+
+    def set_editable_content(self, text: str, on_changed: Callable[[str], None]) -> None:
+        """Render canonical Voice draft text while preserving normal text-editing behavior."""
+        self._canonical_selection_segments = ()
+        self._editable_content_changed = on_changed
+        self.content_text.configure(state="normal")
+        try:
+            current = self.content_text.get("1.0", "end-1c")
+        except (tk.TclError, AttributeError):
+            current = ""
+        if current != text:
+            try:
+                caret = self.content_text.index("insert")
+            except (tk.TclError, AttributeError):
+                caret = None
+            self.content_text.delete("1.0", "end")
+            self.content_text.insert("1.0", text, "body")
+            if caret is not None:
+                try:
+                    self.content_text.mark_set("insert", caret)
+                except (tk.TclError, AttributeError):
+                    pass
+        self.content_text.bind("<KeyRelease>", self._notify_editable_content_changed)
+
+    def set_voice_draft_editing(self, editing: bool) -> None:
+        """Switch the rendered Voice Draft between editable and reading presentation."""
+        if editing:
+            self.content_text.configure(state="normal")
+            if self._editable_content_changed is not None:
+                self.content_text.bind("<KeyRelease>", self._notify_editable_content_changed)
+            return
+        self.content_text.unbind("<KeyRelease>")
+        self.content_text.configure(state="disabled")
+
+    def semantic_content(self) -> str:
+        try:
+            return self.content_text.get("1.0", "end-1c")
+        except (tk.TclError, AttributeError):
+            return ""
+
+    def selection_range(self) -> tuple[int, int]:
+        """Return the editable draft selection, or its current caret, as text offsets."""
+        try:
+            start = self.content_text.index("sel.first")
+            end = self.content_text.index("sel.last")
+        except (tk.TclError, AttributeError):
+            try:
+                start = end = self.content_text.index("insert")
+            except (tk.TclError, AttributeError):
+                return (0, 0)
+        try:
+            return (len(self.content_text.get("1.0", start)), len(self.content_text.get("1.0", end)))
+        except (tk.TclError, AttributeError):
+            return (0, 0)
+
+    def _notify_editable_content_changed(self, _event=None) -> None:
+        callback = self._editable_content_changed
+        if callback is not None:
+            callback(self.semantic_content())
 
     def append_content_text(self, text: str, tag: str = "body") -> None:
         if not text:
@@ -1547,6 +1644,14 @@ class BaseResultSurface:
     def bind_header_double_click(self, callback: Callable) -> None:
         for widget in (self.header, self.title_area, self.title_label):
             widget.bind("<Double-Button-1>", callback, add="+")
+
+    def bind_voice_draft_mode_toggle(self, callback: Callable) -> None:
+        self.content_text.bind("<Control-Return>", callback, add="+")
+        self.content_text.bind("<Control-KP_Enter>", callback, add="+")
+
+    def focus_content(self) -> bool:
+        """Focus the content widget and report verified toolkit focus truth."""
+        return self.dialog.lifecycle.focus(self.content_text)
 
     def set_pinned_state(self, pinned: bool) -> None:
         self.dialog.set_pinned(pinned)

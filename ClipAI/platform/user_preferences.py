@@ -6,9 +6,10 @@ from pathlib import Path
 import tempfile
 from typing import cast
 
-from ClipAI.core.models import SpeechSpeed, UserPreferences
+from ClipAI.core.models import SpeechSpeed, UserPreferences, VoiceLanguagePreference
 
 _SPEECH_SPEEDS: frozenset[str] = frozenset({"slow", "normal", "fast", "super_fast"})
+_VOICE_LANGUAGES: frozenset[str] = frozenset({"zh-TW", "en-US"})
 
 
 class JsonUserPreferencesStore:
@@ -33,20 +34,32 @@ class JsonUserPreferencesStore:
             return UserPreferences(False, frozenset(seen))
         if schema_version == 2 and isinstance(enabled, bool):
             return UserPreferences(enabled, frozenset(seen))
-        if schema_version != 3 or not isinstance(enabled, bool):
+        if schema_version == 3 and isinstance(enabled, bool):
+            raw_speed = payload.get("speech_speed")
+            if raw_speed is not None and raw_speed not in _SPEECH_SPEEDS:
+                raw_speed = None
+            speed = cast(SpeechSpeed, raw_speed) if isinstance(raw_speed, str) else None
+            return UserPreferences(enabled, frozenset(seen), speed)
+        if schema_version != 4 or not isinstance(enabled, bool):
             return UserPreferences()
         raw_speed = payload.get("speech_speed")
         if raw_speed is not None and raw_speed not in _SPEECH_SPEEDS:
             raw_speed = None
         speed = cast(SpeechSpeed, raw_speed) if isinstance(raw_speed, str) else None
-        return UserPreferences(enabled, frozenset(seen), speed)
+        voice_enabled = payload.get("voice_input_enabled")
+        language = payload.get("voice_language")
+        if not isinstance(voice_enabled, bool) or language not in _VOICE_LANGUAGES:
+            return UserPreferences(enabled, frozenset(seen), speed)
+        return UserPreferences(enabled, frozenset(seen), speed, voice_enabled, cast(VoiceLanguagePreference, language))
 
     def save(self, preferences: UserPreferences) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         payload: dict[str, object] = {
-            "schema_version": 3,
+            "schema_version": 4,
             "first_use_hints_enabled": preferences.first_use_hints_enabled,
             "seen_action_ids": sorted(preferences.seen_action_ids),
+            "voice_input_enabled": preferences.voice_input_enabled,
+            "voice_language": preferences.voice_language,
         }
         if preferences.speech_speed is not None:
             payload["speech_speed"] = preferences.speech_speed

@@ -361,7 +361,123 @@ def test_paste_focus_projection_explains_active_and_unfocused_ctrl_v() -> None:
     assert surface.dialog.focus_states == [True, False]
     assert surface.paste_target_label.values[0] == {"text": "貼到：Notepad — Untitled"}
     assert surface.paste_target_label.values[-1] == {"text": "未聚焦｜Ctrl+V 使用原剪貼簿"}
-    assert tooltips[0] == ("paste", "貼上辨識文字到 Notepad — Untitled (Ctrl+V)")
+    assert tooltips[0] == ("paste", "貼上目前內容到 Notepad — Untitled")
+
+
+def test_voice_draft_footer_explains_ctrl_v_for_editing_and_reading_modes() -> None:
+    class Dialog:
+        def set_focus_active(self, _active: bool) -> None:
+            pass
+
+    class Label:
+        def __init__(self) -> None:
+            self.values = []
+
+        def configure(self, **values) -> None:
+            self.values.append(values)
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.dialog = Dialog()
+    surface.paste_target_label = Label()
+    tooltips = []
+    surface.set_action_tooltip = lambda slot, text: tooltips.append((slot, text))
+    target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
+
+    surface.set_paste_focus_state(True, target, voice_draft_editing=True)
+    surface.set_paste_focus_state(True, target, voice_draft_editing=False)
+
+    assert surface.paste_target_label.values == [
+        {"text": "編輯模式｜Ctrl+V 貼入｜Ctrl+Enter 閱讀"},
+        {"text": "閱讀模式｜Ctrl+V → Notepad — Untitled｜Ctrl+Enter 編輯"},
+    ]
+    assert tooltips == [
+        ("paste", "編輯模式：Ctrl+V 貼入草稿；Ctrl+Enter 切換閱讀模式"),
+        ("paste", "閱讀模式：Ctrl+V 貼上目前內容到 Notepad — Untitled；Ctrl+Enter 切換編輯模式"),
+    ]
+
+
+def test_voice_draft_reading_mode_makes_content_read_only_until_reopened() -> None:
+    class ContentText:
+        def __init__(self) -> None:
+            self.states = []
+            self.bindings = {}
+
+        def configure(self, **values) -> None:
+            self.states.append(values["state"])
+
+        def bind(self, sequence, callback) -> None:
+            self.bindings[sequence] = callback
+
+        def unbind(self, sequence) -> None:
+            self.bindings.pop(sequence, None)
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = ContentText()
+    surface._editable_content_changed = lambda _text: None
+
+    surface.set_voice_draft_editing(False)
+    surface.set_voice_draft_editing(True)
+
+    assert surface.content_text.states == ["disabled", "normal"]
+    assert surface.content_text.bindings["<KeyRelease>"] == surface._notify_editable_content_changed
+
+
+def test_voice_draft_content_refresh_preserves_the_current_caret() -> None:
+    class ContentText:
+        def __init__(self) -> None:
+            self.text = "old draft"
+            self.caret_updates = []
+
+        def configure(self, **_values) -> None:
+            pass
+
+        def get(self, start, end) -> str:
+            assert (start, end) == ("1.0", "end-1c")
+            return self.text
+
+        def index(self, mark) -> str:
+            assert mark == "insert"
+            return "1.4"
+
+        def delete(self, _start, _end) -> None:
+            self.text = ""
+
+        def insert(self, _index, text, _tag) -> None:
+            self.text = text
+
+        def mark_set(self, mark, index) -> None:
+            self.caret_updates.append((mark, index))
+
+        def bind(self, _sequence, _callback) -> None:
+            pass
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = ContentText()
+    surface._canonical_selection_segments = ()
+
+    surface.set_editable_content("new authoritative draft", lambda _text: None)
+
+    assert surface.content_text.caret_updates == [("insert", "1.4")]
+
+
+def test_voice_draft_mode_shortcut_binds_directly_to_the_text_widget() -> None:
+    class ContentText:
+        def __init__(self) -> None:
+            self.bindings = []
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings.append((sequence, callback, add))
+
+    callback = lambda _event: "break"
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = ContentText()
+
+    surface.bind_voice_draft_mode_toggle(callback)
+
+    assert surface.content_text.bindings == [
+        ("<Control-Return>", callback, "+"),
+        ("<Control-KP_Enter>", callback, "+"),
+    ]
 
 
 def test_rounded_surface_painter_redraws_tagged_surface_below_widgets() -> None:
@@ -523,6 +639,39 @@ def test_dialog_lifecycle_exposes_closed_state() -> None:
     assert lifecycle.is_closed is True
 
 
+def test_dialog_lifecycle_focus_reports_verified_toolkit_focus() -> None:
+    class Root:
+        def __init__(self) -> None:
+            self.focused = None
+            self.events = []
+
+        def update_idletasks(self) -> None:
+            self.events.append("layout")
+
+        def lift(self) -> None:
+            self.events.append("lift")
+
+        def focus_get(self):
+            return self.focused
+
+    class Widget:
+        def __init__(self, root) -> None:
+            self.root = root
+
+        def focus_force(self) -> None:
+            self.root.focused = self
+
+        def winfo_toplevel(self):
+            return self.root
+
+    root = Root()
+    widget = Widget(root)
+    lifecycle = DialogLifecycle(root)
+
+    assert lifecycle.focus(widget) is True
+    assert root.events == ["layout", "lift"]
+
+
 def test_native_close_request_uses_callback_instead_of_destroying_the_dialog() -> None:
     events: list[str] = []
     dialog = BaseDialog.__new__(BaseDialog)
@@ -565,7 +714,7 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
     assert [spec.tooltip for spec in STANDARD_RESULT_ACTIONS] == [
         "Speak result (Ctrl+Q)",
         "Copy result (Ctrl+C)",
-        "Paste result (Ctrl+V)",
+        "Paste result to target",
         "Archive result (Ctrl+S)",
         "Ask follow-up (Ctrl+/)",
     ]

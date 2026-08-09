@@ -5,6 +5,7 @@ from typing import TypeAlias
 
 from ClipAI.core.models import FeedbackOutcome, InterruptionScope, ModelCatalogConnection, PasteOutcome, PasteTarget, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
 from ClipAI.core.models import ControlSurfaceRef
+from ClipAI.core.voice import VoiceCaptureId, VoiceDisableId, VoiceEngineEvent, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
 
 
 @dataclass(frozen=True)
@@ -267,4 +268,81 @@ class SpeechSpeedPreferencesCompleted:
     error: str = ""
 
 
-AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted
+@dataclass(frozen=True)
+class EnableVoiceInput:
+    setup_id: VoiceSetupId
+
+
+@dataclass(frozen=True)
+class OpenVoiceSetup:
+    pass
+
+
+@dataclass(frozen=True)
+class OpenVoicePermissionSettings:
+    pass
+
+
+@dataclass(frozen=True)
+class VoicePreferenceSaved:
+    setup_id: VoiceSetupId
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class DisableVoiceInput:
+    disable_id: VoiceDisableId
+
+
+@dataclass(frozen=True)
+class VoiceDisableShutdownCompleted:
+    disable_id: VoiceDisableId
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class VoiceDisablePreferenceSaved:
+    disable_id: VoiceDisableId
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class VoiceEngineEventReceived:
+    event: VoiceEngineEvent
+
+
+@dataclass(frozen=True)
+class StopVoiceCapture:
+    capture_id: VoiceCaptureId
+
+
+@dataclass(frozen=True)
+class CancelVoiceCapture:
+    capture_id: VoiceCaptureId
+
+
+@dataclass(frozen=True)
+class VoiceCaptureWatchdogExpired:
+    press_id: ShortcutPressId
+
+
+@dataclass(frozen=True)
+class SetVoiceLanguage:
+    language: VoiceLanguage
+    operation_id: VoiceLanguageChangeId = VoiceLanguageChangeId("")
+
+
+@dataclass(frozen=True)
+class VoiceLanguagePreferenceSaved:
+    operation_id: VoiceLanguageChangeId
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class UpdateVoiceDraft:
+    workflow_id: str
+    expected_revision: int
+    text: str
+
+
+AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 from ClipAI.core.models import GuidancePreferences, ModelSelectionState, ProviderOption, ProviderSelectionState, SpeechSpeedState
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceProjection
 from ClipAI.ui.tray import SHORTCUT_GUIDE_MENU_LABEL, STATUS_COLORS, TrayController, create_tray_image
 
 
@@ -34,6 +35,7 @@ class Pystray:
             self.icon = icon
             self.title = title
             self.menu = menu
+            self.menu_updates = 0
 
         def run(self) -> None:
             pass
@@ -42,7 +44,7 @@ class Pystray:
             pass
 
         def update_menu(self) -> None:
-            pass
+            self.menu_updates += 1
 
 
 class NotificationIcon:
@@ -329,3 +331,76 @@ def test_speech_speed_follows_keyboard_shortcuts_and_is_separated_from_guidance(
     assert speech_index == shortcut_index + 1
     assert items[speech_index + 1] is Menu.SEPARATOR
     assert guidance_index == speech_index + 2
+
+
+def test_voice_menu_projects_authoritative_state_without_optimistic_toggle() -> None:
+    events = []
+    tray = TrayController(
+        lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.SETUP_REQUIRED, "zh-TW"),
+        on_enable_voice=lambda: events.append("enable"),
+        on_disable_voice=lambda: events.append("disable"),
+        on_manage_voice_permission=lambda: events.append("manage"),
+    )
+    menu = tray._build_voice_menu(Pystray)
+    assert menu.text(None) == "Voice Input (setup required)"
+    enable, disable, manage = menu.action.items
+    assert enable.enabled(None) is True
+    assert disable.enabled(None) is False
+    assert manage.enabled(None) is False
+    enable.action(None, None)
+    assert events == ["enable"]
+
+
+def test_existing_voice_menu_reprojects_enable_and_disable_after_authoritative_update(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "pystray", Pystray)
+    events: list[str] = []
+    tray = TrayController(
+        lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.SETUP_REQUIRED, "zh-TW"),
+        on_enable_voice=lambda: events.append("enable"),
+        on_disable_voice=lambda: events.append("disable"),
+    )
+    tray.start()
+    tray._thread.join(timeout=1)
+    menu = next(
+        item
+        for item in tray._icon.menu.items
+        if callable(getattr(item, "text", None)) and item.text(None).startswith("Voice Input")
+    )
+    enable, disable = menu.action.items
+
+    tray.set_voice_projection(VoiceProjection(VoiceCapabilityPhase.READY, "zh-TW"))
+
+    assert tray._icon.menu_updates == 1
+    assert menu.text(None) == "Voice Input (ready)"
+    assert enable.enabled(None) is False
+    assert disable.enabled(None) is True
+    disable.action(None, None)
+
+    tray.set_voice_projection(VoiceProjection(VoiceCapabilityPhase.DISABLED, "zh-TW"))
+
+    assert tray._icon.menu_updates == 2
+    assert menu.text(None) == "Voice Input (disabled)"
+    assert enable.enabled(None) is True
+    assert disable.enabled(None) is False
+    enable.action(None, None)
+    assert events == ["disable", "enable"]
+
+
+def test_voice_menu_exposes_permission_repair_when_microphone_is_blocked() -> None:
+    events = []
+    tray = TrayController(
+        lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.PERMISSION_BLOCKED, "zh-TW"),
+        on_enable_voice=lambda: None,
+        on_disable_voice=lambda: None,
+        on_manage_voice_permission=lambda: events.append("manage"),
+    )
+
+    menu = tray._build_voice_menu(Pystray)
+    manage = menu.action.items[-1]
+    assert manage.text == "Manage Microphone Permission"
+    assert manage.enabled(None) is True
+    manage.action(None, None)
+    assert events == ["manage"]

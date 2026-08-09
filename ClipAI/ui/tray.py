@@ -8,6 +8,7 @@ import time
 from PIL import Image, ImageDraw
 
 from ClipAI.core.models import ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceLanguage, VoiceProjection
 
 logger = logging.getLogger("clipai.tray")
 SHORTCUT_GUIDE_MENU_LABEL = "Keyboard Shortcuts..."
@@ -93,6 +94,11 @@ class TrayController:
         on_reset_first_use_hints: Callable[[], None] | None = None,
         speech_speed: SpeechSpeedState | None = None,
         on_set_speech_speed: Callable[[SpeechSpeed], None] | None = None,
+        voice: VoiceProjection | None = None,
+        on_enable_voice: Callable[[], None] | None = None,
+        on_disable_voice: Callable[[], None] | None = None,
+        on_set_voice_language: Callable[[VoiceLanguage], None] | None = None,
+        on_manage_voice_permission: Callable[[], None] | None = None,
     ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
@@ -110,6 +116,11 @@ class TrayController:
         self._on_reset_first_use_hints = on_reset_first_use_hints
         self._speech_speed = speech_speed
         self._on_set_speech_speed = on_set_speech_speed
+        self._voice = voice
+        self._on_enable_voice = on_enable_voice
+        self._on_disable_voice = on_disable_voice
+        self._on_set_voice_language = on_set_voice_language
+        self._on_manage_voice_permission = on_manage_voice_permission
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -135,6 +146,10 @@ class TrayController:
         speech_speed_menu = self._build_speech_speed_menu(pystray)
         if speech_speed_menu is not None:
             menu_items.append(speech_speed_menu)
+            menu_items.append(pystray.Menu.SEPARATOR)
+        voice_menu = self._build_voice_menu(pystray)
+        if voice_menu is not None:
+            menu_items.append(voice_menu)
             menu_items.append(pystray.Menu.SEPARATOR)
         guidance_menu = self._build_guidance_menu(pystray)
         if guidance_menu is not None:
@@ -270,12 +285,73 @@ class TrayController:
 
         return select
 
+    def _build_voice_menu(self, pystray):
+        if self._voice is None or self._on_enable_voice is None or self._on_disable_voice is None:
+            return None
+        language_items = ()
+        if self._on_set_voice_language is not None:
+            language_items = (
+                pystray.MenuItem(
+                    "Traditional Chinese (zh-TW)",
+                    lambda _icon, _item: self._on_set_voice_language(VoiceLanguage("zh-TW")),
+                    checked=lambda _item: self._voice is not None and self._voice.language == "zh-TW",
+                    enabled=lambda _item: self._voice is not None and self._voice.capture_id is None,
+                ),
+                pystray.MenuItem(
+                    "English (en-US)",
+                    lambda _icon, _item: self._on_set_voice_language(VoiceLanguage("en-US")),
+                    checked=lambda _item: self._voice is not None and self._voice.language == "en-US",
+                    enabled=lambda _item: self._voice is not None and self._voice.capture_id is None,
+                ),
+            )
+        menu_items = [
+            pystray.MenuItem("Enable Voice Input", lambda _icon, _item: self._on_enable_voice(), enabled=lambda _item: self._voice_enable_available()),
+            pystray.MenuItem("Disable Voice Input", lambda _icon, _item: self._on_disable_voice(), enabled=lambda _item: self._voice_disable_available()),
+        ]
+        if language_items:
+            menu_items.append(pystray.MenuItem("Language", pystray.Menu(*language_items)))
+        if self._on_manage_voice_permission is not None:
+            menu_items.append(
+                pystray.MenuItem(
+                    "Manage Microphone Permission",
+                    lambda _icon, _item: self._on_manage_voice_permission(),
+                    enabled=lambda _item: self._voice is not None
+                    and self._voice.capability
+                    in {VoiceCapabilityPhase.PERMISSION_BLOCKED, VoiceCapabilityPhase.UNAVAILABLE},
+                )
+            )
+        return pystray.MenuItem(
+            lambda _item: self._voice_menu_label(),
+            pystray.Menu(*menu_items),
+        )
+
+    def _voice_menu_label(self) -> str:
+        voice = self._voice
+        phase = voice.capability.value.replace("_", " ") if voice is not None else "unavailable"
+        return f"Voice Input ({phase})"
+
+    def _voice_enable_available(self) -> bool:
+        voice = self._voice
+        return voice is not None and voice.capability not in {
+            VoiceCapabilityPhase.READY,
+            VoiceCapabilityPhase.REQUESTING_PERMISSION,
+            VoiceCapabilityPhase.DISABLING,
+        }
+
+    def _voice_disable_available(self) -> bool:
+        voice = self._voice
+        return voice is not None and voice.capability is VoiceCapabilityPhase.READY
+
     def set_guidance_preferences(self, preferences: GuidancePreferences) -> None:
         self._guidance_preferences = preferences
         self._refresh_menu()
 
     def set_speech_speed(self, state: SpeechSpeedState) -> None:
         self._speech_speed = state
+        self._refresh_menu()
+
+    def set_voice_projection(self, projection: VoiceProjection) -> None:
+        self._voice = projection
         self._refresh_menu()
 
     def _provider_action(self, provider: str):

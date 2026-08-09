@@ -106,6 +106,10 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - `follow_up`：開啟追問輸入。視覺上應使用 pen icon。
 - `pin`：固定 surface，避免 focus out 時自動關閉。Pin 必須保留為 base slot。
 - `speaker`、`copy`、`paste` 採 selection-first；沒有非空 semantic selection 時才使用 displayed step 的 canonical content。
+- Voice Review 進入時預設為「編輯模式」；`Ctrl+V` 保留原生貼入，讓使用者
+  修改草稿。`Ctrl+Enter` 切換到唯讀的「閱讀模式」，此時 `Ctrl+V` 產生
+  外部 Paste intent；再次按 `Ctrl+Enter` 可回到編輯模式。Paste 按鈕在兩種
+  模式都可明確觸發外部貼上。
 - Paste 必須先隱藏 surface、釋放 focus，再送出 typed command；UI 不得直接操作 clipboard 或 keyboard。
 - Paste 的 `pending` 與 terminal acknowledgement 必須以相同 operation ID
   配對；stale acknowledgement 不得改變目前 surface、focus 或 transition。
@@ -116,12 +120,20 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - Result surface 的 focus state 以邊框作為主要提示。Focused surface 的 footer
   只顯示最近的外部 paste target，不重複標示「已聚焦」；pinned 且 unfocused 時必須說明
   `Ctrl+V` 會由目前外部視窗使用原剪貼簿內容。
-- Focus 與 paste target 提示固定置於 popup footer 左下角，model 置於同列
+- Focus、Voice Draft 模式與 paste target 提示固定置於 popup footer 左下角；
+  Voice Review 必須同步說明目前 `Ctrl+V` 的作用與 `Ctrl+Enter` 將切換到的
+  模式。model 置於同列
   右下角；兩者必須使用相同字級與顏色，不得占用 header 或 result content
   的閱讀空間，也不得以警示色搶走內容注意力。
 - Windows paste target、toolkit focus 與 semantic Foreground Workflow 是三種
   不同身份。Paste target 由 service coordinator 擁有；UI 只呈現 target
   projection 與回報 focus activation candidate。
+- 可互動 Popup 初次顯示時必須先完成 layout、提升視窗並將焦點放到 content；
+  Voice Listening／Finalizing 保持 non-activating，直到進入 Voice Review 才提出
+  初始焦點請求。只有 toolkit 確認焦點位於該 Popup 內，Presenter 才能回報
+  `FocusEntered`；焦點呼叫失敗不得被投影成 focused state。
+- Voice Draft 因權威 snapshot 更新而替換內容時，surface 必須保存並恢復目前
+  caret，避免非使用者導覽造成插入游標跳動。
 - Paste target 無效、已關閉或無法成為 foreground 時，系統不得向其他視窗
   fallback 或盲送 `Ctrl+V`，必須恢復 surface 並顯示失敗狀態。
 

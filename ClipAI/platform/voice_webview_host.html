@@ -1,0 +1,77 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ClipAI Voice Engine</title>
+<script>
+(() => {
+  let capture = null;
+  const emit = payload => window.pywebview.api.emit(payload);
+  const stopTracks = stream => { if (stream) stream.getTracks().forEach(track => track.stop()); };
+  const finish = async (item, failure = "") => {
+    if (!item || item.finished) return;
+    item.finished = true;
+    stopTracks(item.stream);
+    window.pywebview.api.hide();
+    if (failure) emit({kind: "failed", capture_id: item.id, failure});
+    emit({kind: "ended", capture_id: item.id});
+    if (capture === item) capture = null;
+  };
+  const prepare = async command => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+      stopTracks(stream);
+      emit({kind: "setup_ready", setup_id: command.setup_id});
+      window.pywebview.api.hide();
+    } catch (error) {
+      if (error && error.name === "NotAllowedError") emit({kind: "setup_blocked", setup_id: command.setup_id});
+      else emit({kind: "setup_failed", setup_id: command.setup_id, failure: "initialization_failed"});
+    }
+  };
+  const start = async command => {
+    if (capture) return;
+    const item = {id: command.capture_id, stream: null, recognition: null, stopped: false, finished: false, sequence: command.sequence_start || 0};
+    capture = item;
+    try {
+      item.stream = await navigator.mediaDevices.getUserMedia({audio: true});
+      if (item.stopped) return finish(item);
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Recognition) return finish(item, "unavailable");
+      const recognition = item.recognition = new Recognition();
+      recognition.lang = command.language;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.onstart = () => {
+        if (item.stopped) return;
+        emit({kind: "listening", capture_id: item.id});
+        window.pywebview.api.hide();
+      };
+      recognition.onresult = event => {
+        let interim = "";
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const text = event.results[index][0].transcript || "";
+          if (event.results[index].isFinal) emit({kind: "final", capture_id: item.id, sequence: item.sequence++, text});
+          else interim += text;
+        }
+        if (interim) emit({kind: "interim", capture_id: item.id, text: interim});
+      };
+      recognition.onerror = event => { if (!item.stopped) finish(item, event.error === "not-allowed" ? "permission_denied" : "initialization_failed"); };
+      recognition.onend = () => finish(item);
+      recognition.start();
+    } catch (_) { finish(item, "initialization_failed"); }
+  };
+  window.addEventListener("pywebviewready", () => {
+    window.clipaiVoice = {
+      command(command) {
+        if (command.command === "prepare") prepare(command);
+        else if (command.command === "start") start(command);
+        else if (capture && capture.id === command.capture_id) {
+          capture.stopped = true;
+          try { command.command === "cancel" ? capture.recognition.abort() : capture.recognition.stop(); }
+          catch (_) { finish(capture); }
+        }
+      },
+      shutdown() { if (capture) { capture.stopped = true; try { capture.recognition.abort(); } catch (_) { finish(capture); } } }
+    };
+    emit({kind: "bridge_ready"});
+  }, {once: true});
+})();
+</script>

@@ -38,25 +38,10 @@ class TTSSettings:
 
 
 @dataclass(frozen=True)
-class VoiceOpenAISettings:
-    api_key_env: str
-    base_url: str
-    model: str
-    language: str
-    timeout_sec: float
-
-
-@dataclass(frozen=True)
 class VoiceInputSettings:
-    backend: str
-    browser: str
-    host: str
-    port: int
-    allow_port_fallback: bool
-    language: str
-    auto_start: bool
-    clipboard_mode: str
-    openai: VoiceOpenAISettings
+    """V1 has one deliberate engine path: controlled Edge WebView2 Browser Speech."""
+
+    backend: Literal["edge_webview2_browser_speech"]
 
 
 @dataclass(frozen=True)

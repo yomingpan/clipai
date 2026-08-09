@@ -44,6 +44,16 @@ class ShortcutGuideCatalog:
                 _SPEECH_LONG_DESCRIPTION,
             )
 
+        if definition.command == "push_to_talk":
+            return ShortcutGuideItem(
+                definition.id,
+                hotkey,
+                display_hotkey(hotkey),
+                parse_hotkey_tokens(hotkey),
+                "Voice Input",
+                "Hold to dictate; release to review before pasting.",
+            )
+
         assert definition.action_id is not None
         action = self._actions.get(definition.action_id)
         short = self._actions.resolve(definition.action_id, "short")

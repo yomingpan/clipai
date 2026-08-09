@@ -59,6 +59,11 @@ class ResultOutputRuntimeModule:
     def observe_paste_target(self, target: PasteTarget) -> None:
         self._paste_targets.observe(target)
 
+    @property
+    def current_paste_target(self) -> PasteTarget | None:
+        """Expose the latest external foreground target for capture-time freezing."""
+        return self._paste_targets.current
+
     def bind_user_control(self, user_control: UserControlCoordinator) -> None:
         self._user_control = user_control
 
@@ -168,7 +173,8 @@ class ResultOutputRuntimeModule:
         if controller is None or not controller.snapshot.content:
             self._reject_paste(operation_id, command.session_id, "This result is no longer available to paste.")
             return
-        target = self._paste_targets.current
+        voice_origin = controller.snapshot.voice_origin
+        target = voice_origin.paste_target if voice_origin is not None else self._paste_targets.current
         if target is None:
             self._reject_paste(
                 operation_id,
@@ -364,4 +370,4 @@ class ResultOutputRuntimeModule:
 
 
 def _selected_or_result(selected: str | None, controller: WorkflowController) -> str:
-    return selected.strip() if selected and selected.strip() else controller.snapshot.content
+    return selected.strip() if selected is not None else controller.snapshot.content

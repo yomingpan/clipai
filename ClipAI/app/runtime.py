@@ -10,9 +10,10 @@ from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeCommand, Short
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeCommand, ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeCommand, UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvocationFailed, WorkflowRuntimeCommand, WorkflowRuntimeModule, WorkflowSnapshotReady
+from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.app.provider_execution import ProviderExecutionModule
-from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CloseProviderSettings, CloseSession, CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, CloseProviderSettings, CloseSession, CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, DisableVoiceInput, EnableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft, ValidateAndSaveProviderSettings, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ControlSurfaceRef, InterruptionPlan, ShortcutObservationSnapshot
 from ClipAI.core.ports import ApplicationView, ForegroundWindowMonitor, OperationTracker, RuntimeComponent, ShortcutInput, ShortcutObservationLease
 from ClipAI.services.provider_configuration import ProviderConfigurationResult
@@ -33,6 +34,7 @@ _SHORTCUT_INPUT_EVENTS = (
     ShortcutPressEnded,
     ShortcutAttemptRejected,
 )
+_VOICE_COMMANDS = (OpenVoiceSetup, OpenVoicePermissionSettings, EnableVoiceInput, DisableVoiceInput, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved, StopVoiceCapture, CancelVoiceCapture, VoiceCaptureWatchdogExpired, SetVoiceLanguage, VoiceLanguagePreferenceSaved, UpdateVoiceDraft)
 
 
 class AppRuntime:
@@ -62,6 +64,7 @@ class AppRuntime:
         shortcut_guide: ShortcutGuideRuntimeModule | None = None,
         foreground_monitor: ForegroundWindowMonitor | None = None,
         user_control: UserControlCoordinator | None = None,
+        voice_input: VoiceInputRuntimeModule | None = None,
     ) -> None:
         self._shortcuts = shortcuts
         self._view = view
@@ -78,6 +81,7 @@ class AppRuntime:
         self._shortcut_guide_module = shortcut_guide
         self._foreground_monitor = foreground_monitor
         self._user_control = user_control or UserControlCoordinator()
+        self._voice_input_module = voice_input
         self._workflow_module.bind_user_control(self._user_control)
         self._result_output_module.bind_user_control(self._user_control)
         self._provider_configuration_module.bind_user_control(self._user_control)
@@ -145,6 +149,8 @@ class AppRuntime:
         if self._foreground_monitor is not None:
             self._foreground_monitor.stop()
         self._workflow_module.stop()
+        if self._voice_input_module is not None:
+            self._voice_input_module.stop()
         self._result_output_module.stop()
         self._close_shortcut_observation()
         if self._listener is not None:
@@ -166,6 +172,12 @@ class AppRuntime:
         if isinstance(command, InterruptionRequested):
             self._route(InterruptCurrent() if command.scope == "current" else InterruptAll())
         elif isinstance(command, _SHORTCUT_INPUT_EVENTS):
+            if isinstance(command, (ShortcutPressStarted, ShortcutPressInvoked, ShortcutPressEnded)) and self._shortcuts.is_push_to_talk(command.shortcut_id):
+                if self._voice_input_module is not None and isinstance(command, ShortcutPressStarted):
+                    self._voice_input_module.handle_shortcut_started(command)
+                elif self._voice_input_module is not None and isinstance(command, ShortcutPressEnded):
+                    self._voice_input_module.handle_shortcut_ended(command)
+                return
             if self._shortcut_guide_module is not None and self._shortcut_guide_module.consume(command):
                 return
             if isinstance(command, ShortcutPressInvoked):
@@ -199,6 +211,8 @@ class AppRuntime:
             self._supervisor.cancel_many(task_ids, lambda: None)
         elif isinstance(command, CloseSession):
             self._user_control.release(ControlSurfaceRef(command.session_id, "workflow"))
+            if self._voice_input_module is not None:
+                self._voice_input_module.close_workflow(command.session_id)
             self._result_output_module.close_workflow(command.session_id)
             self._workflow_module.handle(command)
         elif isinstance(command, ActivateWorkflow):
@@ -244,6 +258,8 @@ class AppRuntime:
             self._action_feedback_module.handle(cast(ActionFeedbackRuntimeCommand, command))
         elif isinstance(command, _USER_PREFERENCES_COMMANDS):
             self._user_preferences_module.handle(cast(UserPreferencesRuntimeCommand, command))
+        elif self._voice_input_module is not None and isinstance(command, _VOICE_COMMANDS):
+            self._voice_input_module.handle(command)
 
     def _execute_interruption(self, plan: InterruptionPlan) -> None:
         surface = plan.surface

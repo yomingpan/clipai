@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from importlib.metadata import PackageNotFoundError, version
 import os
+from pathlib import Path
 import uuid
 
 from ClipAI.app.config_schema import ConfigBundle
@@ -16,9 +17,10 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
+from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
-from ClipAI.core.commands import ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutInputEvent, ShutdownApplication
+from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -33,6 +35,8 @@ from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
+from ClipAI.platform.browser_speech import BrowserSpeechWebView2Engine
+from ClipAI.platform.voice_permissions import open_microphone_privacy_settings
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider
 from ClipAI.providers.anthropic import AnthropicProvider
@@ -56,6 +60,7 @@ from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCo
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
 from ClipAI.services.selection_capture import SelectionCaptureCoordinator
 from ClipAI.services.user_control import UserControlCoordinator
+from ClipAI.services.voice_input import VoiceInputController
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.ui.result_dialog import ResultDialogPresenter
@@ -63,6 +68,7 @@ from ClipAI.ui.tray import TrayController
 from ClipAI.support.logging_setup import configure_logging
 from ClipAI.support.diagnostics import SafeDiagnosticsExporter
 from ClipAI.support.diagnostics import IncidentReporter
+from ClipAI.core.voice import VoiceDisableId, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
 
 
 def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
@@ -97,6 +103,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
     runtime_holder: list[AppRuntime] = []
     enqueue = lambda command: runtime_holder[0].enqueue(command)
+    voice_controller = VoiceInputController(
+        enabled=user_preferences.voice_preferences.enabled,
+        language=VoiceLanguage(user_preferences.voice_preferences.language),
+    )
     tray = TrayController(
         lambda: runtime_holder[0].enqueue(ShutdownApplication()),
         lambda: runtime_holder[0].enqueue(ExportDiagnostics()),
@@ -110,6 +120,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         on_reset_first_use_hints=lambda: runtime_holder[0].enqueue(ResetFirstUseHints(uuid.uuid4().hex)),
         speech_speed=user_preferences.speech_speed_state,
         on_set_speech_speed=lambda speed: runtime_holder[0].enqueue(SetSpeechSpeed(speed, uuid.uuid4().hex)),
+        voice=voice_controller.projection,
+        on_enable_voice=lambda: runtime_holder[0].enqueue(OpenVoiceSetup()),
+        on_disable_voice=lambda: runtime_holder[0].enqueue(DisableVoiceInput(VoiceDisableId(uuid.uuid4().hex))),
+        on_set_voice_language=lambda language: runtime_holder[0].enqueue(SetVoiceLanguage(language)),
+        on_manage_voice_permission=lambda: runtime_holder[0].enqueue(OpenVoicePermissionSettings()),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
@@ -212,6 +227,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         enqueue=enqueue,
         provider_configuration=provider_configuration,
         workflow_context_reader=view,
+        voice_draft_selection_reader=view,
         incident_reporter=incident_reporter,
         operation_tracker=operation_tracker,
         notifier=tray,
@@ -257,6 +273,38 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         operation_tracker=operation_tracker,
         notifier=tray,
     )
+    local_app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    voice_engine = BrowserSpeechWebView2Engine(
+        lambda event: enqueue(VoiceEngineEventReceived(event)),
+        profile_root=local_app_data,
+    )
+    voice_input_module = VoiceInputRuntimeModule(
+        controller=voice_controller,
+        engine=voice_engine,
+        workflows=workflow_module,
+        paste_target_reader=lambda: result_output_module.current_paste_target,
+        persist_enabled=lambda setup_id: user_preferences_module.begin_voice_enabled(
+            True,
+            setup_id,
+            lambda error: VoicePreferenceSaved(VoiceSetupId(setup_id), error),
+        ),
+        persist_disabled=lambda disable_id: user_preferences_module.begin_voice_enabled(
+            False,
+            disable_id,
+            lambda error: VoiceDisablePreferenceSaved(VoiceDisableId(disable_id), error),
+        ),
+        persist_language=lambda operation_id, language: user_preferences_module.begin_voice_language(
+            language,
+            operation_id,
+            lambda error: VoiceLanguagePreferenceSaved(VoiceLanguageChangeId(operation_id), error),
+        ),
+        complete_voice_preference=user_preferences_module.complete_voice_enabled,
+        dispatch=enqueue,
+        projection_sink=tray.set_voice_projection,
+        setup_presenter=view,
+        focused_surface_reader=lambda: user_control.focused_surface,
+        open_permission_settings=open_microphone_privacy_settings,
+    )
     shortcut_guide_module = ShortcutGuideRuntimeModule(
         catalog=ShortcutGuideCatalog(
             bundle.shortcuts,
@@ -284,6 +332,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             lambda target: runtime_holder[0].enqueue(ExternalForegroundChanged(target))
         ),
         user_control=user_control,
+        voice_input=voice_input_module,
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):

@@ -58,6 +58,8 @@ ClipAI 測試分成兩層。
 - 改完程式馬上得到回饋。
 - 讓重構不害怕。
 
+Voice Draft 的細部規則以 `services/voice_draft.py` 的 pure interface 為主要測試面：涵蓋 insertion、revision/frozen target guard、terminal result 套用與 Action/Back transition。`WorkflowController` 只保留少量 integration-style unit tests，驗證它在既有 lock scope 內套用 transition、更新唯一 snapshot、render projection 與維持 navigation 契約。新增案例應補在規則真正所屬的層，不得在 controller tests 再複製一套相同 rule matrix。
+
 預設執行：
 
 ```powershell

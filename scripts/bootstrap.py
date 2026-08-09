@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Callable, Sequence
 REQUIRED_PYTHON = (3, 12)
 READY_MARKER = ".clipai-bootstrap"
 PIP_CERT_COMPATIBILITY = "--use-deprecated=legacy-certs"
+PIP_CERT_COMPATIBILITY_ENV = "PIP_USE_DEPRECATED"
+PIP_CERT_COMPATIBILITY_VALUE = "legacy-certs"
 RunCommand = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 ReadVersion = Callable[[Path], tuple[int, int] | None]
 
@@ -26,7 +29,14 @@ def supported_python(version: tuple[int, int]) -> bool:
 
 
 def default_runner(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=False, text=True)
+    # The command-line switch only applies to this pip process. Export the
+    # matching setting as well so PEP 517's isolated build subprocess inherits
+    # the certificate mode used by the successful Windows installation path.
+    environment = {
+        **os.environ,
+        PIP_CERT_COMPATIBILITY_ENV: PIP_CERT_COMPATIBILITY_VALUE,
+    }
+    return subprocess.run(command, check=False, text=True, env=environment)
 
 
 def venv_python(project_root: Path) -> Path | None:

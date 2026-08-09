@@ -21,7 +21,12 @@ class ShortcutCatalog:
         if shortcut.command == "start_action":
             assert shortcut.action_id is not None
             return StartAction(shortcut.action_id, press_type)
-        return SpeakSelectionOrClipboard()
+        if shortcut.command == "speak_selection_or_clipboard":
+            return SpeakSelectionOrClipboard()
+        raise ValueError("push-to-talk shortcuts are dispatched from their physical press lifecycle")
+
+    def is_push_to_talk(self, shortcut_id: str) -> bool:
+        return self.definition(shortcut_id).command == "push_to_talk"
 
     def definition(self, shortcut_id: str) -> ShortcutDefinition:
         try:

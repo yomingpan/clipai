@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ClipAI.app.config_loader import load_action_catalog, load_app_config, load_config_bundle, load_output_profiles, load_shortcut_catalog
+from ClipAI.app.config_loader import _parse_voice_input, load_action_catalog, load_app_config, load_config_bundle, load_output_profiles, load_shortcut_catalog
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.commands import SpeakSelectionOrClipboard, StartAction
@@ -16,6 +16,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
 
     assert bundle.providers.active == "gemini"
     assert bundle.runtime.maintenance_workers == 1
+    assert bundle.voice_input.backend == "edge_webview2_browser_speech"
     assert bundle.app.modifier_mode == "ctrl_alt"
     assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
@@ -48,6 +49,13 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
+
+
+def test_voice_input_config_rejects_unsupported_engine_paths() -> None:
+    with pytest.raises(ConfigError, match="edge_webview2_browser_speech"):
+        _parse_voice_input({"backend": "openai"})
+    with pytest.raises(ConfigError, match="auto_start"):
+        _parse_voice_input({"backend": "edge_webview2_browser_speech", "auto_start": True})
 
 
 def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input() -> None:
@@ -443,6 +451,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
 
     assert len(start_actions) == 23
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
+        "voice_input": "ctrl+alt+w",
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
         "name_idea": "ctrl+alt+3",
@@ -479,9 +488,11 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
 
     non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
     assert [(item["id"], item["command"]) for item in non_action] == [
+        ("voice_input", "push_to_talk"),
         ("speak_selection_or_clipboard", "speak_selection_or_clipboard")
     ]
     assert bundle.shortcuts.resolve("speak_selection_or_clipboard", "short") == SpeakSelectionOrClipboard()
+    assert bundle.shortcuts.is_push_to_talk("voice_input") is True
 
 
 def test_dictation_editor_uses_default_text_workflow_without_a_long_press_variant() -> None:

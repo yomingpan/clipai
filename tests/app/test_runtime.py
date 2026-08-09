@@ -530,7 +530,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False):
     action = ActionDefinition("a", "Action", "system", "{input}", {})
     shorten = ActionDefinition(
         "shorten",
@@ -569,11 +569,14 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         build_provider_candidate,
         discover_provider_models,
     )
-    shortcuts = ShortcutCatalog([
+    shortcut_definitions = [
         ShortcutDefinition("a", "ctrl+alt+8", "start_action", "a"),
         ShortcutDefinition("speech", "ctrl+alt+q", "speak_selection_or_clipboard"),
         ShortcutDefinition("shorten", "ctrl+alt+x", "start_action", "shorten"),
-    ])
+    ]
+    if include_voice_input:
+        shortcut_definitions.append(ShortcutDefinition("voice_input", "ctrl+alt+w", "push_to_talk"))
+    shortcuts = ShortcutCatalog(shortcut_definitions)
     actions = ActionCatalog([action, shorten])
     execute_action = FakeExecute()
     provider_configuration = ProviderConfigurationCoordinator(snapshot, backend)
@@ -658,6 +661,15 @@ def workflow(view: FakeView, workflow_id: str):
     controller = view.workflow_controller(workflow_id)
     assert controller is not None
     return controller
+
+
+def test_push_to_talk_invoked_event_never_reaches_the_action_shortcut_resolver() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime(include_voice_input=True)
+
+    runtime.enqueue(ShortcutPressInvoked(ShortcutPressId(1), "voice_input", "long"))
+    runtime.drain_commands()
+
+    assert view.snapshots == []
 
 
 class FakeActionFeedback:
