@@ -5,7 +5,7 @@ import logging
 import threading
 from typing import Literal
 
-from ClipAI.core.models import GuidancePreferences, SpeechSpeed, SpeechSpeedState, UserPreferences
+from ClipAI.core.models import GuidancePreferences, SpeechSpeed, SpeechSpeedState, UserPreferences, VoiceLanguagePreference, VoicePreferencesState
 from ClipAI.core.ports import UserPreferencesStore
 
 logger = logging.getLogger("clipai.user_preferences")
@@ -17,7 +17,7 @@ SPEECH_SPEED_RATES: dict[SpeechSpeed, str] = {
     "super_fast": "+50%",
 }
 _SPEECH_SPEED_BY_RATE = {rate: speed for speed, rate in SPEECH_SPEED_RATES.items()}
-PreferenceOperationKind = Literal["set_guidance_enabled", "reset_guidance", "set_speech_speed"]
+PreferenceOperationKind = Literal["set_guidance_enabled", "reset_guidance", "set_speech_speed", "set_voice_enabled", "set_voice_language"]
 
 
 @dataclass(frozen=True)
@@ -26,12 +26,14 @@ class UserPreferencesWork:
     kind: PreferenceOperationKind
     enabled: bool | None = None
     speed: SpeechSpeed | None = None
+    voice_language: VoiceLanguagePreference | None = None
 
 
 @dataclass(frozen=True)
 class UserPreferencesUpdate:
     guidance: GuidancePreferences
     speech_speed: SpeechSpeedState
+    voice: VoicePreferencesState
     work: UserPreferencesWork | None = None
     ignored: bool = False
     error: str = ""
@@ -64,6 +66,11 @@ class UserPreferencesCoordinator:
         with self._lock:
             return self._speech_projection()
 
+    @property
+    def voice_preferences(self) -> VoicePreferencesState:
+        with self._lock:
+            return self._voice_projection()
+
     def current_speech_rate(self) -> str:
         with self._lock:
             speed = self._preferences.speech_speed
@@ -80,6 +87,18 @@ class UserPreferencesCoordinator:
             if not self._speech_available or speed == self._selected_speech_speed():
                 return self._update(ignored=True)
         return self._begin(UserPreferencesWork(operation_id, "set_speech_speed", speed=speed))
+
+    def begin_set_voice_enabled(self, enabled: bool, operation_id: str) -> UserPreferencesUpdate:
+        with self._lock:
+            if self._preferences.voice_input_enabled == enabled:
+                return self._update(ignored=True)
+        return self._begin(UserPreferencesWork(operation_id, "set_voice_enabled", enabled=enabled))
+
+    def begin_set_voice_language(self, language: VoiceLanguagePreference, operation_id: str) -> UserPreferencesUpdate:
+        with self._lock:
+            if self._preferences.voice_language == language:
+                return self._update(ignored=True)
+        return self._begin(UserPreferencesWork(operation_id, "set_voice_language", voice_language=language))
 
     def _begin(self, work: UserPreferencesWork) -> UserPreferencesUpdate:
         with self._lock:
@@ -100,6 +119,10 @@ class UserPreferencesCoordinator:
                     desired = replace(current, seen_action_ids=frozenset())
                 elif work.kind == "set_speech_speed" and work.speed is not None:
                     desired = replace(current, speech_speed=work.speed)
+                elif work.kind == "set_voice_enabled" and work.enabled is not None:
+                    desired = replace(current, voice_input_enabled=work.enabled)
+                elif work.kind == "set_voice_language" and work.voice_language is not None:
+                    desired = replace(current, voice_language=work.voice_language)
                 else:
                     raise ValueError(f"unsupported user preference operation: {work.kind}")
                 self._store.save(desired)
@@ -152,6 +175,13 @@ class UserPreferencesCoordinator:
             available=self._speech_available,
         )
 
+    def _voice_projection(self) -> VoicePreferencesState:
+        return VoicePreferencesState(
+            self._preferences.voice_input_enabled,
+            self._preferences.voice_language,
+            update_pending=self._pending is not None and self._pending.kind in {"set_voice_enabled", "set_voice_language"},
+        )
+
     def _update(
         self,
         *,
@@ -162,6 +192,7 @@ class UserPreferencesCoordinator:
         return UserPreferencesUpdate(
             self._guidance_projection(),
             self._speech_projection(),
+            self._voice_projection(),
             work=work,
             ignored=ignored,
             error=error,
