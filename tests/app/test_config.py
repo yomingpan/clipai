@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ClipAI.app.config_loader import load_action_catalog, load_app_config, load_config_bundle, load_output_profiles, load_shortcut_catalog
+from ClipAI.app.config_loader import _parse_voice_input, load_action_catalog, load_app_config, load_config_bundle, load_output_profiles, load_shortcut_catalog
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.commands import SpeakSelectionOrClipboard, StartAction
@@ -16,6 +16,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
 
     assert bundle.providers.active == "gemini"
     assert bundle.runtime.maintenance_workers == 1
+    assert bundle.voice_input.backend == "edge_webview2_browser_speech"
     assert bundle.app.modifier_mode == "ctrl_alt"
     assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
@@ -48,6 +49,13 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
+
+
+def test_voice_input_config_rejects_unsupported_engine_paths() -> None:
+    with pytest.raises(ConfigError, match="edge_webview2_browser_speech"):
+        _parse_voice_input({"backend": "openai"})
+    with pytest.raises(ConfigError, match="auto_start"):
+        _parse_voice_input({"backend": "edge_webview2_browser_speech", "auto_start": True})
 
 
 def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input() -> None:

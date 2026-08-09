@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 import yaml
 import warnings
 
-from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings, VoiceOpenAISettings
+from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, ActionVariant, ExternalFallback, FeedbackReason, InputMode, OutputMode, OutputProfile, PressType, ShortcutCommandKind, ShortcutDefinition
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
@@ -129,28 +129,14 @@ def _parse_tts(value: Any) -> TTSSettings:
 def _parse_voice_input(value: Any) -> VoiceInputSettings:
     path = "config.voice_input"
     data = _mapping(value, path, allow_none=True)
-    allowed = {"backend", "browser", "host", "port", "allow_port_fallback", "language", "auto_start", "clipboard_mode", "openai"}
-    _reject_unknown(data, allowed, path)
-    openai_path = f"{path}.openai"
-    openai = _mapping(data.get("openai"), openai_path, allow_none=True)
-    _reject_unknown(openai, {"api_key_env", "base_url", "model", "language", "timeout_sec"}, openai_path)
-    return VoiceInputSettings(
-        backend=_string(data.get("backend"), f"{path}.backend", default="browser_speech"),
-        browser=_string(data.get("browser"), f"{path}.browser", default="edge"),
-        host=_string(data.get("host"), f"{path}.host", default="127.0.0.1"),
-        port=_integer(data.get("port"), f"{path}.port", default=8765),
-        allow_port_fallback=_boolean(data.get("allow_port_fallback"), f"{path}.allow_port_fallback", default=True),
-        language=_string(data.get("language"), f"{path}.language", default="zh-TW"),
-        auto_start=_boolean(data.get("auto_start"), f"{path}.auto_start", default=False),
-        clipboard_mode=_string(data.get("clipboard_mode"), f"{path}.clipboard_mode", default="replace_full_text"),
-        openai=VoiceOpenAISettings(
-            api_key_env=_string(openai.get("api_key_env"), f"{openai_path}.api_key_env", default="OPENAI_API_KEY"),
-            base_url=_string(openai.get("base_url"), f"{openai_path}.base_url", default="https://api.openai.com/v1"),
-            model=_string(openai.get("model"), f"{openai_path}.model", default="whisper-1"),
-            language=_string(openai.get("language"), f"{openai_path}.language", default="zh"),
-            timeout_sec=_positive_number(openai.get("timeout_sec"), f"{openai_path}.timeout_sec", 60),
-        ),
+    _reject_unknown(data, {"backend"}, path)
+    backend = _choice(
+        data.get("backend"),
+        f"{path}.backend",
+        {"edge_webview2_browser_speech"},
+        "edge_webview2_browser_speech",
     )
+    return VoiceInputSettings(backend=cast(Literal["edge_webview2_browser_speech"], backend))
 
 
 def _parse_logging(value: Any) -> LoggingSettings:

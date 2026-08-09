@@ -69,22 +69,8 @@ tts:
   volume: "+0%"
 
 voice_input:
-  # browser_speech opens Chrome/Edge and uses the browser Web Speech API.
-  # webview/openai keeps the earlier pywebview path available as a fallback.
-  backend: browser_speech
-  browser: edge
-  host: 127.0.0.1
-  port: 8765
-  allow_port_fallback: true
-  language: zh-TW
-  auto_start: false
-  clipboard_mode: replace_full_text
-  openai:
-    api_key_env: OPENAI_API_KEY
-    base_url: https://api.openai.com/v1
-    model: whisper-1
-    language: zh
-    timeout_sec: 60
+  # Voice Input V1 always uses the controlled Edge WebView2 Browser Speech host.
+  backend: edge_webview2_browser_speech
 
 logging:
   enabled: true
