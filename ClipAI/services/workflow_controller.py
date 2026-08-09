@@ -6,7 +6,7 @@ from dataclasses import replace
 from ClipAI.core.models import ActionInvocation, InputDocument, PresentationDocument, ResolvedAction, WorkflowStep
 from ClipAI.core.ports import ResultPresenter
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceDraftTarget
+from ClipAI.core.voice import VoiceCapturePhase, VoiceDraftTarget, VoiceProjection
 
 
 class WorkflowController:
@@ -273,6 +273,48 @@ class WorkflowController:
                 selection_start,
                 selection_end,
             )
+
+    def project_voice_capture(self, projection: VoiceProjection) -> SessionSnapshot | None:
+        """Project controller-owned capture lifecycle without making it canonical draft state."""
+        if projection.workflow_id != self._snapshot.session_id or projection.capture_phase is None:
+            return None
+        status = {
+            VoiceCapturePhase.STARTING: SessionStatus.VOICE_PREPARING,
+            VoiceCapturePhase.LISTENING: SessionStatus.VOICE_LISTENING,
+            VoiceCapturePhase.STOP_REQUESTED: SessionStatus.VOICE_FINALIZING,
+            VoiceCapturePhase.FINALIZING: SessionStatus.VOICE_FINALIZING,
+            VoiceCapturePhase.CANCEL_REQUESTED: SessionStatus.VOICE_FINALIZING,
+        }.get(projection.capture_phase)
+        if status is None:
+            return None
+        with self._lock:
+            if self._snapshot.voice_origin is None:
+                return None
+            self._snapshot = self._snapshot.evolve(
+                status=status,
+                status_text=projection.message,
+                available_actions=(),
+                result_completeness="none",
+            )
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return snapshot
+
+    def restore_voice_review(self, target: VoiceDraftTarget, message: str) -> SessionSnapshot | None:
+        with self._lock:
+            origin = self._snapshot.voice_origin
+            if origin is None or target.workflow_id != self._snapshot.session_id or target.expected_revision != origin.revision:
+                return None
+            self._snapshot = self._snapshot.evolve(
+                status=SessionStatus.VOICE_REVIEW,
+                content=origin.text,
+                status_text=message,
+                result_completeness="complete",
+                available_actions=("copy", "paste", "follow_up"),
+            )
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return snapshot
 
     def apply_voice_finalization(self, target: VoiceDraftTarget, text: str) -> SessionSnapshot | None:
         """Apply one controller-settled capture only to its frozen Voice origin."""

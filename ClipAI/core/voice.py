@@ -162,3 +162,4 @@ class VoiceProjection:
     capture_phase: VoiceCapturePhase | None = None
     interim_text: str = ""
     message: str = ""
+    workflow_id: str | None = None

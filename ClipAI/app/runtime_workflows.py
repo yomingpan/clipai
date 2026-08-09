@@ -135,7 +135,7 @@ class WorkflowRuntimeModule:
             SessionSnapshot(
                 workflow_id,
                 0,
-                SessionStatus.VOICE_REVIEW,
+                SessionStatus.VOICE_PREPARING,
                 "voice_input",
                 "Voice Input",
                 self._provider_configuration.active_binding.model,

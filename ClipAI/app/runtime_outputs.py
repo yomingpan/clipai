@@ -370,4 +370,4 @@ class ResultOutputRuntimeModule:
 
 
 def _selected_or_result(selected: str | None, controller: WorkflowController) -> str:
-    return selected.strip() if selected and selected.strip() else controller.snapshot.content
+    return selected.strip() if selected is not None else controller.snapshot.content

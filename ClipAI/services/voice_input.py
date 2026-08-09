@@ -74,7 +74,13 @@ class FinalizeVoiceDraft:
     warning: str = ""
 
 
-VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | ShutdownVoiceEngine | PersistVoiceDisabled | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft
+@dataclass(frozen=True)
+class RestoreVoiceReview:
+    target: VoiceDraftTarget
+    message: str
+
+
+VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | ShutdownVoiceEngine | PersistVoiceDisabled | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft | RestoreVoiceReview
 
 
 @dataclass(frozen=True)
@@ -130,6 +136,7 @@ class VoiceInputController:
             capture.phase if capture is not None else None,
             capture.interim_text if capture is not None else "",
             self._message,
+            capture.target.workflow_id if capture is not None else None,
         )
 
     def request_setup(self, setup_id: VoiceSetupId) -> VoiceTransition:
@@ -330,17 +337,18 @@ class VoiceInputController:
         self._capture = None
         if cancelled:
             self._message = "Voice Input cancelled."
-            return self._transition()
+            return self._transition(RestoreVoiceReview(target, self._message))
         if not text:
             self._message = "No speech was recognized. Try again."
-            return self._transition()
+            return self._transition(RestoreVoiceReview(target, self._message))
         self._message = warning or "Review your dictation."
         return self._transition(FinalizeVoiceDraft(capture_id, target, text, warning))
 
     def _settle_failed(self, capture: _Capture, event: VoiceEngineFailed) -> VoiceTransition:
+        target = capture.target
         self._capture = None
         self._message = _failure_message(event.failure, event.detail)
-        return self._transition()
+        return self._transition(RestoreVoiceReview(target, self._message))
 
     def _matching_capture(self, capture_id: VoiceCaptureId) -> _Capture | None:
         capture = self._capture

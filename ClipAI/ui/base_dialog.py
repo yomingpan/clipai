@@ -999,6 +999,7 @@ class BaseResultSurface:
         configure_display_break_typography(self.content_text)
         self._list_indent_prefixes: dict[str, str] = {}
         self.content_text._on_scaling_changed = self._reapply_list_indents
+        self._editable_content_changed: Callable[[str], None] | None = None
 
         self.footer = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.footer.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 2))
@@ -1430,12 +1431,39 @@ class BaseResultSurface:
         self.set_content_chunks(chunks)
 
     def set_content_chunks(self, chunks: list[tuple[str, str]]) -> None:
+        self._editable_content_changed = None
+        self.content_text.unbind("<KeyRelease>")
         self._canonical_selection_segments = ()
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         for text, tag in chunks:
             insert_display_text(self.content_text, "end", text, tag)
         self.content_text.configure(state="disabled")
+
+    def set_editable_content(self, text: str, on_changed: Callable[[str], None]) -> None:
+        """Render canonical Voice draft text while preserving normal text-editing behavior."""
+        self._canonical_selection_segments = ()
+        self._editable_content_changed = on_changed
+        self.content_text.configure(state="normal")
+        try:
+            current = self.content_text.get("1.0", "end-1c")
+        except (tk.TclError, AttributeError):
+            current = ""
+        if current != text:
+            self.content_text.delete("1.0", "end")
+            self.content_text.insert("1.0", text, "body")
+        self.content_text.bind("<KeyRelease>", self._notify_editable_content_changed)
+
+    def semantic_content(self) -> str:
+        try:
+            return self.content_text.get("1.0", "end-1c")
+        except (tk.TclError, AttributeError):
+            return ""
+
+    def _notify_editable_content_changed(self, _event=None) -> None:
+        callback = self._editable_content_changed
+        if callback is not None:
+            callback(self.semantic_content())
 
     def append_content_text(self, text: str, tag: str = "body") -> None:
         if not text:

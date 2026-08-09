@@ -9,7 +9,7 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft
 from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -39,6 +39,7 @@ class _SessionView:
     shown_guidance_keys: set[str] = field(default_factory=set)
     close_requested: bool = False
     last_snapshot: SessionSnapshot | None = None
+    voice_draft_revision: int = 0
 
 
 @dataclass(frozen=True)
@@ -391,7 +392,18 @@ class ResultDialogPresenter:
             )
         content_key = _content_render_key(snapshot)
         content_changed = patch.content
-        if snapshot.status == SessionStatus.FAILED:
+        if snapshot.status == SessionStatus.VOICE_REVIEW:
+            origin = snapshot.voice_origin
+            if origin is not None:
+                view.voice_draft_revision = origin.revision
+
+                def update_voice_draft(text: str, sid=snapshot.session_id, rendered=view) -> None:
+                    expected_revision = rendered.voice_draft_revision
+                    rendered.voice_draft_revision += 1
+                    self._command_sink(UpdateVoiceDraft(sid, expected_revision, text))
+
+                view.surface.set_editable_content(snapshot.content, update_voice_draft)
+        elif snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
             if content_changed:
                 if snapshot.content:
@@ -517,6 +529,8 @@ class ResultDialogPresenter:
             return
         operation_id = uuid.uuid4().hex
         text = view.surface.selected_text()
+        if view.last_snapshot is not None and view.last_snapshot.status is SessionStatus.VOICE_REVIEW:
+            text = text if text is not None else view.surface.semantic_content()
         transition = view.external_output.begin(
             "paste",
             operation_id,
@@ -648,6 +662,9 @@ class ResultDialogPresenter:
     def _paste_shortcut(self, event, session_id: str) -> str | None:
         if not _has_only_popup_shortcut_modifiers(event):
             return "break"
+        view = self._views.get(session_id)
+        if view is not None and view.last_snapshot is not None and view.last_snapshot.status is SessionStatus.VOICE_REVIEW:
+            return self._shortcut(self._paste, session_id)
         if _accepts_native_paste(getattr(event, "widget", None)):
             return None
         return self._shortcut(self._paste, session_id)

@@ -140,7 +140,7 @@ def test_cancel_discards_provisional_and_finalized_capture_content() -> None:
     controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "discard me"))
 
     assert controller.request_cancel(capture).effects == (CancelVoiceCapture(capture),)
-    assert controller.observe_engine(VoiceEngineEnded(capture)).effects == ()
+    assert controller.observe_engine(VoiceEngineEnded(capture)).effects[0].message == "Voice Input cancelled."
     assert controller.projection.capture_id is None
 
 
@@ -152,7 +152,7 @@ def test_conflicting_duplicate_segment_fails_the_capture() -> None:
 
     transition = controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "different"))
 
-    assert transition.effects == ()
+    assert transition.effects[0].message == "Voice Input received an invalid recognition response."
     assert controller.projection.capture_id is None
     assert "invalid recognition response" in controller.projection.message
 

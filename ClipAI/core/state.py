@@ -16,6 +16,9 @@ class SessionStatus(str, Enum):
     PREPARING_REQUEST = "preparing_request"
     REQUESTING_PROVIDER = "requesting_provider"
     PROCESSING_RESULT = "processing_result"
+    VOICE_PREPARING = "voice_preparing"
+    VOICE_LISTENING = "voice_listening"
+    VOICE_FINALIZING = "voice_finalizing"
     VOICE_REVIEW = "voice_review"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -39,7 +42,10 @@ ALLOWED_TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
     SessionStatus.REQUESTING_PROVIDER: {SessionStatus.PROCESSING_RESULT, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.PROCESSING_RESULT: {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.COMPLETED: {SessionStatus.PREPARING_REQUEST, SessionStatus.CLOSED},
-    SessionStatus.VOICE_REVIEW: {SessionStatus.PREPARING_REQUEST, SessionStatus.CLOSED},
+    SessionStatus.VOICE_PREPARING: {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING, SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
+    SessionStatus.VOICE_LISTENING: {SessionStatus.VOICE_FINALIZING, SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
+    SessionStatus.VOICE_FINALIZING: {SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
+    SessionStatus.VOICE_REVIEW: {SessionStatus.VOICE_PREPARING, SessionStatus.CLOSED},
     SessionStatus.FAILED: {SessionStatus.CLOSED},
     SessionStatus.STOPPED: {SessionStatus.CLOSED},
     SessionStatus.CANCELLED: {SessionStatus.CLOSED},

@@ -20,6 +20,8 @@ class Engine:
 class Workflow:
     def __init__(self) -> None: self.applied = []
     def apply_voice_finalization(self, target, text) -> None: self.applied.append((target, text))
+    def project_voice_capture(self, _projection) -> None: pass
+    def restore_voice_review(self, _target, _message) -> None: pass
 
 
 class Workflows:

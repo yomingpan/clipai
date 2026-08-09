@@ -4,12 +4,12 @@ import uuid
 from collections.abc import Callable
 
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved
+from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved
 from ClipAI.core.models import PasteTarget
 from ClipAI.core.ports import VoiceInputEngine
 from ClipAI.core.voice import VoiceDraftTarget, VoiceProjection
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
-from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceDisabled, PersistVoiceEnabled, PrepareVoiceSetup, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
+from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceDisabled, PersistVoiceEnabled, PrepareVoiceSetup, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
 
 
 class VoiceInputRuntimeModule:
@@ -62,7 +62,7 @@ class VoiceInputRuntimeModule:
         self._execute(transition)
         return True
 
-    def handle(self, command: EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage) -> bool:
+    def handle(self, command: EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage | UpdateVoiceDraft) -> bool:
         if isinstance(command, EnableVoiceInput):
             transition = self._controller.request_setup(command.setup_id)
         elif isinstance(command, DisableVoiceInput):
@@ -81,6 +81,9 @@ class VoiceInputRuntimeModule:
             transition = self._controller.request_stop(command.capture_id)
         elif isinstance(command, SetVoiceLanguage):
             transition = self._controller.set_language(command.language)
+        elif isinstance(command, UpdateVoiceDraft):
+            controller = self._workflows.controller_for(command.workflow_id)
+            return controller is not None and controller.edit_voice_draft(command.expected_revision, command.text) is not None
         else:
             transition = self._controller.request_cancel(command.capture_id)
         if transition.ignored:
@@ -93,6 +96,10 @@ class VoiceInputRuntimeModule:
 
     def _execute(self, transition: VoiceTransition) -> None:
         self._projection_sink(transition.projection)
+        if transition.projection.workflow_id is not None:
+            controller = self._workflows.controller_for(transition.projection.workflow_id)
+            if controller is not None:
+                controller.project_voice_capture(transition.projection)
         for effect in transition.effects:
             self._execute_effect(effect)
 
@@ -116,6 +123,10 @@ class VoiceInputRuntimeModule:
             self._engine.stop_capture(effect.capture_id)
         elif isinstance(effect, CancelVoiceCaptureEffect):
             self._engine.cancel_capture(effect.capture_id)
+        elif isinstance(effect, RestoreVoiceReview):
+            controller = self._workflows.controller_for(effect.target.workflow_id)
+            if controller is not None:
+                controller.restore_voice_review(effect.target, effect.message)
         else:
             controller = self._workflows.controller_for(effect.target.workflow_id)
             if controller is not None:

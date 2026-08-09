@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ClipAI.core.models import PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceOrigin
+from ClipAI.core.voice import VoiceCapturePhase, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.services.workflow_controller import WorkflowController
 
 
@@ -59,3 +59,28 @@ def test_invalid_voice_edit_revision_is_ignored() -> None:
 
     assert workflow.edit_voice_draft(3, "wrong") is None
     assert workflow.snapshot.content == "hello"
+
+
+def test_voice_capture_projection_is_read_only_until_review_is_restored() -> None:
+    workflow = controller("hello")
+    target = workflow.freeze_voice_insertion(5, 5)
+    assert target is not None
+
+    projected = workflow.project_voice_capture(
+        VoiceProjection(
+            capability="ready",
+            language=VoiceLanguage("zh-TW"),
+            capture_id="capture-1",
+            capture_phase=VoiceCapturePhase.LISTENING,
+            message="Listening…",
+            workflow_id="voice-workflow",
+        )
+    )
+
+    assert projected is not None
+    assert projected.status is SessionStatus.VOICE_LISTENING
+    assert projected.available_actions == ()
+    restored = workflow.restore_voice_review(target, "No speech was recognized. Try again.")
+    assert restored is not None
+    assert restored.status is SessionStatus.VOICE_REVIEW
+    assert restored.content == "hello"
