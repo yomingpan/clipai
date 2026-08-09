@@ -16,6 +16,10 @@ _Avoid_: Active popup, focused window
 A visible Workflow explicitly preserved when another external Action starts. Pinning preserves the Workflow but does not make it the Foreground Workflow.
 _Avoid_: Persistent popup
 
+**Voice Draft**:
+Editable canonical text belonging to one Workflow, formed from finalized Voice Input segments and explicit user edits. It exists only for that Workflow's lifetime and excludes interim recognition.
+_Avoid_: Transcript, recording
+
 **Shortcut Press**:
 One physical shortcut operation that begins when a complete registered binding
 first matches and ends when its non-modifier function key is released or the

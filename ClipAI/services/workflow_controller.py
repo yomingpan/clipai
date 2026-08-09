@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import replace
 
 from ClipAI.core.models import ActionInvocation, InputDocument, PresentationDocument, ResolvedAction, WorkflowStep
 from ClipAI.core.ports import ResultPresenter
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCapturePhase, VoiceDraftTarget, VoiceProjection
+from ClipAI.core.voice import VoiceDraftTarget, VoiceProjection
+from ClipAI.services import voice_draft
 
 
 class WorkflowController:
@@ -134,7 +134,7 @@ class WorkflowController:
                 steps=steps,
                 displayed_step_index=len(steps) - 1,
                 active_invocation_id=None,
-                can_navigate_back=len(steps) > 1 or self._snapshot.voice_origin is not None,
+                can_navigate_back=len(steps) > 1 or voice_draft.can_return_to_review(self._snapshot),
                 presentation=presentation,
                 action_feedback_contract=step.feedback_contract,
                 input_source=document.source,
@@ -201,54 +201,31 @@ class WorkflowController:
 
     def navigate_back(self) -> SessionSnapshot | None:
         with self._lock:
-            if self._snapshot.voice_origin is not None and self._snapshot.displayed_step_index == 0:
-                origin = self._snapshot.voice_origin
-                self._snapshot = self._snapshot.evolve(
-                    status=SessionStatus.VOICE_REVIEW,
-                    title="Voice Input",
-                    action_id="voice_input",
-                    content=origin.text,
-                    original_input="",
-                    source_preview="Voice Input draft",
+            next_snapshot = voice_draft.return_to_review(self._snapshot)
+            if next_snapshot is None:
+                if self._snapshot.displayed_step_index <= 0:
+                    return None
+                index = self._snapshot.displayed_step_index - 1
+                step = self._snapshot.steps[index]
+                next_snapshot = self._snapshot.evolve(
+                    status=SessionStatus.COMPLETED,
+                    title=step.title,
+                    action_id=step.action_id,
+                    content=step.result_text,
+                    original_input=step.input_text,
                     error="",
-                    displayed_step_index=-1,
-                    can_navigate_back=False,
-                    presentation=None,
-                    action_feedback_contract=None,
-                    input_source="voice_transcript",
-                    feedback_state="idle",
-                    feedback_step_id="",
+                    displayed_step_index=index,
+                    can_navigate_back=index > 0,
+                    presentation=step.presentation,
+                    action_feedback_contract=step.feedback_contract,
+                    input_source=step.input_source,
+                    feedback_state="succeeded" if step.step_id in self._feedback_step_ids else "idle",
+                    feedback_step_id=step.step_id if step.step_id in self._feedback_step_ids else "",
                     feedback_operation_id="",
-                    feedback_message="",
+                    feedback_message="已記錄回饋" if step.step_id in self._feedback_step_ids else "",
                     show_guidance_hint=False,
-                    result_completeness="complete",
-                    available_actions=("copy", "paste", "follow_up"),
                 )
-                snapshot = self._snapshot
-                self._presenter.render(snapshot)
-                return snapshot
-            if self._snapshot.displayed_step_index <= 0:
-                return None
-            index = self._snapshot.displayed_step_index - 1
-            step = self._snapshot.steps[index]
-            self._snapshot = self._snapshot.evolve(
-                status=SessionStatus.COMPLETED,
-                title=step.title,
-                action_id=step.action_id,
-                content=step.result_text,
-                original_input=step.input_text,
-                error="",
-                displayed_step_index=index,
-                can_navigate_back=index > 0,
-                presentation=step.presentation,
-                action_feedback_contract=step.feedback_contract,
-                input_source=step.input_source,
-                feedback_state="succeeded" if step.step_id in self._feedback_step_ids else "idle",
-                feedback_step_id=step.step_id if step.step_id in self._feedback_step_ids else "",
-                feedback_operation_id="",
-                feedback_message="已記錄回饋" if step.step_id in self._feedback_step_ids else "",
-                show_guidance_hint=False,
-            )
+            self._snapshot = next_snapshot
             snapshot = self._snapshot
         self._presenter.render(snapshot)
         return snapshot
@@ -256,124 +233,54 @@ class WorkflowController:
     def freeze_voice_insertion(self, selection_start: int, selection_end: int) -> VoiceDraftTarget | None:
         """Freeze the Voice-origin insertion range before a capture begins."""
         with self._lock:
-            origin = self._snapshot.voice_origin
-            if (
-                origin is None
-                or self._snapshot.status is not SessionStatus.VOICE_REVIEW
-                or self._snapshot.active_invocation_id is not None
-                or selection_start < 0
-                or selection_end < selection_start
-                or selection_end > len(origin.text)
-            ):
-                return None
-            return VoiceDraftTarget(
-                self._snapshot.session_id,
-                origin.revision,
-                origin.paste_target,
+            return voice_draft.freeze_insertion(
+                self._snapshot,
                 selection_start,
                 selection_end,
             )
 
     def project_voice_capture(self, projection: VoiceProjection) -> SessionSnapshot | None:
         """Project controller-owned capture lifecycle without making it canonical draft state."""
-        if projection.workflow_id != self._snapshot.session_id or projection.capture_phase is None:
-            return None
-        status = {
-            VoiceCapturePhase.STARTING: SessionStatus.VOICE_PREPARING,
-            VoiceCapturePhase.LISTENING: SessionStatus.VOICE_LISTENING,
-            VoiceCapturePhase.STOP_REQUESTED: SessionStatus.VOICE_FINALIZING,
-            VoiceCapturePhase.FINALIZING: SessionStatus.VOICE_FINALIZING,
-            VoiceCapturePhase.CANCEL_REQUESTED: SessionStatus.VOICE_FINALIZING,
-        }.get(projection.capture_phase)
-        if status is None:
-            return None
         with self._lock:
-            if self._snapshot.voice_origin is None:
+            next_snapshot = voice_draft.project_capture(self._snapshot, projection)
+            if next_snapshot is None:
                 return None
-            self._snapshot = self._snapshot.evolve(
-                status=status,
-                status_text=projection.message,
-                available_actions=(),
-                result_completeness="none",
-                voice_capture_id=projection.capture_id,
-            )
+            self._snapshot = next_snapshot
             snapshot = self._snapshot
         self._presenter.render(snapshot)
         return snapshot
 
     def restore_voice_review(self, target: VoiceDraftTarget, message: str) -> SessionSnapshot | None:
         with self._lock:
-            origin = self._snapshot.voice_origin
-            if origin is None or target.workflow_id != self._snapshot.session_id or target.expected_revision != origin.revision:
+            next_snapshot = voice_draft.restore_review(self._snapshot, target, message)
+            if next_snapshot is None:
                 return None
-            self._snapshot = self._snapshot.evolve(
-                status=SessionStatus.VOICE_REVIEW,
-                content=origin.text,
-                status_text=message,
-                result_completeness="complete",
-                available_actions=("copy", "paste", "follow_up"),
-                voice_capture_id=None,
-            )
+            self._snapshot = next_snapshot
             snapshot = self._snapshot
         self._presenter.render(snapshot)
         return snapshot
 
     def apply_voice_finalization(self, target: VoiceDraftTarget, text: str) -> SessionSnapshot | None:
         """Apply one controller-settled capture only to its frozen Voice origin."""
-        if not text.strip():
-            return None
         with self._lock:
-            origin = self._snapshot.voice_origin
-            if (
-                origin is None
-                or target.workflow_id != self._snapshot.session_id
-                or target.expected_revision != origin.revision
-                or target.paste_target != origin.paste_target
-                or target.selection_end > len(origin.text)
-            ):
+            next_snapshot = voice_draft.finalize_capture(self._snapshot, target, text)
+            if next_snapshot is None:
                 return None
-            content = f"{origin.text[:target.selection_start]}{text}{origin.text[target.selection_end:]}"
-            self._snapshot = self._snapshot.evolve(
-                status=SessionStatus.VOICE_REVIEW,
-                title="Voice Input",
-                action_id="voice_input",
-                content=content,
-                original_input="",
-                source_preview="Voice Input draft",
-                error="",
-                active_invocation_id=None,
-                displayed_step_index=-1,
-                can_navigate_back=False,
-                presentation=None,
-                action_feedback_contract=None,
-                input_source="voice_transcript",
-                feedback_state="idle",
-                feedback_step_id="",
-                feedback_operation_id="",
-                feedback_message="",
-                show_guidance_hint=False,
-                result_completeness="complete",
-                available_actions=("copy", "paste", "follow_up"),
-                voice_origin=replace(origin, text=content, revision=origin.revision + 1),
-                voice_capture_id=None,
-            )
+            self._snapshot = next_snapshot
             snapshot = self._snapshot
         self._presenter.render(snapshot)
         return snapshot
 
     def edit_voice_draft(self, expected_revision: int, text: str) -> SessionSnapshot | None:
         with self._lock:
-            origin = self._snapshot.voice_origin
-            if (
-                origin is None
-                or self._snapshot.status is not SessionStatus.VOICE_REVIEW
-                or origin.revision != expected_revision
-            ):
-                return None
-            self._snapshot = self._snapshot.evolve(
-                content=text,
-                voice_origin=replace(origin, text=text, revision=origin.revision + 1),
+            next_snapshot = voice_draft.edit_draft(
+                self._snapshot,
+                expected_revision,
+                text,
             )
+            if next_snapshot is None:
+                return None
+            self._snapshot = next_snapshot
             snapshot = self._snapshot
         self._presenter.render(snapshot)
         return snapshot
