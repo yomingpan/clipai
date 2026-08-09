@@ -94,11 +94,23 @@ def test_terminal_applies_ordered_final_segments_once() -> None:
     controller.request_capture(capture, frozen_target)
     controller.observe_engine(VoiceEngineFinalSegment(capture, 1, "world"))
     controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "hello"))
+    controller.request_stop(capture)
 
     terminal = controller.observe_engine(VoiceEngineEnded(capture))
 
     assert terminal.effects == (FinalizeVoiceDraft(capture, frozen_target, "hello world"),)
     assert controller.observe_engine(VoiceEngineEnded(capture)).ignored is True
+
+
+def test_natural_end_before_release_restarts_only_the_same_capture() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "first"))
+
+    restarted = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert restarted.effects == (StartVoiceCapture(capture, "zh-TW", 1),)
 
 
 def test_cancel_discards_provisional_and_finalized_capture_content() -> None:

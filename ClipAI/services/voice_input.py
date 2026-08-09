@@ -34,6 +34,7 @@ class PrepareVoiceSetup:
 class StartVoiceCapture:
     capture_id: VoiceCaptureId
     language: VoiceLanguage
+    sequence_start: int = 0
 
 
 @dataclass(frozen=True)
@@ -213,14 +214,18 @@ class VoiceInputController:
         if event.sequence < capture.next_sequence:
             return self._ignored()
         capture.segments[event.sequence] = event.text
+        while capture.next_sequence in capture.segments:
+            capture.next_sequence += 1
         return self._transition()
 
     def _settle_ended(self, capture: _Capture) -> VoiceTransition:
         assert capture.segments is not None
-        text_parts: list[str] = []
-        while capture.next_sequence in capture.segments:
-            text_parts.append(capture.segments[capture.next_sequence])
-            capture.next_sequence += 1
+        if not capture.stop_requested:
+            capture.phase = VoiceCapturePhase.STARTING
+            capture.interim_text = ""
+            self._message = "Listening…"
+            return self._transition(StartVoiceCapture(capture.capture_id, self._language, capture.next_sequence))
+        text_parts = [capture.segments[sequence] for sequence in range(capture.next_sequence)]
         warning = (
             "Recognition completed with a missing segment."
             if any(sequence > capture.next_sequence for sequence in capture.segments)
