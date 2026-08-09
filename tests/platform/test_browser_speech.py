@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ClipAI.core.voice import VoiceEngineEnded, VoiceEngineFailed, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupFailed, VoiceEngineSetupReady, VoiceTransportFailure
-from ClipAI.platform.browser_speech import CAPTURE_START_TIMEOUT_SECONDS, BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event
+from ClipAI.platform.browser_speech import CAPTURE_START_TIMEOUT_SECONDS, CAPTURE_STOP_TIMEOUT_SECONDS, BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event
 
 
 class BrokenInput:
@@ -151,6 +151,33 @@ def test_capture_start_timeout_is_cancelled_when_the_browser_starts_listening() 
 
     assert timers[0].cancelled is True
     assert received == [VoiceEngineListening("capture-1")]
+
+
+def test_capture_stop_timeout_settles_a_browser_host_that_never_ends() -> None:
+    received = []
+    timers: list[tuple[float, ManualTimer]] = []
+
+    def schedule(delay: float, callback) -> ManualTimer:
+        timer = ManualTimer(callback)
+        timers.append((delay, timer))
+        return timer
+
+    engine = BrowserSpeechWebView2Engine(received.append, capture_start_timeout_schedule=schedule)
+    process = LiveProcess()
+    engine._process = process
+    engine.start_capture("capture-1", "zh-TW")
+    engine._deliver(process, VoiceEngineListening("capture-1"))
+
+    engine.stop_capture("capture-1")
+
+    assert timers[-1][0] == CAPTURE_STOP_TIMEOUT_SECONDS
+    timers[-1][1].callback()
+
+    assert received == [
+        VoiceEngineListening("capture-1"),
+        VoiceEngineFailed("capture-1", VoiceTransportFailure.TIMEOUT),
+    ]
+    assert process.terminated == 1
 
 
 def test_transport_passes_the_composed_webview_profile_to_the_host() -> None:
