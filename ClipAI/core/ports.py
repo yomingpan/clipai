@@ -6,6 +6,7 @@ from typing import Protocol, TypeVar
 
 from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences
 from ClipAI.core.state import CancellationToken, SessionSnapshot
+from ClipAI.core.voice import VoiceCaptureId, VoiceEngineEvent, VoiceLanguage, VoiceSetupId
 
 
 class LLMProvider(Protocol):
@@ -200,3 +201,17 @@ class RuntimeComponent(Stoppable, Protocol):
 
 class ForegroundWindowMonitor(RuntimeComponent, Protocol):
     pass
+
+
+class VoiceInputEngine(Protocol):
+    """Transport-only Browser Speech engine boundary; callbacks must enter the command queue."""
+
+    def prepare(self, setup_id: VoiceSetupId, language: VoiceLanguage) -> None: ...
+
+    def start_capture(self, capture_id: VoiceCaptureId, language: VoiceLanguage) -> None: ...
+
+    def stop_capture(self, capture_id: VoiceCaptureId) -> None: ...
+
+    def cancel_capture(self, capture_id: VoiceCaptureId) -> None: ...
+
+    def shutdown(self) -> None: ...

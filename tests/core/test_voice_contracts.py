@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from ClipAI.core.commands import AppCommand, EnableVoiceInput, VoiceEngineEventReceived
 from ClipAI.core.voice import (
     SUPPORTED_VOICE_LANGUAGES,
     VoiceCaptureId,
@@ -43,3 +44,11 @@ def test_engine_events_are_identity_scoped_and_immutable() -> None:
 def test_voice_phases_do_not_use_free_form_strings() -> None:
     assert VoiceCapabilityPhase.READY.value == "ready"
     assert VoiceCapturePhase.FINALIZING.value == "finalizing"
+
+
+def test_voice_commands_are_part_of_the_typed_application_command_union() -> None:
+    setup = EnableVoiceInput(VoiceSetupId("setup-1"))
+    event = VoiceEngineEventReceived(VoiceEngineSetupReady(VoiceSetupId("setup-1")))
+
+    assert isinstance(setup, AppCommand)
+    assert isinstance(event, AppCommand)
