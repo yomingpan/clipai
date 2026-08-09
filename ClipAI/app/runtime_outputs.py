@@ -168,7 +168,8 @@ class ResultOutputRuntimeModule:
         if controller is None or not controller.snapshot.content:
             self._reject_paste(operation_id, command.session_id, "This result is no longer available to paste.")
             return
-        target = self._paste_targets.current
+        voice_origin = controller.snapshot.voice_origin
+        target = voice_origin.paste_target if voice_origin is not None else self._paste_targets.current
         if target is None:
             self._reject_paste(
                 operation_id,
