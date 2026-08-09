@@ -172,14 +172,10 @@ class AppRuntime:
         if isinstance(command, InterruptionRequested):
             self._route(InterruptCurrent() if command.scope == "current" else InterruptAll())
         elif isinstance(command, _SHORTCUT_INPUT_EVENTS):
-            if (
-                self._voice_input_module is not None
-                and isinstance(command, (ShortcutPressStarted, ShortcutPressEnded))
-                and self._shortcuts.is_push_to_talk(command.shortcut_id)
-            ):
-                if isinstance(command, ShortcutPressStarted):
+            if isinstance(command, (ShortcutPressStarted, ShortcutPressInvoked, ShortcutPressEnded)) and self._shortcuts.is_push_to_talk(command.shortcut_id):
+                if self._voice_input_module is not None and isinstance(command, ShortcutPressStarted):
                     self._voice_input_module.handle_shortcut_started(command)
-                else:
+                elif self._voice_input_module is not None and isinstance(command, ShortcutPressEnded):
                     self._voice_input_module.handle_shortcut_ended(command)
                 return
             if self._shortcut_guide_module is not None and self._shortcut_guide_module.consume(command):
