@@ -59,6 +59,11 @@ class ResultOutputRuntimeModule:
     def observe_paste_target(self, target: PasteTarget) -> None:
         self._paste_targets.observe(target)
 
+    @property
+    def current_paste_target(self) -> PasteTarget | None:
+        """Expose the latest external foreground target for capture-time freezing."""
+        return self._paste_targets.current
+
     def bind_user_control(self, user_control: UserControlCoordinator) -> None:
         self._user_control = user_control
 

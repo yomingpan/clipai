@@ -24,6 +24,7 @@ class VoiceInputRuntimeModule:
         paste_target_reader: Callable[[], PasteTarget | None],
         persist_enabled: Callable[[str], None] = lambda _setup_id: None,
         persist_disabled: Callable[[str], None] = lambda _disable_id: None,
+        complete_voice_preference: Callable[[str, str], None] = lambda _operation_id, _error: None,
         dispatch: Callable[[object], None] = lambda _command: None,
         projection_sink: Callable[[VoiceProjection], None] = lambda _projection: None,
     ) -> None:
@@ -33,6 +34,7 @@ class VoiceInputRuntimeModule:
         self._paste_target_reader = paste_target_reader
         self._persist_enabled = persist_enabled
         self._persist_disabled = persist_disabled
+        self._complete_voice_preference = complete_voice_preference
         self._dispatch = dispatch
         self._projection_sink = projection_sink
 
@@ -68,10 +70,12 @@ class VoiceInputRuntimeModule:
         elif isinstance(command, VoiceDisableShutdownCompleted):
             transition = self._controller.complete_disable_shutdown(command.disable_id, command.error)
         elif isinstance(command, VoiceDisablePreferenceSaved):
+            self._complete_voice_preference(command.disable_id, command.error)
             transition = self._controller.complete_disable_preference(command.disable_id, command.error)
         elif isinstance(command, VoiceEngineEventReceived):
             transition = self._controller.observe_engine(command.event)
         elif isinstance(command, VoicePreferenceSaved):
+            self._complete_voice_preference(command.setup_id, command.error)
             transition = self._controller.complete_enable_save(command.setup_id, command.error)
         elif isinstance(command, StopVoiceCapture):
             transition = self._controller.request_stop(command.capture_id)
