@@ -181,7 +181,7 @@ def test_escape_emits_only_interruption_events() -> None:
     ]
 
 
-def test_shutdown_is_silent_and_blocks_late_timer_callback() -> None:
+def test_shutdown_cancels_active_press_and_blocks_late_timer_callback() -> None:
     events = []
     timers = []
 
@@ -205,4 +205,4 @@ def test_shutdown_is_silent_and_blocks_late_timer_callback() -> None:
     timers[0].callback()
     dispatcher.on_release(Key("8"))
 
-    assert events == []
+    assert events == [ShortcutPressEnded(1, "english", "cancelled")]

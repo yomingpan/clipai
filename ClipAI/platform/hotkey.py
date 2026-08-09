@@ -211,8 +211,8 @@ class _HotkeyDispatcher:
         with self._lock:
             if self._stopped:
                 return
-            self._stopped = True
-            for state in self._active.values():
+            active = tuple(self._active.values())
+            for state in active:
                 if state.timer:
                     state.timer.cancel()
             if self._escape is not None and self._escape.timer is not None:
@@ -221,6 +221,9 @@ class _HotkeyDispatcher:
             self._active.clear()
             self._escape = None
             self._observers.clear()
+            self._stopped = True
+        for state in active:
+            self._on_event(ShortcutPressEnded(state.press_id, state.shortcut_id, "cancelled"))
 
     def _fire_long(
         self,

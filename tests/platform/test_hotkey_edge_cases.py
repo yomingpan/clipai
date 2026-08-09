@@ -396,13 +396,19 @@ def test_listener_stop_calls_underlying_listener_and_marks_not_running() -> None
 
 
 def test_listener_stop_cancels_gestures_and_blocks_late_callbacks() -> None:
-    events: list[tuple[str, str]] = []
-    dispatcher = make_dispatcher(events)
+    events = []
+    dispatcher = create_hotkey_dispatcher(
+        {"explain_word": {"hotkey": "ctrl+alt+8"}},
+        events.append,
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+    )
     underlying = FakeListener()
     listener = HotkeyListener(underlying, dispatcher)
 
     press_ctrl_alt_8(dispatcher)
     active_timer = FakeTimer.timers[-1]
+    events.clear()
 
     listener.stop()
     active_timer.callback()
@@ -412,5 +418,5 @@ def test_listener_stop_cancels_gestures_and_blocks_late_callbacks() -> None:
     assert listener.running is False
     assert underlying.stopped is True
     assert active_timer.cancelled is True
-    assert events == []
+    assert events == [ShortcutPressEnded(1, "explain_word", "cancelled")]
     assert FakeTimer.timers == [active_timer]
