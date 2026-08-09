@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ClipAI.core.voice import VoiceEngineFinalSegment, VoiceEngineSetupReady, VoiceTransportFailure
-from ClipAI.platform.browser_speech import VOICE_PROTOCOL_VERSION, _decode_event
+from ClipAI.core.voice import VoiceEngineEnded, VoiceEngineFailed, VoiceEngineFinalSegment, VoiceEngineSetupReady, VoiceTransportFailure
+from ClipAI.platform.browser_speech import BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event
 
 
 def test_protocol_decoder_requires_the_current_version_and_operation_identity() -> None:
@@ -19,3 +19,16 @@ def test_protocol_decoder_preserves_final_segment_order_and_typed_failures() -> 
     assert segment == VoiceEngineFinalSegment("capture-1", 2, "hello")
     assert failure is not None and failure.failure is VoiceTransportFailure.TIMEOUT
     assert VOICE_PROTOCOL_VERSION == 1
+
+
+def test_transport_delivers_only_one_terminal_event_for_a_capture() -> None:
+    received = []
+    engine = BrowserSpeechWebView2Engine(received.append)
+    process = object()
+    engine._process = process
+    engine._capture_id = "capture-1"
+
+    engine._deliver(process, VoiceEngineFailed("capture-1", VoiceTransportFailure.PROCESS_CRASHED))
+    engine._deliver(process, VoiceEngineEnded("capture-1"))
+
+    assert received == [VoiceEngineFailed("capture-1", VoiceTransportFailure.PROCESS_CRASHED)]

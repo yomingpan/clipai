@@ -133,6 +133,8 @@ class BrowserSpeechWebView2Engine:
                 elif isinstance(event, VoiceEngineFailed):
                     if event.capture_id in self._terminal_captures:
                         return
+                    self._terminal_captures.add(event.capture_id)
+                    self._capture_id = None
             sink = self._event_sink
         sink(event)
 
@@ -149,7 +151,6 @@ class BrowserSpeechWebView2Engine:
             self._event_sink(VoiceEngineSetupFailed(setup_id, VoiceTransportFailure.PROCESS_CRASHED))
         if capture_id is not None:
             self._event_sink(VoiceEngineFailed(capture_id, VoiceTransportFailure.PROCESS_CRASHED))
-            self._event_sink(VoiceEngineEnded(capture_id))
 
 
 def _decode_event(line: str) -> VoiceEngineEvent | None:
