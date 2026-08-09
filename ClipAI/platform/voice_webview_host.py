@@ -17,6 +17,40 @@ def voice_webview_profile_dir(local_app_data: Path) -> Path:
     return profile
 
 
+def allow_microphone_permission(
+    request: Any,
+    *,
+    microphone_kind: object,
+    allow_state: object,
+) -> None:
+    """Resolve only WebView microphone requests without showing its prompt."""
+    if request.PermissionKind != microphone_kind:
+        return
+    request.State = allow_state
+    request.SavesInProfile = True
+    request.Handled = True
+
+
+def _attach_microphone_permission_handler(window: Any, retained_handlers: list[Any]) -> None:
+    """Attach the WebView2 permission policy on its Windows UI thread."""
+    from Microsoft.Web.WebView2.Core import CoreWebView2PermissionKind, CoreWebView2PermissionState
+    from System import Action
+
+    def handle_permission(_sender: object, request: Any) -> None:
+        allow_microphone_permission(
+            request,
+            microphone_kind=CoreWebView2PermissionKind.Microphone,
+            allow_state=CoreWebView2PermissionState.Allow,
+        )
+
+    def attach() -> None:
+        core_webview = window.native.browser.webview.CoreWebView2
+        core_webview.PermissionRequested += handle_permission
+
+    window.native.Invoke(Action(attach))
+    retained_handlers.append(handle_permission)
+
+
 class _Api:
     def __init__(self, bridge_ready: threading.Event) -> None:
         # pywebview exposes every public attribute of ``js_api`` to JavaScript.
@@ -43,6 +77,7 @@ def main(*, test_page: Path | None = None, profile_root: Path | None = None) -> 
     bridge_ready = threading.Event()
     api = _Api(bridge_ready)
     loaded = threading.Event()
+    retained_permission_handlers: list[Any] = []
     html = (test_page or Path(__file__).with_name("voice_webview_host.html")).resolve()
     window = webview.create_window(
         "ClipAI Voice Engine",
@@ -88,6 +123,11 @@ def main(*, test_page: Path | None = None, profile_root: Path | None = None) -> 
                 _emit_command_failure(api, command, "initialization_failed")
 
     def on_loaded() -> None:
+        try:
+            _attach_microphone_permission_handler(window, retained_permission_handlers)
+        except Exception:
+            return
+
         def wait_for_bridge() -> None:
             if not bridge_ready.wait(10):
                 return
