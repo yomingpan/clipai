@@ -21,6 +21,7 @@ from ClipAI.core.voice import (
     VoiceSetupId,
     VoiceTransportFailure,
 )
+from ClipAI.core.models import ShortcutPressId
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class VoiceTransition:
 class _Capture:
     capture_id: VoiceCaptureId
     target: VoiceDraftTarget
+    press_id: ShortcutPressId | None = None
     phase: VoiceCapturePhase = VoiceCapturePhase.STARTING
     interim_text: str = ""
     next_sequence: int = 0
@@ -129,12 +131,34 @@ class VoiceInputController:
             self._message = _failure_message(event.failure, event.detail)
         return self._transition()
 
-    def request_capture(self, capture_id: VoiceCaptureId, target: VoiceDraftTarget) -> VoiceTransition:
+    def request_capture(
+        self,
+        capture_id: VoiceCaptureId,
+        target: VoiceDraftTarget,
+        *,
+        press_id: ShortcutPressId | None = None,
+    ) -> VoiceTransition:
         if self._capability is not VoiceCapabilityPhase.READY or self._capture is not None:
             return self._ignored()
-        self._capture = _Capture(capture_id, target)
+        self._capture = _Capture(capture_id, target, press_id)
         self._message = "Preparing microphone…"
         return self._transition(StartVoiceCapture(capture_id, self._language))
+
+    def request_capture_for_press(self, press_id: ShortcutPressId, target: VoiceDraftTarget) -> VoiceTransition:
+        """Accept a physical PTT press without leaking press ownership to runtime."""
+        return self.request_capture(VoiceCaptureId(f"voice-press-{press_id}"), target, press_id=press_id)
+
+    def request_release_for_press(self, press_id: ShortcutPressId) -> VoiceTransition:
+        capture = self._capture
+        if capture is None or capture.press_id != press_id:
+            return self._ignored()
+        return self.request_stop(capture.capture_id)
+
+    def abandon_press(self, press_id: ShortcutPressId) -> VoiceTransition:
+        capture = self._capture
+        if capture is None or capture.press_id != press_id:
+            return self._ignored()
+        return self.request_cancel(capture.capture_id)
 
     def request_stop(self, capture_id: VoiceCaptureId) -> VoiceTransition:
         capture = self._matching_capture(capture_id)

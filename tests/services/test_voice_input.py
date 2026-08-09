@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.models import PasteTarget
+from ClipAI.core.models import ShortcutPressId
 from ClipAI.core.voice import (
     VoiceCaptureId,
     VoiceCapabilityPhase,
@@ -73,6 +74,17 @@ def test_release_is_a_monotonic_stop_gate_and_late_interim_is_ignored() -> None:
     assert stopped.effects == (StopVoiceCapture(capture),)
     assert controller.request_stop(capture).ignored is True
     assert controller.observe_engine(VoiceEngineInterim(capture, "late")).ignored is True
+
+
+def test_controller_owns_press_to_capture_mapping_and_rejects_stale_release() -> None:
+    controller = ready_controller()
+    press_id = ShortcutPressId(7)
+    started = controller.request_capture_for_press(press_id, target())
+    capture = VoiceCaptureId("voice-press-7")
+
+    assert started.effects == (StartVoiceCapture(capture, "zh-TW"),)
+    assert controller.request_release_for_press(ShortcutPressId(6)).ignored is True
+    assert controller.request_release_for_press(press_id).effects == (StopVoiceCapture(capture),)
 
 
 def test_terminal_applies_ordered_final_segments_once() -> None:
