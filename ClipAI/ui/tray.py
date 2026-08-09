@@ -8,6 +8,7 @@ import time
 from PIL import Image, ImageDraw
 
 from ClipAI.core.models import ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceProjection
 
 logger = logging.getLogger("clipai.tray")
 SHORTCUT_GUIDE_MENU_LABEL = "Keyboard Shortcuts..."
@@ -93,6 +94,9 @@ class TrayController:
         on_reset_first_use_hints: Callable[[], None] | None = None,
         speech_speed: SpeechSpeedState | None = None,
         on_set_speech_speed: Callable[[SpeechSpeed], None] | None = None,
+        voice: VoiceProjection | None = None,
+        on_enable_voice: Callable[[], None] | None = None,
+        on_disable_voice: Callable[[], None] | None = None,
     ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
@@ -110,6 +114,9 @@ class TrayController:
         self._on_reset_first_use_hints = on_reset_first_use_hints
         self._speech_speed = speech_speed
         self._on_set_speech_speed = on_set_speech_speed
+        self._voice = voice
+        self._on_enable_voice = on_enable_voice
+        self._on_disable_voice = on_disable_voice
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -135,6 +142,10 @@ class TrayController:
         speech_speed_menu = self._build_speech_speed_menu(pystray)
         if speech_speed_menu is not None:
             menu_items.append(speech_speed_menu)
+            menu_items.append(pystray.Menu.SEPARATOR)
+        voice_menu = self._build_voice_menu(pystray)
+        if voice_menu is not None:
+            menu_items.append(voice_menu)
             menu_items.append(pystray.Menu.SEPARATOR)
         guidance_menu = self._build_guidance_menu(pystray)
         if guidance_menu is not None:
@@ -270,12 +281,30 @@ class TrayController:
 
         return select
 
+    def _build_voice_menu(self, pystray):
+        if self._voice is None or self._on_enable_voice is None or self._on_disable_voice is None:
+            return None
+        voice = self._voice
+        enabled = voice.capability is VoiceCapabilityPhase.READY
+        pending = voice.capability in {VoiceCapabilityPhase.REQUESTING_PERMISSION, VoiceCapabilityPhase.DISABLING}
+        return pystray.MenuItem(
+            lambda _item: f"Voice Input ({voice.capability.value.replace('_', ' ')})",
+            pystray.Menu(
+                pystray.MenuItem("Enable Voice Input", lambda _icon, _item: self._on_enable_voice(), enabled=lambda _item: not enabled and not pending),
+                pystray.MenuItem("Disable Voice Input", lambda _icon, _item: self._on_disable_voice(), enabled=lambda _item: enabled and not pending),
+            ),
+        )
+
     def set_guidance_preferences(self, preferences: GuidancePreferences) -> None:
         self._guidance_preferences = preferences
         self._refresh_menu()
 
     def set_speech_speed(self, state: SpeechSpeedState) -> None:
         self._speech_speed = state
+        self._refresh_menu()
+
+    def set_voice_projection(self, projection: VoiceProjection) -> None:
+        self._voice = projection
         self._refresh_menu()
 
     def _provider_action(self, provider: str):

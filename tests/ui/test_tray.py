@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 from ClipAI.core.models import GuidancePreferences, ModelSelectionState, ProviderOption, ProviderSelectionState, SpeechSpeedState
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceProjection
 from ClipAI.ui.tray import SHORTCUT_GUIDE_MENU_LABEL, STATUS_COLORS, TrayController, create_tray_image
 
 
@@ -329,3 +330,20 @@ def test_speech_speed_follows_keyboard_shortcuts_and_is_separated_from_guidance(
     assert speech_index == shortcut_index + 1
     assert items[speech_index + 1] is Menu.SEPARATOR
     assert guidance_index == speech_index + 2
+
+
+def test_voice_menu_projects_authoritative_state_without_optimistic_toggle() -> None:
+    events = []
+    tray = TrayController(
+        lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.SETUP_REQUIRED, "zh-TW"),
+        on_enable_voice=lambda: events.append("enable"),
+        on_disable_voice=lambda: events.append("disable"),
+    )
+    menu = tray._build_voice_menu(Pystray)
+    assert menu.text(None) == "Voice Input (setup required)"
+    enable, disable = menu.action.items
+    assert enable.enabled(None) is True
+    assert disable.enabled(None) is False
+    enable.action(None, None)
+    assert events == ["enable"]
