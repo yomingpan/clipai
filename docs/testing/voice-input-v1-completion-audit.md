@@ -37,6 +37,13 @@ requires an interactive Windows desktop with Edge WebView2 Runtime, and is
 enabled only with `CLIPAI_RUN_VOICE_WEBVIEW_INTEGRATION=1`. It uses fake media
 and recognition implementations; it is not evidence about a real microphone.
 
+Wheel packaging remains unverified in this local virtual environment. It lacks
+`setuptools` and `wheel`; installing them fails inside the existing pip/
+truststore stack with a `RecursionError`. The development plan explicitly
+excludes the unrelated pip certificate/build-isolation change, so this branch
+does not alter that tooling. Run the release wheel build in the clean CI or
+release environment after its standard build dependencies are available.
+
 ## Remaining release evidence
 
 Before release approval, run the controlled bridge integration and every row in
