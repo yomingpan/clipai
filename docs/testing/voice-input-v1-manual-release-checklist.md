@@ -25,8 +25,9 @@ whether browser permission was new or previously granted.
 | --- | --- |
 | First setup accepted | Permission is requested once; tracks are released before Ready is shown; pressing the setup shortcut does not become a capture. |
 | Setup declined | Voice remains not ready and a later PTT opens setup again. |
-| Permission blocked | Tray/setup reports blocked state and directs the tester to repair permission; it does not repeatedly record. |
+| Permission blocked | Tray/setup reports blocked state and directs the tester to repair permission. Select **Manage Microphone Permission** and confirm Windows opens the microphone privacy settings; it does not repeatedly record. |
 | PTT press/release | One capture only; release finalizes and never auto-pastes. |
+| Missing release watchdog | Hold PTT without a terminal press observation for 120 seconds. The active capture cancels with a missing-release message; it never finalizes or auto-pastes. |
 | Stop / Cancel / Esc during capture | Microphone stops; interim text is discarded; existing draft remains available. |
 | Natural recognition end before release | It restarts only for the same held press; release still stops it. |
 | No speech | Review remains available with a retry message and no invented text. |
