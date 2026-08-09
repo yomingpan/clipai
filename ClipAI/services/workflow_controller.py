@@ -134,7 +134,7 @@ class WorkflowController:
                 steps=steps,
                 displayed_step_index=len(steps) - 1,
                 active_invocation_id=None,
-                can_navigate_back=len(steps) > 1,
+                can_navigate_back=len(steps) > 1 or self._snapshot.voice_origin is not None,
                 presentation=presentation,
                 action_feedback_contract=step.feedback_contract,
                 input_source=document.source,

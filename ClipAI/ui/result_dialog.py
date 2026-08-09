@@ -101,11 +101,17 @@ class ResultDialogPresenter:
 
     def workflow_context(self, workflow_id: str) -> ActiveWorkflowContext | None:
         view = self._interactive_view(workflow_id)
-        if view is None or view.step_id is None or not view.content.strip():
+        if view is None or not view.content.strip():
             return None
+        if view.step_id is None:
+            if view.last_snapshot is None or view.last_snapshot.status is not SessionStatus.VOICE_REVIEW:
+                return None
+            step_id = "voice-origin"
+        else:
+            step_id = view.step_id
         return ActiveWorkflowContext(
             workflow_id,
-            view.step_id,
+            step_id,
             view.content,
             view.surface.selected_text(),
         )

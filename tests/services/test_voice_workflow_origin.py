@@ -4,6 +4,7 @@ from ClipAI.core.models import PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapturePhase, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.services.workflow_controller import WorkflowController
+from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, ResolvedAction
 
 
 class Presenter:
@@ -86,3 +87,16 @@ def test_voice_capture_projection_is_read_only_until_review_is_restored() -> Non
     assert restored.status is SessionStatus.VOICE_REVIEW
     assert restored.voice_capture_id is None
     assert restored.content == "hello"
+
+
+def test_first_action_from_voice_origin_can_navigate_back_to_review() -> None:
+    workflow = controller("hello")
+    action = ResolvedAction("rewrite", "Rewrite", "system", "{input}", "short", "selection_or_clipboard", "popup", None)
+    invocation = ActionInvocation("invoke-1", "rewrite", "short", InputTarget("workflow_result", InputDocument("hello", "workflow_result", "voice-workflow", "voice-origin")), workflow_id="voice-workflow", parent_step_id="voice-origin")
+    workflow.begin_invocation(invocation, action)
+
+    completed = workflow.complete(invocation, action, invocation.input_target.document, "rewritten", ("copy",))
+
+    assert completed is not None and completed.can_navigate_back is True
+    assert workflow.navigate_back() is not None
+    assert workflow.snapshot.status is SessionStatus.VOICE_REVIEW

@@ -547,6 +547,20 @@ def test_workflow_context_projects_selection_and_displayed_step() -> None:
     assert context.selected_text == "selected"
 
 
+def test_voice_review_projects_its_draft_as_workflow_context() -> None:
+    presenter, _events = presenter_with_selection("selected")
+    view = presenter._views["s1"]
+    view.content = "voice draft"
+    view.step_id = None
+    view.last_snapshot = SessionSnapshot("s1", 1, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "", content="voice draft")
+
+    context = presenter.workflow_context("s1")
+
+    assert context is not None
+    assert context.step_id == "voice-origin"
+    assert context.content == "voice draft"
+
+
 def test_native_close_request_immediately_excludes_popup_content_and_emits_close_intent() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._views["s1"].content = "full result"
