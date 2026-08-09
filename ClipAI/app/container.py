@@ -19,7 +19,7 @@ from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
-from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved
+from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -66,7 +66,7 @@ from ClipAI.ui.tray import TrayController
 from ClipAI.support.logging_setup import configure_logging
 from ClipAI.support.diagnostics import SafeDiagnosticsExporter
 from ClipAI.support.diagnostics import IncidentReporter
-from ClipAI.core.voice import VoiceDisableId, VoiceLanguage, VoiceSetupId
+from ClipAI.core.voice import VoiceDisableId, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
 
 
 def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
@@ -286,6 +286,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             False,
             disable_id,
             lambda error: VoiceDisablePreferenceSaved(VoiceDisableId(disable_id), error),
+        ),
+        persist_language=lambda operation_id, language: user_preferences_module.begin_voice_language(
+            language,
+            operation_id,
+            lambda error: VoiceLanguagePreferenceSaved(VoiceLanguageChangeId(operation_id), error),
         ),
         complete_voice_preference=user_preferences_module.complete_voice_enabled,
         dispatch=enqueue,

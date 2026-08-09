@@ -6,6 +6,7 @@ from ClipAI.core.voice import (
     VoiceCaptureId,
     VoiceCapabilityPhase,
     VoiceDisableId,
+    VoiceLanguageChangeId,
     VoiceDraftTarget,
     VoiceEngineEnded,
     VoiceEngineFinalSegment,
@@ -20,6 +21,7 @@ from ClipAI.services.voice_input import (
     FinalizeVoiceDraft,
     PersistVoiceEnabled,
     PersistVoiceDisabled,
+    PersistVoiceLanguage,
     PrepareVoiceSetup,
     StartVoiceCapture,
     ShutdownVoiceEngine,
@@ -159,10 +161,13 @@ def test_conflicting_duplicate_segment_fails_the_capture() -> None:
 
 def test_language_changes_apply_only_between_captures() -> None:
     controller = ready_controller()
-    assert controller.set_language(VoiceLanguage("en-US")).projection.language == "en-US"
+    change = VoiceLanguageChangeId("language-1")
+    transition = controller.set_language(VoiceLanguage("en-US"), change)
+    assert transition.effects == (PersistVoiceLanguage(change, "en-US"),)
+    assert controller.complete_language_save(change).projection.language == "en-US"
     capture = VoiceCaptureId("capture-1")
     controller.request_capture(capture, target())
-    assert controller.set_language(VoiceLanguage("zh-TW")).ignored is True
+    assert controller.set_language(VoiceLanguage("zh-TW"), VoiceLanguageChangeId("language-2")).ignored is True
 
 
 def test_disable_rejects_new_captures_and_waits_for_both_identity_scoped_joins() -> None:

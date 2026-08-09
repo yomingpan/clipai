@@ -32,6 +32,10 @@ class VoiceDisableId(str):
     """Identity of one requested Voice Input disable operation."""
 
 
+class VoiceLanguageChangeId(str):
+    """Identity of one explicit persisted Voice language choice."""
+
+
 class VoiceCapabilityPhase(str, Enum):
     DISABLED = "disabled"
     SETUP_REQUIRED = "setup_required"

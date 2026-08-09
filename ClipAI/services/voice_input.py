@@ -18,6 +18,7 @@ from ClipAI.core.voice import (
     VoiceEngineSetupFailed,
     VoiceEngineSetupReady,
     VoiceLanguage,
+    VoiceLanguageChangeId,
     VoiceProjection,
     VoiceSetupId,
     VoiceTransportFailure,
@@ -47,6 +48,12 @@ class ShutdownVoiceEngine:
 @dataclass(frozen=True)
 class PersistVoiceDisabled:
     disable_id: VoiceDisableId
+
+
+@dataclass(frozen=True)
+class PersistVoiceLanguage:
+    operation_id: VoiceLanguageChangeId
+    language: VoiceLanguage
 
 
 @dataclass(frozen=True)
@@ -80,7 +87,7 @@ class RestoreVoiceReview:
     message: str
 
 
-VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | ShutdownVoiceEngine | PersistVoiceDisabled | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft | RestoreVoiceReview
+VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | ShutdownVoiceEngine | PersistVoiceDisabled | PersistVoiceLanguage | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft | RestoreVoiceReview
 
 
 @dataclass(frozen=True)
@@ -123,6 +130,7 @@ class VoiceInputController:
         self._disable_id: VoiceDisableId | None = None
         self._disable_shutdown_result: str | object = _UNSET_DISABLE_RESULT
         self._disable_preference_result: str | object = _UNSET_DISABLE_RESULT
+        self._pending_language: tuple[VoiceLanguageChangeId, VoiceLanguage] | None = None
         self._capture: _Capture | None = None
         self._message = ""
 
@@ -243,11 +251,23 @@ class VoiceInputController:
         """Accept a physical PTT press without leaking press ownership to runtime."""
         return self.request_capture(VoiceCaptureId(f"voice-press-{press_id}"), target, press_id=press_id)
 
-    def set_language(self, language: VoiceLanguage) -> VoiceTransition:
-        if self._capture is not None or language == self._language:
+    def set_language(self, language: VoiceLanguage, operation_id: VoiceLanguageChangeId) -> VoiceTransition:
+        if self._capture is not None or self._pending_language is not None or language == self._language:
             return self._ignored()
-        self._language = language
-        self._message = "Voice Input language updated."
+        self._pending_language = (operation_id, language)
+        self._message = "Saving Voice Input language…"
+        return self._transition(PersistVoiceLanguage(operation_id, language))
+
+    def complete_language_save(self, operation_id: VoiceLanguageChangeId, error: str = "") -> VoiceTransition:
+        pending = self._pending_language
+        if pending is None or pending[0] != operation_id:
+            return self._ignored()
+        self._pending_language = None
+        if error:
+            self._message = "Voice Input language could not be saved."
+        else:
+            self._language = pending[1]
+            self._message = "Voice Input language updated."
         return self._transition()
 
     def request_release_for_press(self, press_id: ShortcutPressId) -> VoiceTransition:

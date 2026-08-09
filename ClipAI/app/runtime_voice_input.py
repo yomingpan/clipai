@@ -4,12 +4,12 @@ import uuid
 from collections.abc import Callable
 
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoiceSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved
+from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoiceSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
 from ClipAI.core.ports import VoiceInputEngine, VoiceSetupPresenter
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceProjection
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceLanguageChangeId, VoiceProjection
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
-from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceDisabled, PersistVoiceEnabled, PrepareVoiceSetup, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
+from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
 
 
 class VoiceInputRuntimeModule:
@@ -24,6 +24,7 @@ class VoiceInputRuntimeModule:
         paste_target_reader: Callable[[], PasteTarget | None],
         persist_enabled: Callable[[str], None] = lambda _setup_id: None,
         persist_disabled: Callable[[str], None] = lambda _disable_id: None,
+        persist_language: Callable[[str, str], None] = lambda _operation_id, _language: None,
         complete_voice_preference: Callable[[str, str], None] = lambda _operation_id, _error: None,
         dispatch: Callable[[object], None] = lambda _command: None,
         projection_sink: Callable[[VoiceProjection], None] = lambda _projection: None,
@@ -36,6 +37,7 @@ class VoiceInputRuntimeModule:
         self._paste_target_reader = paste_target_reader
         self._persist_enabled = persist_enabled
         self._persist_disabled = persist_disabled
+        self._persist_language = persist_language
         self._complete_voice_preference = complete_voice_preference
         self._dispatch = dispatch
         self._projection_sink = projection_sink
@@ -82,7 +84,7 @@ class VoiceInputRuntimeModule:
         self._execute(transition)
         return True
 
-    def handle(self, command: OpenVoiceSetup | EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage | UpdateVoiceDraft) -> bool:
+    def handle(self, command: OpenVoiceSetup | EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
         if isinstance(command, OpenVoiceSetup):
             if self._setup_presenter is not None:
                 self._setup_presenter.show_voice_setup()
@@ -104,7 +106,11 @@ class VoiceInputRuntimeModule:
         elif isinstance(command, StopVoiceCapture):
             transition = self._controller.request_stop(command.capture_id)
         elif isinstance(command, SetVoiceLanguage):
-            transition = self._controller.set_language(command.language)
+            operation_id = command.operation_id or VoiceLanguageChangeId(uuid.uuid4().hex)
+            transition = self._controller.set_language(command.language, operation_id)
+        elif isinstance(command, VoiceLanguagePreferenceSaved):
+            self._complete_voice_preference(command.operation_id, command.error)
+            transition = self._controller.complete_language_save(command.operation_id, command.error)
         elif isinstance(command, UpdateVoiceDraft):
             controller = self._workflows.controller_for(command.workflow_id)
             return controller is not None and controller.edit_voice_draft(command.expected_revision, command.text) is not None
@@ -136,6 +142,8 @@ class VoiceInputRuntimeModule:
             self._persist_enabled(effect.setup_id)
         elif isinstance(effect, PersistVoiceDisabled):
             self._persist_disabled(effect.disable_id)
+        elif isinstance(effect, PersistVoiceLanguage):
+            self._persist_language(effect.operation_id, effect.language)
         elif isinstance(effect, ShutdownVoiceEngine):
             try:
                 self._engine.shutdown()
