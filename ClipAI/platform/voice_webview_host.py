@@ -69,7 +69,7 @@ def main(*, test_page: Path | None = None) -> None:
             if name not in {"prepare", "start", "stop", "cancel"} or not loaded.wait(10):
                 _emit_command_failure(api, command, "initialization_failed")
                 continue
-            if name == "prepare" and test_page is None:
+            if name in {"prepare", "start"} and test_page is None:
                 try:
                     window.show()
                     window.restore()

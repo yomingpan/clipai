@@ -38,7 +38,11 @@
       recognition.lang = command.language;
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.onstart = () => !item.stopped && emit({kind: "listening", capture_id: item.id});
+      recognition.onstart = () => {
+        if (item.stopped) return;
+        emit({kind: "listening", capture_id: item.id});
+        window.pywebview.api.hide();
+      };
       recognition.onresult = event => {
         let interim = "";
         for (let index = event.resultIndex; index < event.results.length; index += 1) {

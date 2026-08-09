@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ClipAI.core.voice import VoiceEngineEnded, VoiceEngineFailed, VoiceEngineFinalSegment, VoiceEngineSetupFailed, VoiceEngineSetupReady, VoiceTransportFailure
-from ClipAI.platform.browser_speech import BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event
+from ClipAI.core.voice import VoiceEngineEnded, VoiceEngineFailed, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupFailed, VoiceEngineSetupReady, VoiceTransportFailure
+from ClipAI.platform.browser_speech import CAPTURE_START_TIMEOUT_SECONDS, BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event
 
 
 class BrokenInput:
@@ -20,6 +20,35 @@ class BrokenProcess:
 
     def poll(self): return None
     def terminate(self) -> None: self.terminated += 1
+
+
+class RecordingInput:
+    def __init__(self) -> None:
+        self.writes: list[str] = []
+
+    def write(self, value: str) -> None:
+        self.writes.append(value)
+
+    def flush(self) -> None: pass
+
+
+class LiveProcess:
+    def __init__(self) -> None:
+        self.stdin = RecordingInput()
+        self.stdout = None
+        self.terminated = 0
+
+    def poll(self): return None
+    def terminate(self) -> None: self.terminated += 1
+
+
+class ManualTimer:
+    def __init__(self, callback) -> None:
+        self.callback = callback
+        self.cancelled = False
+
+    def cancel(self) -> None:
+        self.cancelled = True
 
 
 def test_protocol_decoder_requires_the_current_version_and_operation_identity() -> None:
@@ -78,3 +107,45 @@ def test_setup_write_failure_is_typed_and_does_not_leave_a_live_setup() -> None:
     assert received == [VoiceEngineSetupFailed("setup-1", VoiceTransportFailure.INITIALIZATION_FAILED)]
     assert process.terminated == 1
     assert engine._process is None
+
+
+def test_capture_start_timeout_settles_a_silent_browser_host() -> None:
+    received = []
+    timers: list[tuple[float, ManualTimer]] = []
+
+    def schedule(delay: float, callback) -> ManualTimer:
+        timer = ManualTimer(callback)
+        timers.append((delay, timer))
+        return timer
+
+    engine = BrowserSpeechWebView2Engine(received.append, capture_start_timeout_schedule=schedule)
+    process = LiveProcess()
+    engine._process = process
+
+    engine.start_capture("capture-1", "zh-TW")
+
+    assert timers[0][0] == CAPTURE_START_TIMEOUT_SECONDS
+    timers[0][1].callback()
+
+    assert received == [VoiceEngineFailed("capture-1", VoiceTransportFailure.TIMEOUT)]
+
+
+def test_capture_start_timeout_is_cancelled_when_the_browser_starts_listening() -> None:
+    received = []
+    timers: list[ManualTimer] = []
+
+    def schedule(_delay: float, callback) -> ManualTimer:
+        timer = ManualTimer(callback)
+        timers.append(timer)
+        return timer
+
+    engine = BrowserSpeechWebView2Engine(received.append, capture_start_timeout_schedule=schedule)
+    process = LiveProcess()
+    engine._process = process
+    engine.start_capture("capture-1", "zh-TW")
+
+    engine._deliver(process, VoiceEngineListening("capture-1"))
+    timers[0].callback()
+
+    assert timers[0].cancelled is True
+    assert received == [VoiceEngineListening("capture-1")]

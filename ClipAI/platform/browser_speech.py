@@ -25,17 +25,33 @@ from ClipAI.core.voice import (
 
 
 VOICE_PROTOCOL_VERSION = 1
+CAPTURE_START_TIMEOUT_SECONDS = 15.0
+
+
+def _schedule_capture_start_timeout(delay_seconds: float, callback: Callable[[], None]) -> threading.Timer:
+    timer = threading.Timer(delay_seconds, callback)
+    timer.daemon = True
+    timer.start()
+    return timer
 
 
 class BrowserSpeechWebView2Engine:
     """Own the WebView2 process and JSON transport, never Voice product policy."""
 
-    def __init__(self, event_sink: Callable[[VoiceEngineEvent], None], *, process_factory: Callable[..., Any] = subprocess.Popen) -> None:
+    def __init__(
+        self,
+        event_sink: Callable[[VoiceEngineEvent], None],
+        *,
+        process_factory: Callable[..., Any] = subprocess.Popen,
+        capture_start_timeout_schedule: Callable[[float, Callable[[], None]], object] = _schedule_capture_start_timeout,
+    ) -> None:
         self._event_sink = event_sink
         self._process_factory = process_factory
+        self._capture_start_timeout_schedule = capture_start_timeout_schedule
         self._process: Any | None = None
         self._setup_id: VoiceSetupId | None = None
         self._capture_id: VoiceCaptureId | None = None
+        self._capture_start_timeout: tuple[VoiceCaptureId, object, object] | None = None
         self._terminal_captures: set[VoiceCaptureId] = set()
         self._lock = threading.RLock()
 
@@ -55,6 +71,7 @@ class BrowserSpeechWebView2Engine:
                 self._terminal_captures.discard(capture_id)
                 self._ensure_process()
                 self._send({"command": "start", "capture_id": capture_id, "language": language, "sequence_start": sequence_start})
+                self._start_capture_timeout(capture_id)
         except (BrokenPipeError, OSError, ValueError):
             self._settle_capture_write_failure(capture_id)
 
@@ -75,6 +92,7 @@ class BrowserSpeechWebView2Engine:
             process, self._process = self._process, None
             self._setup_id = None
             self._capture_id = None
+            self._cancel_capture_start_timeout()
         if process is None:
             return
         try:
@@ -137,16 +155,20 @@ class BrowserSpeechWebView2Engine:
             else:
                 if event.capture_id != self._capture_id:
                     return
-                if isinstance(event, VoiceEngineEnded):
+                if isinstance(event, VoiceEngineListening):
+                    self._cancel_capture_start_timeout()
+                elif isinstance(event, VoiceEngineEnded):
                     if event.capture_id in self._terminal_captures:
                         return
                     self._terminal_captures.add(event.capture_id)
                     self._capture_id = None
+                    self._cancel_capture_start_timeout()
                 elif isinstance(event, VoiceEngineFailed):
                     if event.capture_id in self._terminal_captures:
                         return
                     self._terminal_captures.add(event.capture_id)
                     self._capture_id = None
+                    self._cancel_capture_start_timeout()
             sink = self._event_sink
         sink(event)
 
@@ -157,6 +179,7 @@ class BrowserSpeechWebView2Engine:
             self._process = None
             setup_id, self._setup_id = self._setup_id, None
             capture_id, self._capture_id = self._capture_id, None
+            self._cancel_capture_start_timeout()
             if capture_id is not None:
                 self._terminal_captures.add(capture_id)
         if setup_id is not None:
@@ -178,8 +201,36 @@ class BrowserSpeechWebView2Engine:
                 return
             self._capture_id = None
             self._terminal_captures.add(capture_id)
+            self._cancel_capture_start_timeout()
             self._discard_broken_process()
         self._event_sink(VoiceEngineFailed(capture_id, VoiceTransportFailure.PROCESS_CRASHED))
+
+    def _start_capture_timeout(self, capture_id: VoiceCaptureId) -> None:
+        self._cancel_capture_start_timeout()
+        generation = object()
+        timer = self._capture_start_timeout_schedule(
+            CAPTURE_START_TIMEOUT_SECONDS,
+            lambda: self._expire_capture_start(capture_id, generation),
+        )
+        self._capture_start_timeout = (capture_id, generation, timer)
+
+    def _cancel_capture_start_timeout(self) -> None:
+        timeout, self._capture_start_timeout = self._capture_start_timeout, None
+        if timeout is not None and hasattr(timeout[2], "cancel"):
+            timeout[2].cancel()
+
+    def _expire_capture_start(self, capture_id: VoiceCaptureId, generation: object) -> None:
+        with self._lock:
+            timeout = self._capture_start_timeout
+            if timeout is None or timeout[0] != capture_id or timeout[1] is not generation:
+                return
+            self._capture_start_timeout = None
+            if self._capture_id != capture_id or capture_id in self._terminal_captures:
+                return
+            self._capture_id = None
+            self._terminal_captures.add(capture_id)
+            self._discard_broken_process()
+        self._event_sink(VoiceEngineFailed(capture_id, VoiceTransportFailure.TIMEOUT))
 
     def _discard_broken_process(self) -> None:
         process, self._process = self._process, None
