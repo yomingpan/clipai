@@ -79,8 +79,10 @@ def test_voice_capture_projection_is_read_only_until_review_is_restored() -> Non
 
     assert projected is not None
     assert projected.status is SessionStatus.VOICE_LISTENING
+    assert projected.voice_capture_id == "capture-1"
     assert projected.available_actions == ()
     restored = workflow.restore_voice_review(target, "No speech was recognized. Try again.")
     assert restored is not None
     assert restored.status is SessionStatus.VOICE_REVIEW
+    assert restored.voice_capture_id is None
     assert restored.content == "hello"

@@ -9,7 +9,7 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelVoiceCapture, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft
 from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -41,6 +41,8 @@ class _SessionView:
     close_requested: bool = False
     last_snapshot: SessionSnapshot | None = None
     voice_draft_revision: int = 0
+    voice_stop_button: object | None = None
+    voice_cancel_button: object | None = None
 
 
 @dataclass(frozen=True)
@@ -479,6 +481,7 @@ class ResultDialogPresenter:
                 on_archive=(lambda sid=snapshot.session_id: self._archive(sid)) if "archive" in snapshot.available_actions else None,
                 on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions else None,
             )
+        self._configure_voice_capture_controls(snapshot, view)
         view.speaking = snapshot.speaking
         if patch.visual_state:
             view.surface.set_speaker_active(snapshot.speaking)
@@ -639,7 +642,29 @@ class ResultDialogPresenter:
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
-        return _SessionView(dialog=dialog, surface=surface)
+        stop = surface.add_action_slot("voice_stop", "Stop", None, width=46, tooltip="Stop Voice Input")
+        cancel = surface.add_action_slot("voice_cancel", "Cancel", None, width=54, tooltip="Cancel Voice Input")
+        stop.pack_forget()
+        cancel.pack_forget()
+        return _SessionView(dialog=dialog, surface=surface, voice_stop_button=stop, voice_cancel_button=cancel)
+
+    def _configure_voice_capture_controls(self, snapshot: SessionSnapshot, view: _SessionView) -> None:
+        capture_id = snapshot.voice_capture_id
+        stop, cancel = view.voice_stop_button, view.voice_cancel_button
+        if stop is None or cancel is None:
+            return
+        listening = snapshot.status is SessionStatus.VOICE_LISTENING and capture_id is not None
+        finalizing = snapshot.status is SessionStatus.VOICE_FINALIZING and capture_id is not None
+        if listening:
+            stop.configure(command=lambda cid=capture_id: self._command_sink(StopVoiceCapture(cid)), state="normal")
+            if not stop.winfo_manager(): stop.pack(side="left", padx=(0, 5))
+        else:
+            stop.pack_forget()
+        if listening or finalizing:
+            cancel.configure(command=lambda cid=capture_id: self._command_sink(CancelVoiceCapture(cid)), state="normal")
+            if not cancel.winfo_manager(): cancel.pack(side="left", padx=(0, 5))
+        else:
+            cancel.pack_forget()
 
     def _register_view(self, session_id: str, view: _SessionView) -> None:
         view.external_output.focus(PopupRegistered())

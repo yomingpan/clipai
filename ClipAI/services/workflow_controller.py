@@ -295,6 +295,7 @@ class WorkflowController:
                 status_text=projection.message,
                 available_actions=(),
                 result_completeness="none",
+                voice_capture_id=projection.capture_id,
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
@@ -311,6 +312,7 @@ class WorkflowController:
                 status_text=message,
                 result_completeness="complete",
                 available_actions=("copy", "paste", "follow_up"),
+                voice_capture_id=None,
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
@@ -353,6 +355,7 @@ class WorkflowController:
                 result_completeness="complete",
                 available_actions=("copy", "paste", "follow_up"),
                 voice_origin=replace(origin, text=content, revision=origin.revision + 1),
+                voice_capture_id=None,
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
