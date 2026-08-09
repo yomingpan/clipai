@@ -1485,8 +1485,17 @@ class BaseResultSurface:
         except (tk.TclError, AttributeError):
             current = ""
         if current != text:
+            try:
+                caret = self.content_text.index("insert")
+            except (tk.TclError, AttributeError):
+                caret = None
             self.content_text.delete("1.0", "end")
             self.content_text.insert("1.0", text, "body")
+            if caret is not None:
+                try:
+                    self.content_text.mark_set("insert", caret)
+                except (tk.TclError, AttributeError):
+                    pass
         self.content_text.bind("<KeyRelease>", self._notify_editable_content_changed)
 
     def set_voice_draft_editing(self, editing: bool) -> None:
@@ -1639,6 +1648,10 @@ class BaseResultSurface:
     def bind_voice_draft_mode_toggle(self, callback: Callable) -> None:
         self.content_text.bind("<Control-Return>", callback, add="+")
         self.content_text.bind("<Control-KP_Enter>", callback, add="+")
+
+    def focus_content(self) -> bool:
+        """Focus the content widget and report verified toolkit focus truth."""
+        return self.dialog.lifecycle.focus(self.content_text)
 
     def set_pinned_state(self, pinned: bool) -> None:
         self.dialog.set_pinned(pinned)

@@ -388,7 +388,14 @@ class ResultDialogPresenter:
         if view is None:
             view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
-            self._register_view(snapshot.session_id, view)
+            self._register_view(
+                snapshot.session_id,
+                view,
+                focus_on_show=snapshot.status not in {
+                    SessionStatus.VOICE_LISTENING,
+                    SessionStatus.VOICE_FINALIZING,
+                },
+            )
         previous = view.last_snapshot
         if snapshot.status is SessionStatus.VOICE_REVIEW and (
             previous is None or previous.status is not SessionStatus.VOICE_REVIEW
@@ -518,6 +525,12 @@ class ResultDialogPresenter:
             )
         elif patch.feedback:
             view.surface.hide_feedback()
+        if (
+            previous is not None
+            and previous.status in {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING}
+            and snapshot.status is SessionStatus.VOICE_REVIEW
+        ):
+            self._schedule_initial_focus(snapshot.session_id, view)
         view.last_snapshot = snapshot
 
     def _evict_view(self, session_id: str, view: _SessionView) -> None:
@@ -688,7 +701,13 @@ class ResultDialogPresenter:
         else:
             cancel.pack_forget()
 
-    def _register_view(self, session_id: str, view: _SessionView) -> None:
+    def _register_view(
+        self,
+        session_id: str,
+        view: _SessionView,
+        *,
+        focus_on_show: bool = True,
+    ) -> None:
         view.external_output.focus(PopupRegistered())
         dialog = view.dialog
         toggle_voice_draft_mode = lambda event, sid=session_id: self._popup_shortcut(
@@ -711,18 +730,22 @@ class ResultDialogPresenter:
         view.surface.bind_header_double_click(lambda _event, sid=session_id: self._header_double_click(sid))
         view.surface.bind_voice_draft_mode_toggle(toggle_voice_draft_mode)
         view.external_output.focus(PopupShown())
+        if focus_on_show:
+            self._schedule_initial_focus(session_id, view)
 
+    def _schedule_initial_focus(self, session_id: str, view: _SessionView) -> None:
         def establish_initial_focus() -> None:
-            if session_id not in self._views:
+            if self._views.get(session_id) is not view or view.external_output.focused_inside:
                 return
-            dialog.lifecycle.focus()
+            if not view.surface.focus_content():
+                return
             self._apply_transition_actions(
                 session_id,
                 view,
                 view.external_output.focus(FocusEntered()),
             )
 
-        dialog.lifecycle.schedule(0, establish_initial_focus)
+        view.dialog.lifecycle.schedule(0, establish_initial_focus)
 
     def _shortcut(self, action: Callable[[str], None], session_id: str) -> str:
         view = self._views.get(session_id)

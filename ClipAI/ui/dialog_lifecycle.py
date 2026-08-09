@@ -64,9 +64,15 @@ class DialogLifecycle:
         except tk.TclError:
             pass
 
-    def focus(self, widget: tk.Misc | None = None) -> None:
+    def focus(self, widget: tk.Misc | None = None) -> bool:
         target = widget or self._root
         try:
+            self._root.update_idletasks()
+            self._root.lift()
             target.focus_force()
-        except tk.TclError:
-            pass
+            focused = self._root.focus_get()
+            return focused is not None and (
+                focused is target or focused.winfo_toplevel() is self._root
+            )
+        except (AttributeError, tk.TclError):
+            return False

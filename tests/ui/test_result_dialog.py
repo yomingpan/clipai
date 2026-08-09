@@ -46,6 +46,7 @@ class Surface:
         self.overflow_expanded = False
         self.feedback_available = False
         self.header_double_click_callback = None
+        self.focus_result = True
 
     def selected_text(self) -> str | None:
         return self.selected
@@ -74,6 +75,9 @@ class Surface:
 
     def bind_voice_draft_mode_toggle(self, callback) -> None:
         self.voice_draft_mode_toggle_callback = callback
+
+    def focus_content(self) -> bool:
+        return self.focus_result
 
     def configure_action_contract(self, contract, input_source: str) -> None:
         self.events.append(("contract", contract, input_source))
@@ -405,6 +409,71 @@ def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:
 
     assert result == "break"
     assert events == ["follow-up:s1"]
+
+
+def test_failed_initial_focus_attempt_does_not_claim_popup_focus() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def __init__(self) -> None:
+            self.callbacks = []
+
+        def schedule(self, _delay_ms, callback) -> str:
+            self.callbacks.append(callback)
+            return "scheduled"
+
+        def focus(self) -> bool:
+            return False
+
+    presenter, _events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.external_output = PopupExternalOutputTransitions()
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    view.surface.focus_result = False
+
+    presenter._register_view("s1", view)
+    view.dialog.lifecycle.callbacks[0]()
+
+    assert view.external_output.focused_inside is False
+
+
+def test_voice_capture_popup_defers_initial_focus_until_review() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def __init__(self) -> None:
+            self.callbacks = []
+
+        def schedule(self, _delay_ms, callback) -> str:
+            self.callbacks.append(callback)
+            return "scheduled"
+
+    presenter, _events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.external_output = PopupExternalOutputTransitions()
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+
+    presenter._register_view("s1", view, focus_on_show=False)
+
+    assert view.dialog.lifecycle.callbacks == []
+    assert view.external_output.focused_inside is False
+
+    presenter._schedule_initial_focus("s1", view)
+    view.dialog.lifecycle.callbacks[0]()
+
+    assert view.external_output.focused_inside is True
 
 
 def test_ctrl_v_pastes_only_for_active_popup() -> None:

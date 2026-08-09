@@ -422,6 +422,44 @@ def test_voice_draft_reading_mode_makes_content_read_only_until_reopened() -> No
     assert surface.content_text.bindings["<KeyRelease>"] == surface._notify_editable_content_changed
 
 
+def test_voice_draft_content_refresh_preserves_the_current_caret() -> None:
+    class ContentText:
+        def __init__(self) -> None:
+            self.text = "old draft"
+            self.caret_updates = []
+
+        def configure(self, **_values) -> None:
+            pass
+
+        def get(self, start, end) -> str:
+            assert (start, end) == ("1.0", "end-1c")
+            return self.text
+
+        def index(self, mark) -> str:
+            assert mark == "insert"
+            return "1.4"
+
+        def delete(self, _start, _end) -> None:
+            self.text = ""
+
+        def insert(self, _index, text, _tag) -> None:
+            self.text = text
+
+        def mark_set(self, mark, index) -> None:
+            self.caret_updates.append((mark, index))
+
+        def bind(self, _sequence, _callback) -> None:
+            pass
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = ContentText()
+    surface._canonical_selection_segments = ()
+
+    surface.set_editable_content("new authoritative draft", lambda _text: None)
+
+    assert surface.content_text.caret_updates == [("insert", "1.4")]
+
+
 def test_voice_draft_mode_shortcut_binds_directly_to_the_text_widget() -> None:
     class ContentText:
         def __init__(self) -> None:
@@ -599,6 +637,39 @@ def test_dialog_lifecycle_exposes_closed_state() -> None:
     assert lifecycle.is_closed is False
     lifecycle.close()
     assert lifecycle.is_closed is True
+
+
+def test_dialog_lifecycle_focus_reports_verified_toolkit_focus() -> None:
+    class Root:
+        def __init__(self) -> None:
+            self.focused = None
+            self.events = []
+
+        def update_idletasks(self) -> None:
+            self.events.append("layout")
+
+        def lift(self) -> None:
+            self.events.append("lift")
+
+        def focus_get(self):
+            return self.focused
+
+    class Widget:
+        def __init__(self, root) -> None:
+            self.root = root
+
+        def focus_force(self) -> None:
+            self.root.focused = self
+
+        def winfo_toplevel(self):
+            return self.root
+
+    root = Root()
+    widget = Widget(root)
+    lifecycle = DialogLifecycle(root)
+
+    assert lifecycle.focus(widget) is True
+    assert root.events == ["layout", "lift"]
 
 
 def test_native_close_request_uses_callback_instead_of_destroying_the_dialog() -> None:

@@ -128,6 +128,12 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - Windows paste target、toolkit focus 與 semantic Foreground Workflow 是三種
   不同身份。Paste target 由 service coordinator 擁有；UI 只呈現 target
   projection 與回報 focus activation candidate。
+- 可互動 Popup 初次顯示時必須先完成 layout、提升視窗並將焦點放到 content；
+  Voice Listening／Finalizing 保持 non-activating，直到進入 Voice Review 才提出
+  初始焦點請求。只有 toolkit 確認焦點位於該 Popup 內，Presenter 才能回報
+  `FocusEntered`；焦點呼叫失敗不得被投影成 focused state。
+- Voice Draft 因權威 snapshot 更新而替換內容時，surface 必須保存並恢復目前
+  caret，避免非使用者導覽造成插入游標跳動。
 - Paste target 無效、已關閉或無法成為 foreground 時，系統不得向其他視窗
   fallback 或盲送 `Ctrl+V`，必須恢復 surface 並顯示失敗狀態。
 

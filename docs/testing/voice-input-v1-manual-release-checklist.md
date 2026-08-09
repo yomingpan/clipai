@@ -21,7 +21,9 @@ python -m pytest -m integration tests/platform/test_voice_webview_host_integrati
    the surface to close with Voice Input shown as ready in the tray.
 3. Focus Notepad again, hold `Ctrl+Alt+W`, speak a short sentence, and release.
    Confirm the popup remains non-activating while listening, then changes to an
-   editable Review draft after finalization.
+   editable Review draft after finalization. Confirm the Review draft receives
+   initial keyboard focus. Click an external window and confirm the unpinned
+   popup closes according to the normal Popup focus-out policy.
 4. In Editing mode, press `Ctrl+V` and confirm clipboard content is inserted into
    the draft and nothing is sent to Notepad. Confirm the footer describes Editing
    mode. Press `Ctrl+Enter`, confirm the draft becomes read-only and the footer
@@ -29,6 +31,8 @@ python -m pytest -m integration tests/platform/test_voice_webview_host_integrati
    the reviewed text is sent only to the original Notepad window. Press
    `Ctrl+Enter` again and confirm Editing mode returns. The Paste button must
    continue to send the reviewed text explicitly from either mode.
+   While editing, move the caret and let a finalized Voice insertion update the
+   draft; confirm the caret does not jump to another position.
 5. Repeat with the original window closed before Paste. Confirm the draft stays
    visible with a failure and no text is sent to the currently focused window.
 

@@ -22,6 +22,11 @@ focus or the destination of the paste side effect.
 - Capture the target when `PasteResult` begins. A later foreground observation
   cannot redirect that operation.
 - Show focus and destination with both a persistent label and border state.
+- Establish initial interactive Popup focus only after layout and raise have
+  completed. Voice Listening and Finalizing remain non-activating; their first
+  focus request occurs when Voice Review becomes interactive. Report
+  `FocusEntered` only when the toolkit confirms focus is inside that Popup. A
+  failed focus request is not focus truth.
 - Reject an unavailable target and focus the Popup with a visible error. Never
   fall back to whichever window happens to be foreground.
 - Keep window titles out of persistence, logs, and diagnostics.
@@ -55,6 +60,10 @@ operation begin, acknowledgement, and toolkit focus facts, then returns explicit
 UI actions. It owns stale acknowledgement rejection, Paste pin capture,
 hide/restore/no-activate decisions, and focus-check generations. BaseDialog and
 the presenter execute those actions without duplicating their policy.
+
+Voice Draft rendering separately preserves the current insertion caret when an
+authoritative content revision replaces widget text. Toolkit text marks remain
+presentation state and do not create a second Workflow or Voice Draft owner.
 
 ## Alternatives
 
