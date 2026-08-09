@@ -126,6 +126,8 @@ class VoiceInputRuntimeModule:
 
     def _execute(self, transition: VoiceTransition) -> None:
         self._projection_sink(transition.projection)
+        if self._setup_presenter is not None:
+            self._setup_presenter.set_voice_projection(transition.projection)
         if transition.projection.capability is VoiceCapabilityPhase.READY and self._setup_presenter is not None:
             self._setup_presenter.close_voice_setup()
         if transition.projection.workflow_id is not None:

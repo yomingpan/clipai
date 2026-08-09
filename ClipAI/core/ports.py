@@ -6,7 +6,7 @@ from typing import Protocol, TypeVar
 
 from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences
 from ClipAI.core.state import CancellationToken, SessionSnapshot
-from ClipAI.core.voice import VoiceCaptureId, VoiceEngineEvent, VoiceLanguage, VoiceSetupId
+from ClipAI.core.voice import VoiceCaptureId, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
 
 
 class LLMProvider(Protocol):
@@ -225,3 +225,5 @@ class VoiceSetupPresenter(Protocol):
     def show_voice_setup(self) -> None: ...
 
     def close_voice_setup(self) -> None: ...
+
+    def set_voice_projection(self, projection: VoiceProjection) -> None: ...

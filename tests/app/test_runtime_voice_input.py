@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
-from ClipAI.core.commands import DisableVoiceInput, ShortcutPressEnded, ShortcutPressStarted, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
+from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, ShortcutPressEnded, ShortcutPressStarted, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
-from ClipAI.core.voice import VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceSetupId
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
 
 
@@ -34,9 +34,10 @@ class Workflows:
 
 
 class Setup:
-    def __init__(self) -> None: self.shown = 0; self.closed = 0
+    def __init__(self) -> None: self.shown = 0; self.closed = 0; self.projections = []
     def show_voice_setup(self) -> None: self.shown += 1
     def close_voice_setup(self) -> None: self.closed += 1
+    def set_voice_projection(self, projection) -> None: self.projections.append(projection)
 
 
 def test_ptt_flow_creates_workflow_after_admission_and_applies_finalized_text() -> None:
@@ -108,3 +109,20 @@ def test_ptt_from_voice_review_reuses_its_workflow_and_frozen_selection() -> Non
     assert runtime.handle_shortcut_started(ShortcutPressStarted(4, "voice_input")) is True
     assert workflows.created == []
     assert engine.calls == [("start", "voice-press-4", "zh-TW", 0)]
+
+
+def test_setup_permission_blocked_stays_visible_with_authoritative_projection() -> None:
+    engine, workflows, setup = Engine(), Workflows(), Setup()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        setup_presenter=setup,
+    )
+    operation = VoiceSetupId("setup-1")
+
+    runtime.handle(EnableVoiceInput(operation))
+    assert runtime.handle(VoiceEngineEventReceived(VoiceEngineSetupBlocked(operation))) is True
+
+    assert setup.projections[-1].capability is VoiceCapabilityPhase.PERMISSION_BLOCKED

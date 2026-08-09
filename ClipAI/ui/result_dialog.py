@@ -160,6 +160,10 @@ class ResultDialogPresenter:
         if self._voice_setup_dialog is not None:
             self._voice_setup_dialog.close()
 
+    def set_voice_projection(self, projection) -> None:
+        if self._voice_setup_dialog is not None:
+            self._voice_setup_dialog.set_voice_projection(projection)
+
     def _hold_focus_for_shortcut_guide(self) -> None:
         if self._shortcut_guide_focus_hold_active:
             return

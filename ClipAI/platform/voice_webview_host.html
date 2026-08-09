@@ -20,8 +20,9 @@
       stopTracks(stream);
       emit({kind: "setup_ready", setup_id: command.setup_id});
       window.pywebview.api.hide();
-    } catch (_) {
-      emit({kind: "setup_failed", setup_id: command.setup_id, failure: "permission_denied"});
+    } catch (error) {
+      if (error && error.name === "NotAllowedError") emit({kind: "setup_blocked", setup_id: command.setup_id});
+      else emit({kind: "setup_failed", setup_id: command.setup_id, failure: "initialization_failed"});
     }
   };
   const start = async command => {
