@@ -8,7 +8,7 @@ import time
 from PIL import Image, ImageDraw
 
 from ClipAI.core.models import ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceProjection
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceLanguage, VoiceProjection
 
 logger = logging.getLogger("clipai.tray")
 SHORTCUT_GUIDE_MENU_LABEL = "Keyboard Shortcuts..."
@@ -97,6 +97,7 @@ class TrayController:
         voice: VoiceProjection | None = None,
         on_enable_voice: Callable[[], None] | None = None,
         on_disable_voice: Callable[[], None] | None = None,
+        on_set_voice_language: Callable[[VoiceLanguage], None] | None = None,
     ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
@@ -117,6 +118,7 @@ class TrayController:
         self._voice = voice
         self._on_enable_voice = on_enable_voice
         self._on_disable_voice = on_disable_voice
+        self._on_set_voice_language = on_set_voice_language
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -287,12 +289,31 @@ class TrayController:
         voice = self._voice
         enabled = voice.capability is VoiceCapabilityPhase.READY
         pending = voice.capability in {VoiceCapabilityPhase.REQUESTING_PERMISSION, VoiceCapabilityPhase.DISABLING}
+        language_items = ()
+        if self._on_set_voice_language is not None:
+            language_items = (
+                pystray.MenuItem(
+                    "Traditional Chinese (zh-TW)",
+                    lambda _icon, _item: self._on_set_voice_language(VoiceLanguage("zh-TW")),
+                    checked=lambda _item: self._voice is not None and self._voice.language == "zh-TW",
+                    enabled=lambda _item: self._voice is not None and self._voice.capture_id is None,
+                ),
+                pystray.MenuItem(
+                    "English (en-US)",
+                    lambda _icon, _item: self._on_set_voice_language(VoiceLanguage("en-US")),
+                    checked=lambda _item: self._voice is not None and self._voice.language == "en-US",
+                    enabled=lambda _item: self._voice is not None and self._voice.capture_id is None,
+                ),
+            )
+        menu_items = [
+            pystray.MenuItem("Enable Voice Input", lambda _icon, _item: self._on_enable_voice(), enabled=lambda _item: not enabled and not pending),
+            pystray.MenuItem("Disable Voice Input", lambda _icon, _item: self._on_disable_voice(), enabled=lambda _item: enabled and not pending),
+        ]
+        if language_items:
+            menu_items.append(pystray.MenuItem("Language", pystray.Menu(*language_items)))
         return pystray.MenuItem(
             lambda _item: f"Voice Input ({voice.capability.value.replace('_', ' ')})",
-            pystray.Menu(
-                pystray.MenuItem("Enable Voice Input", lambda _icon, _item: self._on_enable_voice(), enabled=lambda _item: not enabled and not pending),
-                pystray.MenuItem("Disable Voice Input", lambda _icon, _item: self._on_disable_voice(), enabled=lambda _item: enabled and not pending),
-            ),
+            pystray.Menu(*menu_items),
         )
 
     def set_guidance_preferences(self, preferences: GuidancePreferences) -> None:

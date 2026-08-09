@@ -19,7 +19,7 @@ from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
-from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -121,6 +121,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         voice=voice_controller.projection,
         on_enable_voice=lambda: runtime_holder[0].enqueue(OpenVoiceSetup()),
         on_disable_voice=lambda: runtime_holder[0].enqueue(DisableVoiceInput(VoiceDisableId(uuid.uuid4().hex))),
+        on_set_voice_language=lambda language: runtime_holder[0].enqueue(SetVoiceLanguage(language)),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
