@@ -98,6 +98,7 @@ class TrayController:
         on_enable_voice: Callable[[], None] | None = None,
         on_disable_voice: Callable[[], None] | None = None,
         on_set_voice_language: Callable[[VoiceLanguage], None] | None = None,
+        on_manage_voice_permission: Callable[[], None] | None = None,
     ) -> None:
         self._on_exit = on_exit
         self._on_export_diagnostics = on_export_diagnostics
@@ -119,6 +120,7 @@ class TrayController:
         self._on_enable_voice = on_enable_voice
         self._on_disable_voice = on_disable_voice
         self._on_set_voice_language = on_set_voice_language
+        self._on_manage_voice_permission = on_manage_voice_permission
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -311,6 +313,16 @@ class TrayController:
         ]
         if language_items:
             menu_items.append(pystray.MenuItem("Language", pystray.Menu(*language_items)))
+        if self._on_manage_voice_permission is not None:
+            menu_items.append(
+                pystray.MenuItem(
+                    "Manage Microphone Permission",
+                    lambda _icon, _item: self._on_manage_voice_permission(),
+                    enabled=lambda _item: self._voice is not None
+                    and self._voice.capability
+                    in {VoiceCapabilityPhase.PERMISSION_BLOCKED, VoiceCapabilityPhase.UNAVAILABLE},
+                )
+            )
         return pystray.MenuItem(
             lambda _item: f"Voice Input ({voice.capability.value.replace('_', ' ')})",
             pystray.Menu(*menu_items),

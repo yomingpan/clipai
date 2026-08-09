@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
-from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, ShortcutPressEnded, ShortcutPressStarted, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
+from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, ShortcutPressEnded, ShortcutPressStarted, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
@@ -140,3 +140,20 @@ def test_setup_permission_blocked_stays_visible_with_authoritative_projection() 
     assert runtime.handle(VoiceEngineEventReceived(VoiceEngineSetupBlocked(operation))) is True
 
     assert setup.projections[-1].capability is VoiceCapabilityPhase.PERMISSION_BLOCKED
+
+
+def test_permission_settings_intent_does_not_mutate_voice_state() -> None:
+    engine, workflows, opened = Engine(), Workflows(), []
+    controller = VoiceInputController()
+    runtime = VoiceInputRuntimeModule(
+        controller=controller,
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        open_permission_settings=lambda: opened.append(True),
+    )
+
+    assert runtime.handle(OpenVoicePermissionSettings()) is True
+    assert opened == [True]
+    assert controller.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED
+    assert engine.calls == []

@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Callable
 
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoiceSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
 from ClipAI.core.ports import VoiceInputEngine, VoiceSetupPresenter
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceLanguageChangeId, VoiceProjection
@@ -30,6 +30,7 @@ class VoiceInputRuntimeModule:
         projection_sink: Callable[[VoiceProjection], None] = lambda _projection: None,
         setup_presenter: VoiceSetupPresenter | None = None,
         focused_surface_reader: Callable[[], ControlSurfaceRef | None] = lambda: None,
+        open_permission_settings: Callable[[], None] = lambda: None,
     ) -> None:
         self._controller = controller
         self._engine = engine
@@ -43,6 +44,7 @@ class VoiceInputRuntimeModule:
         self._projection_sink = projection_sink
         self._setup_presenter = setup_presenter
         self._focused_surface_reader = focused_surface_reader
+        self._open_permission_settings = open_permission_settings
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
         focused_surface = self._focused_surface_reader()
@@ -91,10 +93,13 @@ class VoiceInputRuntimeModule:
         self._execute(transition)
         return True
 
-    def handle(self, command: OpenVoiceSetup | EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
+    def handle(self, command: OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
         if isinstance(command, OpenVoiceSetup):
             if self._setup_presenter is not None:
                 self._setup_presenter.show_voice_setup()
+            return True
+        if isinstance(command, OpenVoicePermissionSettings):
+            self._open_permission_settings()
             return True
         if isinstance(command, EnableVoiceInput):
             transition = self._controller.request_setup(command.setup_id)

@@ -19,7 +19,7 @@ from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
-from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -35,6 +35,7 @@ from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
 from ClipAI.platform.browser_speech import BrowserSpeechWebView2Engine
+from ClipAI.platform.voice_permissions import open_microphone_privacy_settings
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider
 from ClipAI.providers.anthropic import AnthropicProvider
@@ -122,6 +123,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         on_enable_voice=lambda: runtime_holder[0].enqueue(OpenVoiceSetup()),
         on_disable_voice=lambda: runtime_holder[0].enqueue(DisableVoiceInput(VoiceDisableId(uuid.uuid4().hex))),
         on_set_voice_language=lambda language: runtime_holder[0].enqueue(SetVoiceLanguage(language)),
+        on_manage_voice_permission=lambda: runtime_holder[0].enqueue(OpenVoicePermissionSettings()),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
@@ -298,6 +300,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         projection_sink=tray.set_voice_projection,
         setup_presenter=view,
         focused_surface_reader=lambda: user_control.focused_surface,
+        open_permission_settings=open_microphone_privacy_settings,
     )
     shortcut_guide_module = ShortcutGuideRuntimeModule(
         catalog=ShortcutGuideCatalog(

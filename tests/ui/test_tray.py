@@ -339,11 +339,31 @@ def test_voice_menu_projects_authoritative_state_without_optimistic_toggle() -> 
         voice=VoiceProjection(VoiceCapabilityPhase.SETUP_REQUIRED, "zh-TW"),
         on_enable_voice=lambda: events.append("enable"),
         on_disable_voice=lambda: events.append("disable"),
+        on_manage_voice_permission=lambda: events.append("manage"),
     )
     menu = tray._build_voice_menu(Pystray)
     assert menu.text(None) == "Voice Input (setup required)"
-    enable, disable = menu.action.items
+    enable, disable, manage = menu.action.items
     assert enable.enabled(None) is True
     assert disable.enabled(None) is False
+    assert manage.enabled(None) is False
     enable.action(None, None)
     assert events == ["enable"]
+
+
+def test_voice_menu_exposes_permission_repair_when_microphone_is_blocked() -> None:
+    events = []
+    tray = TrayController(
+        lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.PERMISSION_BLOCKED, "zh-TW"),
+        on_enable_voice=lambda: None,
+        on_disable_voice=lambda: None,
+        on_manage_voice_permission=lambda: events.append("manage"),
+    )
+
+    menu = tray._build_voice_menu(Pystray)
+    manage = menu.action.items[-1]
+    assert manage.text == "Manage Microphone Permission"
+    assert manage.enabled(None) is True
+    manage.action(None, None)
+    assert events == ["manage"]
