@@ -750,7 +750,7 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
         active_color="#00B04F",
         active_hover_color="#00B04F",
     ),
-    ResultActionSpec(slot_id="paste", icon=PASTE_ICON, tooltip="Paste result (Ctrl+V)"),
+    ResultActionSpec(slot_id="paste", icon=PASTE_ICON, tooltip="Paste result to target"),
     ResultActionSpec(
         slot_id="archive",
         icon=ARCHIVE_ICON,
@@ -1155,14 +1155,49 @@ class BaseResultSurface:
     def set_model(self, model: str) -> None:
         self.model_label.configure(text=f"model: {model}")
 
-    def set_paste_focus_state(self, focused: bool, target: PasteTarget | None) -> None:
+    def set_paste_focus_state(
+        self,
+        focused: bool,
+        target: PasteTarget | None,
+        *,
+        voice_draft_editing: bool | None = None,
+    ) -> None:
         self.dialog.set_focus_active(focused)
+        if voice_draft_editing is not None:
+            mode = "編輯模式" if voice_draft_editing else "閱讀模式"
+            if not focused:
+                self.paste_target_label.configure(
+                    text=f"{mode}｜未聚焦；Ctrl+V 使用原剪貼簿",
+                )
+                self.set_action_tooltip("paste", "Popup 未聚焦；Ctrl+V 會使用原剪貼簿內容")
+                return
+            if voice_draft_editing:
+                self.paste_target_label.configure(
+                    text="編輯模式｜Ctrl+V 貼入｜Ctrl+Enter 閱讀",
+                )
+                self.set_action_tooltip("paste", "編輯模式：Ctrl+V 貼入草稿；Ctrl+Enter 切換閱讀模式")
+                return
+            if target is not None:
+                destination = paste_target_display_text(target)
+                self.paste_target_label.configure(
+                    text=f"閱讀模式｜Ctrl+V → {destination}｜Ctrl+Enter 編輯",
+                )
+                self.set_action_tooltip(
+                    "paste",
+                    f"閱讀模式：Ctrl+V 貼上目前內容到 {destination}；Ctrl+Enter 切換編輯模式",
+                )
+                return
+            self.paste_target_label.configure(
+                text="閱讀模式｜Ctrl+V 無外部目標｜Ctrl+Enter 編輯",
+            )
+            self.set_action_tooltip("paste", "閱讀模式：找不到外部貼上目標；Ctrl+Enter 切換編輯模式")
+            return
         if focused and target is not None:
             destination = paste_target_display_text(target)
             self.paste_target_label.configure(
                 text=f"貼到：{destination}",
             )
-            self.set_action_tooltip("paste", f"貼上辨識文字到 {destination} (Ctrl+V)")
+            self.set_action_tooltip("paste", f"貼上目前內容到 {destination}")
             return
         if focused:
             self.paste_target_label.configure(
@@ -1454,6 +1489,16 @@ class BaseResultSurface:
             self.content_text.insert("1.0", text, "body")
         self.content_text.bind("<KeyRelease>", self._notify_editable_content_changed)
 
+    def set_voice_draft_editing(self, editing: bool) -> None:
+        """Switch the rendered Voice Draft between editable and reading presentation."""
+        if editing:
+            self.content_text.configure(state="normal")
+            if self._editable_content_changed is not None:
+                self.content_text.bind("<KeyRelease>", self._notify_editable_content_changed)
+            return
+        self.content_text.unbind("<KeyRelease>")
+        self.content_text.configure(state="disabled")
+
     def semantic_content(self) -> str:
         try:
             return self.content_text.get("1.0", "end-1c")
@@ -1590,6 +1635,10 @@ class BaseResultSurface:
     def bind_header_double_click(self, callback: Callable) -> None:
         for widget in (self.header, self.title_area, self.title_label):
             widget.bind("<Double-Button-1>", callback, add="+")
+
+    def bind_voice_draft_mode_toggle(self, callback: Callable) -> None:
+        self.content_text.bind("<Control-Return>", callback, add="+")
+        self.content_text.bind("<Control-KP_Enter>", callback, add="+")
 
     def set_pinned_state(self, pinned: bool) -> None:
         self.dialog.set_pinned(pinned)

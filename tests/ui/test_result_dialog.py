@@ -6,6 +6,7 @@ from dataclasses import replace
 from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
 from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, OutputOperationResult, PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
+from ClipAI.core.voice import VoiceOrigin
 from ClipAI.ui.popup_external_output import FocusEntered, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, workflow_render_patch
 
@@ -71,6 +72,9 @@ class Surface:
     def bind_header_double_click(self, callback) -> None:
         self.header_double_click_callback = callback
 
+    def bind_voice_draft_mode_toggle(self, callback) -> None:
+        self.voice_draft_mode_toggle_callback = callback
+
     def configure_action_contract(self, contract, input_source: str) -> None:
         self.events.append(("contract", contract, input_source))
 
@@ -91,9 +95,19 @@ class Surface:
     def close_feedback_overlay(self) -> None:
         self.events.append("feedback:closed")
 
-    def set_paste_focus_state(self, focused, target) -> None:
+    def set_paste_focus_state(self, focused, target, *, voice_draft_editing=None) -> None:
         self.focused = focused
         self.paste_target = target
+        self.voice_draft_editing = voice_draft_editing
+        if voice_draft_editing is not None:
+            self.events.append(f"voice-mode:{voice_draft_editing}")
+
+    def set_voice_draft_editing(self, editing: bool) -> None:
+        self.voice_draft_editing = editing
+        self.events.append(f"voice-editor:{editing}")
+
+    def set_editable_content(self, text: str, _on_changed) -> None:
+        self.events.append(f"voice-content:{text}")
 
 
 def presenter_with_selection(selected: str | None):
@@ -441,6 +455,124 @@ def test_ctrl_v_preserves_native_paste_in_editable_popup_fields() -> None:
 
     assert result is None
     assert events == []
+
+
+def test_ctrl_v_preserves_native_paste_in_editable_voice_review() -> None:
+    class EditableVoiceDraft:
+        def winfo_class(self) -> str:
+            return "Text"
+
+        def cget(self, option: str) -> str:
+            assert option == "state"
+            return "normal"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.last_snapshot = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.VOICE_REVIEW,
+        "voice_input",
+        "Voice Input",
+        "",
+        content="current draft",
+    )
+    presenter._paste = lambda session_id: events.append(f"paste:{session_id}")
+
+    result = presenter._paste_shortcut(
+        type("Event", (), {"widget": EditableVoiceDraft()})(),
+        "s1",
+    )
+
+    assert result is None
+    assert events == []
+
+
+def test_ctrl_enter_switches_voice_draft_to_reading_mode() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    view.last_snapshot = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.VOICE_REVIEW,
+        "voice_input",
+        "Voice Input",
+        "",
+        content="current draft",
+    )
+
+    presenter._register_view("s1", view)
+    result = view.dialog.root.bindings["<Control-Return>"](
+        type("Event", (), {"state": 0x0004})(),
+    )
+
+    assert result == "break"
+    assert view.voice_draft_editing is False
+    assert events[-2:] == ["voice-editor:False", "voice-mode:False"]
+
+    class VoiceDraftWidget:
+        def winfo_class(self) -> str:
+            return "Text"
+
+        def cget(self, option: str) -> str:
+            assert option == "state"
+            return "normal" if view.voice_draft_editing else "disabled"
+
+    presenter._paste = lambda session_id: events.append(f"paste:{session_id}")
+    paste_event = type("Event", (), {"state": 0x0004, "widget": VoiceDraftWidget()})()
+
+    assert view.dialog.root.bindings["<Control-v>"](paste_event) == "break"
+    assert events[-1] == "paste:s1"
+
+    assert view.dialog.root.bindings["<Control-Return>"](
+        type("Event", (), {"state": 0x0004})(),
+    ) == "break"
+    paste_count = events.count("paste:s1")
+    assert view.dialog.root.bindings["<Control-v>"](paste_event) is None
+    assert events.count("paste:s1") == paste_count
+
+
+def test_voice_draft_snapshot_keeps_the_selected_reading_mode() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
+    previous = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.VOICE_REVIEW,
+        "voice_input",
+        "Voice Input",
+        "",
+        content="old draft",
+        voice_origin=VoiceOrigin(target, "old draft", 0),
+    )
+    current = replace(
+        previous,
+        revision=2,
+        content="updated draft",
+        voice_origin=VoiceOrigin(target, "updated draft", 1),
+    )
+    view.revision = previous.revision
+    view.last_snapshot = previous
+    view.voice_draft_editing = False
+
+    presenter._apply(current)
+
+    assert events[-2:] == ["voice-content:updated draft", "voice-editor:False"]
+    assert view.voice_draft_editing is False
 
 
 def test_ctrl_e_toggles_pin_for_active_popup() -> None:

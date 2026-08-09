@@ -22,9 +22,13 @@ python -m pytest -m integration tests/platform/test_voice_webview_host_integrati
 3. Focus Notepad again, hold `Ctrl+Alt+W`, speak a short sentence, and release.
    Confirm the popup remains non-activating while listening, then changes to an
    editable Review draft after finalization.
-4. Edit the draft. Press `Ctrl+V` or click Paste. Confirm the reviewed text is
-   sent only to the original Notepad window and that ClipAI says the instruction
-   was sent, not that the target consumed it.
+4. In Editing mode, press `Ctrl+V` and confirm clipboard content is inserted into
+   the draft and nothing is sent to Notepad. Confirm the footer describes Editing
+   mode. Press `Ctrl+Enter`, confirm the draft becomes read-only and the footer
+   describes Reading mode plus the external target. Press `Ctrl+V` and confirm
+   the reviewed text is sent only to the original Notepad window. Press
+   `Ctrl+Enter` again and confirm Editing mode returns. The Paste button must
+   continue to send the reviewed text explicitly from either mode.
 5. Repeat with the original window closed before Paste. Confirm the draft stays
    visible with a failure and no text is sent to the currently focused window.
 

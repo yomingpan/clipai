@@ -41,6 +41,7 @@ class _SessionView:
     close_requested: bool = False
     last_snapshot: SessionSnapshot | None = None
     voice_draft_revision: int = 0
+    voice_draft_editing: bool = True
     voice_stop_button: object | None = None
     voice_cancel_button: object | None = None
 
@@ -238,7 +239,11 @@ class ResultDialogPresenter:
             if isinstance(action, SetPopupVisibility):
                 view.dialog.apply_external_output_visibility(action.visibility)
             elif isinstance(action, SetFocusProjection):
-                view.surface.set_paste_focus_state(action.focused, self._paste_target)
+                view.surface.set_paste_focus_state(
+                    action.focused,
+                    self._paste_target,
+                    voice_draft_editing=_voice_draft_editing(view),
+                )
             elif isinstance(action, FocusPopup):
                 view.dialog.lifecycle.focus()
             elif isinstance(action, ScheduleOutsideFocusCheck):
@@ -365,6 +370,7 @@ class ResultDialogPresenter:
             view.surface.set_paste_focus_state(
                 view.external_output.focused_inside,
                 target,
+                voice_draft_editing=_voice_draft_editing(view),
             )
 
     def _apply(self, snapshot: SessionSnapshot) -> None:
@@ -384,6 +390,10 @@ class ResultDialogPresenter:
             self._views[snapshot.session_id] = view
             self._register_view(snapshot.session_id, view)
         previous = view.last_snapshot
+        if snapshot.status is SessionStatus.VOICE_REVIEW and (
+            previous is None or previous.status is not SessionStatus.VOICE_REVIEW
+        ):
+            view.voice_draft_editing = True
         patch = workflow_render_patch(previous, snapshot)
         view.revision = snapshot.revision
         previous_step_id = view.step_id
@@ -400,6 +410,11 @@ class ResultDialogPresenter:
             view.surface.set_paste_focus_state(
                 view.external_output.focused_inside,
                 self._paste_target,
+                voice_draft_editing=(
+                    view.voice_draft_editing
+                    if snapshot.status is SessionStatus.VOICE_REVIEW
+                    else None
+                ),
             )
             view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
         guidance_key = view.step_id or ""
@@ -432,6 +447,7 @@ class ResultDialogPresenter:
                     self._command_sink(UpdateVoiceDraft(sid, expected_revision, text))
 
                 view.surface.set_editable_content(snapshot.content, update_voice_draft)
+                view.surface.set_voice_draft_editing(view.voice_draft_editing)
         elif snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
             if content_changed:
@@ -675,6 +691,11 @@ class ResultDialogPresenter:
     def _register_view(self, session_id: str, view: _SessionView) -> None:
         view.external_output.focus(PopupRegistered())
         dialog = view.dialog
+        toggle_voice_draft_mode = lambda event, sid=session_id: self._popup_shortcut(
+            event,
+            self._toggle_voice_draft_mode,
+            sid,
+        )
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
         dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._focus_in(sid), add="+")
         dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
@@ -684,8 +705,11 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-s>", lambda event, sid=session_id: self._popup_shortcut(event, self._archive, sid), add="+")
         dialog.root.bind("<Control-r>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_feedback, sid), add="+")
         dialog.root.bind("<Control-v>", lambda event, sid=session_id: self._paste_shortcut(event, sid), add="+")
+        dialog.root.bind("<Control-Return>", toggle_voice_draft_mode, add="+")
+        dialog.root.bind("<Control-KP_Enter>", toggle_voice_draft_mode, add="+")
         dialog.root.bind("<Control-slash>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_follow_up, sid), add="+")
         view.surface.bind_header_double_click(lambda _event, sid=session_id: self._header_double_click(sid))
+        view.surface.bind_voice_draft_mode_toggle(toggle_voice_draft_mode)
         view.external_output.focus(PopupShown())
 
         def establish_initial_focus() -> None:
@@ -714,12 +738,24 @@ class ResultDialogPresenter:
     def _paste_shortcut(self, event, session_id: str) -> str | None:
         if not _has_only_popup_shortcut_modifiers(event):
             return "break"
+        if _accepts_native_paste(getattr(event, "widget", None)):
+            return None
         view = self._views.get(session_id)
         if view is not None and view.last_snapshot is not None and view.last_snapshot.status is SessionStatus.VOICE_REVIEW:
             return self._shortcut(self._paste, session_id)
-        if _accepts_native_paste(getattr(event, "widget", None)):
-            return None
         return self._shortcut(self._paste, session_id)
+
+    def _toggle_voice_draft_mode(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None or view.last_snapshot is None or view.last_snapshot.status is not SessionStatus.VOICE_REVIEW:
+            return
+        view.voice_draft_editing = not view.voice_draft_editing
+        view.surface.set_voice_draft_editing(view.voice_draft_editing)
+        view.surface.set_paste_focus_state(
+            view.external_output.focused_inside,
+            self._paste_target,
+            voice_draft_editing=view.voice_draft_editing,
+        )
 
     def _header_double_click(self, session_id: str) -> str:
         self._toggle_pin(session_id)
@@ -749,6 +785,15 @@ class ResultDialogPresenter:
             view,
             view.external_output.focus(OutsideFocusCheckRequested()),
         )
+
+
+def _voice_draft_editing(view: _SessionView) -> bool | None:
+    snapshot = view.last_snapshot
+    return (
+        view.voice_draft_editing
+        if snapshot is not None and snapshot.status is SessionStatus.VOICE_REVIEW
+        else None
+    )
 
 
 def _content_render_key(snapshot: SessionSnapshot) -> tuple[object, ...]:

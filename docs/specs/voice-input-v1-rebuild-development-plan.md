@@ -38,7 +38,9 @@ not sufficient.
 Voice Input V1 is a Windows cross-application dictation input method. The user
 holds `Ctrl+Alt+W`, speaks, releases the keys, reviews an editable transcript in
 a ClipAI Popup, and explicitly sends the reviewed content back to the original
-external application with `Ctrl+V` or the Paste button.
+external application with the Paste button. Within the editable Voice Draft,
+`Ctrl+V` remains native clipboard insertion for revising the text; `Ctrl+Enter`
+switches to Reading mode, where `Ctrl+V` sends the reviewed content externally.
 
 Voice Input is not an automatic AI Action, not an implicit Follow-up mechanism,
 and not a background recorder. Existing ClipAI Actions remain an explicit,
@@ -67,11 +69,15 @@ without presenting new evidence that makes the plan unsafe or impossible.
 - Gesture: Push-to-Talk only. Press starts; release requests stop and
   finalization.
 - Release never auto-pastes. It enters Review.
-- `Ctrl+V` in a Voice Draft always means send the current semantic content to
-  the frozen external target. It does not perform native clipboard insertion in
-  the Voice editor.
-- The Paste button has exactly the same intent and lifecycle as `Ctrl+V`.
-- `Ctrl+Enter` has no Voice Input meaning.
+- `Ctrl+V` in the editable Voice Draft performs native clipboard insertion so
+  the user can revise the draft. The resulting edit continues through the
+  existing typed draft-update lifecycle.
+- The Paste button explicitly sends the current semantic content to the frozen
+  external target. A focused, non-editable completed result may continue to use
+  `Ctrl+V` as the same external Paste intent.
+- Voice Review enters Editing mode. `Ctrl+Enter` toggles between Editing and
+  Reading presentation modes: Editing keeps native `Ctrl+V`; Reading makes the
+  draft read-only and routes `Ctrl+V` to the frozen external target.
 - There is no mouse Start control in V1. Listening offers explicit Stop and
   Cancel controls as safety exits.
 
@@ -111,7 +117,9 @@ without presenting new evidence that makes the plan unsafe or impossible.
 - The Workflow owns the canonical editable Voice Draft.
 - Listening and Finalizing are read-only. Interim recognition appears as a
   visually distinct projection and is not canonical content.
-- Review enables editing, selection, Copy, Paste, pinning, and explicit Actions.
+- Review enables selection, Copy, Paste, pinning, and explicit Actions. It
+  starts in Editing mode; `Ctrl+Enter` switches to Reading mode and can switch
+  back to Editing without creating another draft or Workflow state owner.
 - A new capture freezes the current selection/caret. It replaces a non-empty
   selection or inserts at the caret. Moving the caret during capture cannot
   retarget that capture.
@@ -123,9 +131,12 @@ without presenting new evidence that makes the plan unsafe or impossible.
 - Action results remain in the same Voice Workflow. Back returns to the editable
   Voice origin. Running a new Action from an earlier position truncates later
   history according to existing linear Workflow rules.
-- `Ctrl+V` always sends the currently completed and visible semantic content:
-  Voice origin in Review or a completed Action result. Loading, failed,
-  cancelled, or interim content is not pasteable.
+- `Ctrl+V` edits a Voice origin while Review is in Editing mode. In Reading
+  mode, a Paste button request, or `Ctrl+V` from the read-only draft, sends the
+  currently completed and visible semantic content. Loading, failed, cancelled,
+  or interim content is not pasteable.
+- The footer is the persistent source of truth for Editing versus Reading mode,
+  the current `Ctrl+V` meaning, `Ctrl+Enter` transition, and Reading-mode target.
 
 ### 3.5 Paste settlement
 
@@ -358,9 +369,11 @@ it must not create Voice-specific substitutes.
 #### Reusable capability versus exception
 
 Voice capture is a reusable input capability targeting a typed Workflow draft;
-it is not a special-case Action, Popup mode flag, or provider branch. Browser
-Speech is one adapter at the engine seam. The production adapter and deterministic
-test adapter make the seam real; no additional production engine is required.
+it is not a special-case Action or provider branch. Editing versus Reading is a
+UI-local presentation mode owned by the visible Workflow view; it does not
+represent capture, Workflow, or Voice Draft domain state. Browser Speech is one
+adapter at the engine seam. The production adapter and deterministic test adapter
+make the seam real; no additional production engine is required.
 
 #### Knowledge that must not propagate
 
@@ -371,8 +384,9 @@ test adapter make the seam real; no additional production engine is required.
 - Workflow visibility must not stand in for capture or paste identity.
 - Engine callbacks must not know Tray, presenters, Workflow controllers, or
   Paste coordinators.
-- Voice runtime must not retain canonical draft, current composer mode, or Paste
-  membership.
+- Voice runtime must not retain canonical draft, current presentation mode, or
+  Paste membership. The presenter resets its UI-local mode only when entering a
+  new Voice Review projection and preserves it across later draft revisions.
 - The UI must not read engine, clipboard, keyboard listener, or target adapters.
 
 #### Enforceable safeguards
@@ -800,8 +814,9 @@ their real operation cannot be accepted.
 
 ### 6.5 Paste
 
-1. User presses `Ctrl+V` anywhere in the active Voice Review editor or selects
-   Paste.
+1. User selects Paste, or switches Voice Review to Reading mode with
+   `Ctrl+Enter` and presses `Ctrl+V`. Editing-mode `Ctrl+V` remains native draft
+   editing and does not start this flow.
 2. Workflow resolves the completed visible semantic content.
 3. Existing Paste owner validates the frozen target and runs dispatch/cleanup.
 4. UI projects pending from the real Paste operation identity.
@@ -947,8 +962,14 @@ Cover projections rather than engine behavior:
 - Every state has visible text and correct enabled/disabled controls.
 - Listening/Finalizing editor is read-only; Review is editable.
 - Interim visual distinction does not change canonical content.
-- `Ctrl+V` in the Voice editor emits identified Paste intent, not native paste.
-- General editable fields retain the existing native `Ctrl+V` behavior.
+- Voice Review starts in Editing mode; `Ctrl+Enter` toggles a read-only Reading
+  mode and can return to Editing without changing canonical ownership.
+- Editing-mode `Ctrl+V` performs native paste and emits no external Paste intent;
+  Reading-mode `Ctrl+V` emits the identified external Paste intent.
+- The footer always states the mode, current `Ctrl+V` meaning, `Ctrl+Enter`
+  transition, and Reading-mode target without relying on animation.
+- General editable fields retain native `Ctrl+V`; non-editable completed result
+  surfaces may emit the identified external Paste intent.
 - Stop/Cancel/Paste feedback changes only after authoritative state.
 - Non-activating Listening and activating Review.
 - Pin coexistence and collision-aware placement.
@@ -1133,9 +1154,10 @@ feature to preserve.
     Implement one transient Popup, pinned exceptions, collision-aware placement,
     cancellation of replaced unpinned Workflows, and late completion isolation.
 
-25. **feat: route Voice Copy, Paste, and Ctrl+V through existing output owners**  
-    Preserve native `Ctrl+V` outside the Voice editor, use frozen target and
-    semantic content, and project terminal truth/pin behavior.
+25. **feat: route Voice Copy and explicit Paste through existing output owners**
+    Preserve native `Ctrl+V` in Editing mode, route Reading-mode `Ctrl+V` and the
+    Paste button through the frozen target and semantic content, and project
+    terminal truth/pin behavior.
 
 26. **test: add full app-level Voice lifecycle scenarios**  
     Cover first setup, normal dictation, repeat insertion, Action/Back, Paste,

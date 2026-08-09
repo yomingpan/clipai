@@ -10,7 +10,11 @@ focus or the destination of the paste side effect.
 
 ## Decision
 
-- Keep `Ctrl+V` as the familiar user gesture.
+- Keep `Ctrl+V` as the familiar result-paste gesture on non-editable surfaces,
+  while Editing-mode Voice Draft fields retain native clipboard insertion.
+  `Ctrl+Enter` toggles the view into Reading mode, where `Ctrl+V` becomes the
+  external Paste gesture. The explicit Paste button remains available in both
+  modes for sending a reviewed draft to its frozen external target.
 - Track the latest non-ClipAI Windows foreground window as an immutable,
   in-memory paste target.
 - Let `PasteTargetCoordinator` own the latest target; the Windows adapter only
