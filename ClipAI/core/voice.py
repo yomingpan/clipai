@@ -143,6 +143,15 @@ class VoiceDraftTarget:
 
 
 @dataclass(frozen=True)
+class VoiceOrigin:
+    """Workflow-owned, ephemeral canonical Voice Input draft."""
+
+    paste_target: PasteTarget
+    text: str = ""
+    revision: int = 0
+
+
+@dataclass(frozen=True)
 class VoiceProjection:
     """Owner-produced state safe for UI and Tray projection."""
 
