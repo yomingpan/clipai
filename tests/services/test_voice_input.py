@@ -5,6 +5,7 @@ from ClipAI.core.models import ShortcutPressId
 from ClipAI.core.voice import (
     VoiceCaptureId,
     VoiceCapabilityPhase,
+    VoiceDisableId,
     VoiceDraftTarget,
     VoiceEngineEnded,
     VoiceEngineFinalSegment,
@@ -18,8 +19,10 @@ from ClipAI.services.voice_input import (
     CancelVoiceCapture,
     FinalizeVoiceDraft,
     PersistVoiceEnabled,
+    PersistVoiceDisabled,
     PrepareVoiceSetup,
     StartVoiceCapture,
+    ShutdownVoiceEngine,
     StopVoiceCapture,
     VoiceInputController,
 )
@@ -160,3 +163,33 @@ def test_language_changes_apply_only_between_captures() -> None:
     capture = VoiceCaptureId("capture-1")
     controller.request_capture(capture, target())
     assert controller.set_language(VoiceLanguage("zh-TW")).ignored is True
+
+
+def test_disable_rejects_new_captures_and_waits_for_both_identity_scoped_joins() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+    disable = VoiceDisableId("disable-1")
+
+    transition = controller.request_disable(disable)
+
+    assert transition.effects == (
+        CancelVoiceCapture(capture),
+        ShutdownVoiceEngine(disable),
+        PersistVoiceDisabled(disable),
+    )
+    assert controller.request_capture(VoiceCaptureId("capture-2"), target()).ignored is True
+    assert controller.complete_disable_shutdown(VoiceDisableId("old")).ignored is True
+    assert controller.complete_disable_preference(disable).projection.capability is VoiceCapabilityPhase.DISABLING
+    assert controller.complete_disable_shutdown(disable).projection.capability is VoiceCapabilityPhase.DISABLED
+
+
+def test_disable_preference_failure_remains_explicitly_retriable() -> None:
+    controller = ready_controller()
+    disable = VoiceDisableId("disable-1")
+    controller.request_disable(disable)
+    controller.complete_disable_shutdown(disable)
+
+    transition = controller.complete_disable_preference(disable, "disk unavailable")
+
+    assert transition.projection.capability is VoiceCapabilityPhase.DISABLE_FAILED

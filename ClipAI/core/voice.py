@@ -40,6 +40,7 @@ class VoiceCapabilityPhase(str, Enum):
     PERMISSION_BLOCKED = "permission_blocked"
     UNAVAILABLE = "unavailable"
     DISABLING = "disabling"
+    DISABLE_FAILED = "disable_failed"
     CLEANUP_UNCONFIRMED = "cleanup_unconfirmed"
 
 

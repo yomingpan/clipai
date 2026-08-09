@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
-from ClipAI.core.commands import ShortcutPressEnded, ShortcutPressStarted, VoiceEngineEventReceived
+from ClipAI.core.commands import DisableVoiceInput, ShortcutPressEnded, ShortcutPressStarted, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
 from ClipAI.core.models import PasteTarget
-from ClipAI.core.voice import VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceSetupId
+from ClipAI.core.voice import VoiceDisableId, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
 
 
@@ -47,3 +47,23 @@ def test_ptt_flow_creates_workflow_after_admission_and_applies_finalized_text() 
     assert engine.calls[1] == ("stop", capture_id)
     workflow_id = workflows.created[0][0]
     assert workflows.controllers[workflow_id].applied[0][1] == "hello"
+
+
+def test_disable_waits_for_persisted_preference_after_engine_shutdown() -> None:
+    engine, workflows, dispatched, persisted = Engine(), Workflows(), [], []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        persist_disabled=persisted.append,
+        dispatch=dispatched.append,
+    )
+    disable = VoiceDisableId("disable-1")
+
+    assert runtime.handle(DisableVoiceInput(disable)) is True
+    assert engine.calls == [("shutdown",)]
+    assert persisted == [disable]
+    assert dispatched == [VoiceDisableShutdownCompleted(disable)]
+    assert runtime.handle(dispatched.pop()) is True
+    assert runtime.handle(VoiceDisablePreferenceSaved(disable)) is True

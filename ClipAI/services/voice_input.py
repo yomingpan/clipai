@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from ClipAI.core.voice import (
     VoiceCaptureId,
+    VoiceDisableId,
     VoiceCapturePhase,
     VoiceCapabilityPhase,
     VoiceDraftTarget,
@@ -24,6 +25,9 @@ from ClipAI.core.voice import (
 from ClipAI.core.models import ShortcutPressId
 
 
+_UNSET_DISABLE_RESULT = object()
+
+
 @dataclass(frozen=True)
 class PrepareVoiceSetup:
     setup_id: VoiceSetupId
@@ -33,6 +37,16 @@ class PrepareVoiceSetup:
 @dataclass(frozen=True)
 class PersistVoiceEnabled:
     setup_id: VoiceSetupId
+
+
+@dataclass(frozen=True)
+class ShutdownVoiceEngine:
+    disable_id: VoiceDisableId
+
+
+@dataclass(frozen=True)
+class PersistVoiceDisabled:
+    disable_id: VoiceDisableId
 
 
 @dataclass(frozen=True)
@@ -60,7 +74,7 @@ class FinalizeVoiceDraft:
     warning: str = ""
 
 
-VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft
+VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | ShutdownVoiceEngine | PersistVoiceDisabled | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft
 
 
 @dataclass(frozen=True)
@@ -100,6 +114,9 @@ class VoiceInputController:
         self._language = language
         self._setup_id: VoiceSetupId | None = None
         self._pending_enable_save: VoiceSetupId | None = None
+        self._disable_id: VoiceDisableId | None = None
+        self._disable_shutdown_result: str | object = _UNSET_DISABLE_RESULT
+        self._disable_preference_result: str | object = _UNSET_DISABLE_RESULT
         self._capture: _Capture | None = None
         self._message = ""
 
@@ -149,6 +166,57 @@ class VoiceInputController:
         else:
             self._capability = VoiceCapabilityPhase.READY
             self._message = "Voice Input is ready."
+        return self._transition()
+
+    def request_disable(self, disable_id: VoiceDisableId) -> VoiceTransition:
+        if self._disable_id is not None or self._capability is VoiceCapabilityPhase.DISABLED:
+            return self._ignored()
+        self._disable_id = disable_id
+        self._setup_id = None
+        self._pending_enable_save = None
+        self._disable_shutdown_result = _UNSET_DISABLE_RESULT
+        self._disable_preference_result = _UNSET_DISABLE_RESULT
+        self._capability = VoiceCapabilityPhase.DISABLING
+        self._message = "Disabling Voice Input…"
+        effects: list[VoiceEffect] = [ShutdownVoiceEngine(disable_id), PersistVoiceDisabled(disable_id)]
+        if self._capture is not None:
+            effects.insert(0, CancelVoiceCapture(self._capture.capture_id))
+        return self._transition(*effects)
+
+    def complete_disable_shutdown(self, disable_id: VoiceDisableId, error: str = "") -> VoiceTransition:
+        if disable_id != self._disable_id or self._disable_shutdown_result is not _UNSET_DISABLE_RESULT:
+            return self._ignored()
+        self._disable_shutdown_result = error
+        return self._settle_disable()
+
+    def complete_disable_preference(self, disable_id: VoiceDisableId, error: str = "") -> VoiceTransition:
+        if disable_id != self._disable_id or self._disable_preference_result is not _UNSET_DISABLE_RESULT:
+            return self._ignored()
+        self._disable_preference_result = error
+        return self._settle_disable()
+
+    def _settle_disable(self) -> VoiceTransition:
+        if (
+            self._disable_shutdown_result is _UNSET_DISABLE_RESULT
+            or self._disable_preference_result is _UNSET_DISABLE_RESULT
+        ):
+            return self._transition()
+        shutdown_error = self._disable_shutdown_result
+        preference_error = self._disable_preference_result
+        assert isinstance(shutdown_error, str)
+        assert isinstance(preference_error, str)
+        self._disable_id = None
+        self._disable_shutdown_result = _UNSET_DISABLE_RESULT
+        self._disable_preference_result = _UNSET_DISABLE_RESULT
+        if shutdown_error:
+            self._capability = VoiceCapabilityPhase.CLEANUP_UNCONFIRMED
+            self._message = "Voice Input disabled, but microphone cleanup could not be confirmed."
+        elif preference_error:
+            self._capability = VoiceCapabilityPhase.DISABLE_FAILED
+            self._message = "Voice Input stopped, but the disabled setting could not be saved."
+        else:
+            self._capability = VoiceCapabilityPhase.DISABLED
+            self._message = "Voice Input disabled."
         return self._transition()
 
     def request_capture(

@@ -4,12 +4,12 @@ import uuid
 from collections.abc import Callable
 
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import CancelVoiceCapture, EnableVoiceInput, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, VoiceEngineEventReceived, VoicePreferenceSaved
+from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved
 from ClipAI.core.models import PasteTarget
 from ClipAI.core.ports import VoiceInputEngine
-from ClipAI.core.voice import VoiceDraftTarget
+from ClipAI.core.voice import VoiceDraftTarget, VoiceProjection
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
-from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceEnabled, PrepareVoiceSetup, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
+from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceDisabled, PersistVoiceEnabled, PrepareVoiceSetup, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
 
 
 class VoiceInputRuntimeModule:
@@ -23,12 +23,18 @@ class VoiceInputRuntimeModule:
         workflows: WorkflowRuntimeModule,
         paste_target_reader: Callable[[], PasteTarget | None],
         persist_enabled: Callable[[str], None] = lambda _setup_id: None,
+        persist_disabled: Callable[[str], None] = lambda _disable_id: None,
+        dispatch: Callable[[object], None] = lambda _command: None,
+        projection_sink: Callable[[VoiceProjection], None] = lambda _projection: None,
     ) -> None:
         self._controller = controller
         self._engine = engine
         self._workflows = workflows
         self._paste_target_reader = paste_target_reader
         self._persist_enabled = persist_enabled
+        self._persist_disabled = persist_disabled
+        self._dispatch = dispatch
+        self._projection_sink = projection_sink
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
         target = self._paste_target_reader()
@@ -54,9 +60,15 @@ class VoiceInputRuntimeModule:
         self._execute(transition)
         return True
 
-    def handle(self, command: EnableVoiceInput | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage) -> bool:
+    def handle(self, command: EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage) -> bool:
         if isinstance(command, EnableVoiceInput):
             transition = self._controller.request_setup(command.setup_id)
+        elif isinstance(command, DisableVoiceInput):
+            transition = self._controller.request_disable(command.disable_id)
+        elif isinstance(command, VoiceDisableShutdownCompleted):
+            transition = self._controller.complete_disable_shutdown(command.disable_id, command.error)
+        elif isinstance(command, VoiceDisablePreferenceSaved):
+            transition = self._controller.complete_disable_preference(command.disable_id, command.error)
         elif isinstance(command, VoiceEngineEventReceived):
             transition = self._controller.observe_engine(command.event)
         elif isinstance(command, VoicePreferenceSaved):
@@ -76,6 +88,7 @@ class VoiceInputRuntimeModule:
         self._engine.shutdown()
 
     def _execute(self, transition: VoiceTransition) -> None:
+        self._projection_sink(transition.projection)
         for effect in transition.effects:
             self._execute_effect(effect)
 
@@ -84,6 +97,15 @@ class VoiceInputRuntimeModule:
             self._engine.prepare(effect.setup_id, effect.language)
         elif isinstance(effect, PersistVoiceEnabled):
             self._persist_enabled(effect.setup_id)
+        elif isinstance(effect, PersistVoiceDisabled):
+            self._persist_disabled(effect.disable_id)
+        elif isinstance(effect, ShutdownVoiceEngine):
+            try:
+                self._engine.shutdown()
+            except Exception as exc:
+                self._dispatch(VoiceDisableShutdownCompleted(effect.disable_id, str(exc)))
+            else:
+                self._dispatch(VoiceDisableShutdownCompleted(effect.disable_id))
         elif isinstance(effect, StartVoiceCapture):
             self._engine.start_capture(effect.capture_id, effect.language, sequence_start=effect.sequence_start)
         elif isinstance(effect, StopVoiceCaptureEffect):

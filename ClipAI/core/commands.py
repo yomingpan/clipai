@@ -5,7 +5,7 @@ from typing import TypeAlias
 
 from ClipAI.core.models import FeedbackOutcome, InterruptionScope, ModelCatalogConnection, PasteOutcome, PasteTarget, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
 from ClipAI.core.models import ControlSurfaceRef
-from ClipAI.core.voice import VoiceCaptureId, VoiceEngineEvent, VoiceLanguage, VoiceSetupId
+from ClipAI.core.voice import VoiceCaptureId, VoiceDisableId, VoiceEngineEvent, VoiceLanguage, VoiceSetupId
 
 
 @dataclass(frozen=True)
@@ -280,6 +280,23 @@ class VoicePreferenceSaved:
 
 
 @dataclass(frozen=True)
+class DisableVoiceInput:
+    disable_id: VoiceDisableId
+
+
+@dataclass(frozen=True)
+class VoiceDisableShutdownCompleted:
+    disable_id: VoiceDisableId
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class VoiceDisablePreferenceSaved:
+    disable_id: VoiceDisableId
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class VoiceEngineEventReceived:
     event: VoiceEngineEvent
 
@@ -306,4 +323,4 @@ class UpdateVoiceDraft:
     text: str
 
 
-AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | EnableVoiceInput | VoicePreferenceSaved | VoiceEngineEventReceived | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage | UpdateVoiceDraft
+AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | EnableVoiceInput | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage | UpdateVoiceDraft
