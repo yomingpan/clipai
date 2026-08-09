@@ -13,7 +13,7 @@ from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvoc
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.app.provider_execution import ProviderExecutionModule
-from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, CloseProviderSettings, CloseSession, CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, EnableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, VoiceEngineEventReceived
+from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, CloseProviderSettings, CloseSession, CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, EnableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenProviderSettings, OpenShortcutGuide, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, VoiceEngineEventReceived
 from ClipAI.core.models import ControlSurfaceRef, InterruptionPlan, ShortcutObservationSnapshot
 from ClipAI.core.ports import ApplicationView, ForegroundWindowMonitor, OperationTracker, RuntimeComponent, ShortcutInput, ShortcutObservationLease
 from ClipAI.services.provider_configuration import ProviderConfigurationResult
@@ -34,7 +34,7 @@ _SHORTCUT_INPUT_EVENTS = (
     ShortcutPressEnded,
     ShortcutAttemptRejected,
 )
-_VOICE_COMMANDS = (EnableVoiceInput, VoiceEngineEventReceived, StopVoiceCapture, CancelVoiceCapture)
+_VOICE_COMMANDS = (EnableVoiceInput, VoiceEngineEventReceived, StopVoiceCapture, CancelVoiceCapture, SetVoiceLanguage)
 
 
 class AppRuntime:

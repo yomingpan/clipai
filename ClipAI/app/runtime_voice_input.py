@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Callable
 
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import CancelVoiceCapture, EnableVoiceInput, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, VoiceEngineEventReceived
+from ClipAI.core.commands import CancelVoiceCapture, EnableVoiceInput, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, VoiceEngineEventReceived
 from ClipAI.core.models import PasteTarget
 from ClipAI.core.ports import VoiceInputEngine
 from ClipAI.core.voice import VoiceDraftTarget
@@ -52,13 +52,15 @@ class VoiceInputRuntimeModule:
         self._execute(transition)
         return True
 
-    def handle(self, command: EnableVoiceInput | VoiceEngineEventReceived | StopVoiceCapture | CancelVoiceCapture) -> bool:
+    def handle(self, command: EnableVoiceInput | VoiceEngineEventReceived | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage) -> bool:
         if isinstance(command, EnableVoiceInput):
             transition = self._controller.request_setup(command.setup_id)
         elif isinstance(command, VoiceEngineEventReceived):
             transition = self._controller.observe_engine(command.event)
         elif isinstance(command, StopVoiceCapture):
             transition = self._controller.request_stop(command.capture_id)
+        elif isinstance(command, SetVoiceLanguage):
+            transition = self._controller.set_language(command.language)
         else:
             transition = self._controller.request_cancel(command.capture_id)
         if transition.ignored:

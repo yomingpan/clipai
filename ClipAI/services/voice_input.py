@@ -149,6 +149,13 @@ class VoiceInputController:
         """Accept a physical PTT press without leaking press ownership to runtime."""
         return self.request_capture(VoiceCaptureId(f"voice-press-{press_id}"), target, press_id=press_id)
 
+    def set_language(self, language: VoiceLanguage) -> VoiceTransition:
+        if self._capture is not None or language == self._language:
+            return self._ignored()
+        self._language = language
+        self._message = "Voice Input language updated."
+        return self._transition()
+
     def request_release_for_press(self, press_id: ShortcutPressId) -> VoiceTransition:
         capture = self._capture
         if capture is None or capture.press_id != press_id:

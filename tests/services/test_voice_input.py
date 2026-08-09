@@ -11,6 +11,7 @@ from ClipAI.core.voice import (
     VoiceEngineInterim,
     VoiceEngineListening,
     VoiceEngineSetupReady,
+    VoiceLanguage,
     VoiceSetupId,
 )
 from ClipAI.services.voice_input import (
@@ -135,3 +136,11 @@ def test_conflicting_duplicate_segment_fails_the_capture() -> None:
     assert transition.effects == ()
     assert controller.projection.capture_id is None
     assert "invalid recognition response" in controller.projection.message
+
+
+def test_language_changes_apply_only_between_captures() -> None:
+    controller = ready_controller()
+    assert controller.set_language(VoiceLanguage("en-US")).projection.language == "en-US"
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+    assert controller.set_language(VoiceLanguage("zh-TW")).ignored is True
