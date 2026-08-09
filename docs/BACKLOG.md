@@ -549,24 +549,20 @@ Synonym: starter, hors d'oeuvre
 
 ## Priority 13: Voice Input via Speech-to-Text
 
-目標：讓使用者可以直接用語音輸入，降低打字成本並提升輸入準確度。
+狀態：V1 已實作，release evidence 尚未完成。
 
-目前觀察到的問題：
+目前 V1 scope：
 
-- 文字輸入仍是摩擦點，尤其在切換應用或快速記錄時。
-- 使用者希望更自然的輸入方式。
+- 使用受控 Edge WebView2 Browser Speech backend，不依賴 ChatGPT transcription API。
+- 支援 `zh-TW` 與 `en-US`，採 explicit push-to-talk、Review、Action、Back 與 Paste 流程。
+- Voice Draft 只存在於 Workflow lifetime；辨識結果可編輯，且 Paste target 在操作開始時凍結。
+- Runtime、service、platform 與 UI 透過 typed command/contract 協作，不由 WebView 或 widget 直接驅動 Workflow policy。
 
-需求：
+尚未完成：
 
-- 可整合語音輸入流程，例如利用 ChatGPT 的 speech-to-text / transcription 能力。
-- 語音轉文字後可直接進入 ClipAI 的輸入流程，提升輸入精準度。
-- 需評估 privacy、latency、accuracy 與 fallback strategy。
-
-成功標準：
-
-- 使用者可透過語音輸入建立內容。
-- 轉文字結果足夠精準，減少手動修正。
-- 語音輸入與現有 text input flow 可共存。
+- 依 [Voice Input V1 manual release checklist](testing/voice-input-v1-manual-release-checklist.md) 在 Windows 10 與 Windows 11 留下有日期的真實麥克風、權限修復、WebView2 與外部應用 Paste 證據。
+- 在上述證據完成前，Priority 13 不得標記為 released。
+- 若未來加入雲端 transcription 或其他 speech engine，必須作為可替換 platform adapter 與獨立 privacy/latency/fallback 決策，不得把 provider-specific branch 放入 UI 或 WorkflowController。
 
 ## Priority 14: Windows High DPI And Display Scaling
 

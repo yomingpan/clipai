@@ -26,9 +26,17 @@ chosen by runtime policy; toolkit focus only reports activation candidates.
 - 只有 successful result 成為 workflow step。
 - 新 invocation processing 時保留上一個成功內容並顯示真實 status。
 - Failure 保留既有 content/history。
-- Back 只切換已完成 step，不呼叫 provider。
+- Back 不呼叫 provider。一般 Workflow 只切換已完成 step；第一個 Action result 若帶有 Voice Draft origin，Back 會回到該 Draft 的 Review projection。
 - 從歷史 step 成功產生新結果時，捨棄該 step 之後的 forward history；失敗不得修改 history。
 - History 僅存在於 visible Workflow lifetime，關閉後不持久化。
+
+## Voice Draft Seam
+
+- Voice Draft 是 Workflow lifetime 內的 ephemeral canonical text，不是另一個 Session，也不持久化。
+- `WorkflowController` 是 snapshot、history、lock scope 與 UI render 的唯一 owner；`services/voice_draft.py` 只計算 immutable transition，不持有狀態或呼叫外部能力。
+- Interim recognition 只供即時預覽，不得成為 canonical Draft。只有 terminal recognition result 可以套用至 Draft。
+- Recognition 開始時凍結 insertion target 與 Draft revision；若使用者在完成前編輯 Draft，過時結果不得覆寫較新的內容。
+- 由 Voice Draft 執行 Action 時，origin 隨 successful step 保存；從第一個 Action result Back 時，回到同一份 Draft Review，不重新呼叫 provider。
 
 ## Workflow Lifetime
 

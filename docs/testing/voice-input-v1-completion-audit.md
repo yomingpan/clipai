@@ -10,7 +10,7 @@ evidence is still required before Voice Input V1 can be marked released.
 | --- | --- |
 | Plan, reconstruction boundary, and tiny-commit sequence | `c17c803`, [development plan](../specs/voice-input-v1-rebuild-development-plan.md) |
 | Typed identities, commands, controller state machine, single-flight press mapping, and race policy | `311dbb5`, `0f35027`, `1cf58d5`, `61ef794`; `tests/core/test_voice_contracts.py`, `tests/services/test_voice_input.py` |
-| Workflow-owned draft, selection/caret insertion, explicit Action/Back, and frozen Paste target | `79387af`, `be8d9ee`, `0a61efb`, `801cbae`; `tests/services/test_voice_workflow_origin.py` |
+| Workflow-owned draft, selection/caret insertion, explicit Action/Back, and frozen Paste target | `79387af`, `be8d9ee`, `0a61efb`, `801cbae`; `tests/services/test_voice_draft.py`, `tests/services/test_voice_workflow_origin.py` |
 | Queue-based runtime composition, preferences, supported language, and one supported backend | `723e73b`, `91a270d`, `fdbd0dc`, `4fa7616`, `512e9f6`, `60019af`, `1288ba4`; `tests/app/test_config.py`, `tests/app/test_runtime_voice_input.py` |
 | Browser Speech protocol, host lifecycle, terminal settlement, EOF/write failure, and safety watchdog | `5310ccc`, `8c859ff`, `f360ef0`, `63f8fd6`; `tests/platform/test_browser_speech.py`, `tests/platform/test_voice_webview_host_integration.py` |
 | Setup/privacy, Tray projection and permission repair, editable Review, stop/cancel, and shortcut guide | `695300e`, `6d1b6ce`, `0a330e7`, `3bb721a`, `540aeac`, `8d7d6e0`, `055fecb`; `tests/ui/test_result_dialog.py`, `tests/ui/test_tray.py` |
@@ -31,6 +31,26 @@ python -m pytest -m integration
 python -m compileall ClipAI scripts tests
 PASS
 ```
+
+Post-refactor evidence recorded after extracting the pure Voice Draft seam:
+
+```text
+python -m pytest tests/services/test_voice_draft.py tests/services/test_voice_workflow_origin.py tests/services/test_workflow_controller.py tests/app/test_runtime_voice_input.py tests/architecture
+49 passed
+
+python -m pytest tests/architecture tests/core tests/services tests/app tests/platform tests/ui -m "not integration" --basetemp <unique-temp-dir>
+708 passed, 1 failed, 5 deselected
+
+python -m compileall ClipAI scripts tests
+PASS
+```
+
+The remaining unit-suite failure is
+`tests/app/test_runtime_shortcut_guide.py::test_app_runtime_routes_shortcut_to_open_guide_before_workflow`:
+the fixture invokes the unknown shortcut `english`. The Voice Draft refactor did
+not modify that test or its runtime/configuration surfaces. This is not evidence
+of a Voice regression, but the current branch-wide unit evidence remains
+non-green until that test or fixture is corrected and the suite is rerun.
 
 The skipped test is the controlled WebView bridge harness. It correctly
 requires an interactive Windows desktop with Edge WebView2 Runtime, and is

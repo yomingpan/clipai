@@ -32,7 +32,7 @@ tests/              # Unit sims 與 integration tests
 - 禁止 global Event Bus。Event Bus 不得用來指揮 action pipeline 或修改 Workflow。
 - 每個 Workflow 只有一個 `WorkflowController`，由它擁有 snapshot、active invocation、cancellation、成功 step history 與 feedback projection。
 - `WorkflowRuntimeModule` 是 Workflow membership、semantic Foreground Workflow、visible/headless lifetime 與 captured provider binding 的唯一 owner。Window focus 只能提出 activation candidate，不得自行決定 Foreground Workflow。
-- Provider 採同步 contract，由單一有界 `ThreadPoolExecutor` 執行；Provider 自己不得建立 thread。
+- `ProviderExecutionModule` 是 provider async HTTP task、transport cancellation、settlement、shared connection pool 與 transport shutdown 的唯一 owner。Provider networking 不得占用 `TaskSupervisor`；`TaskSupervisor` 只執行非 provider 的 blocking work。
 - Hotkey callback 只能 enqueue command；worker 不得直接碰 Tkinter。
 - 新的外部 Action 取代舊的未 pin visible Workflow；被取代或取消的 invocation 晚到時，必須依 Workflow ID、active invocation ID 與 cancellation token 丟棄。Workflow snapshot revision 只用於拒絕過時的 UI projection，不得代替 operation identity。
 - `app/container.py` 負責 assembly；需要在 runtime reload 或設定變更後重建的 concrete dependency，可由 focused app composition adapter 建立並透過 typed backend contract 注入 services。
@@ -101,6 +101,7 @@ tests/              # Unit sims 與 integration tests
 - Notification。
 - TTS/STT engine。
 - Microphone/audio。
+- 受控 Edge WebView2 Browser Speech host 與 engine adapter。
 - File system output。
 
 不得放入：
@@ -128,7 +129,7 @@ tests/              # Unit sims 與 integration tests
 - Azure OpenAI adapter。
 - Ollama adapter。
 - Gemini、OpenAI、Anthropic 與 fake adapter。
-- 可注入的同步 HTTP transport。
+- 共用 async HTTP transport 上的 provider adapter。
 
 責任只有兩個：
 
@@ -163,7 +164,7 @@ tests/              # Unit sims 與 integration tests
 - Memory。
 - Archive。
 - Model manager。
-- Voice transcription workflow。
+- Voice capture policy 與可測的 Voice Draft transition。
 
 輸入相關 service 目前直接放在 `services/`，包括：
 
@@ -176,6 +177,8 @@ Services 負責把能力串起來，例如：
 ```text
 hotkey -> input -> safety/config -> prompt -> provider -> postprocess -> output
 ```
+
+`WorkflowController` 仍是 Workflow snapshot、history、render 與 lock scope 的唯一 owner。`services/voice_draft.py` 只封裝無狀態、無副作用的 Voice Draft transition：它不得儲存 snapshot、持有 lock、呼叫 presenter，或形成第二套 Workflow state owner。
 
 不得放入：
 
@@ -200,7 +203,7 @@ hotkey -> input -> safety/config -> prompt -> provider -> postprocess -> output
 - Dialog。
 - Floating popup。
 - Settings UI。
-- WebView voice input。
+- Voice setup 與 Voice Draft presentation。
 - Popup button handler。
 
 UI 只負責：
