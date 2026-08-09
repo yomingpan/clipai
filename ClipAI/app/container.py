@@ -19,7 +19,7 @@ from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
-from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved
+from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -119,7 +119,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         speech_speed=user_preferences.speech_speed_state,
         on_set_speech_speed=lambda speed: runtime_holder[0].enqueue(SetSpeechSpeed(speed, uuid.uuid4().hex)),
         voice=voice_controller.projection,
-        on_enable_voice=lambda: runtime_holder[0].enqueue(EnableVoiceInput(VoiceSetupId(uuid.uuid4().hex))),
+        on_enable_voice=lambda: runtime_holder[0].enqueue(OpenVoiceSetup()),
         on_disable_voice=lambda: runtime_holder[0].enqueue(DisableVoiceInput(VoiceDisableId(uuid.uuid4().hex))),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
@@ -289,6 +289,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         complete_voice_preference=user_preferences_module.complete_voice_enabled,
         dispatch=enqueue,
         projection_sink=tray.set_voice_projection,
+        setup_presenter=view,
     )
     shortcut_guide_module = ShortcutGuideRuntimeModule(
         catalog=ShortcutGuideCatalog(

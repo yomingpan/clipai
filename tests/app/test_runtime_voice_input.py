@@ -31,6 +31,12 @@ class Workflows:
     def controller_for(self, workflow_id): return self.controllers.get(workflow_id)
 
 
+class Setup:
+    def __init__(self) -> None: self.shown = 0; self.closed = 0
+    def show_voice_setup(self) -> None: self.shown += 1
+    def close_voice_setup(self) -> None: self.closed += 1
+
+
 def test_ptt_flow_creates_workflow_after_admission_and_applies_finalized_text() -> None:
     engine, workflows = Engine(), Workflows()
     controller = VoiceInputController(enabled=True)
@@ -69,3 +75,19 @@ def test_disable_waits_for_persisted_preference_after_engine_shutdown() -> None:
     assert dispatched == [VoiceDisableShutdownCompleted(disable)]
     assert runtime.handle(dispatched.pop()) is True
     assert runtime.handle(VoiceDisablePreferenceSaved(disable)) is True
+
+
+def test_unready_ptt_opens_setup_without_creating_a_workflow_or_capture() -> None:
+    engine, workflows, setup = Engine(), Workflows(), Setup()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        setup_presenter=setup,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(1, "voice_input")) is True
+    assert setup.shown == 1
+    assert workflows.created == []
+    assert engine.calls == []

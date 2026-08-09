@@ -4,10 +4,10 @@ import uuid
 from collections.abc import Callable
 
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved
+from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoiceSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved
 from ClipAI.core.models import PasteTarget
-from ClipAI.core.ports import VoiceInputEngine
-from ClipAI.core.voice import VoiceDraftTarget, VoiceProjection
+from ClipAI.core.ports import VoiceInputEngine, VoiceSetupPresenter
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceProjection
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
 from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceDisabled, PersistVoiceEnabled, PrepareVoiceSetup, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
 
@@ -27,6 +27,7 @@ class VoiceInputRuntimeModule:
         complete_voice_preference: Callable[[str, str], None] = lambda _operation_id, _error: None,
         dispatch: Callable[[object], None] = lambda _command: None,
         projection_sink: Callable[[VoiceProjection], None] = lambda _projection: None,
+        setup_presenter: VoiceSetupPresenter | None = None,
     ) -> None:
         self._controller = controller
         self._engine = engine
@@ -37,8 +38,13 @@ class VoiceInputRuntimeModule:
         self._complete_voice_preference = complete_voice_preference
         self._dispatch = dispatch
         self._projection_sink = projection_sink
+        self._setup_presenter = setup_presenter
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
+        if self._controller.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED:
+            if self._setup_presenter is not None:
+                self._setup_presenter.show_voice_setup()
+            return True
         target = self._paste_target_reader()
         if target is None:
             return False
@@ -62,7 +68,11 @@ class VoiceInputRuntimeModule:
         self._execute(transition)
         return True
 
-    def handle(self, command: EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage | UpdateVoiceDraft) -> bool:
+    def handle(self, command: OpenVoiceSetup | EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage | UpdateVoiceDraft) -> bool:
+        if isinstance(command, OpenVoiceSetup):
+            if self._setup_presenter is not None:
+                self._setup_presenter.show_voice_setup()
+            return True
         if isinstance(command, EnableVoiceInput):
             transition = self._controller.request_setup(command.setup_id)
         elif isinstance(command, DisableVoiceInput):
@@ -96,6 +106,8 @@ class VoiceInputRuntimeModule:
 
     def _execute(self, transition: VoiceTransition) -> None:
         self._projection_sink(transition.projection)
+        if transition.projection.capability is VoiceCapabilityPhase.READY and self._setup_presenter is not None:
+            self._setup_presenter.close_voice_setup()
         if transition.projection.workflow_id is not None:
             controller = self._workflows.controller_for(transition.projection.workflow_id)
             if controller is not None:

@@ -18,6 +18,7 @@ from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFoc
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
+from ClipAI.ui.voice_setup import VoiceSetupDialog
 
 
 # Windows Tk maps Num Lock to Mod1 (0x0008), while physical Alt uses
@@ -91,6 +92,7 @@ class ResultDialogPresenter:
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
+        self._voice_setup_dialog: VoiceSetupDialog | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
@@ -142,6 +144,15 @@ class ResultDialogPresenter:
         if self._shortcut_guide_dialog is not None:
             self._shortcut_guide_dialog.close()
         self._restore_focus_after_shortcut_guide()
+
+    def show_voice_setup(self) -> None:
+        if self._voice_setup_dialog is None:
+            self._voice_setup_dialog = VoiceSetupDialog(self._root, self._command_sink)
+        self._voice_setup_dialog.show()
+
+    def close_voice_setup(self) -> None:
+        if self._voice_setup_dialog is not None:
+            self._voice_setup_dialog.close()
 
     def _hold_focus_for_shortcut_guide(self) -> None:
         if self._shortcut_guide_focus_hold_active:
