@@ -35,6 +35,7 @@ class Pystray:
             self.icon = icon
             self.title = title
             self.menu = menu
+            self.menu_updates = 0
 
         def run(self) -> None:
             pass
@@ -43,7 +44,7 @@ class Pystray:
             pass
 
         def update_menu(self) -> None:
-            pass
+            self.menu_updates += 1
 
 
 class NotificationIcon:
@@ -349,6 +350,42 @@ def test_voice_menu_projects_authoritative_state_without_optimistic_toggle() -> 
     assert manage.enabled(None) is False
     enable.action(None, None)
     assert events == ["enable"]
+
+
+def test_existing_voice_menu_reprojects_enable_and_disable_after_authoritative_update(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "pystray", Pystray)
+    events: list[str] = []
+    tray = TrayController(
+        lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.SETUP_REQUIRED, "zh-TW"),
+        on_enable_voice=lambda: events.append("enable"),
+        on_disable_voice=lambda: events.append("disable"),
+    )
+    tray.start()
+    tray._thread.join(timeout=1)
+    menu = next(
+        item
+        for item in tray._icon.menu.items
+        if callable(getattr(item, "text", None)) and item.text(None).startswith("Voice Input")
+    )
+    enable, disable = menu.action.items
+
+    tray.set_voice_projection(VoiceProjection(VoiceCapabilityPhase.READY, "zh-TW"))
+
+    assert tray._icon.menu_updates == 1
+    assert menu.text(None) == "Voice Input (ready)"
+    assert enable.enabled(None) is False
+    assert disable.enabled(None) is True
+    disable.action(None, None)
+
+    tray.set_voice_projection(VoiceProjection(VoiceCapabilityPhase.DISABLED, "zh-TW"))
+
+    assert tray._icon.menu_updates == 2
+    assert menu.text(None) == "Voice Input (disabled)"
+    assert enable.enabled(None) is True
+    assert disable.enabled(None) is False
+    enable.action(None, None)
+    assert events == ["disable", "enable"]
 
 
 def test_voice_menu_exposes_permission_repair_when_microphone_is_blocked() -> None:

@@ -288,9 +288,6 @@ class TrayController:
     def _build_voice_menu(self, pystray):
         if self._voice is None or self._on_enable_voice is None or self._on_disable_voice is None:
             return None
-        voice = self._voice
-        enabled = voice.capability is VoiceCapabilityPhase.READY
-        pending = voice.capability in {VoiceCapabilityPhase.REQUESTING_PERMISSION, VoiceCapabilityPhase.DISABLING}
         language_items = ()
         if self._on_set_voice_language is not None:
             language_items = (
@@ -308,8 +305,8 @@ class TrayController:
                 ),
             )
         menu_items = [
-            pystray.MenuItem("Enable Voice Input", lambda _icon, _item: self._on_enable_voice(), enabled=lambda _item: not enabled and not pending),
-            pystray.MenuItem("Disable Voice Input", lambda _icon, _item: self._on_disable_voice(), enabled=lambda _item: enabled and not pending),
+            pystray.MenuItem("Enable Voice Input", lambda _icon, _item: self._on_enable_voice(), enabled=lambda _item: self._voice_enable_available()),
+            pystray.MenuItem("Disable Voice Input", lambda _icon, _item: self._on_disable_voice(), enabled=lambda _item: self._voice_disable_available()),
         ]
         if language_items:
             menu_items.append(pystray.MenuItem("Language", pystray.Menu(*language_items)))
@@ -324,9 +321,26 @@ class TrayController:
                 )
             )
         return pystray.MenuItem(
-            lambda _item: f"Voice Input ({voice.capability.value.replace('_', ' ')})",
+            lambda _item: self._voice_menu_label(),
             pystray.Menu(*menu_items),
         )
+
+    def _voice_menu_label(self) -> str:
+        voice = self._voice
+        phase = voice.capability.value.replace("_", " ") if voice is not None else "unavailable"
+        return f"Voice Input ({phase})"
+
+    def _voice_enable_available(self) -> bool:
+        voice = self._voice
+        return voice is not None and voice.capability not in {
+            VoiceCapabilityPhase.READY,
+            VoiceCapabilityPhase.REQUESTING_PERMISSION,
+            VoiceCapabilityPhase.DISABLING,
+        }
+
+    def _voice_disable_available(self) -> bool:
+        voice = self._voice
+        return voice is not None and voice.capability is VoiceCapabilityPhase.READY
 
     def set_guidance_preferences(self, preferences: GuidancePreferences) -> None:
         self._guidance_preferences = preferences
