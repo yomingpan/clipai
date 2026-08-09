@@ -174,6 +174,22 @@ def test_dependency_refresh_avoids_pip_and_system_truststore_double_patch(tmp_pa
     assert all("--use-deprecated=legacy-certs" in command for command in pip_commands)
 
 
+def test_default_runner_exports_legacy_certificate_mode_to_pip_children(monkeypatch: pytest.MonkeyPatch) -> None:
+    received: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        received["command"] = command
+        received.update(kwargs)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", fake_run)
+
+    bootstrap.default_runner(["python", "-m", "pip", "install"])
+
+    assert received["env"] is not None
+    assert received["env"]["PIP_USE_DEPRECATED"] == "legacy-certs"
+
+
 def test_create_environment_reports_missing_constraints(tmp_path: Path) -> None:
     with pytest.raises(bootstrap.BootstrapError, match="constraints are missing"):
         bootstrap.create_environment(tmp_path, Path("python"), lambda _: subprocess.CompletedProcess([], 0))
