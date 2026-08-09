@@ -53,17 +53,20 @@
       recognition.start();
     } catch (_) { finish(item, "initialization_failed"); }
   };
-  window.clipaiVoice = {
-    command(command) {
-      if (command.command === "prepare") prepare(command);
-      else if (command.command === "start") start(command);
-      else if (capture && capture.id === command.capture_id) {
-        capture.stopped = true;
-        try { command.command === "cancel" ? capture.recognition.abort() : capture.recognition.stop(); }
-        catch (_) { finish(capture); }
-      }
-    },
-    shutdown() { if (capture) { capture.stopped = true; try { capture.recognition.abort(); } catch (_) { finish(capture); } } }
-  };
+  window.addEventListener("pywebviewready", () => {
+    window.clipaiVoice = {
+      command(command) {
+        if (command.command === "prepare") prepare(command);
+        else if (command.command === "start") start(command);
+        else if (capture && capture.id === command.capture_id) {
+          capture.stopped = true;
+          try { command.command === "cancel" ? capture.recognition.abort() : capture.recognition.stop(); }
+          catch (_) { finish(capture); }
+        }
+      },
+      shutdown() { if (capture) { capture.stopped = true; try { capture.recognition.abort(); } catch (_) { finish(capture); } } }
+    };
+    emit({kind: "bridge_ready"});
+  }, {once: true});
 })();
 </script>

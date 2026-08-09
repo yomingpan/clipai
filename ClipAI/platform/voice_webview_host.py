@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+from tempfile import TemporaryDirectory
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any
@@ -11,34 +12,42 @@ from ClipAI.platform.browser_speech import VOICE_PROTOCOL_VERSION
 
 
 class _Api:
-    def __init__(self) -> None:
-        self.window: Any | None = None
+    def __init__(self, bridge_ready: threading.Event) -> None:
+        # pywebview exposes every public attribute of ``js_api`` to JavaScript.
+        # Keeping the native Window private prevents it from recursively walking
+        # the complete pywebview object graph while it is building that bridge.
+        self._window: Any | None = None
+        self._bridge_ready = bridge_ready
 
     def emit(self, payload: dict[str, object]) -> None:
+        if payload.get("kind") == "bridge_ready":
+            self._bridge_ready.set()
+            return
         sys.stdout.write(json.dumps({"version": VOICE_PROTOCOL_VERSION, **payload}, ensure_ascii=True) + "\n")
         sys.stdout.flush()
 
     def hide(self) -> None:
-        if self.window is not None:
-            self.window.hide()
+        if self._window is not None:
+            self._window.hide()
 
 
 def main(*, test_page: Path | None = None) -> None:
     import webview
 
-    api = _Api()
+    bridge_ready = threading.Event()
+    api = _Api(bridge_ready)
     loaded = threading.Event()
     html = (test_page or Path(__file__).with_name("voice_webview_host.html")).resolve()
     window = webview.create_window(
         "ClipAI Voice Engine",
-        url=str(html),
+        url=html.as_uri(),
         js_api=api,
         hidden=True,
         focus=False,
         width=420,
         height=180,
     )
-    api.window = window
+    api._window = window
 
     def read_commands() -> None:
         for line in sys.stdin:
@@ -73,13 +82,27 @@ def main(*, test_page: Path | None = None) -> None:
                 _emit_command_failure(api, command, "initialization_failed")
 
     def on_loaded() -> None:
-        loaded.set()
-        if test_page is not None:
-            api.emit({"kind": "test_loaded"})
+        def wait_for_bridge() -> None:
+            if not bridge_ready.wait(10):
+                return
+            loaded.set()
+            if test_page is not None:
+                api.emit({"kind": "test_loaded"})
+
+        threading.Thread(target=wait_for_bridge, daemon=True).start()
 
     window.events.loaded += on_loaded
     threading.Thread(target=read_commands, daemon=True).start()
-    webview.start(gui="edgechromium", private_mode=True)
+    # pywebview's in-private WebView2 initialization does not settle reliably
+    # on this backend. Use an isolated profile that exists only for this host
+    # lifetime; it is removed immediately after the GUI loop exits, so ClipAI
+    # does not retain browser state or audio/transcripts.
+    with TemporaryDirectory(prefix="clipai-voice-webview-", ignore_cleanup_errors=True) as profile_dir:
+        webview.start(
+            gui="edgechromium",
+            private_mode=False,
+            storage_path=profile_dir,
+        )
 
 
 def _emit_command_failure(api: _Api, command: dict[str, object], failure: str) -> None:
