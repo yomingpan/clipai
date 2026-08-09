@@ -111,6 +111,20 @@ def test_ptt_from_voice_review_reuses_its_workflow_and_frozen_selection() -> Non
     assert engine.calls == [("start", "voice-press-4", "zh-TW", 0)]
 
 
+def test_closing_the_capture_workflow_cancels_its_engine_capture() -> None:
+    engine, workflows = Engine(), Workflows()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+    )
+    runtime.handle_shortcut_started(ShortcutPressStarted(5, "voice_input"))
+
+    assert runtime.close_workflow(workflows.created[0][0]) is True
+    assert engine.calls[-1] == ("cancel", "voice-press-5")
+
+
 def test_setup_permission_blocked_stays_visible_with_authoritative_projection() -> None:
     engine, workflows, setup = Engine(), Workflows(), Setup()
     runtime = VoiceInputRuntimeModule(

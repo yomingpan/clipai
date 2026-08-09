@@ -109,6 +109,15 @@ def test_controller_owns_press_to_capture_mapping_and_rejects_stale_release() ->
     assert controller.request_release_for_press(press_id).effects == (StopVoiceCapture(capture),)
 
 
+def test_workflow_close_cancels_only_its_active_capture() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+
+    assert controller.cancel_capture_for_workflow("other").ignored is True
+    assert controller.cancel_capture_for_workflow("workflow-1").effects == (CancelVoiceCapture(capture),)
+
+
 def test_terminal_applies_ordered_final_segments_once() -> None:
     controller = ready_controller()
     capture = VoiceCaptureId("capture-1")

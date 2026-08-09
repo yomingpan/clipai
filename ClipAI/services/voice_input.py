@@ -282,6 +282,12 @@ class VoiceInputController:
             return self._ignored()
         return self.request_cancel(capture.capture_id)
 
+    def cancel_capture_for_workflow(self, workflow_id: str) -> VoiceTransition:
+        capture = self._capture
+        if capture is None or capture.target.workflow_id != workflow_id:
+            return self._ignored()
+        return self.request_cancel(capture.capture_id)
+
     def request_stop(self, capture_id: VoiceCaptureId) -> VoiceTransition:
         capture = self._matching_capture(capture_id)
         if capture is None or capture.stop_requested:

@@ -84,6 +84,13 @@ class VoiceInputRuntimeModule:
         self._execute(transition)
         return True
 
+    def close_workflow(self, workflow_id: str) -> bool:
+        transition = self._controller.cancel_capture_for_workflow(workflow_id)
+        if transition.ignored:
+            return False
+        self._execute(transition)
+        return True
+
     def handle(self, command: OpenVoiceSetup | EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
         if isinstance(command, OpenVoiceSetup):
             if self._setup_presenter is not None:

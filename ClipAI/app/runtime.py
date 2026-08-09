@@ -215,6 +215,8 @@ class AppRuntime:
             self._supervisor.cancel_many(task_ids, lambda: None)
         elif isinstance(command, CloseSession):
             self._user_control.release(ControlSurfaceRef(command.session_id, "workflow"))
+            if self._voice_input_module is not None:
+                self._voice_input_module.close_workflow(command.session_id)
             self._result_output_module.close_workflow(command.session_id)
             self._workflow_module.handle(command)
         elif isinstance(command, ActivateWorkflow):
