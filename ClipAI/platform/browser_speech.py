@@ -40,23 +40,35 @@ class BrowserSpeechWebView2Engine:
         self._lock = threading.RLock()
 
     def prepare(self, setup_id: VoiceSetupId, language: VoiceLanguage) -> None:
-        with self._lock:
-            self._ensure_process()
-            self._setup_id = setup_id
-            self._send({"command": "prepare", "setup_id": setup_id, "language": language})
+        try:
+            with self._lock:
+                self._setup_id = setup_id
+                self._ensure_process()
+                self._send({"command": "prepare", "setup_id": setup_id, "language": language})
+        except (BrokenPipeError, OSError, ValueError):
+            self._settle_setup_write_failure(setup_id)
 
     def start_capture(self, capture_id: VoiceCaptureId, language: VoiceLanguage, *, sequence_start: int = 0) -> None:
-        with self._lock:
-            self._ensure_process()
-            self._capture_id = capture_id
-            self._terminal_captures.discard(capture_id)
-            self._send({"command": "start", "capture_id": capture_id, "language": language, "sequence_start": sequence_start})
+        try:
+            with self._lock:
+                self._capture_id = capture_id
+                self._terminal_captures.discard(capture_id)
+                self._ensure_process()
+                self._send({"command": "start", "capture_id": capture_id, "language": language, "sequence_start": sequence_start})
+        except (BrokenPipeError, OSError, ValueError):
+            self._settle_capture_write_failure(capture_id)
 
     def stop_capture(self, capture_id: VoiceCaptureId) -> None:
-        self._send({"command": "stop", "capture_id": capture_id})
+        try:
+            self._send({"command": "stop", "capture_id": capture_id})
+        except (BrokenPipeError, OSError, ValueError):
+            self._settle_capture_write_failure(capture_id)
 
     def cancel_capture(self, capture_id: VoiceCaptureId) -> None:
-        self._send({"command": "cancel", "capture_id": capture_id})
+        try:
+            self._send({"command": "cancel", "capture_id": capture_id})
+        except (BrokenPipeError, OSError, ValueError):
+            self._settle_capture_write_failure(capture_id)
 
     def shutdown(self) -> None:
         with self._lock:
@@ -151,6 +163,31 @@ class BrowserSpeechWebView2Engine:
             self._event_sink(VoiceEngineSetupFailed(setup_id, VoiceTransportFailure.PROCESS_CRASHED))
         if capture_id is not None:
             self._event_sink(VoiceEngineFailed(capture_id, VoiceTransportFailure.PROCESS_CRASHED))
+
+    def _settle_setup_write_failure(self, setup_id: VoiceSetupId) -> None:
+        with self._lock:
+            if self._setup_id != setup_id:
+                return
+            self._setup_id = None
+            self._discard_broken_process()
+        self._event_sink(VoiceEngineSetupFailed(setup_id, VoiceTransportFailure.INITIALIZATION_FAILED))
+
+    def _settle_capture_write_failure(self, capture_id: VoiceCaptureId) -> None:
+        with self._lock:
+            if self._capture_id != capture_id or capture_id in self._terminal_captures:
+                return
+            self._capture_id = None
+            self._terminal_captures.add(capture_id)
+            self._discard_broken_process()
+        self._event_sink(VoiceEngineFailed(capture_id, VoiceTransportFailure.PROCESS_CRASHED))
+
+    def _discard_broken_process(self) -> None:
+        process, self._process = self._process, None
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
 
 
 def _decode_event(line: str) -> VoiceEngineEvent | None:
