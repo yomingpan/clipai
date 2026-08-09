@@ -23,6 +23,7 @@ from ClipAI.services.voice_input import (
     PersistVoiceDisabled,
     PersistVoiceLanguage,
     PrepareVoiceSetup,
+    RestoreVoiceReview,
     StartVoiceCapture,
     ShutdownVoiceEngine,
     StopVoiceCapture,
@@ -155,6 +156,20 @@ def test_natural_end_before_release_restarts_only_the_same_capture() -> None:
     restarted = controller.observe_engine(VoiceEngineEnded(capture))
 
     assert restarted.effects == (StartVoiceCapture(capture, "zh-TW", 1),)
+
+
+def test_end_before_listening_settles_instead_of_restarting_microphone_permission() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    frozen_target = target()
+    controller.request_capture(capture, frozen_target)
+
+    terminal = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert terminal.effects == (
+        RestoreVoiceReview(frozen_target, "Voice Input stopped before the microphone was ready. Try again."),
+    )
+    assert controller.projection.capture_id is None
 
 
 def test_cancel_discards_provisional_and_finalized_capture_content() -> None:

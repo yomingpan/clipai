@@ -357,6 +357,11 @@ class VoiceInputController:
     def _settle_ended(self, capture: _Capture) -> VoiceTransition:
         assert capture.segments is not None
         if not capture.stop_requested:
+            if capture.phase is VoiceCapturePhase.STARTING and not capture.segments:
+                target = capture.target
+                self._capture = None
+                self._message = "Voice Input stopped before the microphone was ready. Try again."
+                return self._transition(RestoreVoiceReview(target, self._message))
             capture.phase = VoiceCapturePhase.STARTING
             capture.interim_text = ""
             self._message = "Listening…"

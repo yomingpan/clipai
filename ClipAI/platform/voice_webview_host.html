@@ -10,6 +10,7 @@
     if (!item || item.finished) return;
     item.finished = true;
     stopTracks(item.stream);
+    window.pywebview.api.hide();
     if (failure) emit({kind: "failed", capture_id: item.id, failure});
     emit({kind: "ended", capture_id: item.id});
     if (capture === item) capture = null;
