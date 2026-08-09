@@ -29,14 +29,16 @@ profiles:
       - "[[SCROLL_FOR_ANSWER]]"
       - "## Make It Yours"
     instruction: |
-      Start with one valuable source sentence before any Markdown heading. Bold at most three natural chunks in that sentence.
-      Immediately after it, on a new line, place exactly one bold reusable semi-fixed pattern without a Primary expression label. On the following line, write one short Traditional Chinese sentence explaining its communicative intent and why it is useful.
-      Then, without a Pattern heading, give exactly three short unnumbered bullet examples that substitute the pattern's slots.
+      Start with one valuable source sentence before any Markdown heading. Bold only the selected fixed reusable chunk in that sentence, using at most two bold spans per line.
+      Immediately after it, on a new line, give one reusable pattern without a Primary expression label. Its fixed part should be a small spoken memory anchor, usually 2-8 English words, with at most two plain-language semantic slots for replaceable meaning. Keep the pattern visibly shorter and easier to remember than the source sentence. Avoid grammar-class slots such as `[subject]`, `[noun phrase]`, and `[verb-ed]`.
+      On the following line, write one short Traditional Chinese sentence explaining its communicative intent and what kind of meaning can replace the slots.
+      Then, without a Pattern heading, give exactly three short unnumbered bullet examples that substitute the pattern's slots. Every example line begins with the literal Markdown bullet `- `. Every bullet example and the Retrieve answer must be a complete English sentence. Use meaningfully different replacement content across the examples. Traditional Chinese is allowed only in the one usage explanation and the Retrieve situation and task.
+      The fixed reusable chunk is authoritative: use exactly the same fixed words in the source, pattern, all three examples, Retrieve answer, and Make It Yours line. Bold only the fixed reusable chunk. Never bold slot labels or replacement content.
       Use exactly these two Markdown sections afterward, in order: Retrieve and Make It Yours.
       Retrieve contains one concrete Traditional Chinese situation and one Chinese retrieval prompt. Tell the learner to try saying it before scrolling, then put `[[SCROLL_FOR_ANSWER]]` alone on a line. Put the English answer only after that marker.
       Make It Yours contains one concise fill-in pattern. Keep the result compact and do not add other sections.
-      Never format English learning content as inline code or with backticks, including the primary expression, patterns, examples, answer, and fill-in pattern. Use bold or italics for visual emphasis so words remain easy to select.
-      Do not prefix content with redundant field labels, and do not turn every line into a bullet. Bold only replaceable slots in the Make It Yours line, and only the actual substitution chunks in each bullet example and the Retrieve answer. Present Retrieve and Make It Yours content directly in natural reading order instead of as labeled key-value fields.
+      Never format English learning content as inline code or with backticks, including the chunk, patterns, examples, answer, and fill-in pattern. Never use nested or unbalanced Markdown bold markers; each bold span has one opening and one closing pair, contains no other bold marker, and each line has at most two bold spans.
+      Do not prefix content with redundant field labels, and do not turn every line into a bullet. Present Retrieve and Make It Yours content directly in natural reading order instead of as labeled key-value fields.
 
   - id: expression_transfer
     presentation: markdown_sections
@@ -67,7 +69,6 @@ profiles:
   - id: session_handoff
     presentation: markdown_sections
     required_markers:
-      - "# SESSION HANDOFF"
       - "## A. Current Objective"
       - "## B. Relevant Context"
       - "## C. Intent & Constraints"
@@ -76,7 +77,7 @@ profiles:
       - "## F. Continuation Point"
       - "## USER DOUBLE-CHECK"
     instruction: |
-      Use the exact SESSION HANDOFF structure. This document must be directly pasteable into a new AI session and must let the user inspect it in 30 seconds.
+      Start directly with `## A. Current Objective`, without a SESSION HANDOFF heading, and use the exact section structure below. This document must be directly pasteable into a new AI session and must let the user inspect it in 30 seconds.
       In A, write the current objective in one or two direct sentences; do not mix in superseded historical goals. In B and C, use short bullets only for background or constraints whose removal could cause the next session to misunderstand the task, repeat an answered question, violate a preference, or ignore a limit. When a section has no material content, write `None identified.` rather than inventing information.
       In D, use `### Accepted` and `### Rejected`. Bold the accepted judgment or rejected option, then put its necessary reason on the following line in normal text. A rejection without its reason is incomplete. Preserve meaningful corrections, failed approaches, changed minds, trade-offs, and unverified core hypotheses.
       In E, keep only genuinely unresolved questions or validations. In F, provide exactly one concrete continuation point as a blockquote, not a generic request to continue discussing.
