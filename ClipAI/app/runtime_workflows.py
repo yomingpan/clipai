@@ -7,9 +7,10 @@ import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, PasteOperationCompleted, ShortcutPressInvoked, StartAction, TogglePin
-from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, InterruptibleOperationRef
+from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
+from ClipAI.core.voice import VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.input_target_resolver import InputTargetResolver
@@ -122,6 +123,34 @@ class WorkflowRuntimeModule:
     def controller_for(self, workflow_id: str) -> WorkflowController | None:
         record = self._records.get(workflow_id)
         return record.controller if record is not None else None
+
+    def create_voice_workflow(self, workflow_id: str, target: PasteTarget) -> WorkflowController:
+        """Create the visible Workflow that exclusively owns one Voice draft."""
+        if workflow_id in self._records:
+            raise RuntimeError(f"workflow identity is already registered: {workflow_id}")
+        previous = self.controller_for(self._foreground_id or "")
+        if previous is not None and not previous.snapshot.pinned:
+            self._end(previous.snapshot.session_id, "cancel")
+        controller = WorkflowController(
+            SessionSnapshot(
+                workflow_id,
+                0,
+                SessionStatus.VOICE_REVIEW,
+                "voice_input",
+                "Voice Input",
+                self._provider_configuration.active_binding.model,
+                content="",
+                source_preview="Voice Input draft",
+                status_text="Preparing microphone…",
+                available_actions=(),
+                result_completeness="none",
+                voice_origin=VoiceOrigin(target),
+            ),
+            _RuntimeWorkflowPresenter(self._enqueue, "visible"),
+        )
+        self._register(workflow_id, controller, self._provider_configuration.active_binding, "visible")
+        self._foreground_id = workflow_id
+        return controller
 
     def bind_user_control(self, user_control: UserControlCoordinator) -> None:
         self._user_control = user_control

@@ -443,6 +443,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
 
     assert len(start_actions) == 23
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
+        "voice_input": "ctrl+alt+w",
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
         "name_idea": "ctrl+alt+3",
@@ -479,9 +480,11 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
 
     non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
     assert [(item["id"], item["command"]) for item in non_action] == [
+        ("voice_input", "push_to_talk"),
         ("speak_selection_or_clipboard", "speak_selection_or_clipboard")
     ]
     assert bundle.shortcuts.resolve("speak_selection_or_clipboard", "short") == SpeakSelectionOrClipboard()
+    assert bundle.shortcuts.is_push_to_talk("voice_input") is True
 
 
 def test_dictation_editor_uses_default_text_workflow_without_a_long_press_variant() -> None:
