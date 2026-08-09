@@ -282,6 +282,15 @@ class VoiceInputController:
             return self._ignored()
         return self.request_cancel(capture.capture_id)
 
+    def expire_capture_watchdog(self, press_id: ShortcutPressId) -> VoiceTransition:
+        """Cancel only the capture still bound to the missing terminal press."""
+        capture = self._capture
+        if capture is None or capture.press_id != press_id or capture.stop_requested:
+            return self._ignored()
+        transition = self.request_cancel(capture.capture_id)
+        self._message = "Voice Input cancelled because the shortcut release was not received."
+        return self._transition(*transition.effects)
+
     def cancel_capture_for_workflow(self, workflow_id: str) -> VoiceTransition:
         capture = self._capture
         if capture is None or capture.target.workflow_id != workflow_id:

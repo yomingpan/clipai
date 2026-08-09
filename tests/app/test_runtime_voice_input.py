@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
-from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, ShortcutPressEnded, ShortcutPressStarted, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
+from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, ShortcutPressEnded, ShortcutPressStarted, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
@@ -38,6 +38,11 @@ class Setup:
     def show_voice_setup(self) -> None: self.shown += 1
     def close_voice_setup(self) -> None: self.closed += 1
     def set_voice_projection(self, projection) -> None: self.projections.append(projection)
+
+
+class Watchdog:
+    def __init__(self, callback) -> None: self.callback = callback; self.cancelled = False
+    def cancel(self) -> None: self.cancelled = True
 
 
 def test_ptt_flow_creates_workflow_after_admission_and_applies_finalized_text() -> None:
@@ -157,3 +162,54 @@ def test_permission_settings_intent_does_not_mutate_voice_state() -> None:
     assert opened == [True]
     assert controller.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED
     assert engine.calls == []
+
+
+def test_missing_ptt_release_is_cancelled_by_its_watchdog() -> None:
+    engine, workflows, dispatched, scheduled = Engine(), Workflows(), [], []
+
+    def schedule(delay, callback):
+        watchdog = Watchdog(callback)
+        scheduled.append((delay, watchdog))
+        return watchdog
+
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        dispatch=dispatched.append,
+        watchdog_schedule=schedule,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(9, "voice_input")) is True
+    assert scheduled[0][0] == 120.0
+    scheduled[0][1].callback()
+    assert dispatched == [VoiceCaptureWatchdogExpired(9)]
+    assert runtime.handle(dispatched.pop()) is True
+    assert scheduled[0][1].cancelled is True
+    assert engine.calls[-1] == ("cancel", "voice-press-9")
+
+
+def test_ptt_release_cancels_watchdog_before_a_late_callback_can_cancel_again() -> None:
+    engine, workflows, dispatched, scheduled = Engine(), Workflows(), [], []
+
+    def schedule(_delay, callback):
+        watchdog = Watchdog(callback)
+        scheduled.append(watchdog)
+        return watchdog
+
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        dispatch=dispatched.append,
+        watchdog_schedule=schedule,
+    )
+    runtime.handle_shortcut_started(ShortcutPressStarted(10, "voice_input"))
+
+    assert runtime.handle_shortcut_ended(ShortcutPressEnded(10, "voice_input", "released")) is True
+    assert scheduled[0].cancelled is True
+    scheduled[0].callback()
+    assert runtime.handle(dispatched.pop()) is False
+    assert engine.calls == [("start", "voice-press-10", "zh-TW", 0), ("stop", "voice-press-10")]

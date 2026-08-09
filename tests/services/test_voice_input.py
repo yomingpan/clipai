@@ -109,6 +109,19 @@ def test_controller_owns_press_to_capture_mapping_and_rejects_stale_release() ->
     assert controller.request_release_for_press(press_id).effects == (StopVoiceCapture(capture),)
 
 
+def test_watchdog_cancels_only_the_capture_bound_to_its_press() -> None:
+    controller = ready_controller()
+    press_id = ShortcutPressId(7)
+    capture = VoiceCaptureId("voice-press-7")
+    controller.request_capture_for_press(press_id, target())
+
+    transition = controller.expire_capture_watchdog(press_id)
+
+    assert transition.effects == (CancelVoiceCapture(capture),)
+    assert "release was not received" in transition.projection.message
+    assert controller.expire_capture_watchdog(ShortcutPressId(8)).ignored is True
+
+
 def test_workflow_close_cancels_only_its_active_capture() -> None:
     controller = ready_controller()
     capture = VoiceCaptureId("capture-1")
