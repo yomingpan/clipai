@@ -31,6 +31,11 @@ class PrepareVoiceSetup:
 
 
 @dataclass(frozen=True)
+class PersistVoiceEnabled:
+    setup_id: VoiceSetupId
+
+
+@dataclass(frozen=True)
 class StartVoiceCapture:
     capture_id: VoiceCaptureId
     language: VoiceLanguage
@@ -55,7 +60,7 @@ class FinalizeVoiceDraft:
     warning: str = ""
 
 
-VoiceEffect = PrepareVoiceSetup | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft
+VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft
 
 
 @dataclass(frozen=True)
@@ -94,6 +99,7 @@ class VoiceInputController:
         self._capability = VoiceCapabilityPhase.READY if enabled else VoiceCapabilityPhase.SETUP_REQUIRED
         self._language = language
         self._setup_id: VoiceSetupId | None = None
+        self._pending_enable_save: VoiceSetupId | None = None
         self._capture: _Capture | None = None
         self._message = ""
 
@@ -122,14 +128,27 @@ class VoiceInputController:
             return self._ignored()
         self._setup_id = None
         if isinstance(event, VoiceEngineSetupReady):
-            self._capability = VoiceCapabilityPhase.READY
-            self._message = "Voice Input is ready."
+            self._pending_enable_save = event.setup_id
+            self._message = "Saving Voice Input preference…"
+            return self._transition(PersistVoiceEnabled(event.setup_id))
         elif isinstance(event, VoiceEngineSetupBlocked):
             self._capability = VoiceCapabilityPhase.PERMISSION_BLOCKED
             self._message = "Microphone permission is blocked."
         else:
             self._capability = VoiceCapabilityPhase.UNAVAILABLE
             self._message = _failure_message(event.failure, event.detail)
+        return self._transition()
+
+    def complete_enable_save(self, setup_id: VoiceSetupId, error: str = "") -> VoiceTransition:
+        if self._pending_enable_save != setup_id:
+            return self._ignored()
+        self._pending_enable_save = None
+        if error:
+            self._capability = VoiceCapabilityPhase.SETUP_REQUIRED
+            self._message = "Voice Input permission is ready, but the setting could not be saved. Try again."
+        else:
+            self._capability = VoiceCapabilityPhase.READY
+            self._message = "Voice Input is ready."
         return self._transition()
 
     def request_capture(

@@ -17,6 +17,7 @@ from ClipAI.core.voice import (
 from ClipAI.services.voice_input import (
     CancelVoiceCapture,
     FinalizeVoiceDraft,
+    PersistVoiceEnabled,
     PrepareVoiceSetup,
     StartVoiceCapture,
     StopVoiceCapture,
@@ -39,6 +40,7 @@ def ready_controller() -> VoiceInputController:
     setup = VoiceSetupId("setup-1")
     assert controller.request_setup(setup).effects == (PrepareVoiceSetup(setup, "zh-TW"),)
     controller.observe_engine(VoiceEngineSetupReady(setup))
+    controller.complete_enable_save(setup)
     return controller
 
 
@@ -51,7 +53,21 @@ def test_setup_is_identity_scoped_and_ready_only_after_its_terminal_event() -> N
     assert transition.effects == (PrepareVoiceSetup(setup, "zh-TW"),)
     assert controller.observe_engine(VoiceEngineSetupReady(VoiceSetupId("old"))).ignored is True
     assert controller.projection.capability is VoiceCapabilityPhase.REQUESTING_PERMISSION
-    assert controller.observe_engine(VoiceEngineSetupReady(setup)).projection.capability is VoiceCapabilityPhase.READY
+    saving = controller.observe_engine(VoiceEngineSetupReady(setup))
+    assert saving.projection.capability is VoiceCapabilityPhase.REQUESTING_PERMISSION
+    assert saving.effects == (PersistVoiceEnabled(setup),)
+    assert controller.complete_enable_save(setup).projection.capability is VoiceCapabilityPhase.READY
+
+
+def test_setup_preference_save_failure_leaves_voice_input_retriable() -> None:
+    controller = VoiceInputController()
+    setup = VoiceSetupId("setup-1")
+    controller.request_setup(setup)
+    controller.observe_engine(VoiceEngineSetupReady(setup))
+
+    transition = controller.complete_enable_save(setup, "disk unavailable")
+
+    assert transition.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED
 
 
 def test_capture_admission_is_single_flight_and_listening_waits_for_engine_ack() -> None:
