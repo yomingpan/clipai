@@ -223,6 +223,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         enqueue=enqueue,
         provider_configuration=provider_configuration,
         workflow_context_reader=view,
+        voice_draft_selection_reader=view,
         incident_reporter=incident_reporter,
         operation_tracker=operation_tracker,
         notifier=tray,
@@ -290,6 +291,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         dispatch=enqueue,
         projection_sink=tray.set_voice_projection,
         setup_presenter=view,
+        focused_surface_reader=lambda: user_control.focused_surface,
     )
     shortcut_guide_module = ShortcutGuideRuntimeModule(
         catalog=ShortcutGuideCatalog(

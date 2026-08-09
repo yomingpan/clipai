@@ -73,6 +73,10 @@ class WorkflowContextReader(Protocol):
     def workflow_context(self, workflow_id: str) -> ActiveWorkflowContext | None: ...
 
 
+class VoiceDraftSelectionReader(Protocol):
+    def voice_draft_selection_range(self, workflow_id: str) -> tuple[int, int] | None: ...
+
+
 class ArchiveStore(Protocol):
     def save(self, text: str) -> None: ...
 

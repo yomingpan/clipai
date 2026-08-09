@@ -8,9 +8,9 @@ import uuid
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, PasteOperationCompleted, ShortcutPressInvoked, StartAction, TogglePin
 from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget
-from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, WorkflowContextReader
+from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceDraftSelectionReader, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceOrigin
+from ClipAI.core.voice import VoiceDraftTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.input_target_resolver import InputTargetResolver
@@ -89,6 +89,7 @@ class WorkflowRuntimeModule:
         enqueue: Callable[[object], None],
         provider_configuration: ProviderConfigurationCoordinator,
         workflow_context_reader: WorkflowContextReader,
+        voice_draft_selection_reader: VoiceDraftSelectionReader | None = None,
         incident_reporter: IncidentReporter,
         operation_tracker: OperationTracker | None = None,
         notifier: UserNotifier | None = None,
@@ -104,6 +105,7 @@ class WorkflowRuntimeModule:
         self._enqueue = enqueue
         self._provider_configuration = provider_configuration
         self._workflow_context_reader = workflow_context_reader
+        self._voice_draft_selection_reader = voice_draft_selection_reader
         self._incident_reporter = incident_reporter
         self._operation_tracker = operation_tracker
         self._notifier = notifier
@@ -151,6 +153,16 @@ class WorkflowRuntimeModule:
         self._register(workflow_id, controller, self._provider_configuration.active_binding, "visible")
         self._foreground_id = workflow_id
         return controller
+
+    def capture_target_for_voice_review(self, workflow_id: str) -> VoiceDraftTarget | None:
+        record = self._records.get(workflow_id)
+        reader = self._voice_draft_selection_reader
+        if record is None or record.presentation != "visible" or reader is None:
+            return None
+        selection = reader.voice_draft_selection_range(workflow_id)
+        if selection is None:
+            return None
+        return record.controller.freeze_voice_insertion(*selection)
 
     def bind_user_control(self, user_control: UserControlCoordinator) -> None:
         self._user_control = user_control

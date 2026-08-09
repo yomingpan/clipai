@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.core.commands import DisableVoiceInput, ShortcutPressEnded, ShortcutPressStarted, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
-from ClipAI.core.models import PasteTarget
-from ClipAI.core.voice import VoiceDisableId, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceSetupId
+from ClipAI.core.models import ControlSurfaceRef, PasteTarget
+from ClipAI.core.voice import VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
 
 
@@ -29,6 +29,8 @@ class Workflows:
     def create_voice_workflow(self, workflow_id, target):
         self.created.append((workflow_id, target)); self.controllers[workflow_id] = Workflow()
     def controller_for(self, workflow_id): return self.controllers.get(workflow_id)
+    def capture_target_for_voice_review(self, workflow_id):
+        return VoiceDraftTarget(workflow_id, 0, PasteTarget("hwnd:1", 1, "Editor", "private", 1), 2, 2)
 
 
 class Setup:
@@ -91,3 +93,18 @@ def test_unready_ptt_opens_setup_without_creating_a_workflow_or_capture() -> Non
     assert setup.shown == 1
     assert workflows.created == []
     assert engine.calls == []
+
+
+def test_ptt_from_voice_review_reuses_its_workflow_and_frozen_selection() -> None:
+    engine, workflows = Engine(), Workflows()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        focused_surface_reader=lambda: ControlSurfaceRef("voice-workflow", "workflow"),
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(4, "voice_input")) is True
+    assert workflows.created == []
+    assert engine.calls == [("start", "voice-press-4", "zh-TW", 0)]

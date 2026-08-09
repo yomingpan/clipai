@@ -108,6 +108,12 @@ class ResultDialogPresenter:
             view.surface.selected_text(),
         )
 
+    def voice_draft_selection_range(self, workflow_id: str) -> tuple[int, int] | None:
+        view = self._interactive_view(workflow_id)
+        if view is None or view.last_snapshot is None or view.last_snapshot.status is not SessionStatus.VOICE_REVIEW:
+            return None
+        return view.surface.selection_range()
+
     def render(self, snapshot: SessionSnapshot) -> None:
         self._updates.put(snapshot)
 

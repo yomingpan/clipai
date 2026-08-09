@@ -1460,6 +1460,21 @@ class BaseResultSurface:
         except (tk.TclError, AttributeError):
             return ""
 
+    def selection_range(self) -> tuple[int, int]:
+        """Return the editable draft selection, or its current caret, as text offsets."""
+        try:
+            start = self.content_text.index("sel.first")
+            end = self.content_text.index("sel.last")
+        except (tk.TclError, AttributeError):
+            try:
+                start = end = self.content_text.index("insert")
+            except (tk.TclError, AttributeError):
+                return (0, 0)
+        try:
+            return (len(self.content_text.get("1.0", start)), len(self.content_text.get("1.0", end)))
+        except (tk.TclError, AttributeError):
+            return (0, 0)
+
     def _notify_editable_content_changed(self, _event=None) -> None:
         callback = self._editable_content_changed
         if callback is not None:

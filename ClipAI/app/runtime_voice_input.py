@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoiceSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved
-from ClipAI.core.models import PasteTarget
+from ClipAI.core.models import ControlSurfaceRef, PasteTarget
 from ClipAI.core.ports import VoiceInputEngine, VoiceSetupPresenter
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceProjection
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
@@ -28,6 +28,7 @@ class VoiceInputRuntimeModule:
         dispatch: Callable[[object], None] = lambda _command: None,
         projection_sink: Callable[[VoiceProjection], None] = lambda _projection: None,
         setup_presenter: VoiceSetupPresenter | None = None,
+        focused_surface_reader: Callable[[], ControlSurfaceRef | None] = lambda: None,
     ) -> None:
         self._controller = controller
         self._engine = engine
@@ -39,8 +40,21 @@ class VoiceInputRuntimeModule:
         self._dispatch = dispatch
         self._projection_sink = projection_sink
         self._setup_presenter = setup_presenter
+        self._focused_surface_reader = focused_surface_reader
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
+        focused_surface = self._focused_surface_reader()
+        if focused_surface is not None:
+            if focused_surface.kind != "workflow":
+                return False
+            target = self._workflows.capture_target_for_voice_review(focused_surface.surface_id)
+            if target is None:
+                return False
+            transition = self._controller.request_capture_for_press(command.press_id, target)
+            if transition.ignored:
+                return False
+            self._execute(transition)
+            return True
         if self._controller.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED:
             if self._setup_presenter is not None:
                 self._setup_presenter.show_voice_setup()
