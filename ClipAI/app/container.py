@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from importlib.metadata import PackageNotFoundError, version
 import os
+from pathlib import Path
 import uuid
 
 from ClipAI.app.config_schema import ConfigBundle
@@ -272,8 +273,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         operation_tracker=operation_tracker,
         notifier=tray,
     )
+    local_app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
     voice_engine = BrowserSpeechWebView2Engine(
-        lambda event: enqueue(VoiceEngineEventReceived(event))
+        lambda event: enqueue(VoiceEngineEventReceived(event)),
+        profile_root=local_app_data,
     )
     voice_input_module = VoiceInputRuntimeModule(
         controller=voice_controller,

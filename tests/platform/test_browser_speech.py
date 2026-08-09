@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ClipAI.core.voice import VoiceEngineEnded, VoiceEngineFailed, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupFailed, VoiceEngineSetupReady, VoiceTransportFailure
 from ClipAI.platform.browser_speech import CAPTURE_START_TIMEOUT_SECONDS, BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event
 
@@ -149,3 +151,21 @@ def test_capture_start_timeout_is_cancelled_when_the_browser_starts_listening() 
 
     assert timers[0].cancelled is True
     assert received == [VoiceEngineListening("capture-1")]
+
+
+def test_transport_passes_the_composed_webview_profile_to_the_host() -> None:
+    created = []
+
+    def create_process(command, **_kwargs):
+        created.append(command)
+        return LiveProcess()
+
+    engine = BrowserSpeechWebView2Engine(
+        lambda _event: None,
+        process_factory=create_process,
+        profile_root=Path("C:/Users/test/AppData/Local"),
+    )
+
+    engine.start_capture("capture-1", "zh-TW")
+
+    assert created[0][-2:] == ["--profile-root", "C:\\Users\\test\\AppData\\Local"]

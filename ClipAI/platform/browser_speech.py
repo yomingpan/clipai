@@ -5,6 +5,7 @@ import subprocess
 import sys
 import threading
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from ClipAI.core.voice import (
@@ -44,10 +45,12 @@ class BrowserSpeechWebView2Engine:
         *,
         process_factory: Callable[..., Any] = subprocess.Popen,
         capture_start_timeout_schedule: Callable[[float, Callable[[], None]], object] = _schedule_capture_start_timeout,
+        profile_root: Path | None = None,
     ) -> None:
         self._event_sink = event_sink
         self._process_factory = process_factory
         self._capture_start_timeout_schedule = capture_start_timeout_schedule
+        self._profile_root = profile_root
         self._process: Any | None = None
         self._setup_id: VoiceSetupId | None = None
         self._capture_id: VoiceCaptureId | None = None
@@ -108,8 +111,11 @@ class BrowserSpeechWebView2Engine:
     def _ensure_process(self) -> None:
         if self._process is not None and self._process.poll() is None:
             return
+        command = [sys.executable, "-m", "ClipAI.platform.voice_webview_host"]
+        if self._profile_root is not None:
+            command.extend(["--profile-root", str(self._profile_root)])
         process = self._process_factory(
-            [sys.executable, "-m", "ClipAI.platform.voice_webview_host"],
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,

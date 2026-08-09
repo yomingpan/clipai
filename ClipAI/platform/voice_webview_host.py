@@ -3,12 +3,18 @@ from __future__ import annotations
 import json
 import sys
 import threading
-from tempfile import TemporaryDirectory
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any
 
 from ClipAI.platform.browser_speech import VOICE_PROTOCOL_VERSION
+
+
+def voice_webview_profile_dir(local_app_data: Path) -> Path:
+    """Return the app-owned WebView profile that retains microphone consent."""
+    profile = local_app_data / "ClipAI" / "VoiceWebView"
+    profile.mkdir(parents=True, exist_ok=True)
+    return profile
 
 
 class _Api:
@@ -31,7 +37,7 @@ class _Api:
             self._window.hide()
 
 
-def main(*, test_page: Path | None = None) -> None:
+def main(*, test_page: Path | None = None, profile_root: Path | None = None) -> None:
     import webview
 
     bridge_ready = threading.Event()
@@ -93,16 +99,14 @@ def main(*, test_page: Path | None = None) -> None:
 
     window.events.loaded += on_loaded
     threading.Thread(target=read_commands, daemon=True).start()
-    # pywebview's in-private WebView2 initialization does not settle reliably
-    # on this backend. Use an isolated profile that exists only for this host
-    # lifetime; it is removed immediately after the GUI loop exits, so ClipAI
-    # does not retain browser state or audio/transcripts.
-    with TemporaryDirectory(prefix="clipai-voice-webview-", ignore_cleanup_errors=True) as profile_dir:
-        webview.start(
-            gui="edgechromium",
-            private_mode=False,
-            storage_path=profile_dir,
-        )
+    # Keep a profile owned only by ClipAI so the browser remembers the user's
+    # microphone decision. The profile contains permission metadata, not any
+    # microphone recording or recognition transcript managed by this host.
+    webview.start(
+        gui="edgechromium",
+        private_mode=False,
+        storage_path=str(voice_webview_profile_dir(profile_root or Path.cwd())),
+    )
 
 
 def _emit_command_failure(api: _Api, command: dict[str, object], failure: str) -> None:
@@ -118,4 +122,6 @@ def _emit_command_failure(api: _Api, command: dict[str, object], failure: str) -
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--test-page", type=Path)
-    main(test_page=parser.parse_args().test_page)
+    parser.add_argument("--profile-root", type=Path)
+    arguments = parser.parse_args()
+    main(test_page=arguments.test_page, profile_root=arguments.profile_root)
