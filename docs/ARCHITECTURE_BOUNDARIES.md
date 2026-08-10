@@ -34,7 +34,7 @@ tests/              # Unit sims 與 integration tests
 - `WorkflowRuntimeModule` 是 Workflow membership、semantic Foreground Workflow、visible/headless lifetime 與 captured provider binding 的唯一 owner。Window focus 只能提出 activation candidate，不得自行決定 Foreground Workflow。
 - `ProviderExecutionModule` 是 provider async HTTP task、transport cancellation、settlement、shared connection pool 與 transport shutdown 的唯一 owner。Provider networking 不得占用 `TaskSupervisor`；`TaskSupervisor` 只執行非 provider 的 blocking work。
 - Hotkey callback 只能 enqueue command；worker 不得直接碰 Tkinter。
-- 新的外部 Action 取代舊的未 pin visible Workflow；被取代或取消的 invocation 晚到時，必須依 Workflow ID、active invocation ID 與 cancellation token 丟棄。Workflow snapshot revision 只用於拒絕過時的 UI projection，不得代替 operation identity。
+- 同一時間最多一個 visible Workflow 擁有主要 Popup surface。PIN 會保留並占用該 surface；所有需要新主要 Popup 的外部 Action 都必須被拒絕並回到既有 PIN Popup。未 pin Workflow 才可被新 Action 取代；被取代或取消的 invocation 晚到時，必須依 Workflow ID、active invocation ID 與 cancellation token 丟棄。Workflow snapshot revision 只用於拒絕過時的 UI projection，不得代替 operation identity。
 - `app/container.py` 負責 assembly；需要在 runtime reload 或設定變更後重建的 concrete dependency，可由 focused app composition adapter 建立並透過 typed backend contract 注入 services。
 - 只有 composition root 可以讀取 API key environment variables；provider 只接收已解析且不可洩漏的 credential。
 - 所有 LLM/TTS operation 狀態由單一 `OperationLifecycleCoordinator` 管理；tray 不擁有 success/error timer。

@@ -1,5 +1,9 @@
 # Voice Input V1 — Clean Rebuild Development Plan
 
+> Superseded for Popup lifetime and permission behavior by
+> `single-popup-voice-stability-adr.md`. Historical coexistence and
+> collision-placement sections remain only as implementation history.
+
 Status: Approved product and architecture plan  
 Implementation baseline: `develop` at the implementation session's start  
 Source of research evidence: the experimental `develop...HEAD` Voice Input branch  
