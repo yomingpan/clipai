@@ -66,36 +66,35 @@ class VoiceInputRuntimeModule:
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
         focused_surface = self._focused_surface_reader()
-        if focused_surface is not None:
-            if focused_surface.kind != "workflow":
-                self._notify_shortcut_rejected("Close the active ClipAI window, then try again.")
-                return False
-            target = self._workflows.capture_target_for_voice_review(focused_surface.surface_id)
-            if target is None:
-                self._notify_shortcut_rejected("Click an editable Voice Input draft, or focus the app where you want to dictate.")
-                return False
-            transition = self._controller.request_capture_for_press(command.press_id, target)
-            if transition.ignored:
-                self._notify_shortcut_rejected("Voice Input is already active.")
-                return False
-            self._start_watchdog(command.press_id)
-            self._execute(transition)
+        admission = self._workflows.admit_voice_shortcut(
+            focused_surface,
+            self._controller.projection.workflow_id,
+        )
+        if admission.kind == "rejected":
+            self._notify_shortcut_rejected(admission.message)
+            return False
+        if admission.kind == "continue":
             return True
         if self._controller.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED:
             if self._setup_presenter is not None:
                 self._setup_presenter.show_voice_setup()
             return True
-        target = self._capture_external_target() or self._paste_target_reader()
-        if target is None:
-            self._notify_shortcut_rejected("Focus the app where you want to dictate, then try again.")
-            return False
-        workflow_id = uuid.uuid4().hex
-        frozen = VoiceDraftTarget(workflow_id, 0, target, 0, 0)
+        if admission.kind == "voice_review":
+            assert admission.target is not None
+            frozen = admission.target
+        else:
+            target = self._capture_external_target() or self._paste_target_reader()
+            if target is None:
+                self._notify_shortcut_rejected("Focus the app where you want to dictate, then try again.")
+                return False
+            workflow_id = uuid.uuid4().hex
+            frozen = VoiceDraftTarget(workflow_id, 0, target, 0, 0)
         transition = self._controller.request_capture_for_press(command.press_id, frozen)
         if transition.ignored:
             self._notify_shortcut_rejected("Voice Input is already active.")
             return False
-        self._workflows.create_voice_workflow(workflow_id, target)
+        if admission.kind == "create":
+            self._workflows.create_voice_workflow(frozen.workflow_id, frozen.paste_target)
         self._start_watchdog(command.press_id)
         self._execute(transition)
         return True
@@ -181,6 +180,12 @@ class VoiceInputRuntimeModule:
             self._setup_presenter.set_voice_projection(transition.projection)
         if transition.projection.capability is VoiceCapabilityPhase.READY and self._setup_presenter is not None:
             self._setup_presenter.close_voice_setup()
+        elif (
+            transition.projection.capability is VoiceCapabilityPhase.PERMISSION_BLOCKED
+            and transition.projection.capture_id is None
+            and self._setup_presenter is not None
+        ):
+            self._setup_presenter.show_voice_setup()
         if transition.projection.workflow_id is not None:
             controller = self._workflows.controller_for(transition.projection.workflow_id)
             if controller is not None:

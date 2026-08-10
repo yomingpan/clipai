@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 from ClipAI.core.voice import VoiceCaptureId, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
 
@@ -52,6 +52,10 @@ class SelectionReader(Protocol):
 
 class ResultPresenter(Protocol):
     def render(self, snapshot: SessionSnapshot) -> None: ...
+
+
+class WorkflowAttentionPresenter(Protocol):
+    def present_workflow_attention(self, attention: WorkflowAttention) -> None: ...
 
 
 class ApplicationView(ResultPresenter, Protocol):

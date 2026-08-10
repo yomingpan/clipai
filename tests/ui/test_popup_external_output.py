@@ -48,6 +48,23 @@ def test_archive_success_returns_conditional_confirmation() -> None:
     assert ShowOutputMessage("已封存", 1000, only_when_overflow_collapsed=True) in actions
 
 
+def test_attention_uses_the_existing_popup_focus_transition_owner() -> None:
+    transitions = ready_transitions()
+
+    actions = transitions.attention(
+        "attention-1",
+        "目前此內容無法使用語音輸入",
+        duration_ms=3000,
+        request_focus=True,
+        warning=True,
+    )
+
+    assert actions == (
+        FocusPopup("attention-1"),
+        ShowOutputMessage("目前此內容無法使用語音輸入", 3000, warning=True),
+    )
+
+
 def test_stale_pending_and_terminal_acknowledgements_cannot_replace_current_operation() -> None:
     transitions = ready_transitions()
     transitions.begin("copy", "current")

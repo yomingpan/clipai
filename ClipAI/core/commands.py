@@ -156,6 +156,13 @@ class NavigateWorkflowBack:
 
 
 @dataclass(frozen=True)
+class WorkflowAttentionCompleted:
+    attention_id: str
+    workflow_id: str
+    focus_acquired: bool
+
+
+@dataclass(frozen=True)
 class PasteResult:
     session_id: str
     text: str | None = None
@@ -345,4 +352,4 @@ class UpdateVoiceDraft:
     text: str
 
 
-AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft
+AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

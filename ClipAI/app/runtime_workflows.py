@@ -6,9 +6,9 @@ from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, PasteOperationCompleted, ShortcutPressInvoked, StartAction, TogglePin
-from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget
-from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceDraftSelectionReader, WorkflowContextReader
+from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, PasteOperationCompleted, ShortcutPressInvoked, StartAction, TogglePin, WorkflowAttentionCompleted
+from ClipAI.core.models import ActionInvocation, ControlSurfaceRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, WorkflowAttention
+from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceDraftSelectionReader, WorkflowAttentionPresenter, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceDraftTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
@@ -56,6 +56,7 @@ WorkflowRuntimeCommand: TypeAlias = (
     | WorkflowInvocationFailed
     | HeadlessWorkflowFinished
     | WorkflowSnapshotReady
+    | WorkflowAttentionCompleted
 )
 
 
@@ -64,6 +65,16 @@ class _WorkflowRecord:
     controller: WorkflowController
     binding: ProviderExecutionBinding
     presentation: WorkflowPresentation
+
+
+@dataclass(frozen=True)
+class VoiceShortcutAdmission:
+    """The sole runtime decision about where a Voice shortcut may operate."""
+
+    kind: Literal["create", "voice_review", "continue", "rejected"]
+    workflow_id: str | None = None
+    target: VoiceDraftTarget | None = None
+    message: str = ""
 
 
 class _RuntimeWorkflowPresenter:
@@ -97,6 +108,7 @@ class WorkflowRuntimeModule:
         input_targets: InputTargetResolver | None = None,
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         user_control: UserControlCoordinator | None = None,
+        attention_presenter: WorkflowAttentionPresenter | None = None,
     ) -> None:
         self._actions = actions
         self._execute_action = execute_action
@@ -113,6 +125,8 @@ class WorkflowRuntimeModule:
         self._input_targets = input_targets or InputTargetResolver()
         self._records: dict[str, _WorkflowRecord] = {}
         self._user_control = user_control
+        self._attention_presenter = attention_presenter
+        self._pending_attention: dict[str, tuple[str, str]] = {}
         self._interruption_leases: dict[str, InterruptibleOperationLease] = {}
         self._foreground_id: str | None = None
         self._shortcut_intents = shortcut_intents or ShortcutSequenceCoordinator(
@@ -130,9 +144,8 @@ class WorkflowRuntimeModule:
         """Create the visible Workflow that exclusively owns one Voice draft."""
         if workflow_id in self._records:
             raise RuntimeError(f"workflow identity is already registered: {workflow_id}")
-        previous = self.controller_for(self._foreground_id or "")
-        if previous is not None and not previous.snapshot.pinned:
-            self._end(previous.snapshot.session_id, "cancel")
+        if not self._replace_unpinned_visible_workflow():
+            raise RuntimeError("cannot create a Voice Workflow while a pinned Workflow owns the popup")
         controller = WorkflowController(
             SessionSnapshot(
                 workflow_id,
@@ -153,6 +166,47 @@ class WorkflowRuntimeModule:
         self._register(workflow_id, controller, self._provider_configuration.active_binding, "visible")
         self._foreground_id = workflow_id
         return controller
+
+    def admit_voice_shortcut(
+        self,
+        focused_surface: ControlSurfaceRef | None,
+        active_voice_workflow_id: str | None,
+    ) -> VoiceShortcutAdmission:
+        """Route Voice input without allowing callers to bypass popup ownership."""
+        visible = self._visible_record()
+        if visible is not None:
+            workflow_id, record = visible
+            if record.controller.snapshot.pinned:
+                if active_voice_workflow_id == workflow_id:
+                    self._request_attention(
+                        workflow_id,
+                        "語音輸入進行中",
+                        duration_ms=1500,
+                        warning=False,
+                    )
+                    return VoiceShortcutAdmission("continue", workflow_id=workflow_id)
+                message = "目前此內容無法使用語音輸入"
+                self._request_attention(workflow_id, message)
+                return VoiceShortcutAdmission("rejected", workflow_id=workflow_id, message=message)
+        if focused_surface is not None:
+            if focused_surface.kind != "workflow":
+                return VoiceShortcutAdmission(
+                    "rejected",
+                    message="Close the active ClipAI window, then try again.",
+                )
+            target = self.capture_target_for_voice_review(focused_surface.surface_id)
+            if target is None:
+                return VoiceShortcutAdmission(
+                    "rejected",
+                    workflow_id=focused_surface.surface_id,
+                    message="Click an editable Voice Input draft, or focus the app where you want to dictate.",
+                )
+            return VoiceShortcutAdmission(
+                "voice_review",
+                workflow_id=focused_surface.surface_id,
+                target=target,
+            )
+        return VoiceShortcutAdmission("create")
 
     def capture_target_for_voice_review(self, workflow_id: str) -> VoiceDraftTarget | None:
         record = self._records.get(workflow_id)
@@ -261,6 +315,8 @@ class WorkflowRuntimeModule:
             self._finish_headless(command.workflow_id)
         elif isinstance(command, WorkflowSnapshotReady):
             self._project_snapshot(command.snapshot, command.presentation)
+        elif isinstance(command, WorkflowAttentionCompleted):
+            self._complete_attention(command)
 
     def stop(self) -> None:
         self._shortcut_intents.cancel()
@@ -278,6 +334,14 @@ class WorkflowRuntimeModule:
         if command.result_route == "speech":
             self._start_headless_action(action, command)
             return
+        if self._pinned_visible_workflow() is not None:
+            workflow_id = self._pinned_visible_workflow()
+            assert workflow_id is not None
+            self._request_attention(
+                workflow_id,
+                "目前視窗已固定。請先取消 PIN 或關閉目前視窗，再執行新的操作。",
+            )
+            return
         context = self._foreground_context()
         target = self._input_targets.resolve(context, action.external_fallback)
         contextual = target.kind == "workflow_result" and target.document is not None
@@ -292,9 +356,8 @@ class WorkflowRuntimeModule:
                 controller.cancel_active()
                 self._provider_execution.cancel(active_id)
         else:
-            previous = self.controller_for(self._foreground_id or "")
-            if previous is not None and not previous.snapshot.pinned:
-                self._end(previous.snapshot.session_id, "cancel")
+            if not self._replace_unpinned_visible_workflow():
+                return
             workflow_id = uuid.uuid4().hex
             target = InputTarget("external_text")
             parent_step_id = None
@@ -485,9 +548,68 @@ class WorkflowRuntimeModule:
     ) -> _WorkflowRecord:
         if workflow_id in self._records:
             raise RuntimeError(f"workflow identity is already registered: {workflow_id}")
+        if presentation == "visible" and self._visible_record() is not None:
+            raise RuntimeError("only one visible Workflow may own the popup")
         record = _WorkflowRecord(controller, binding, presentation)
         self._records[workflow_id] = record
         return record
+
+    def _visible_record(self) -> tuple[str, _WorkflowRecord] | None:
+        for workflow_id, record in self._records.items():
+            if record.presentation == "visible":
+                return workflow_id, record
+        return None
+
+    def _pinned_visible_workflow(self) -> str | None:
+        visible = self._visible_record()
+        if visible is None:
+            return None
+        workflow_id, record = visible
+        return workflow_id if record.controller.snapshot.pinned else None
+
+    def _replace_unpinned_visible_workflow(self) -> bool:
+        visible = self._visible_record()
+        if visible is None:
+            return True
+        workflow_id, record = visible
+        if record.controller.snapshot.pinned:
+            return False
+        self._end(workflow_id, "cancel")
+        return True
+
+    def _request_attention(
+        self,
+        workflow_id: str,
+        message: str,
+        *,
+        duration_ms: int = 3000,
+        warning: bool = True,
+    ) -> None:
+        attention_id = uuid.uuid4().hex
+        self._pending_attention[workflow_id] = (attention_id, message)
+        attention = WorkflowAttention(
+            attention_id,
+            workflow_id,
+            message,
+            duration_ms=duration_ms,
+            warning=warning,
+        )
+        if self._attention_presenter is not None:
+            self._attention_presenter.present_workflow_attention(attention)
+        elif self._notifier is not None:
+            self._notifier.notify("ClipAI", message)
+
+    def _complete_attention(self, command: WorkflowAttentionCompleted) -> None:
+        pending = self._pending_attention.get(command.workflow_id)
+        if pending is None or pending[0] != command.attention_id:
+            return
+        self._pending_attention.pop(command.workflow_id, None)
+        if not command.focus_acquired and self._notifier is not None:
+            separator = "" if pending[1].endswith(("。", ".", "!", "？", "?")) else "。"
+            self._notifier.notify(
+                "ClipAI",
+                f"{pending[1]}{separator}視窗未取得焦點，請先點選該視窗後再操作。",
+            )
 
     def _end(
         self,

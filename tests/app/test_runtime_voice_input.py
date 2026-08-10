@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
+from ClipAI.app.runtime_workflows import VoiceShortcutAdmission
 from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, ShortcutPressEnded, ShortcutPressStarted, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceSetupId
@@ -31,6 +32,28 @@ class Workflows:
     def controller_for(self, workflow_id): return self.controllers.get(workflow_id)
     def capture_target_for_voice_review(self, workflow_id):
         return VoiceDraftTarget(workflow_id, 0, PasteTarget("hwnd:1", 1, "Editor", "private", 1), 2, 2)
+    def admit_voice_shortcut(self, focused_surface, _active_voice_workflow_id):
+        if focused_surface is not None and focused_surface.kind == "workflow":
+            return VoiceShortcutAdmission(
+                "voice_review",
+                workflow_id=focused_surface.surface_id,
+                target=self.capture_target_for_voice_review(focused_surface.surface_id),
+            )
+        return VoiceShortcutAdmission("create")
+
+
+class RejectedWorkflows(Workflows):
+    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
+        return VoiceShortcutAdmission(
+            "rejected",
+            workflow_id="pinned-workflow",
+            message="目前此內容無法使用語音輸入",
+        )
+
+
+class ContinuingWorkflows(Workflows):
+    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
+        return VoiceShortcutAdmission("continue", workflow_id="pinned-workflow")
 
 
 class Setup:
@@ -103,6 +126,38 @@ def test_ptt_without_an_external_target_reports_an_actionable_failure() -> None:
     assert notifier.messages == [
         ("Voice Input", "Focus the app where you want to dictate, then try again.")
     ]
+
+
+def test_pinned_voice_rejection_does_not_capture_an_external_target_or_start_the_engine() -> None:
+    engine, workflows, notifier, captured = Engine(), RejectedWorkflows(), Notifier(), []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        capture_external_target=lambda: captured.append(True) or None,
+        notifier=notifier,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(30, "voice_input")) is False
+    assert captured == []
+    assert workflows.created == []
+    assert engine.calls == []
+    assert notifier.messages == [("Voice Input", "目前此內容無法使用語音輸入")]
+
+
+def test_active_pinned_voice_shortcut_is_consumed_without_creating_a_second_capture() -> None:
+    engine, workflows = Engine(), ContinuingWorkflows()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(31, "voice_input")) is True
+    assert workflows.created == []
+    assert engine.calls == []
 
 
 def test_disable_waits_for_persisted_preference_after_engine_shutdown() -> None:

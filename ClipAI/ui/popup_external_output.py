@@ -22,7 +22,7 @@ class SetFocusProjection:
 
 @dataclass(frozen=True)
 class FocusPopup:
-    pass
+    attention_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,7 @@ class ShowOutputMessage:
     message: str
     duration_ms: int
     only_when_overflow_collapsed: bool = False
+    warning: bool = False
 
 
 PopupTransitionAction: TypeAlias = (
@@ -254,6 +255,22 @@ class PopupExternalOutputTransitions:
             self._mark_unfocused()
             return (SetFocusProjection(False),)
         raise TypeError(f"unsupported popup focus fact: {fact!r}")
+
+    def attention(
+        self,
+        attention_id: str,
+        message: str,
+        *,
+        duration_ms: int,
+        request_focus: bool,
+        warning: bool,
+    ) -> tuple[PopupTransitionAction, ...]:
+        """Present a runtime-owned attention request through the focus owner."""
+        actions: list[PopupTransitionAction] = []
+        if request_focus:
+            actions.append(FocusPopup(attention_id))
+        actions.append(ShowOutputMessage(message, duration_ms, warning=warning))
+        return tuple(actions)
 
     @property
     def _ready(self) -> bool:

@@ -9,8 +9,8 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelVoiceCapture, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft
-from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelVoiceCapture, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
+from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
@@ -89,6 +89,7 @@ class ResultDialogPresenter:
         self._updates = LatestSnapshotMailbox()
         self._output_updates: queue.Queue[OutputOperationResult] = queue.Queue()
         self._paste_target_updates: queue.Queue[PasteTarget | None] = queue.Queue()
+        self._attention_updates: queue.Queue[WorkflowAttention] = queue.Queue()
         self._views: dict[str, _SessionView] = {}
         self._command_sink: Callable[[object], None] = lambda _command: None
         self._stopping = False
@@ -138,6 +139,9 @@ class ResultDialogPresenter:
 
     def present_paste_target(self, target: PasteTarget | None) -> None:
         self._paste_target_updates.put(target)
+
+    def present_workflow_attention(self, attention: WorkflowAttention) -> None:
+        self._attention_updates.put(attention)
 
     def show_provider_settings(self, state: ProviderSettingsState) -> None:
         if self._provider_settings_dialog is None:
@@ -252,7 +256,13 @@ class ResultDialogPresenter:
                     voice_draft_editing=_voice_draft_editing(view),
                 )
             elif isinstance(action, FocusPopup):
-                view.dialog.lifecycle.focus()
+                focus_acquired = view.dialog.lifecycle.focus()
+                if action.attention_id is not None:
+                    self._command_sink(WorkflowAttentionCompleted(
+                        action.attention_id,
+                        workflow_id,
+                        focus_acquired,
+                    ))
             elif isinstance(action, ScheduleOutsideFocusCheck):
                 self._schedule_outside_focus_check(workflow_id, view, action)
             elif isinstance(action, ReportControlSurfaceReleased):
@@ -272,6 +282,8 @@ class ResultDialogPresenter:
             elif isinstance(action, ShowOutputMessage):
                 if not action.only_when_overflow_collapsed or not view.surface.overflow_expanded:
                     view.surface.show_action_message(action.message, action.duration_ms)
+                if action.warning:
+                    view.dialog.flash("warning")
 
     def _schedule_outside_focus_check(
         self,
@@ -369,6 +381,32 @@ class ResultDialogPresenter:
                 break
         for snapshot in self._updates.drain():
             self._apply(snapshot)
+        while True:
+            try:
+                self._apply_attention(self._attention_updates.get_nowait())
+            except queue.Empty:
+                break
+
+    def _apply_attention(self, attention: WorkflowAttention) -> None:
+        view = self._views.get(attention.workflow_id)
+        if view is None or not view.dialog.is_alive():
+            self._command_sink(WorkflowAttentionCompleted(
+                attention.attention_id,
+                attention.workflow_id,
+                False,
+            ))
+            return
+        self._apply_transition_actions(
+            attention.workflow_id,
+            view,
+            view.external_output.attention(
+                attention.attention_id,
+                attention.message,
+                duration_ms=attention.duration_ms,
+                request_focus=attention.request_focus,
+                warning=attention.warning,
+            ),
+        )
 
     def _handle_pointer_press(self, x: int, y: int) -> None:
         for workflow_id, view in tuple(self._views.items()):
