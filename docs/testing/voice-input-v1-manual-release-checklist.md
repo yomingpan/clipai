@@ -35,6 +35,10 @@ python -m pytest -m integration tests/platform/test_voice_webview_host_integrati
    draft; confirm the caret does not jump to another position.
 5. Repeat with the original window closed before Paste. Confirm the draft stays
    visible with a failure and no text is sent to the currently focused window.
+6. In a clean run with no cached external target, keep ClipAI focused and hold
+   `Ctrl+Alt+W`; confirm capture still starts in a targetless Voice Draft. Focus
+   an external editor before pressing Paste and confirm that target is captured
+   for that Paste operation.
 
 ## Release matrix
 
@@ -50,8 +54,8 @@ python -m pytest -m integration tests/platform/test_voice_webview_host_integrati
 | No speech | Review remains available with a retry message and no invented text. |
 | Host crash | Capture ends truthfully; later explicit PTT can rebuild the host; no background restart occurs. |
 | Disable during capture | New captures are rejected immediately; capture and host settle; tray becomes Disabled only after preference save and cleanup settlement. |
-| Pinned and unpinned popups | A new transient Voice workflow closes only the previous unpinned workflow; pinned draft remains intact. |
-| Frozen target | Focus a different external app before Paste. Text still targets the original capture app; a dead original target fails closed. |
+| Pinned and unpinned popups | `Ctrl+Alt+W` reuses the existing Popup and Workflow for a fresh Voice Draft, preserves PIN state, and never creates a second visible surface. |
+| Frozen or targetless target | When capture starts over an external app, Paste keeps that frozen target. When capture starts without one, the Draft remains usable and Paste captures the latest observed external target at operation start. An unavailable target fails closed. |
 | Languages | `zh-TW` and `en-US` apply to the next capture only and persist only after a successful explicit save. |
 | App shutdown | The host exits and no microphone indicator remains active. |
 

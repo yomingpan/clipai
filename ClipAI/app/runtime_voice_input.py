@@ -84,10 +84,7 @@ class VoiceInputRuntimeModule:
             frozen = admission.target
         else:
             target = self._capture_external_target() or self._paste_target_reader()
-            if target is None:
-                self._notify_shortcut_rejected("Focus the app where you want to dictate, then try again.")
-                return False
-            workflow_id = uuid.uuid4().hex
+            workflow_id = admission.workflow_id or uuid.uuid4().hex
             frozen = VoiceDraftTarget(workflow_id, 0, target, 0, 0)
         transition = self._controller.request_capture_for_press(command.press_id, frozen)
         if transition.ignored:
@@ -95,6 +92,8 @@ class VoiceInputRuntimeModule:
             return False
         if admission.kind == "create":
             self._workflows.create_voice_workflow(frozen.workflow_id, frozen.paste_target)
+        elif admission.kind == "reuse":
+            self._workflows.reuse_voice_workflow(frozen.workflow_id, frozen.paste_target)
         self._start_watchdog(command.press_id)
         self._execute(transition)
         return True

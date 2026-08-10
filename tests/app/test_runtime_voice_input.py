@@ -57,6 +57,19 @@ class ContinuingWorkflows(Workflows):
         return VoiceShortcutAdmission("continue", workflow_id="pinned-workflow")
 
 
+class ReusingWorkflows(Workflows):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reused = []
+        self.controllers["pinned-workflow"] = Workflow()
+
+    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
+        return VoiceShortcutAdmission("reuse", workflow_id="pinned-workflow")
+
+    def reuse_voice_workflow(self, workflow_id, target):
+        self.reused.append((workflow_id, target))
+
+
 class Setup:
     def __init__(self) -> None: self.shown = 0; self.closed = 0; self.projections = []
     def show_voice_setup(self) -> None: self.shown += 1
@@ -113,7 +126,7 @@ def test_ptt_captures_the_current_external_target_when_the_cached_target_is_miss
     assert engine.calls == [("start", "voice-press-2", "zh-TW", 0)]
 
 
-def test_ptt_without_an_external_target_reports_an_actionable_failure() -> None:
+def test_ptt_without_an_external_target_starts_a_targetless_voice_draft() -> None:
     engine, workflows, notifier = Engine(), Workflows(), Notifier()
     runtime = VoiceInputRuntimeModule(
         controller=VoiceInputController(enabled=True),
@@ -123,10 +136,10 @@ def test_ptt_without_an_external_target_reports_an_actionable_failure() -> None:
         notifier=notifier,
     )
 
-    assert runtime.handle_shortcut_started(ShortcutPressStarted(3, "voice_input")) is False
-    assert notifier.messages == [
-        ("Voice Input", "Focus the app where you want to dictate, then try again.")
-    ]
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(3, "voice_input")) is True
+    assert workflows.created[0][1] is None
+    assert engine.calls == [("start", "voice-press-3", "zh-TW", 0)]
+    assert notifier.messages == []
 
 
 def test_pinned_voice_rejection_does_not_capture_an_external_target_or_start_the_engine() -> None:
@@ -159,6 +172,21 @@ def test_active_pinned_voice_shortcut_is_consumed_without_creating_a_second_capt
     assert runtime.handle_shortcut_started(ShortcutPressStarted(31, "voice_input")) is True
     assert workflows.created == []
     assert engine.calls == []
+
+
+def test_inactive_pinned_workflow_is_reused_for_a_new_voice_capture() -> None:
+    engine, workflows = Engine(), ReusingWorkflows()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(32, "voice_input")) is True
+    assert workflows.created == []
+    assert workflows.reused == [("pinned-workflow", None)]
+    assert engine.calls == [("start", "voice-press-32", "zh-TW", 0)]
 
 
 def test_disable_waits_for_persisted_preference_after_engine_shutdown() -> None:

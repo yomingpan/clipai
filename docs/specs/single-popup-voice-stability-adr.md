@@ -11,11 +11,16 @@ permission setup and be observed as an external paste target.
 
 - ClipAI permits exactly one visible Workflow Popup surface. PIN reserves that
   surface and rejects every external Action that would create another Popup.
-- `Ctrl+Alt+W` on a pinned Popup continues only an already active Voice capture.
-  Otherwise it activates the existing Popup and shows `目前此內容無法使用語音輸入`.
+- `Ctrl+Alt+W` never creates a second Popup while a visible Workflow already
+  owns the surface. An active Voice capture continues; otherwise the existing
+  Workflow and Popup are reused for a fresh Voice Draft, preserving PIN state.
+- Voice capture does not require an external editable window to be focused.
+  When no target can be captured, the Voice Draft starts without one and Paste
+  resolves the latest observed external target only when the explicit Paste
+  operation begins.
 - `WorkflowRuntimeModule` owns visible-surface admission. Voice runtime must
-  request an admission decision before capturing an external target or creating
-  a Voice Workflow.
+  request an admission decision before capturing an optional external target,
+  creating a Voice Workflow, or reusing the visible Workflow.
 - Popup attention has an identity and reports whether native and toolkit focus
   were actually acquired. Failed focus repeats the warning through the notifier.
 - WebView microphone consent is allowed only for an explicit Voice Setup or an

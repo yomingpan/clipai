@@ -71,7 +71,7 @@ class _WorkflowRecord:
 class VoiceShortcutAdmission:
     """The sole runtime decision about where a Voice shortcut may operate."""
 
-    kind: Literal["create", "voice_review", "continue", "rejected"]
+    kind: Literal["create", "reuse", "voice_review", "continue", "rejected"]
     workflow_id: str | None = None
     target: VoiceDraftTarget | None = None
     message: str = ""
@@ -140,7 +140,7 @@ class WorkflowRuntimeModule:
         record = self._records.get(workflow_id)
         return record.controller if record is not None else None
 
-    def create_voice_workflow(self, workflow_id: str, target: PasteTarget) -> WorkflowController:
+    def create_voice_workflow(self, workflow_id: str, target: PasteTarget | None) -> WorkflowController:
         """Create the visible Workflow that exclusively owns one Voice draft."""
         if workflow_id in self._records:
             raise RuntimeError(f"workflow identity is already registered: {workflow_id}")
@@ -167,6 +167,26 @@ class WorkflowRuntimeModule:
         self._foreground_id = workflow_id
         return controller
 
+    def reuse_voice_workflow(
+        self,
+        workflow_id: str,
+        target: PasteTarget | None,
+    ) -> WorkflowController | None:
+        """Start a fresh Voice Draft in the Workflow already using the Popup."""
+        record = self._records.get(workflow_id)
+        if record is None or record.presentation != "visible":
+            return None
+        controller = record.controller
+        invocation_id = controller.snapshot.active_invocation_id
+        if invocation_id is not None:
+            controller.cancel_active()
+            self._provider_execution.cancel(invocation_id)
+        if self._speech_coordinator is not None:
+            self._speech_coordinator.cancel_workflow(workflow_id)
+        controller.begin_voice_draft(target)
+        self._foreground_id = workflow_id
+        return controller
+
     def admit_voice_shortcut(
         self,
         focused_surface: ControlSurfaceRef | None,
@@ -175,19 +195,29 @@ class WorkflowRuntimeModule:
         """Route Voice input without allowing callers to bypass popup ownership."""
         visible = self._visible_record()
         if visible is not None:
-            workflow_id, record = visible
-            if record.controller.snapshot.pinned:
-                if active_voice_workflow_id == workflow_id:
-                    self._request_attention(
-                        workflow_id,
-                        "語音輸入進行中",
-                        duration_ms=1500,
-                        warning=False,
+            workflow_id, _record = visible
+            if active_voice_workflow_id == workflow_id:
+                self._request_attention(
+                    workflow_id,
+                    "語音輸入進行中",
+                    duration_ms=1500,
+                    warning=False,
+                )
+                return VoiceShortcutAdmission("continue", workflow_id=workflow_id)
+            if focused_surface is not None and focused_surface.kind != "workflow":
+                return VoiceShortcutAdmission(
+                    "rejected",
+                    message="Close the active ClipAI window, then try again.",
+                )
+            if focused_surface is not None and focused_surface.surface_id == workflow_id:
+                target = self.capture_target_for_voice_review(workflow_id)
+                if target is not None:
+                    return VoiceShortcutAdmission(
+                        "voice_review",
+                        workflow_id=workflow_id,
+                        target=target,
                     )
-                    return VoiceShortcutAdmission("continue", workflow_id=workflow_id)
-                message = "目前此內容無法使用語音輸入"
-                self._request_attention(workflow_id, message)
-                return VoiceShortcutAdmission("rejected", workflow_id=workflow_id, message=message)
+            return VoiceShortcutAdmission("reuse", workflow_id=workflow_id)
         if focused_surface is not None:
             if focused_surface.kind != "workflow":
                 return VoiceShortcutAdmission(
@@ -195,17 +225,12 @@ class WorkflowRuntimeModule:
                     message="Close the active ClipAI window, then try again.",
                 )
             target = self.capture_target_for_voice_review(focused_surface.surface_id)
-            if target is None:
+            if target is not None:
                 return VoiceShortcutAdmission(
-                    "rejected",
+                    "voice_review",
                     workflow_id=focused_surface.surface_id,
-                    message="Click an editable Voice Input draft, or focus the app where you want to dictate.",
+                    target=target,
                 )
-            return VoiceShortcutAdmission(
-                "voice_review",
-                workflow_id=focused_surface.surface_id,
-                target=target,
-            )
         return VoiceShortcutAdmission("create")
 
     def capture_target_for_voice_review(self, workflow_id: str) -> VoiceDraftTarget | None:

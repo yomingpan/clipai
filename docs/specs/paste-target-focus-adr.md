@@ -14,13 +14,16 @@ focus or the destination of the paste side effect.
   while Editing-mode Voice Draft fields retain native clipboard insertion.
   `Ctrl+Enter` toggles the view into Reading mode, where `Ctrl+V` becomes the
   external Paste gesture. The explicit Paste button remains available in both
-  modes for sending a reviewed draft to its frozen external target.
+  modes for sending a reviewed draft to its external target.
 - Track the latest non-ClipAI Windows foreground window as an immutable,
   in-memory paste target.
 - Let `PasteTargetCoordinator` own the latest target; the Windows adapter only
   observes, validates, activates, and sends keyboard input.
 - Capture the target when `PasteResult` begins. A later foreground observation
   cannot redirect that operation.
+- A Voice Draft freezes the target observed when capture starts when one is
+  available. A targetless Voice Draft remains valid and uses the latest target
+  only when `PasteResult` begins.
 - Show focus and destination with both a persistent label and border state.
 - Establish initial interactive Popup focus only after layout and native window
   activation have completed. All shortcut-created result Popups, including
