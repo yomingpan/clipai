@@ -40,6 +40,7 @@ from ClipAI.ui.base_dialog import (
     BaseResultSurface,
     _PresentationTextbox,
     apply_widget_font_scaling,
+    activate_window,
     hide_window_from_task_switcher,
     show_window_without_activation,
     rgb_to_hex,
@@ -52,6 +53,7 @@ from ClipAI.ui.base_dialog import (
     _CanonicalSelectionSegment,
     _canonical_selection_text,
 )
+from ClipAI.ui.pointer_input import WindowsPointerPressReader
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
 
@@ -124,6 +126,64 @@ def test_windows_popup_restore_preserves_external_foreground_window() -> None:
     assert window.deiconified is True
     assert user32.shown == (20, 4)
     assert user32.restored == 30
+
+
+def test_windows_popup_activation_joins_foreground_input_before_activation() -> None:
+    class Window:
+        def deiconify(self):
+            pass
+
+        def update_idletasks(self):
+            pass
+
+        def winfo_id(self):
+            return 10
+
+    class Kernel32:
+        def GetCurrentThreadId(self):
+            return 1
+
+    class User32:
+        def __init__(self):
+            self.foreground = 30
+            self.attached = []
+            self.positioned = None
+
+        def GetParent(self, hwnd):
+            return 20
+
+        def GetForegroundWindow(self):
+            return self.foreground
+
+        def GetWindowThreadProcessId(self, hwnd, _process_id):
+            return 2 if hwnd == 30 else 1
+
+        def AttachThreadInput(self, current, foreground, attached):
+            self.attached.append((current, foreground, attached))
+            return True
+
+        def ShowWindow(self, _hwnd, _command):
+            return True
+
+        def SetWindowPos(self, *args):
+            self.positioned = args
+            return True
+
+        def BringWindowToTop(self, _hwnd):
+            return True
+
+        def SetForegroundWindow(self, hwnd):
+            self.foreground = hwnd
+            return True
+
+        def SetActiveWindow(self, _hwnd):
+            return 0
+
+    user32 = User32()
+
+    assert activate_window(Window(), user32=user32, kernel32=Kernel32()) is True
+    assert user32.attached == [(1, 2, True), (1, 2, False)]
+    assert user32.positioned == (20, -1, 0, 0, 0, 0, 0x0043)
 
 
 def test_external_output_visibility_actions_are_mechanical(monkeypatch) -> None:
@@ -625,6 +685,62 @@ def test_dialog_is_alive_requires_valid_open_existing_root() -> None:
     assert dialog.is_alive() is False
 
 
+def test_dialog_screen_bounds_include_only_points_inside_popup() -> None:
+    class Root:
+        def update_idletasks(self):
+            pass
+
+        def winfo_rootx(self):
+            return 100
+
+        def winfo_rooty(self):
+            return 200
+
+        def winfo_width(self):
+            return 300
+
+        def winfo_height(self):
+            return 150
+
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog.root = Root()
+
+    assert dialog.contains_screen_point(100, 200) is True
+    assert dialog.contains_screen_point(399, 349) is True
+    assert dialog.contains_screen_point(400, 350) is False
+
+
+def test_dialog_visibility_uses_toolkit_viewable_truth() -> None:
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog.root = type("Root", (), {"winfo_viewable": lambda _self: 1})()
+    assert dialog.is_visible() is True
+
+
+def test_windows_pointer_reader_reports_each_press_once() -> None:
+    class User32:
+        def __init__(self) -> None:
+            self.states = {0x01: 0x8001, 0x02: 0, 0x04: 0}
+
+        def GetAsyncKeyState(self, button):
+            return self.states[button]
+
+        def GetCursorPos(self, pointer):
+            pointer._obj.x = 321
+            pointer._obj.y = 654
+            return True
+
+    user32 = User32()
+    reader = WindowsPointerPressReader(user32)
+
+    assert reader.poll() == (321, 654)
+    user32.states[0x01] = 0x8000
+    assert reader.poll() is None
+    user32.states[0x01] = 0
+    assert reader.poll() is None
+    user32.states[0x01] = 0x8000
+    assert reader.poll() == (321, 654)
+
+
 def test_dialog_lifecycle_exposes_closed_state() -> None:
     class Root:
         def destroy(self):
@@ -670,6 +786,42 @@ def test_dialog_lifecycle_focus_reports_verified_toolkit_focus() -> None:
 
     assert lifecycle.focus(widget) is True
     assert root.events == ["layout", "lift"]
+
+
+def test_dialog_lifecycle_requires_native_window_activation_when_configured() -> None:
+    class Root:
+        def __init__(self) -> None:
+            self.focused = None
+
+        def update_idletasks(self) -> None:
+            pass
+
+        def lift(self) -> None:
+            pass
+
+        def focus_get(self):
+            return self.focused
+
+    class Widget:
+        def __init__(self, root) -> None:
+            self.root = root
+
+        def focus_force(self) -> None:
+            self.root.focused = self
+
+        def winfo_toplevel(self):
+            return self.root
+
+    root = Root()
+    widget = Widget(root)
+    native_activations = []
+    lifecycle = DialogLifecycle(
+        root,
+        window_activator=lambda window: native_activations.append(window) or False,
+    )
+
+    assert lifecycle.focus(widget) is False
+    assert native_activations == [root]
 
 
 def test_native_close_request_uses_callback_instead_of_destroying_the_dialog() -> None:

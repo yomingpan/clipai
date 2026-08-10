@@ -62,12 +62,15 @@ class WindowsForegroundWindowMonitor:
             self._callback_ref = None
             raise OSError("Could not monitor the Windows foreground window.")
         self._hook = hook
+        self.capture_foreground_target()
+
+    def capture_foreground_target(self) -> PasteTarget | None:
+        """Capture the external foreground target at an explicit user intent."""
         try:
             current = int(self._user32.GetForegroundWindow())
         except (AttributeError, OSError, TypeError, ValueError):
-            current = 0
-        if current:
-            self._observe(current)
+            return None
+        return self._observe(current) if current else None
 
     def stop(self) -> None:
         hook = self._hook
@@ -96,23 +99,23 @@ class WindowsForegroundWindowMonitor:
         if handle:
             self._observe(handle)
 
-    def _observe(self, handle: int) -> None:
+    def _observe(self, handle: int) -> PasteTarget | None:
         details = self._read_target(handle, self._process_id)
         if details is None:
-            return
+            return None
         process_id, application_name, window_title = details
         with self._lock:
             self._sequence += 1
             sequence = self._sequence
-        self._callback(
-            PasteTarget(
-                window_token=f"hwnd:{handle:x}",
-                process_id=process_id,
-                application_name=application_name,
-                window_title=window_title,
-                observation_sequence=sequence,
-            )
+        target = PasteTarget(
+            window_token=f"hwnd:{handle:x}",
+            process_id=process_id,
+            application_name=application_name,
+            window_title=window_title,
+            observation_sequence=sequence,
         )
+        self._callback(target)
+        return target
 
 
 def _read_windows_target(handle: int, own_process_id: int) -> tuple[int, str, str] | None:

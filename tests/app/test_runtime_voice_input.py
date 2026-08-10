@@ -40,6 +40,11 @@ class Setup:
     def set_voice_projection(self, projection) -> None: self.projections.append(projection)
 
 
+class Notifier:
+    def __init__(self) -> None: self.messages = []
+    def notify(self, title, message) -> None: self.messages.append((title, message))
+
+
 class Watchdog:
     def __init__(self, callback) -> None: self.callback = callback; self.cancelled = False
     def cancel(self) -> None: self.cancelled = True
@@ -63,6 +68,41 @@ def test_ptt_flow_creates_workflow_after_admission_and_applies_finalized_text() 
     assert engine.calls[1] == ("stop", capture_id)
     workflow_id = workflows.created[0][0]
     assert workflows.controllers[workflow_id].applied[0][1] == "hello"
+
+
+def test_ptt_captures_the_current_external_target_when_the_cached_target_is_missing() -> None:
+    engine, workflows = Engine(), Workflows()
+    cached_target = None
+    current_target = PasteTarget("hwnd:2", 2, "Writer", "Draft", 2)
+    captured = []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: cached_target,
+        capture_external_target=lambda: captured.append(True) or current_target,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(2, "voice_input")) is True
+    assert captured == [True]
+    assert workflows.created[0][1] == current_target
+    assert engine.calls == [("start", "voice-press-2", "zh-TW", 0)]
+
+
+def test_ptt_without_an_external_target_reports_an_actionable_failure() -> None:
+    engine, workflows, notifier = Engine(), Workflows(), Notifier()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        notifier=notifier,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(3, "voice_input")) is False
+    assert notifier.messages == [
+        ("Voice Input", "Focus the app where you want to dictate, then try again.")
+    ]
 
 
 def test_disable_waits_for_persisted_preference_after_engine_shutdown() -> None:

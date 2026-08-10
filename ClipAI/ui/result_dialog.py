@@ -14,7 +14,8 @@ from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, Feedbac
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
-from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
+from ClipAI.ui.pointer_input import PointerPressReader, WindowsPointerPressReader
+from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
@@ -77,7 +78,12 @@ class LatestSnapshotMailbox:
 class ResultDialogPresenter:
     """One persistent Tk root that renders any number of session Toplevels."""
 
-    def __init__(self, display_metrics: DisplayMetricsReader | None = None, layout_policy: PopupLayoutPolicy | None = None) -> None:
+    def __init__(
+        self,
+        display_metrics: DisplayMetricsReader | None = None,
+        layout_policy: PopupLayoutPolicy | None = None,
+        pointer_press_reader: PointerPressReader | None = None,
+    ) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
         self._updates = LatestSnapshotMailbox()
@@ -91,6 +97,7 @@ class ResultDialogPresenter:
         self._paste_target: PasteTarget | None = None
         self._display_metrics = display_metrics
         self._layout_policy = layout_policy or PopupLayoutPolicy()
+        self._pointer_press_reader = pointer_press_reader or WindowsPointerPressReader()
         self._provider_settings_dialog: ProviderSettingsDialog | None = None
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
         self._shortcut_guide_focus_hold_active = False
@@ -347,6 +354,9 @@ class ResultDialogPresenter:
             pass
 
     def _drain_updates(self) -> None:
+        point = self._pointer_press_reader.poll()
+        if point is not None:
+            self._handle_pointer_press(*point)
         while True:
             try:
                 self._apply_paste_target(self._paste_target_updates.get_nowait())
@@ -359,6 +369,21 @@ class ResultDialogPresenter:
                 break
         for snapshot in self._updates.drain():
             self._apply(snapshot)
+
+    def _handle_pointer_press(self, x: int, y: int) -> None:
+        for workflow_id, view in tuple(self._views.items()):
+            if not view.dialog.is_alive():
+                self._evict_view(workflow_id, view)
+                continue
+            if not view.dialog.is_visible():
+                continue
+            if view.dialog.contains_screen_point(x, y):
+                continue
+            self._apply_transition_actions(
+                workflow_id,
+                view,
+                view.external_output.focus(OutsidePointerPressed(pinned=view.dialog.pinned)),
+            )
 
     def _apply_paste_target(self, target: PasteTarget | None) -> None:
         current = self._paste_target
@@ -388,14 +413,7 @@ class ResultDialogPresenter:
         if view is None:
             view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
-            self._register_view(
-                snapshot.session_id,
-                view,
-                focus_on_show=snapshot.status not in {
-                    SessionStatus.VOICE_LISTENING,
-                    SessionStatus.VOICE_FINALIZING,
-                },
-            )
+            self._register_view(snapshot.session_id, view)
         previous = view.last_snapshot
         if snapshot.status is SessionStatus.VOICE_REVIEW and (
             previous is None or previous.status is not SessionStatus.VOICE_REVIEW

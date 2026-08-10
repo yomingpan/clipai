@@ -3,8 +3,8 @@ from __future__ import annotations
 import queue
 from dataclasses import replace
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, OutputOperationResult, PasteTarget
+from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
+from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceOrigin
 from ClipAI.ui.popup_external_output import FocusEntered, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown
@@ -31,12 +31,18 @@ class Dialog:
     def is_alive(self) -> bool:
         return self.alive
 
+    def is_visible(self) -> bool:
+        return self.alive
+
     def close(self) -> None:
         self.alive = False
         self.root.events.append("close")
 
     def apply_external_output_visibility(self, visibility: str) -> None:
         self.root.events.append(f"visibility:{visibility}")
+
+    def contains_screen_point(self, x: int, y: int) -> bool:
+        return (x, y) == (10, 10)
 
 
 class Surface:
@@ -98,6 +104,9 @@ class Surface:
 
     def close_feedback_overlay(self) -> None:
         self.events.append("feedback:closed")
+
+    def collapse_overflow(self) -> None:
+        self.events.append("overflow:collapsed")
 
     def set_paste_focus_state(self, focused, target, *, voice_draft_editing=None) -> None:
         self.focused = focused
@@ -443,37 +452,62 @@ def test_failed_initial_focus_attempt_does_not_claim_popup_focus() -> None:
     assert view.external_output.focused_inside is False
 
 
-def test_voice_capture_popup_defers_initial_focus_until_review() -> None:
-    class ShortcutRoot:
-        def __init__(self) -> None:
-            self.bindings = {}
-
-        def bind(self, sequence, callback, add=None) -> None:
-            self.bindings[sequence] = callback
-
-    class Lifecycle:
-        def __init__(self) -> None:
-            self.callbacks = []
-
-        def schedule(self, _delay_ms, callback) -> str:
-            self.callbacks.append(callback)
-            return "scheduled"
-
-    presenter, _events = presenter_with_selection(None)
+def test_first_outside_pointer_press_closes_popup_when_native_focus_failed() -> None:
+    presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
     view.external_output = PopupExternalOutputTransitions()
-    view.dialog.root = ShortcutRoot()
-    view.dialog.lifecycle = Lifecycle()
+    view.external_output.focus(PopupRegistered())
+    view.external_output.focus(PopupShown())
 
-    presenter._register_view("s1", view, focus_on_show=False)
+    presenter._handle_pointer_press(100, 100)
 
-    assert view.dialog.lifecycle.callbacks == []
-    assert view.external_output.focused_inside is False
+    assert ControlSurfaceReleased(ControlSurfaceRef("s1", "workflow")) in events
+    assert CloseSession("s1") in events
 
-    presenter._schedule_initial_focus("s1", view)
-    view.dialog.lifecycle.callbacks[0]()
 
-    assert view.external_output.focused_inside is True
+def test_pointer_press_inside_popup_does_not_close_it() -> None:
+    presenter, events = presenter_with_selection(None)
+
+    presenter._handle_pointer_press(10, 10)
+
+    assert not any(isinstance(event, CloseSession) for event in events)
+
+
+def test_voice_capture_popup_establishes_initial_focus_immediately() -> None:
+    class Button:
+        def configure(self, **_kwargs) -> None:
+            pass
+
+    presenter, _events = presenter_with_selection(None)
+    view = presenter._views.pop("s1")
+    for method in (
+        "set_pinned_state",
+        "set_title",
+        "set_source_preview",
+        "set_model",
+        "set_loading",
+        "configure_standard_actions",
+    ):
+        setattr(view.surface, method, lambda *_args, **_kwargs: None)
+    view.surface.close_button = Button()
+    view.surface.pin_button = Button()
+    view.surface.configure_back_action = lambda _callback: None
+    presenter._create_view = lambda _session_id: view
+    presenter._configure_voice_capture_controls = lambda _snapshot, _view: None
+    requested_initial_focus = []
+    presenter._register_view = lambda _session_id, _view, *, focus_on_show=True: requested_initial_focus.append(focus_on_show)
+
+    presenter._apply(SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.VOICE_LISTENING,
+        "voice_input",
+        "Voice Input",
+        "model",
+        status_text="Listening",
+    ))
+
+    assert requested_initial_focus == [True]
 
 
 def test_ctrl_v_pastes_only_for_active_popup() -> None:

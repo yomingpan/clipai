@@ -101,6 +101,11 @@ class OutsideFocusObserved:
 
 
 @dataclass(frozen=True)
+class OutsidePointerPressed:
+    pinned: bool
+
+
+@dataclass(frozen=True)
 class OwnedDialogOpened:
     pass
 
@@ -116,6 +121,7 @@ PopupFocusFact: TypeAlias = (
     | FocusEntered
     | OutsideFocusCheckRequested
     | OutsideFocusObserved
+    | OutsidePointerPressed
     | OwnedDialogOpened
     | OwnedDialogClosed
 )
@@ -224,6 +230,18 @@ class PopupExternalOutputTransitions:
                 if self._ready and not fact.pinned:
                     actions.append(RequestPopupClose())
             return tuple(actions)
+        if isinstance(fact, OutsidePointerPressed):
+            if (
+                not self._visible
+                or self._owned_dialog_active
+                or "paste" in self._operations
+            ):
+                return ()
+            self._mark_unfocused()
+            actions = [SetFocusProjection(False), ReportControlSurfaceReleased()]
+            if not fact.pinned:
+                actions.append(RequestPopupClose())
+            return tuple(actions)
         if isinstance(fact, OwnedDialogOpened):
             self._owned_dialog_active = True
             self._mark_unfocused()
@@ -239,7 +257,11 @@ class PopupExternalOutputTransitions:
 
     @property
     def _ready(self) -> bool:
-        return self._registered and self._shown and self._initial_focus_established
+        return self._visible and self._initial_focus_established
+
+    @property
+    def _visible(self) -> bool:
+        return self._registered and self._shown
 
     def _mark_focused(self) -> None:
         self._initial_focus_established = True

@@ -7,7 +7,7 @@ from collections.abc import Callable
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
-from ClipAI.core.ports import VoiceInputEngine, VoiceSetupPresenter
+from ClipAI.core.ports import UserNotifier, VoiceInputEngine, VoiceSetupPresenter
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceLanguageChangeId, VoiceProjection
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
 from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
@@ -33,6 +33,7 @@ class VoiceInputRuntimeModule:
         engine: VoiceInputEngine,
         workflows: WorkflowRuntimeModule,
         paste_target_reader: Callable[[], PasteTarget | None],
+        capture_external_target: Callable[[], PasteTarget | None] = lambda: None,
         persist_enabled: Callable[[str], None] = lambda _setup_id: None,
         persist_disabled: Callable[[str], None] = lambda _disable_id: None,
         persist_language: Callable[[str, str], None] = lambda _operation_id, _language: None,
@@ -43,11 +44,13 @@ class VoiceInputRuntimeModule:
         focused_surface_reader: Callable[[], ControlSurfaceRef | None] = lambda: None,
         open_permission_settings: Callable[[], None] = lambda: None,
         watchdog_schedule: Callable[[float, Callable[[], None]], object] = _schedule_watchdog,
+        notifier: UserNotifier | None = None,
     ) -> None:
         self._controller = controller
         self._engine = engine
         self._workflows = workflows
         self._paste_target_reader = paste_target_reader
+        self._capture_external_target = capture_external_target
         self._persist_enabled = persist_enabled
         self._persist_disabled = persist_disabled
         self._persist_language = persist_language
@@ -58,18 +61,22 @@ class VoiceInputRuntimeModule:
         self._focused_surface_reader = focused_surface_reader
         self._open_permission_settings = open_permission_settings
         self._watchdog_schedule = watchdog_schedule
+        self._notifier = notifier
         self._watchdogs: dict[ShortcutPressId, object] = {}
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
         focused_surface = self._focused_surface_reader()
         if focused_surface is not None:
             if focused_surface.kind != "workflow":
+                self._notify_shortcut_rejected("Close the active ClipAI window, then try again.")
                 return False
             target = self._workflows.capture_target_for_voice_review(focused_surface.surface_id)
             if target is None:
+                self._notify_shortcut_rejected("Click an editable Voice Input draft, or focus the app where you want to dictate.")
                 return False
             transition = self._controller.request_capture_for_press(command.press_id, target)
             if transition.ignored:
+                self._notify_shortcut_rejected("Voice Input is already active.")
                 return False
             self._start_watchdog(command.press_id)
             self._execute(transition)
@@ -78,18 +85,24 @@ class VoiceInputRuntimeModule:
             if self._setup_presenter is not None:
                 self._setup_presenter.show_voice_setup()
             return True
-        target = self._paste_target_reader()
+        target = self._capture_external_target() or self._paste_target_reader()
         if target is None:
+            self._notify_shortcut_rejected("Focus the app where you want to dictate, then try again.")
             return False
         workflow_id = uuid.uuid4().hex
         frozen = VoiceDraftTarget(workflow_id, 0, target, 0, 0)
         transition = self._controller.request_capture_for_press(command.press_id, frozen)
         if transition.ignored:
+            self._notify_shortcut_rejected("Voice Input is already active.")
             return False
         self._workflows.create_voice_workflow(workflow_id, target)
         self._start_watchdog(command.press_id)
         self._execute(transition)
         return True
+
+    def _notify_shortcut_rejected(self, message: str) -> None:
+        if self._notifier is not None:
+            self._notifier.notify("Voice Input", message)
 
     def handle_shortcut_ended(self, command: ShortcutPressEnded) -> bool:
         transition = (

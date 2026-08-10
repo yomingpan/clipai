@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ClipAI.core.models import OutputOperationResult, UserFacingError
-from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
+from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 
 
 def ready_transitions() -> PopupExternalOutputTransitions:
@@ -143,6 +143,32 @@ def test_focus_checks_wait_for_registration_show_and_initial_focus() -> None:
     assert len(scheduled) == 1
     assert isinstance(scheduled[0], ScheduleOutsideFocusCheck)
     assert transitions.focus(OutsideFocusCheckRequested()) == ()
+
+
+def test_outside_pointer_press_closes_shown_popup_even_when_initial_focus_failed() -> None:
+    transitions = PopupExternalOutputTransitions()
+    transitions.focus(PopupRegistered())
+    transitions.focus(PopupShown())
+
+    assert transitions.focus(OutsidePointerPressed(pinned=False)) == (
+        SetFocusProjection(False),
+        ReportControlSurfaceReleased(),
+        RequestPopupClose(),
+    )
+
+
+def test_outside_pointer_press_respects_pin_and_owned_dialog_guards() -> None:
+    transitions = PopupExternalOutputTransitions()
+    transitions.focus(PopupRegistered())
+    transitions.focus(PopupShown())
+
+    assert transitions.focus(OutsidePointerPressed(pinned=True)) == (
+        SetFocusProjection(False),
+        ReportControlSurfaceReleased(),
+    )
+
+    transitions.focus(OwnedDialogOpened())
+    assert transitions.focus(OutsidePointerPressed(pinned=False)) == ()
 
 
 def test_new_focus_invalidates_a_stale_outside_check_generation() -> None:

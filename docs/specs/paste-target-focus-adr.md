@@ -22,11 +22,15 @@ focus or the destination of the paste side effect.
 - Capture the target when `PasteResult` begins. A later foreground observation
   cannot redirect that operation.
 - Show focus and destination with both a persistent label and border state.
-- Establish initial interactive Popup focus only after layout and raise have
-  completed. Voice Listening and Finalizing remain non-activating; their first
-  focus request occurs when Voice Review becomes interactive. Report
-  `FocusEntered` only when the toolkit confirms focus is inside that Popup. A
-  failed focus request is not focus truth.
+- Establish initial interactive Popup focus only after layout and native window
+  activation have completed. All shortcut-created result Popups, including
+  Voice Listening and Finalizing, request foreground activation immediately.
+  Report `FocusEntered` only when both native activation and toolkit focus are
+  confirmed; a failed focus request is not focus truth.
+- Treat native outside-pointer presses as an independent Popup lifecycle fact.
+  A visible unpinned Popup closes on the first outside press even when Windows
+  denied its initial foreground request. The same transition owner retains the
+  pin, owned-dialog, and active-Paste guards.
 - Reject an unavailable target and focus the Popup with a visible error. Never
   fall back to whichever window happens to be foreground.
 - Keep window titles out of persistence, logs, and diagnostics.
