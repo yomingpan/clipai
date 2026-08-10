@@ -6,12 +6,22 @@
   let capture = null;
   const emit = payload => window.pywebview.api.emit(payload);
   const stopTracks = stream => { if (stream) stream.getTracks().forEach(track => track.stop()); };
-  const finish = async (item, failure = "") => {
+  const microphoneFailure = error => {
+    const name = error && error.name;
+    if (name === "NotAllowedError" || name === "SecurityError") {
+      return {failure: "permission_denied", detail: "Microphone permission was denied."};
+    }
+    if (name === "NotFoundError" || name === "DevicesNotFoundError" || name === "OverconstrainedError") {
+      return {failure: "unavailable", detail: "No microphone was detected. Connect one and try again."};
+    }
+    return {failure: "initialization_failed", detail: "Voice Input could not start. Check your microphone and try again."};
+  };
+  const finish = async (item, failure = "", detail = "") => {
     if (!item || item.finished) return;
     item.finished = true;
     stopTracks(item.stream);
     window.pywebview.api.hide();
-    if (failure) emit({kind: "failed", capture_id: item.id, failure});
+    if (failure) emit({kind: "failed", capture_id: item.id, failure, ...(detail ? {detail} : {})});
     emit({kind: "ended", capture_id: item.id});
     if (capture === item) capture = null;
   };
@@ -23,7 +33,10 @@
       window.pywebview.api.hide();
     } catch (error) {
       if (error && error.name === "NotAllowedError") emit({kind: "setup_blocked", setup_id: command.setup_id});
-      else emit({kind: "setup_failed", setup_id: command.setup_id, failure: "initialization_failed"});
+      else {
+        const failure = microphoneFailure(error);
+        emit({kind: "setup_failed", setup_id: command.setup_id, ...failure});
+      }
     }
   };
   const start = async command => {
@@ -53,10 +66,18 @@
         }
         if (interim) emit({kind: "interim", capture_id: item.id, text: interim});
       };
-      recognition.onerror = event => { if (!item.stopped) finish(item, event.error === "not-allowed" ? "permission_denied" : "initialization_failed"); };
+      recognition.onerror = event => {
+        if (item.stopped) return;
+        if (event.error === "not-allowed") return finish(item, "permission_denied", "Microphone permission was denied.");
+        if (event.error === "audio-capture") return finish(item, "unavailable", "No microphone was detected. Connect one and try again.");
+        finish(item, "initialization_failed", "Voice Input could not start. Check your microphone and try again.");
+      };
       recognition.onend = () => finish(item);
       recognition.start();
-    } catch (_) { finish(item, "initialization_failed"); }
+    } catch (error) {
+      const failure = microphoneFailure(error);
+      finish(item, failure.failure, failure.detail);
+    }
   };
   window.addEventListener("pywebviewready", () => {
     window.clipaiVoice = {

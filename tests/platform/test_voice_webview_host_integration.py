@@ -21,10 +21,18 @@ pytestmark = [
 
 
 class Host:
-    def __init__(self) -> None:
-        page = Path(__file__).with_name("fixtures") / "voice_webview_test_host.html"
+    def __init__(self, page: Path | None = None, *, profile_root: Path) -> None:
+        page = page or Path(__file__).with_name("fixtures") / "voice_webview_test_host.html"
         self.process = subprocess.Popen(
-            [sys.executable, "-m", "ClipAI.platform.voice_webview_host", "--test-page", str(page)],
+            [
+                sys.executable,
+                "-m",
+                "ClipAI.platform.voice_webview_host",
+                "--test-page",
+                str(page),
+                "--profile-root",
+                str(profile_root),
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -77,8 +85,8 @@ class Host:
         self.stderr.extend(self.process.stderr)
 
 
-def test_test_host_releases_fake_setup_and_capture_tracks_before_terminal() -> None:
-    host = Host()
+def test_test_host_releases_fake_setup_and_capture_tracks_before_terminal(tmp_path: Path) -> None:
+    host = Host(profile_root=tmp_path)
     try:
         assert host.next("test_loaded")["kind"] == "test_loaded"
         host.send("prepare", setup_id="setup-1", language="zh-TW")
@@ -91,6 +99,40 @@ def test_test_host_releases_fake_setup_and_capture_tracks_before_terminal() -> N
         host.send("stop", capture_id="capture-1")
         capture_state = host.next("test_state")
         assert capture_state["capture_track_stops"] == 1
+        assert host.next("ended")["capture_id"] == "capture-1"
+    finally:
+        host.close()
+
+
+def test_production_host_reports_a_missing_microphone_as_unavailable(tmp_path: Path) -> None:
+    production_page = Path(__file__).parents[2] / "ClipAI" / "platform" / "voice_webview_host.html"
+    page = tmp_path / "no-microphone.html"
+    page.write_text(
+        production_page.read_text(encoding="utf-8").replace(
+            "<script>",
+            """<script>
+Object.defineProperty(navigator, "mediaDevices", {
+  configurable: true,
+  value: {getUserMedia: async () => { throw new DOMException("No microphone", "NotFoundError"); }},
+});
+</script>
+<script>""",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    host = Host(page, profile_root=tmp_path)
+    try:
+        assert host.next("test_loaded")["kind"] == "test_loaded"
+        host.send("start", capture_id="capture-1", language="zh-TW", sequence_start=0)
+
+        assert host.next("failed") == {
+            "version": 1,
+            "kind": "failed",
+            "capture_id": "capture-1",
+            "failure": "unavailable",
+            "detail": "No microphone was detected. Connect one and try again.",
+        }
         assert host.next("ended")["capture_id"] == "capture-1"
     finally:
         host.close()

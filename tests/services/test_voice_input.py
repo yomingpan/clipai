@@ -104,6 +104,23 @@ def test_capture_permission_failure_requires_explicit_setup_repair() -> None:
     assert isinstance(transition.effects[0], RestoreVoiceReview)
 
 
+def test_missing_microphone_returns_a_retriable_review_with_a_remedy() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+
+    transition = controller.observe_engine(VoiceEngineFailed(
+        capture,
+        VoiceTransportFailure.UNAVAILABLE,
+        "No microphone was detected. Connect one and try again.",
+    ))
+
+    assert transition.projection.capability is VoiceCapabilityPhase.READY
+    assert transition.effects == (
+        RestoreVoiceReview(target(), "No microphone was detected. Connect one and try again."),
+    )
+
+
 def test_release_is_a_monotonic_stop_gate_and_late_interim_is_ignored() -> None:
     controller = ready_controller()
     capture = VoiceCaptureId("capture-1")
