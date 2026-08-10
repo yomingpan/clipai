@@ -259,7 +259,7 @@ Recipe 回饋與使用引導應測：
 
 ## Runtime 與 concurrency 測試重點
 
-- 單一主要 Popup invariant：新外部 Action 取消舊的未 pin visible Workflow；pinned Workflow 會阻擋新的主要 Popup，且不得建立第二個 Workflow surface。`Ctrl+Alt+W` 在 active Voice capture 時繼續既有 capture，否則重用目前 visible Workflow 與同一個 Popup 建立新的 Voice Draft，並保留 pinned 狀態。
+- 單一主要 Popup invariant：新外部 Action 取消舊的未 pin visible Workflow；pinned Workflow 會阻擋第二個主要 Popup，但所有 visible Action shortcut 必須重用既有 pinned Workflow 與同一個 Popup，保留 pinned 狀態並以新 invocation 取代舊 invocation。`Ctrl+Alt+W` 在 active Voice capture 時繼續既有 capture，否則同樣重用目前 visible Workflow 建立新的 Voice Draft。
 - Voice capture 不以外部 editable target 為啟動前置條件；沒有 target 時仍須建立 targetless Voice Draft，只有使用者明確執行 Paste 時才解析最新 target，解析失敗則顯示 Paste failure。
 - visible 與 headless Workflow 使用相同 identity／registration 規則；headless Workflow 不得成為 Foreground Workflow，也不得被強制成全域 singleton。
 - close/cancel 釋放 Workflow membership；visible completion 保留 membership 供 follow-up，headless completion 立即釋放。

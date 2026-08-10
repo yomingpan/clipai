@@ -10,7 +10,10 @@ permission setup and be observed as an external paste target.
 ## Decision
 
 - ClipAI permits exactly one visible Workflow Popup surface. PIN reserves that
-  surface and rejects every external Action that would create another Popup.
+  surface, so every subsequent visible Action reuses the pinned Workflow and
+  Popup instead of being rejected or creating another Popup. Reuse preserves
+  PIN state, cancels the superseded provider invocation and speech owned by the
+  replaced content, and keeps the Workflow's captured provider binding.
 - `Ctrl+Alt+W` never creates a second Popup while a visible Workflow already
   owns the surface. An active Voice capture continues; otherwise the existing
   Workflow and Popup are reused for a fresh Voice Draft, preserving PIN state.

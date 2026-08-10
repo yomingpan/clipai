@@ -359,14 +359,6 @@ class WorkflowRuntimeModule:
         if command.result_route == "speech":
             self._start_headless_action(action, command)
             return
-        if self._pinned_visible_workflow() is not None:
-            workflow_id = self._pinned_visible_workflow()
-            assert workflow_id is not None
-            self._request_attention(
-                workflow_id,
-                "目前視窗已固定。請先取消 PIN 或關閉目前視窗，再執行新的操作。",
-            )
-            return
         context = self._foreground_context()
         target = self._input_targets.resolve(context, action.external_fallback)
         contextual = target.kind == "workflow_result" and target.document is not None
@@ -376,26 +368,35 @@ class WorkflowRuntimeModule:
             record = self._records[workflow_id]
             controller = record.controller
             parent_step_id = context.step_id
-            active_id = controller.snapshot.active_invocation_id
-            if active_id is not None:
-                controller.cancel_active()
-                self._provider_execution.cancel(active_id)
         else:
-            if not self._replace_unpinned_visible_workflow():
-                return
-            workflow_id = uuid.uuid4().hex
-            target = InputTarget("external_text")
-            parent_step_id = None
-            controller = WorkflowController(
-                SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
-                _RuntimeWorkflowPresenter(self._enqueue, "visible"),
-            )
-            record = self._register(
-                workflow_id,
-                controller,
-                self._provider_configuration.active_binding,
-                "visible",
-            )
+            visible = self._visible_record()
+            if visible is not None and visible[1].controller.snapshot.pinned:
+                workflow_id, record = visible
+                controller = record.controller
+                target = InputTarget("external_text")
+                parent_step_id = None
+            else:
+                if not self._replace_unpinned_visible_workflow():
+                    return
+                workflow_id = uuid.uuid4().hex
+                target = InputTarget("external_text")
+                parent_step_id = None
+                controller = WorkflowController(
+                    SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
+                    _RuntimeWorkflowPresenter(self._enqueue, "visible"),
+                )
+                record = self._register(
+                    workflow_id,
+                    controller,
+                    self._provider_configuration.active_binding,
+                    "visible",
+                )
+        active_id = controller.snapshot.active_invocation_id
+        if active_id is not None:
+            controller.cancel_active()
+            self._provider_execution.cancel(active_id)
+        if controller.snapshot.pinned and self._speech_coordinator is not None:
+            self._speech_coordinator.cancel_workflow(workflow_id)
         invocation = ActionInvocation(
             uuid.uuid4().hex,
             action.id,
@@ -584,13 +585,6 @@ class WorkflowRuntimeModule:
             if record.presentation == "visible":
                 return workflow_id, record
         return None
-
-    def _pinned_visible_workflow(self) -> str | None:
-        visible = self._visible_record()
-        if visible is None:
-            return None
-        workflow_id, record = visible
-        return workflow_id if record.controller.snapshot.pinned else None
 
     def _replace_unpinned_visible_workflow(self) -> bool:
         visible = self._visible_record()

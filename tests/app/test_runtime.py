@@ -1329,8 +1329,8 @@ def test_short_escape_closes_focused_popup_without_stopping_unowned_speech() -> 
     assert speech.current_identity == (SpeechJob.operation_id, SpeechJob.workflow_id)
 
 
-def test_pinned_workflow_blocks_new_visible_actions_without_starting_work() -> None:
-    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+def test_pinned_workflow_reuses_the_same_popup_for_a_new_visible_action() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
     pinned_id = view.snapshots[-1].session_id
@@ -1341,13 +1341,19 @@ def test_pinned_workflow_blocks_new_visible_actions_without_starting_work() -> N
         pinned=True,
         active_invocation_id=None,
     )
+    prior_task_ids = set(supervisor.work)
 
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
+
     assert view.workflow_controller(pinned_id) is pinned
     assert pinned.snapshot.content == "keep me"
+    assert pinned.snapshot.pinned is True
+    assert pinned.snapshot.active_invocation_id is not None
+    assert pinned.snapshot.active_invocation_id not in prior_task_ids
+    assert pinned.snapshot.active_invocation_id in supervisor.work
     assert len({snapshot.session_id for snapshot in view.snapshots}) == 1
-    assert view.attentions[-1].workflow_id == pinned_id
+    assert view.attentions == []
 
 
 def test_pinned_workflow_reuses_the_same_popup_for_a_new_voice_capture() -> None:
@@ -1392,15 +1398,14 @@ def test_focused_result_popup_is_reused_instead_of_rejecting_voice_input() -> No
     assert admission.workflow_id == workflow_id
 
 
-def test_failed_popup_attention_repeats_the_warning_through_the_notifier() -> None:
+def test_failed_active_voice_attention_repeats_the_status_through_the_notifier() -> None:
     notifier = Notifier()
     runtime, view, _supervisor, _outputs, _listener = make_runtime(notifier=notifier)
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
     workflow_id = view.snapshots[-1].session_id
-    runtime.enqueue(TogglePin(workflow_id))
-    runtime.enqueue(StartAction("a", "short"))
-    runtime.drain_commands()
+    admission = runtime._workflow_module.admit_voice_shortcut(None, workflow_id)
+    assert admission.kind == "continue"
     attention = view.attentions[-1]
 
     runtime.enqueue(WorkflowAttentionCompleted(attention.attention_id, workflow_id, False))
@@ -1408,7 +1413,7 @@ def test_failed_popup_attention_repeats_the_warning_through_the_notifier() -> No
 
     assert notifier.messages[-1] == (
         "ClipAI",
-        "目前視窗已固定。請先取消 PIN 或關閉目前視窗，再執行新的操作。視窗未取得焦點，請先點選該視窗後再操作。",
+        "語音輸入進行中。視窗未取得焦點，請先點選該視窗後再操作。",
     )
 
 
@@ -1563,7 +1568,7 @@ def test_cancel_ends_workflow_and_repeated_cancel_is_idempotent() -> None:
     assert supervisor.cancelled.count(invocation_id) == 1
 
 
-def test_pinned_workflow_does_not_allow_a_stale_activation_to_create_another_popup() -> None:
+def test_pinned_workflow_ignores_stale_activation_and_reuses_its_popup() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
@@ -1577,7 +1582,9 @@ def test_pinned_workflow_does_not_allow_a_stale_activation_to_create_another_pop
 
     assert view.workflow_controller(first_id) is not None
     assert len({snapshot.session_id for snapshot in view.snapshots}) == 1
-    assert view.attentions[-1].workflow_id == first_id
+    assert workflow(view, first_id).snapshot.action_id == "shorten"
+    assert workflow(view, first_id).snapshot.active_invocation_id is not None
+    assert view.attentions == []
 
 
 def test_pinned_workflow_remains_the_only_activation_candidate() -> None:
@@ -1616,7 +1623,7 @@ def test_headless_workflow_cannot_be_activated(monkeypatch) -> None:
     assert runtime._workflow_module.has_foreground_workflow() is False
 
 
-def test_pinned_workflow_prevents_duplicate_visible_workflow_admission(monkeypatch) -> None:
+def test_pinned_workflow_reuse_prevents_duplicate_visible_workflow_admission(monkeypatch) -> None:
     class FixedIdentity:
         hex = "duplicate-workflow"
 
@@ -1631,7 +1638,8 @@ def test_pinned_workflow_prevents_duplicate_visible_workflow_admission(monkeypat
     runtime.drain_commands()
 
     assert view.workflow_controller("duplicate-workflow") is not None
-    assert view.attentions[-1].workflow_id == "duplicate-workflow"
+    assert len({snapshot.session_id for snapshot in view.snapshots}) == 1
+    assert view.attentions == []
 
 
 def test_visible_submission_failure_remains_as_failed_workflow() -> None:
@@ -1859,7 +1867,7 @@ def test_speech_reports_one_external_api_lifecycle() -> None:
     assert operations.events == [("start", f"tts:{operation_id}", "tts"), ("success", f"tts:{operation_id}")]
 
 
-def test_pinned_popup_rejects_a_second_visible_action_without_disrupting_speech() -> None:
+def test_pinned_popup_stops_owned_speech_before_reusing_the_visible_action() -> None:
     runtime, view, _supervisor, outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
@@ -1871,9 +1879,11 @@ def test_pinned_popup_rejects_a_second_visible_action_without_disrupting_speech(
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
 
-    assert view.speech_coordinator.operation_for(first_id) == "speech-a"
-    assert outputs.stops == 0
-    assert view.attentions[-1].workflow_id == first_id
+    assert view.speech_coordinator.operation_for(first_id) is None
+    assert outputs.stops == 1
+    assert first.snapshot.pinned is True
+    assert first.snapshot.active_invocation_id is not None
+    assert view.attentions == []
 
 
 def test_diagnostics_export_is_typed_supervised_work_with_feedback() -> None:
