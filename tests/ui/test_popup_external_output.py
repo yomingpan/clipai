@@ -65,6 +65,84 @@ def test_attention_uses_the_existing_popup_focus_transition_owner() -> None:
     )
 
 
+def test_attention_reveals_popup_left_hidden_after_unpinned_paste() -> None:
+    transitions = ready_transitions()
+    transitions.begin("paste", "paste-op", pinned=False)
+    transitions.acknowledge(OutputOperationResult("paste-op", "w1", "paste", "pending"))
+    terminal = transitions.acknowledge(OutputOperationResult(
+        "paste-op",
+        "w1",
+        "paste",
+        "dispatched_unconfirmed",
+        message="Paste status",
+    ))
+    assert not any(isinstance(action, SetPopupVisibility) for action in terminal)
+
+    actions = transitions.attention(
+        "attention-1",
+        "Preparing microphone",
+        duration_ms=1500,
+        request_focus=True,
+        warning=False,
+    )
+
+    assert actions == (
+        SetPopupVisibility("visible_activate"),
+        FocusPopup("attention-1"),
+        ShowOutputMessage("Preparing microphone", 1500, warning=False),
+    )
+    assert SetPopupVisibility("visible_activate") in transitions.attention(
+        "attention-2",
+        "Voice Input is active",
+        duration_ms=1500,
+        request_focus=True,
+        warning=False,
+    )
+
+    transitions.focus(FocusEntered())
+    assert SetPopupVisibility("visible_activate") not in transitions.attention(
+        "attention-3",
+        "Voice Input is active",
+        duration_ms=1500,
+        request_focus=True,
+        warning=False,
+    )
+
+
+def test_attention_waits_for_active_paste_before_revealing_popup() -> None:
+    transitions = ready_transitions()
+    transitions.begin("paste", "paste-op", pinned=False)
+    transitions.acknowledge(OutputOperationResult("paste-op", "w1", "paste", "pending"))
+
+    assert transitions.attention(
+        "attention-1",
+        "Preparing microphone",
+        duration_ms=1500,
+        request_focus=True,
+        warning=False,
+    ) == ()
+    assert transitions.attention(
+        "attention-2",
+        "Voice Input is active",
+        duration_ms=1500,
+        request_focus=True,
+        warning=False,
+    ) == ()
+
+    actions = transitions.acknowledge(OutputOperationResult(
+        "paste-op",
+        "w1",
+        "paste",
+        "dispatched_unconfirmed",
+        message="Paste status",
+    ))
+    assert actions[-3:] == (
+        SetPopupVisibility("visible_activate"),
+        FocusPopup("attention-2"),
+        ShowOutputMessage("Voice Input is active", 1500, warning=False),
+    )
+
+
 def test_stale_pending_and_terminal_acknowledgements_cannot_replace_current_operation() -> None:
     transitions = ready_transitions()
     transitions.begin("copy", "current")

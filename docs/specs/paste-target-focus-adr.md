@@ -65,8 +65,14 @@ visible because an automatic retry could duplicate content.
 copy, archive, speech, and Paste acknowledgements. Its small interface accepts
 operation begin, acknowledgement, and toolkit focus facts, then returns explicit
 UI actions. It owns stale acknowledgement rejection, Paste pin capture,
-hide/restore/no-activate decisions, and focus-check generations. BaseDialog and
-the presenter execute those actions without duplicating their policy.
+hide/restore/no-activate decisions, whether Paste still owns a withdrawal, and
+focus-check generations. A later explicit Workflow attention request restores
+a Popup that remains withdrawn after an unpinned Paste. Attention received
+before Paste settles is deferred until its ordered terminal acknowledgement so
+it cannot steal the external target before dispatch. Only an observed focus
+entry or an explicit Paste restoration releases that local withdrawal fact,
+and snapshot revisions do not imply visibility. BaseDialog and the presenter
+execute those actions without duplicating their policy.
 
 Voice Draft rendering separately preserves the current insertion caret when an
 authoritative content revision replaces widget text. Toolkit text marks remain

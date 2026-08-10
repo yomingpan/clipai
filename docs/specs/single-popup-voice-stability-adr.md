@@ -17,6 +17,8 @@ permission setup and be observed as an external paste target.
 - `Ctrl+Alt+W` never creates a second Popup while a visible Workflow already
   owns the surface. An active Voice capture continues; otherwise the existing
   Workflow and Popup are reused for a fresh Voice Draft, preserving PIN state.
+  Reuse also requests Popup attention so a surface left withdrawn after an
+  unpinned Paste is restored before the user is asked to interact with it.
 - Voice capture does not require an external editable window to be focused.
   When no target can be captured, the Voice Draft starts without one and Paste
   resolves the latest observed external target only when the explicit Paste

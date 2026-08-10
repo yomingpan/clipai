@@ -3,8 +3,8 @@ from __future__ import annotations
 import queue
 from dataclasses import replace
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech
-from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget
+from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceOrigin
 from ClipAI.ui.popup_external_output import FocusEntered, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown
@@ -25,6 +25,9 @@ class Root:
 class Dialog:
     def __init__(self, events: list[str], *, alive: bool = True) -> None:
         self.root = Root(events)
+        self.lifecycle = type("Lifecycle", (), {
+            "focus": lambda _self: events.append("focus") or True,
+        })()
         self.alive = alive
         self.pinned = False
 
@@ -344,6 +347,33 @@ def test_unpinned_unconfirmed_paste_stays_hidden_without_stealing_focus() -> Non
     assert "visibility:visible_no_activate" not in events
     assert presenter._views["s1"] is view
     assert "message:Paste was sent; confirm before trying again.:2500" in events
+
+
+def test_voice_attention_after_paste_terminal_reveals_the_existing_popup() -> None:
+    presenter, events = presenter_with_selection("selected")
+    presenter._paste("s1")
+    operation_id = events[-1].operation_id
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "paste", "pending"))
+
+    presenter._apply_attention(WorkflowAttention(
+        "attention-1",
+        "s1",
+        "Preparing microphone",
+        duration_ms=1500,
+        warning=False,
+    ))
+    assert "visibility:visible_activate" not in events
+
+    presenter._apply_output_operation(OutputOperationResult(
+        operation_id,
+        "s1",
+        "paste",
+        "dispatched_unconfirmed",
+    ))
+
+    assert "visibility:visible_activate" in events
+    assert "focus" in events
+    assert WorkflowAttentionCompleted("attention-1", "s1", True) in events
 
 
 def test_stale_paste_result_does_not_restore_current_transition() -> None:

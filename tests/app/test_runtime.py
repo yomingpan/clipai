@@ -1381,6 +1381,11 @@ def test_pinned_workflow_reuses_the_same_popup_for_a_new_voice_capture() -> None
     assert pinned.snapshot.pinned is True
     assert pinned.snapshot.voice_origin == VoiceOrigin(None)
     assert invocation_id in _supervisor.cancelled
+    attention = view.attentions[-1]
+    assert attention.workflow_id == workflow_id
+    assert attention.message.startswith("Preparing microphone")
+    assert attention.request_focus is True
+    assert attention.warning is False
 
 
 def test_focused_result_popup_is_reused_instead_of_rejecting_voice_input() -> None:

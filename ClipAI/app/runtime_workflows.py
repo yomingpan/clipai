@@ -185,6 +185,12 @@ class WorkflowRuntimeModule:
             self._speech_coordinator.cancel_workflow(workflow_id)
         controller.begin_voice_draft(target)
         self._foreground_id = workflow_id
+        self._request_attention(
+            workflow_id,
+            "Preparing microphone…",
+            duration_ms=1500,
+            warning=False,
+        )
         return controller
 
     def admit_voice_shortcut(
