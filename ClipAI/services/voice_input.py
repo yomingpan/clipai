@@ -387,6 +387,11 @@ class VoiceInputController:
     def _settle_failed(self, capture: _Capture, event: VoiceEngineFailed) -> VoiceTransition:
         target = capture.target
         self._capture = None
+        if event.failure in {
+            VoiceTransportFailure.PERMISSION_DENIED,
+            VoiceTransportFailure.PERMISSION_BLOCKED,
+        }:
+            self._capability = VoiceCapabilityPhase.PERMISSION_BLOCKED
         self._message = _failure_message(event.failure, event.detail)
         return self._transition(RestoreVoiceReview(target, self._message))
 

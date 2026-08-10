@@ -24,12 +24,14 @@ class WindowsForegroundWindowMonitor:
         user32=None,
         read_target: Callable[[int, int], tuple[int, str, str] | None] | None = None,
         process_id: int | None = None,
+        is_owned_process: Callable[[int], bool] = lambda _process_id: False,
         callback_factory=None,
     ) -> None:
         self._callback = callback
         self._user32 = user32 or ctypes.windll.user32
         self._read_target = read_target or _read_windows_target
         self._process_id = os.getpid() if process_id is None else process_id
+        self._is_owned_process = is_owned_process
         self._callback_factory = callback_factory or ctypes.WINFUNCTYPE(
             None,
             ctypes.c_void_p,
@@ -104,6 +106,8 @@ class WindowsForegroundWindowMonitor:
         if details is None:
             return None
         process_id, application_name, window_title = details
+        if self._is_owned_process(process_id):
+            return None
         with self._lock:
             self._sequence += 1
             sequence = self._sequence

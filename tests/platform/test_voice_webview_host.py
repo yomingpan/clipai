@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
-from ClipAI.platform.voice_webview_host import allow_microphone_permission, voice_webview_profile_dir
+from ClipAI.platform.voice_webview_host import (
+    _Api,
+    _dispatch_host_command,
+    allow_microphone_permission,
+    show_permission_surface_without_activation,
+    voice_webview_profile_dir,
+)
 
 
 class PermissionRequest:
@@ -11,6 +18,50 @@ class PermissionRequest:
         self.State = "default"
         self.SavesInProfile = False
         self.Handled = False
+
+
+class VoiceWindow:
+    def __init__(self) -> None:
+        self.display_calls: list[str] = []
+        self.javascript: list[str] = []
+
+    def show(self) -> None:
+        self.display_calls.append("show")
+
+    def restore(self) -> None:
+        self.display_calls.append("restore")
+
+    def focus(self) -> None:
+        self.display_calls.append("focus")
+
+    def evaluate_js(self, script: str) -> None:
+        self.javascript.append(script)
+
+
+class NativeWindow:
+    Handle = 42
+
+
+class PermissionSurfaceWindow:
+    native = NativeWindow()
+
+
+class User32:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    def GetWindowLongW(self, handle, index):
+        self.calls.append(("get", handle, index))
+        return 0
+
+    def SetWindowLongW(self, handle, index, value):
+        self.calls.append(("set", handle, index, value))
+
+    def SetWindowPos(self, *args):
+        self.calls.append(("position", *args))
+
+    def ShowWindow(self, handle, mode):
+        self.calls.append(("show", handle, mode))
 
 
 def test_voice_webview_profile_is_stable_for_the_current_user(tmp_path: Path) -> None:
@@ -40,13 +91,54 @@ def test_microphone_permission_is_allowed_saved_and_handled() -> None:
 
 def test_non_microphone_permissions_keep_the_webview_default() -> None:
     request = PermissionRequest("camera")
+    activations: list[str] = []
 
     allow_microphone_permission(
         request,
         microphone_kind="microphone",
         allow_state="allow",
+        activate_host=lambda: activations.append("shown"),
     )
 
     assert request.State == "default"
     assert request.SavesInProfile is False
     assert request.Handled is False
+    assert activations == []
+
+
+def test_microphone_permission_uses_the_supplied_non_activating_surface() -> None:
+    request = PermissionRequest("microphone")
+    activations: list[str] = []
+
+    allow_microphone_permission(
+        request,
+        microphone_kind="microphone",
+        allow_state="allow",
+        activate_host=lambda: activations.append("shown"),
+    )
+
+    assert activations == ["shown"]
+
+
+def test_permission_surface_is_a_non_activating_tool_window() -> None:
+    user32 = User32()
+
+    assert show_permission_surface_without_activation(PermissionSurfaceWindow(), user32=user32) is True
+
+    assert user32.calls[-1] == ("show", 42, 4)
+    assert any(call[0] == "position" and call[3:7] == (-32000, -32000, 1, 1) for call in user32.calls)
+
+
+def test_voice_commands_do_not_show_or_focus_the_hidden_host_window() -> None:
+    window = VoiceWindow()
+    loaded = threading.Event()
+    loaded.set()
+    assert _dispatch_host_command(
+        window,
+        _Api(threading.Event()),
+        {"command": "start", "capture_id": "capture-1"},
+        loaded=loaded,
+    ) is True
+
+    assert window.display_calls == []
+    assert len(window.javascript) == 1

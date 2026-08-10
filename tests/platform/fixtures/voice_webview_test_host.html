@@ -12,7 +12,10 @@
     if (kind === "setup") setupTrackStops += 1;
     else captureTrackStops += 1;
   }}]});
-  navigator.mediaDevices = {getUserMedia: async () => stream(nextStreamKind)};
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: {getUserMedia: async () => stream(nextStreamKind)},
+  });
   class FakeRecognition {
     start() { this.onstart(); }
     stop() { this.onend(); }
