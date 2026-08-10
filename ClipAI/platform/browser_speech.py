@@ -23,6 +23,7 @@ from ClipAI.core.voice import (
     VoiceSetupId,
     VoiceTransportFailure,
 )
+from ClipAI.platform.voice_webview_profile import reset_voice_webview_profile
 
 
 VOICE_PROTOCOL_VERSION = 1
@@ -90,6 +91,11 @@ class BrowserSpeechWebView2Engine:
 
     def cancel_capture(self, capture_id: VoiceCaptureId) -> None:
         self._request_capture_termination(capture_id, "cancel")
+
+    def reset_permission_profile(self) -> None:
+        """Forget only this app-owned WebView profile after a user requests repair."""
+        self.shutdown()
+        reset_voice_webview_profile(self._profile_root or Path.cwd())
 
     def _request_capture_termination(self, capture_id: VoiceCaptureId, command: str) -> None:
         try:

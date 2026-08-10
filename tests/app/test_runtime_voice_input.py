@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceShortcutAdmission
-from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, ShortcutPressEnded, ShortcutPressStarted, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
+from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
@@ -16,6 +16,7 @@ class Engine:
     def stop_capture(self, capture_id) -> None: self.calls.append(("stop", capture_id))
     def cancel_capture(self, capture_id) -> None: self.calls.append(("cancel", capture_id))
     def shutdown(self) -> None: self.calls.append(("shutdown",))
+    def reset_permission_profile(self) -> None: self.calls.append(("reset_permission_profile",))
 
 
 class Workflow:
@@ -240,6 +241,30 @@ def test_setup_permission_blocked_stays_visible_with_authoritative_projection() 
     assert runtime.handle(VoiceEngineEventReceived(VoiceEngineSetupBlocked(operation))) is True
 
     assert setup.projections[-1].capability is VoiceCapabilityPhase.PERMISSION_BLOCKED
+
+
+def test_permission_repair_resets_only_the_voice_profile_before_retrying_setup() -> None:
+    engine, workflows, setup = Engine(), Workflows(), Setup()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        setup_presenter=setup,
+    )
+    blocked = VoiceSetupId("blocked-setup")
+    retry = VoiceSetupId("repair-setup")
+
+    runtime.handle(EnableVoiceInput(blocked))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineSetupBlocked(blocked)))
+
+    assert runtime.handle(RetryVoiceInputSetup(retry)) is True
+    assert engine.calls == [
+        ("prepare", blocked, "zh-TW"),
+        ("reset_permission_profile",),
+        ("prepare", retry, "zh-TW"),
+    ]
+    assert setup.projections[-1].capability is VoiceCapabilityPhase.REQUESTING_PERMISSION
 
 
 def test_permission_settings_intent_does_not_mutate_voice_state() -> None:

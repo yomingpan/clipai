@@ -10,6 +10,7 @@ from ClipAI.platform.voice_webview_host import (
     show_permission_surface_without_activation,
     voice_webview_profile_dir,
 )
+from ClipAI.platform.voice_webview_profile import reset_voice_webview_profile
 
 
 class PermissionRequest:
@@ -73,6 +74,17 @@ def test_voice_webview_profile_is_stable_for_the_current_user(tmp_path: Path) ->
     assert first == local_app_data / "ClipAI" / "VoiceWebView"
     assert first == second
     assert first.is_dir()
+
+
+def test_explicit_profile_repair_removes_only_the_app_owned_voice_profile(tmp_path: Path) -> None:
+    local_app_data = tmp_path / "AppData" / "Local"
+    profile = voice_webview_profile_dir(local_app_data)
+    (profile / "permission-state").write_text("denied", encoding="utf-8")
+
+    reset_voice_webview_profile(local_app_data)
+
+    assert not profile.exists()
+    assert local_app_data.exists()
 
 
 def test_microphone_permission_is_allowed_saved_and_handled() -> None:

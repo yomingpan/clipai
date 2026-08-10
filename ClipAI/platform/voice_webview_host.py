@@ -9,13 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ClipAI.platform.browser_speech import VOICE_PROTOCOL_VERSION
-
-
-def voice_webview_profile_dir(local_app_data: Path) -> Path:
-    """Return the app-owned WebView profile that retains microphone consent."""
-    profile = local_app_data / "ClipAI" / "VoiceWebView"
-    profile.mkdir(parents=True, exist_ok=True)
-    return profile
+from ClipAI.platform.voice_webview_profile import voice_webview_profile_dir
 
 
 def allow_microphone_permission(

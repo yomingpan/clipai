@@ -281,6 +281,13 @@ class EnableVoiceInput:
 
 
 @dataclass(frozen=True)
+class RetryVoiceInputSetup:
+    """Explicitly discard ClipAI's saved WebView permission before retrying setup."""
+
+    setup_id: VoiceSetupId
+
+
+@dataclass(frozen=True)
 class OpenVoiceSetup:
     pass
 
@@ -352,4 +359,4 @@ class UpdateVoiceDraft:
     text: str
 
 
-AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft
+AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

@@ -5,10 +5,10 @@ import threading
 from collections.abc import Callable
 
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
 from ClipAI.core.ports import UserNotifier, VoiceInputEngine, VoiceSetupPresenter
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceLanguageChangeId, VoiceProjection
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
 from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
 
@@ -123,13 +123,27 @@ class VoiceInputRuntimeModule:
         self._execute(transition)
         return True
 
-    def handle(self, command: OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
+    def handle(self, command: OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
         if isinstance(command, OpenVoiceSetup):
             if self._setup_presenter is not None:
                 self._setup_presenter.show_voice_setup()
             return True
         if isinstance(command, OpenVoicePermissionSettings):
             self._open_permission_settings()
+            return True
+        if isinstance(command, RetryVoiceInputSetup):
+            transition = self._controller.request_setup(command.setup_id)
+            if transition.ignored:
+                return False
+            try:
+                self._engine.reset_permission_profile()
+            except OSError:
+                transition = self._controller.complete_setup(VoiceEngineSetupFailed(
+                    command.setup_id,
+                    VoiceTransportFailure.INITIALIZATION_FAILED,
+                    "ClipAI could not reset its microphone permission. Close any ClipAI helper windows and try again.",
+                ))
+            self._execute(transition)
             return True
         if isinstance(command, VoiceCaptureWatchdogExpired):
             self._cancel_watchdog(command.press_id)
