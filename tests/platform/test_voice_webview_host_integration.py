@@ -136,3 +136,20 @@ Object.defineProperty(navigator, "mediaDevices", {
         assert host.next("ended")["capture_id"] == "capture-1"
     finally:
         host.close()
+
+
+def test_production_host_enters_listening_for_an_allowed_microphone(tmp_path: Path) -> None:
+    production_page = Path(__file__).parents[2] / "ClipAI" / "platform" / "voice_webview_host.html"
+    host = Host(production_page, profile_root=tmp_path)
+    try:
+        assert host.next("test_loaded")["kind"] == "test_loaded"
+        host.send("prepare", setup_id="setup-1", language="zh-TW")
+        assert host.next("setup_ready")["setup_id"] == "setup-1"
+
+        host.send("start", capture_id="capture-1", language="zh-TW", sequence_start=0)
+        assert host.next("listening", timeout=15)["capture_id"] == "capture-1"
+
+        host.send("stop", capture_id="capture-1")
+        assert host.next("ended")["capture_id"] == "capture-1"
+    finally:
+        host.close()

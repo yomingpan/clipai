@@ -22,6 +22,11 @@ permission setup and be observed as an external paste target.
   admitted Push-to-Talk capture, using a non-activating tool surface. Stop,
   cancel, and all unknown helper requests fail closed. This supports WebView2
   runtimes that re-request microphone access when capture begins after setup.
+- Before an admitted capture starts, the platform host first applies that
+  non-activating native style and then performs pywebview's `show()` lifecycle
+  transition. A raw off-screen native show is insufficient for Web Speech to
+  enter Listening. The page hides the helper as soon as Listening begins; the
+  host must not restore or explicitly focus it.
 - The Browser Speech helper process is registered as app-owned and can never be
   selected as a `PasteTarget`.
 

@@ -5,8 +5,8 @@ installed. Record the OS build, WebView2 Runtime version, microphone device, and
 whether browser permission was new or previously granted.
 
 Before the hardware matrix, run the controlled WebView bridge integration on an
-interactive Windows desktop (it uses fake media and recognition, not the real
-microphone):
+interactive Windows desktop. It covers fake-media protocol lifecycle, a missing
+microphone failure, and a permitted physical microphone reaching Listening:
 
 ```powershell
 $env:CLIPAI_RUN_VOICE_WEBVIEW_INTEGRATION = "1"

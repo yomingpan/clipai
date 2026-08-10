@@ -25,10 +25,12 @@ class PermissionRequest:
 class VoiceWindow:
     def __init__(self) -> None:
         self.display_calls: list[str] = []
+        self.lifecycle_calls: list[str] = []
         self.javascript: list[str] = []
 
     def show(self) -> None:
         self.display_calls.append("show")
+        self.lifecycle_calls.append("show")
 
     def restore(self) -> None:
         self.display_calls.append("restore")
@@ -150,16 +152,22 @@ def test_permission_surface_is_a_non_activating_tool_window() -> None:
     assert any(call[0] == "position" and call[3:7] == (-32000, -32000, 1, 1) for call in user32.calls)
 
 
-def test_voice_commands_do_not_show_or_focus_the_hidden_host_window() -> None:
+def test_start_command_makes_the_host_available_without_restore_or_explicit_focus() -> None:
     window = VoiceWindow()
     loaded = threading.Event()
     loaded.set()
+    def prepare_capture_surface(surface: VoiceWindow) -> bool:
+        surface.lifecycle_calls.append("surface")
+        return True
+
     assert _dispatch_host_command(
         window,
         _Api(threading.Event()),
         {"command": "start", "capture_id": "capture-1"},
         loaded=loaded,
+        capture_surface=prepare_capture_surface,
     ) is True
 
-    assert window.display_calls == []
+    assert window.display_calls == ["show"]
+    assert window.lifecycle_calls == ["surface", "show"]
     assert len(window.javascript) == 1

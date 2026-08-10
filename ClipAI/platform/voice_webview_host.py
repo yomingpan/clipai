@@ -139,6 +139,7 @@ def _dispatch_host_command(
     *,
     loaded: threading.Event,
     permission_command: list[str] | None = None,
+    capture_surface: Callable[[Any], bool] | None = show_permission_surface_without_activation,
 ) -> bool:
     """Forward one validated transport command to the voice page.
 
@@ -158,6 +159,17 @@ def _dispatch_host_command(
         return True
     if permission_command is not None and name in {"prepare", "start"}:
         permission_command[0] = name
+    if name == "start" and capture_surface is not None:
+        try:
+            # Web Speech requires its WebView host to be available when capture
+            # begins. Request a non-activating native surface first, then let
+            # pywebview record its own visible lifecycle transition.
+            capture_surface(window)
+            # pywebview records this lifecycle transition independently from its
+            # native handle. The non-activating style is already in place.
+            window.show()
+        except Exception:
+            pass
     # This is an intentionally hidden host. It has an explicit WebView2
     # microphone-permission policy and a persistent app-owned profile, so
     # preparing or starting capture must not steal focus from the user's work.
