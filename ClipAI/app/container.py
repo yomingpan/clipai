@@ -18,6 +18,7 @@ from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
+from ClipAI.app.owned_processes import AppOwnedProcessRegistry
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
 from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
@@ -233,6 +234,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         notifier=tray,
         speech_coordinator=speech_coordinator,
         user_control=user_control,
+        attention_presenter=view,
     )
     result_output_module = ResultOutputRuntimeModule(
         output_actions=output_actions,
@@ -274,15 +276,23 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         notifier=tray,
     )
     local_app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    owned_processes = AppOwnedProcessRegistry()
     voice_engine = BrowserSpeechWebView2Engine(
         lambda event: enqueue(VoiceEngineEventReceived(event)),
         profile_root=local_app_data,
+        on_process_started=owned_processes.register,
+        on_process_stopped=owned_processes.unregister,
+    )
+    foreground_monitor = WindowsForegroundWindowMonitor(
+        lambda target: runtime_holder[0].enqueue(ExternalForegroundChanged(target)),
+        is_owned_process=owned_processes.contains,
     )
     voice_input_module = VoiceInputRuntimeModule(
         controller=voice_controller,
         engine=voice_engine,
         workflows=workflow_module,
         paste_target_reader=lambda: result_output_module.current_paste_target,
+        capture_external_target=foreground_monitor.capture_foreground_target,
         persist_enabled=lambda setup_id: user_preferences_module.begin_voice_enabled(
             True,
             setup_id,
@@ -301,6 +311,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         complete_voice_preference=user_preferences_module.complete_voice_enabled,
         dispatch=enqueue,
         projection_sink=tray.set_voice_projection,
+        notifier=tray,
         setup_presenter=view,
         focused_surface_reader=lambda: user_control.focused_surface,
         open_permission_settings=open_microphone_privacy_settings,
@@ -328,9 +339,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         tray_factory=lambda _on_exit: tray,
         operation_tracker=operation_tracker,
         shortcut_guide=shortcut_guide_module,
-        foreground_monitor=WindowsForegroundWindowMonitor(
-            lambda target: runtime_holder[0].enqueue(ExternalForegroundChanged(target))
-        ),
+        foreground_monitor=foreground_monitor,
         user_control=user_control,
         voice_input=voice_input_module,
     )

@@ -24,12 +24,14 @@ class WindowsForegroundWindowMonitor:
         user32=None,
         read_target: Callable[[int, int], tuple[int, str, str] | None] | None = None,
         process_id: int | None = None,
+        is_owned_process: Callable[[int], bool] = lambda _process_id: False,
         callback_factory=None,
     ) -> None:
         self._callback = callback
         self._user32 = user32 or ctypes.windll.user32
         self._read_target = read_target or _read_windows_target
         self._process_id = os.getpid() if process_id is None else process_id
+        self._is_owned_process = is_owned_process
         self._callback_factory = callback_factory or ctypes.WINFUNCTYPE(
             None,
             ctypes.c_void_p,
@@ -62,12 +64,15 @@ class WindowsForegroundWindowMonitor:
             self._callback_ref = None
             raise OSError("Could not monitor the Windows foreground window.")
         self._hook = hook
+        self.capture_foreground_target()
+
+    def capture_foreground_target(self) -> PasteTarget | None:
+        """Capture the external foreground target at an explicit user intent."""
         try:
             current = int(self._user32.GetForegroundWindow())
         except (AttributeError, OSError, TypeError, ValueError):
-            current = 0
-        if current:
-            self._observe(current)
+            return None
+        return self._observe(current) if current else None
 
     def stop(self) -> None:
         hook = self._hook
@@ -96,23 +101,25 @@ class WindowsForegroundWindowMonitor:
         if handle:
             self._observe(handle)
 
-    def _observe(self, handle: int) -> None:
+    def _observe(self, handle: int) -> PasteTarget | None:
         details = self._read_target(handle, self._process_id)
         if details is None:
-            return
+            return None
         process_id, application_name, window_title = details
+        if self._is_owned_process(process_id):
+            return None
         with self._lock:
             self._sequence += 1
             sequence = self._sequence
-        self._callback(
-            PasteTarget(
-                window_token=f"hwnd:{handle:x}",
-                process_id=process_id,
-                application_name=application_name,
-                window_title=window_title,
-                observation_sequence=sequence,
-            )
+        target = PasteTarget(
+            window_token=f"hwnd:{handle:x}",
+            process_id=process_id,
+            application_name=application_name,
+            window_title=window_title,
+            observation_sequence=sequence,
         )
+        self._callback(target)
+        return target
 
 
 def _read_windows_target(handle: int, own_process_id: int) -> tuple[int, str, str] | None:

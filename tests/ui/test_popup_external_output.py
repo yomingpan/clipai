@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ClipAI.core.models import OutputOperationResult, UserFacingError
-from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
+from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 
 
 def ready_transitions() -> PopupExternalOutputTransitions:
@@ -46,6 +46,101 @@ def test_archive_success_returns_conditional_confirmation() -> None:
     )
 
     assert ShowOutputMessage("已封存", 1000, only_when_overflow_collapsed=True) in actions
+
+
+def test_attention_uses_the_existing_popup_focus_transition_owner() -> None:
+    transitions = ready_transitions()
+
+    actions = transitions.attention(
+        "attention-1",
+        "目前此內容無法使用語音輸入",
+        duration_ms=3000,
+        request_focus=True,
+        warning=True,
+    )
+
+    assert actions == (
+        FocusPopup("attention-1"),
+        ShowOutputMessage("目前此內容無法使用語音輸入", 3000, warning=True),
+    )
+
+
+def test_attention_reveals_popup_left_hidden_after_unpinned_paste() -> None:
+    transitions = ready_transitions()
+    transitions.begin("paste", "paste-op", pinned=False)
+    transitions.acknowledge(OutputOperationResult("paste-op", "w1", "paste", "pending"))
+    terminal = transitions.acknowledge(OutputOperationResult(
+        "paste-op",
+        "w1",
+        "paste",
+        "dispatched_unconfirmed",
+        message="Paste status",
+    ))
+    assert not any(isinstance(action, SetPopupVisibility) for action in terminal)
+
+    actions = transitions.attention(
+        "attention-1",
+        "Preparing microphone",
+        duration_ms=1500,
+        request_focus=True,
+        warning=False,
+    )
+
+    assert actions == (
+        SetPopupVisibility("visible_activate"),
+        FocusPopup("attention-1"),
+        ShowOutputMessage("Preparing microphone", 1500, warning=False),
+    )
+    assert SetPopupVisibility("visible_activate") in transitions.attention(
+        "attention-2",
+        "Voice Input is active",
+        duration_ms=1500,
+        request_focus=True,
+        warning=False,
+    )
+
+    transitions.focus(FocusEntered())
+    assert SetPopupVisibility("visible_activate") not in transitions.attention(
+        "attention-3",
+        "Voice Input is active",
+        duration_ms=1500,
+        request_focus=True,
+        warning=False,
+    )
+
+
+def test_attention_waits_for_active_paste_before_revealing_popup() -> None:
+    transitions = ready_transitions()
+    transitions.begin("paste", "paste-op", pinned=False)
+    transitions.acknowledge(OutputOperationResult("paste-op", "w1", "paste", "pending"))
+
+    assert transitions.attention(
+        "attention-1",
+        "Preparing microphone",
+        duration_ms=1500,
+        request_focus=True,
+        warning=False,
+    ) == ()
+    assert transitions.attention(
+        "attention-2",
+        "Voice Input is active",
+        duration_ms=1500,
+        request_focus=True,
+        warning=False,
+    ) == ()
+
+    actions = transitions.acknowledge(OutputOperationResult(
+        "paste-op",
+        "w1",
+        "paste",
+        "dispatched_unconfirmed",
+        message="Paste status",
+    ))
+    assert actions[-3:] == (
+        SetPopupVisibility("visible_activate"),
+        FocusPopup("attention-2"),
+        ShowOutputMessage("Voice Input is active", 1500, warning=False),
+    )
 
 
 def test_stale_pending_and_terminal_acknowledgements_cannot_replace_current_operation() -> None:
@@ -143,6 +238,32 @@ def test_focus_checks_wait_for_registration_show_and_initial_focus() -> None:
     assert len(scheduled) == 1
     assert isinstance(scheduled[0], ScheduleOutsideFocusCheck)
     assert transitions.focus(OutsideFocusCheckRequested()) == ()
+
+
+def test_outside_pointer_press_closes_shown_popup_even_when_initial_focus_failed() -> None:
+    transitions = PopupExternalOutputTransitions()
+    transitions.focus(PopupRegistered())
+    transitions.focus(PopupShown())
+
+    assert transitions.focus(OutsidePointerPressed(pinned=False)) == (
+        SetFocusProjection(False),
+        ReportControlSurfaceReleased(),
+        RequestPopupClose(),
+    )
+
+
+def test_outside_pointer_press_respects_pin_and_owned_dialog_guards() -> None:
+    transitions = PopupExternalOutputTransitions()
+    transitions.focus(PopupRegistered())
+    transitions.focus(PopupShown())
+
+    assert transitions.focus(OutsidePointerPressed(pinned=True)) == (
+        SetFocusProjection(False),
+        ReportControlSurfaceReleased(),
+    )
+
+    transitions.focus(OwnedDialogOpened())
+    assert transitions.focus(OutsidePointerPressed(pinned=False)) == ()
 
 
 def test_new_focus_invalidates_a_stale_outside_check_generation() -> None:

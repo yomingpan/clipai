@@ -10,11 +10,13 @@ from ClipAI.core.voice import (
     VoiceDraftTarget,
     VoiceEngineEnded,
     VoiceEngineFinalSegment,
+    VoiceEngineFailed,
     VoiceEngineInterim,
     VoiceEngineListening,
     VoiceEngineSetupReady,
     VoiceLanguage,
     VoiceSetupId,
+    VoiceTransportFailure,
 )
 from ClipAI.services.voice_input import (
     CancelVoiceCapture,
@@ -85,6 +87,38 @@ def test_capture_admission_is_single_flight_and_listening_waits_for_engine_ack()
     assert starting.effects == (StartVoiceCapture(capture, "zh-TW"),)
     assert controller.request_capture(VoiceCaptureId("capture-2"), target()).ignored is True
     assert controller.observe_engine(VoiceEngineListening(capture)).projection.capture_phase.value == "listening"
+
+
+def test_capture_permission_failure_requires_explicit_setup_repair() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+
+    transition = controller.observe_engine(VoiceEngineFailed(
+        capture,
+        VoiceTransportFailure.PERMISSION_DENIED,
+    ))
+
+    assert transition.projection.capability is VoiceCapabilityPhase.PERMISSION_BLOCKED
+    assert transition.projection.capture_id is None
+    assert isinstance(transition.effects[0], RestoreVoiceReview)
+
+
+def test_missing_microphone_returns_a_retriable_review_with_a_remedy() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+
+    transition = controller.observe_engine(VoiceEngineFailed(
+        capture,
+        VoiceTransportFailure.UNAVAILABLE,
+        "No microphone was detected. Connect one and try again.",
+    ))
+
+    assert transition.projection.capability is VoiceCapabilityPhase.READY
+    assert transition.effects == (
+        RestoreVoiceReview(target(), "No microphone was detected. Connect one and try again."),
+    )
 
 
 def test_release_is_a_monotonic_stop_gate_and_late_interim_is_ignored() -> None:

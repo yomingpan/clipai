@@ -9,12 +9,13 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelVoiceCapture, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft
-from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelVoiceCapture, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
+from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
-from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
+from ClipAI.ui.pointer_input import PointerPressReader, WindowsPointerPressReader
+from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
@@ -77,12 +78,18 @@ class LatestSnapshotMailbox:
 class ResultDialogPresenter:
     """One persistent Tk root that renders any number of session Toplevels."""
 
-    def __init__(self, display_metrics: DisplayMetricsReader | None = None, layout_policy: PopupLayoutPolicy | None = None) -> None:
+    def __init__(
+        self,
+        display_metrics: DisplayMetricsReader | None = None,
+        layout_policy: PopupLayoutPolicy | None = None,
+        pointer_press_reader: PointerPressReader | None = None,
+    ) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
         self._updates = LatestSnapshotMailbox()
         self._output_updates: queue.Queue[OutputOperationResult] = queue.Queue()
         self._paste_target_updates: queue.Queue[PasteTarget | None] = queue.Queue()
+        self._attention_updates: queue.Queue[WorkflowAttention] = queue.Queue()
         self._views: dict[str, _SessionView] = {}
         self._command_sink: Callable[[object], None] = lambda _command: None
         self._stopping = False
@@ -91,6 +98,7 @@ class ResultDialogPresenter:
         self._paste_target: PasteTarget | None = None
         self._display_metrics = display_metrics
         self._layout_policy = layout_policy or PopupLayoutPolicy()
+        self._pointer_press_reader = pointer_press_reader or WindowsPointerPressReader()
         self._provider_settings_dialog: ProviderSettingsDialog | None = None
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
         self._shortcut_guide_focus_hold_active = False
@@ -131,6 +139,9 @@ class ResultDialogPresenter:
 
     def present_paste_target(self, target: PasteTarget | None) -> None:
         self._paste_target_updates.put(target)
+
+    def present_workflow_attention(self, attention: WorkflowAttention) -> None:
+        self._attention_updates.put(attention)
 
     def show_provider_settings(self, state: ProviderSettingsState) -> None:
         if self._provider_settings_dialog is None:
@@ -245,7 +256,13 @@ class ResultDialogPresenter:
                     voice_draft_editing=_voice_draft_editing(view),
                 )
             elif isinstance(action, FocusPopup):
-                view.dialog.lifecycle.focus()
+                focus_acquired = view.dialog.lifecycle.focus()
+                if action.attention_id is not None:
+                    self._command_sink(WorkflowAttentionCompleted(
+                        action.attention_id,
+                        workflow_id,
+                        focus_acquired,
+                    ))
             elif isinstance(action, ScheduleOutsideFocusCheck):
                 self._schedule_outside_focus_check(workflow_id, view, action)
             elif isinstance(action, ReportControlSurfaceReleased):
@@ -265,6 +282,8 @@ class ResultDialogPresenter:
             elif isinstance(action, ShowOutputMessage):
                 if not action.only_when_overflow_collapsed or not view.surface.overflow_expanded:
                     view.surface.show_action_message(action.message, action.duration_ms)
+                if action.warning:
+                    view.dialog.flash("warning")
 
     def _schedule_outside_focus_check(
         self,
@@ -347,6 +366,9 @@ class ResultDialogPresenter:
             pass
 
     def _drain_updates(self) -> None:
+        point = self._pointer_press_reader.poll()
+        if point is not None:
+            self._handle_pointer_press(*point)
         while True:
             try:
                 self._apply_paste_target(self._paste_target_updates.get_nowait())
@@ -359,6 +381,47 @@ class ResultDialogPresenter:
                 break
         for snapshot in self._updates.drain():
             self._apply(snapshot)
+        while True:
+            try:
+                self._apply_attention(self._attention_updates.get_nowait())
+            except queue.Empty:
+                break
+
+    def _apply_attention(self, attention: WorkflowAttention) -> None:
+        view = self._views.get(attention.workflow_id)
+        if view is None or not view.dialog.is_alive():
+            self._command_sink(WorkflowAttentionCompleted(
+                attention.attention_id,
+                attention.workflow_id,
+                False,
+            ))
+            return
+        self._apply_transition_actions(
+            attention.workflow_id,
+            view,
+            view.external_output.attention(
+                attention.attention_id,
+                attention.message,
+                duration_ms=attention.duration_ms,
+                request_focus=attention.request_focus,
+                warning=attention.warning,
+            ),
+        )
+
+    def _handle_pointer_press(self, x: int, y: int) -> None:
+        for workflow_id, view in tuple(self._views.items()):
+            if not view.dialog.is_alive():
+                self._evict_view(workflow_id, view)
+                continue
+            if not view.dialog.is_visible():
+                continue
+            if view.dialog.contains_screen_point(x, y):
+                continue
+            self._apply_transition_actions(
+                workflow_id,
+                view,
+                view.external_output.focus(OutsidePointerPressed(pinned=view.dialog.pinned)),
+            )
 
     def _apply_paste_target(self, target: PasteTarget | None) -> None:
         current = self._paste_target
@@ -388,14 +451,7 @@ class ResultDialogPresenter:
         if view is None:
             view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
-            self._register_view(
-                snapshot.session_id,
-                view,
-                focus_on_show=snapshot.status not in {
-                    SessionStatus.VOICE_LISTENING,
-                    SessionStatus.VOICE_FINALIZING,
-                },
-            )
+            self._register_view(snapshot.session_id, view)
         previous = view.last_snapshot
         if snapshot.status is SessionStatus.VOICE_REVIEW and (
             previous is None or previous.status is not SessionStatus.VOICE_REVIEW
@@ -455,6 +511,9 @@ class ResultDialogPresenter:
 
                 view.surface.set_editable_content(snapshot.content, update_voice_draft)
                 view.surface.set_voice_draft_editing(view.voice_draft_editing)
+                if not snapshot.content and snapshot.status_text:
+                    view.dialog.flash("warning")
+                    view.surface.show_action_message(snapshot.status_text, 4000)
         elif snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
             if content_changed:

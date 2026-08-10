@@ -138,7 +138,7 @@ class VoiceDraftTarget:
 
     workflow_id: str
     expected_revision: int
-    paste_target: PasteTarget
+    paste_target: PasteTarget | None
     selection_start: int
     selection_end: int
 
@@ -151,7 +151,7 @@ class VoiceDraftTarget:
 class VoiceOrigin:
     """Workflow-owned, ephemeral canonical Voice Input draft."""
 
-    paste_target: PasteTarget
+    paste_target: PasteTarget | None
     text: str = ""
     revision: int = 0
 

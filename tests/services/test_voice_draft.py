@@ -94,6 +94,20 @@ def test_finalize_capture_splices_text_and_advances_draft_revision() -> None:
     assert finalized.voice_capture_id is None
 
 
+def test_targetless_draft_can_freeze_and_finalize_without_a_paste_destination() -> None:
+    snapshot = draft_snapshot("").evolve(voice_origin=VoiceOrigin(None))
+
+    target = voice_draft.freeze_insertion(snapshot, 0, 0)
+    assert target is not None
+    assert target.paste_target is None
+
+    finalized = voice_draft.finalize_capture(snapshot, target, "hello")
+
+    assert finalized is not None
+    assert finalized.content == "hello"
+    assert finalized.voice_origin == VoiceOrigin(None, "hello", 1)
+
+
 def test_stale_capture_cannot_overwrite_a_newer_edit() -> None:
     snapshot = draft_snapshot()
     target = voice_draft.freeze_insertion(snapshot, 5, 5)

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
-from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, ShortcutPressEnded, ShortcutPressStarted, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
+from ClipAI.app.runtime_workflows import VoiceShortcutAdmission
+from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
@@ -15,6 +16,7 @@ class Engine:
     def stop_capture(self, capture_id) -> None: self.calls.append(("stop", capture_id))
     def cancel_capture(self, capture_id) -> None: self.calls.append(("cancel", capture_id))
     def shutdown(self) -> None: self.calls.append(("shutdown",))
+    def reset_permission_profile(self) -> None: self.calls.append(("reset_permission_profile",))
 
 
 class Workflow:
@@ -31,6 +33,41 @@ class Workflows:
     def controller_for(self, workflow_id): return self.controllers.get(workflow_id)
     def capture_target_for_voice_review(self, workflow_id):
         return VoiceDraftTarget(workflow_id, 0, PasteTarget("hwnd:1", 1, "Editor", "private", 1), 2, 2)
+    def admit_voice_shortcut(self, focused_surface, _active_voice_workflow_id):
+        if focused_surface is not None and focused_surface.kind == "workflow":
+            return VoiceShortcutAdmission(
+                "voice_review",
+                workflow_id=focused_surface.surface_id,
+                target=self.capture_target_for_voice_review(focused_surface.surface_id),
+            )
+        return VoiceShortcutAdmission("create")
+
+
+class RejectedWorkflows(Workflows):
+    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
+        return VoiceShortcutAdmission(
+            "rejected",
+            workflow_id="pinned-workflow",
+            message="目前此內容無法使用語音輸入",
+        )
+
+
+class ContinuingWorkflows(Workflows):
+    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
+        return VoiceShortcutAdmission("continue", workflow_id="pinned-workflow")
+
+
+class ReusingWorkflows(Workflows):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reused = []
+        self.controllers["pinned-workflow"] = Workflow()
+
+    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
+        return VoiceShortcutAdmission("reuse", workflow_id="pinned-workflow")
+
+    def reuse_voice_workflow(self, workflow_id, target):
+        self.reused.append((workflow_id, target))
 
 
 class Setup:
@@ -38,6 +75,11 @@ class Setup:
     def show_voice_setup(self) -> None: self.shown += 1
     def close_voice_setup(self) -> None: self.closed += 1
     def set_voice_projection(self, projection) -> None: self.projections.append(projection)
+
+
+class Notifier:
+    def __init__(self) -> None: self.messages = []
+    def notify(self, title, message) -> None: self.messages.append((title, message))
 
 
 class Watchdog:
@@ -63,6 +105,88 @@ def test_ptt_flow_creates_workflow_after_admission_and_applies_finalized_text() 
     assert engine.calls[1] == ("stop", capture_id)
     workflow_id = workflows.created[0][0]
     assert workflows.controllers[workflow_id].applied[0][1] == "hello"
+
+
+def test_ptt_captures_the_current_external_target_when_the_cached_target_is_missing() -> None:
+    engine, workflows = Engine(), Workflows()
+    cached_target = None
+    current_target = PasteTarget("hwnd:2", 2, "Writer", "Draft", 2)
+    captured = []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: cached_target,
+        capture_external_target=lambda: captured.append(True) or current_target,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(2, "voice_input")) is True
+    assert captured == [True]
+    assert workflows.created[0][1] == current_target
+    assert engine.calls == [("start", "voice-press-2", "zh-TW", 0)]
+
+
+def test_ptt_without_an_external_target_starts_a_targetless_voice_draft() -> None:
+    engine, workflows, notifier = Engine(), Workflows(), Notifier()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        notifier=notifier,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(3, "voice_input")) is True
+    assert workflows.created[0][1] is None
+    assert engine.calls == [("start", "voice-press-3", "zh-TW", 0)]
+    assert notifier.messages == []
+
+
+def test_pinned_voice_rejection_does_not_capture_an_external_target_or_start_the_engine() -> None:
+    engine, workflows, notifier, captured = Engine(), RejectedWorkflows(), Notifier(), []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        capture_external_target=lambda: captured.append(True) or None,
+        notifier=notifier,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(30, "voice_input")) is False
+    assert captured == []
+    assert workflows.created == []
+    assert engine.calls == []
+    assert notifier.messages == [("Voice Input", "目前此內容無法使用語音輸入")]
+
+
+def test_active_pinned_voice_shortcut_is_consumed_without_creating_a_second_capture() -> None:
+    engine, workflows = Engine(), ContinuingWorkflows()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(31, "voice_input")) is True
+    assert workflows.created == []
+    assert engine.calls == []
+
+
+def test_inactive_pinned_workflow_is_reused_for_a_new_voice_capture() -> None:
+    engine, workflows = Engine(), ReusingWorkflows()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(32, "voice_input")) is True
+    assert workflows.created == []
+    assert workflows.reused == [("pinned-workflow", None)]
+    assert engine.calls == [("start", "voice-press-32", "zh-TW", 0)]
 
 
 def test_disable_waits_for_persisted_preference_after_engine_shutdown() -> None:
@@ -145,6 +269,30 @@ def test_setup_permission_blocked_stays_visible_with_authoritative_projection() 
     assert runtime.handle(VoiceEngineEventReceived(VoiceEngineSetupBlocked(operation))) is True
 
     assert setup.projections[-1].capability is VoiceCapabilityPhase.PERMISSION_BLOCKED
+
+
+def test_permission_repair_resets_only_the_voice_profile_before_retrying_setup() -> None:
+    engine, workflows, setup = Engine(), Workflows(), Setup()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        setup_presenter=setup,
+    )
+    blocked = VoiceSetupId("blocked-setup")
+    retry = VoiceSetupId("repair-setup")
+
+    runtime.handle(EnableVoiceInput(blocked))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineSetupBlocked(blocked)))
+
+    assert runtime.handle(RetryVoiceInputSetup(retry)) is True
+    assert engine.calls == [
+        ("prepare", blocked, "zh-TW"),
+        ("reset_permission_profile",),
+        ("prepare", retry, "zh-TW"),
+    ]
+    assert setup.projections[-1].capability is VoiceCapabilityPhase.REQUESTING_PERMISSION
 
 
 def test_permission_settings_intent_does_not_mutate_voice_state() -> None:

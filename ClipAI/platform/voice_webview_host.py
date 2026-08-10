@@ -4,17 +4,17 @@ import json
 import sys
 import threading
 from argparse import ArgumentParser
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from ClipAI.platform.browser_speech import VOICE_PROTOCOL_VERSION
+from ClipAI.platform.voice_webview_profile import voice_webview_profile_dir
 
 
-def voice_webview_profile_dir(local_app_data: Path) -> Path:
-    """Return the app-owned WebView profile that retains microphone consent."""
-    profile = local_app_data / "ClipAI" / "VoiceWebView"
-    profile.mkdir(parents=True, exist_ok=True)
-    return profile
+def is_explicit_voice_microphone_request(command: str) -> bool:
+    """Only explicit setup or admitted Push-to-Talk capture may access the microphone."""
+    return command in {"prepare", "start"}
 
 
 def allow_microphone_permission(
@@ -22,25 +22,86 @@ def allow_microphone_permission(
     *,
     microphone_kind: object,
     allow_state: object,
+    activate_host: Callable[[], None] | None = None,
 ) -> None:
-    """Resolve only WebView microphone requests without showing its prompt."""
+    """Resolve and persist only WebView microphone permission requests."""
     if request.PermissionKind != microphone_kind:
         return
+    if activate_host is not None:
+        try:
+            # A newly created, fully hidden WebView2 cannot complete its first
+            # getUserMedia permission handshake. Show only for that real
+            # permission request; do not restore or focus the host.
+            activate_host()
+        except Exception:
+            pass
     request.State = allow_state
     request.SavesInProfile = True
     request.Handled = True
 
 
-def _attach_microphone_permission_handler(window: Any, retained_handlers: list[Any]) -> None:
+def show_permission_surface_without_activation(window: Any, *, user32: Any | None = None) -> bool:
+    """Make the WebView visible enough for consent without entering foreground."""
+    if user32 is None:
+        if sys.platform != "win32":
+            return False
+        import ctypes
+
+        user32 = ctypes.windll.user32
+    try:
+        native = window.native
+        handle = int(native.Handle)
+        gwl_exstyle = -20
+        ws_ex_toolwindow = 0x00000080
+        ws_ex_appwindow = 0x00040000
+        ws_ex_noactivate = 0x08000000
+        style = int(user32.GetWindowLongW(handle, gwl_exstyle))
+        user32.SetWindowLongW(
+            handle,
+            gwl_exstyle,
+            (style | ws_ex_toolwindow | ws_ex_noactivate) & ~ws_ex_appwindow,
+        )
+        swp_noactivate = 0x0010
+        swp_noownerzorder = 0x0200
+        swp_nozorder = 0x0004
+        swp_showwindow = 0x0040
+        user32.SetWindowPos(
+            handle,
+            0,
+            -32000,
+            -32000,
+            1,
+            1,
+            swp_noactivate | swp_noownerzorder | swp_nozorder | swp_showwindow,
+        )
+        user32.ShowWindow(handle, 4)  # SW_SHOWNOACTIVATE
+        return True
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+
+
+def _attach_microphone_permission_handler(
+    window: Any,
+    retained_handlers: list[Any],
+    permission_command: list[str],
+) -> None:
     """Attach the WebView2 permission policy on its Windows UI thread."""
     from Microsoft.Web.WebView2.Core import CoreWebView2PermissionKind, CoreWebView2PermissionState
     from System import Action
 
     def handle_permission(_sender: object, request: Any) -> None:
+        if request.PermissionKind != CoreWebView2PermissionKind.Microphone:
+            return
+        command = permission_command[0]
+        if not is_explicit_voice_microphone_request(command):
+            request.State = CoreWebView2PermissionState.Deny
+            request.Handled = True
+            return
         allow_microphone_permission(
             request,
             microphone_kind=CoreWebView2PermissionKind.Microphone,
             allow_state=CoreWebView2PermissionState.Allow,
+            activate_host=lambda: show_permission_surface_without_activation(window),
         )
 
     def attach() -> None:
@@ -71,6 +132,54 @@ class _Api:
             self._window.hide()
 
 
+def _dispatch_host_command(
+    window: Any,
+    api: _Api,
+    command: dict[str, object],
+    *,
+    loaded: threading.Event,
+    permission_command: list[str] | None = None,
+    capture_surface: Callable[[Any], bool] | None = show_permission_surface_without_activation,
+) -> bool:
+    """Forward one validated transport command to the voice page.
+
+    Returns ``False`` only when the host should exit after a shutdown request.
+    """
+    name = str(command.get("command") or "")
+    if name == "shutdown":
+        if loaded.wait(3):
+            try:
+                window.evaluate_js("window.clipaiVoice.shutdown()")
+                window.destroy()
+            except Exception:
+                pass
+        return False
+    if name not in {"prepare", "start", "stop", "cancel"} or not loaded.wait(10):
+        _emit_command_failure(api, command, "initialization_failed")
+        return True
+    if permission_command is not None and name in {"prepare", "start"}:
+        permission_command[0] = name
+    if name == "start" and capture_surface is not None:
+        try:
+            # Web Speech requires its WebView host to be available when capture
+            # begins. Request a non-activating native surface first, then let
+            # pywebview record its own visible lifecycle transition.
+            capture_surface(window)
+            # pywebview records this lifecycle transition independently from its
+            # native handle. The non-activating style is already in place.
+            window.show()
+        except Exception:
+            pass
+    # This is an intentionally hidden host. It has an explicit WebView2
+    # microphone-permission policy and a persistent app-owned profile, so
+    # preparing or starting capture must not steal focus from the user's work.
+    try:
+        window.evaluate_js(f"window.clipaiVoice.command({json.dumps(command, ensure_ascii=True)})")
+    except Exception:
+        _emit_command_failure(api, command, "initialization_failed")
+    return True
+
+
 def main(*, test_page: Path | None = None, profile_root: Path | None = None) -> None:
     import webview
 
@@ -78,6 +187,7 @@ def main(*, test_page: Path | None = None, profile_root: Path | None = None) -> 
     api = _Api(bridge_ready)
     loaded = threading.Event()
     retained_permission_handlers: list[Any] = []
+    permission_command = [""]
     html = (test_page or Path(__file__).with_name("voice_webview_host.html")).resolve()
     window = webview.create_window(
         "ClipAI Voice Engine",
@@ -98,33 +208,22 @@ def main(*, test_page: Path | None = None, profile_root: Path | None = None) -> 
                 continue
             if not isinstance(command, dict) or command.get("version") != VOICE_PROTOCOL_VERSION:
                 continue
-            name = str(command.get("command") or "")
-            if name == "shutdown":
-                if loaded.wait(3):
-                    try:
-                        window.evaluate_js("window.clipaiVoice.shutdown()")
-                        window.destroy()
-                    except Exception:
-                        pass
+            if not _dispatch_host_command(
+                window,
+                api,
+                command,
+                loaded=loaded,
+                permission_command=permission_command,
+            ):
                 return
-            if name not in {"prepare", "start", "stop", "cancel"} or not loaded.wait(10):
-                _emit_command_failure(api, command, "initialization_failed")
-                continue
-            if name in {"prepare", "start"} and test_page is None:
-                try:
-                    window.show()
-                    window.restore()
-                    window.focus()
-                except Exception:
-                    pass
-            try:
-                window.evaluate_js(f"window.clipaiVoice.command({json.dumps(command, ensure_ascii=True)})")
-            except Exception:
-                _emit_command_failure(api, command, "initialization_failed")
 
     def on_loaded() -> None:
         try:
-            _attach_microphone_permission_handler(window, retained_permission_handlers)
+            _attach_microphone_permission_handler(
+                window,
+                retained_permission_handlers,
+                permission_command,
+            )
         except Exception:
             return
 

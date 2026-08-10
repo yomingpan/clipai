@@ -5,10 +5,10 @@ import threading
 from collections.abc import Callable
 
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
-from ClipAI.core.ports import VoiceInputEngine, VoiceSetupPresenter
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceLanguageChangeId, VoiceProjection
+from ClipAI.core.ports import UserNotifier, VoiceInputEngine, VoiceSetupPresenter
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
 from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
 
@@ -33,6 +33,7 @@ class VoiceInputRuntimeModule:
         engine: VoiceInputEngine,
         workflows: WorkflowRuntimeModule,
         paste_target_reader: Callable[[], PasteTarget | None],
+        capture_external_target: Callable[[], PasteTarget | None] = lambda: None,
         persist_enabled: Callable[[str], None] = lambda _setup_id: None,
         persist_disabled: Callable[[str], None] = lambda _disable_id: None,
         persist_language: Callable[[str, str], None] = lambda _operation_id, _language: None,
@@ -43,11 +44,13 @@ class VoiceInputRuntimeModule:
         focused_surface_reader: Callable[[], ControlSurfaceRef | None] = lambda: None,
         open_permission_settings: Callable[[], None] = lambda: None,
         watchdog_schedule: Callable[[float, Callable[[], None]], object] = _schedule_watchdog,
+        notifier: UserNotifier | None = None,
     ) -> None:
         self._controller = controller
         self._engine = engine
         self._workflows = workflows
         self._paste_target_reader = paste_target_reader
+        self._capture_external_target = capture_external_target
         self._persist_enabled = persist_enabled
         self._persist_disabled = persist_disabled
         self._persist_language = persist_language
@@ -58,38 +61,46 @@ class VoiceInputRuntimeModule:
         self._focused_surface_reader = focused_surface_reader
         self._open_permission_settings = open_permission_settings
         self._watchdog_schedule = watchdog_schedule
+        self._notifier = notifier
         self._watchdogs: dict[ShortcutPressId, object] = {}
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
         focused_surface = self._focused_surface_reader()
-        if focused_surface is not None:
-            if focused_surface.kind != "workflow":
-                return False
-            target = self._workflows.capture_target_for_voice_review(focused_surface.surface_id)
-            if target is None:
-                return False
-            transition = self._controller.request_capture_for_press(command.press_id, target)
-            if transition.ignored:
-                return False
-            self._start_watchdog(command.press_id)
-            self._execute(transition)
+        admission = self._workflows.admit_voice_shortcut(
+            focused_surface,
+            self._controller.projection.workflow_id,
+        )
+        if admission.kind == "rejected":
+            self._notify_shortcut_rejected(admission.message)
+            return False
+        if admission.kind == "continue":
             return True
         if self._controller.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED:
             if self._setup_presenter is not None:
                 self._setup_presenter.show_voice_setup()
             return True
-        target = self._paste_target_reader()
-        if target is None:
-            return False
-        workflow_id = uuid.uuid4().hex
-        frozen = VoiceDraftTarget(workflow_id, 0, target, 0, 0)
+        if admission.kind == "voice_review":
+            assert admission.target is not None
+            frozen = admission.target
+        else:
+            target = self._capture_external_target() or self._paste_target_reader()
+            workflow_id = admission.workflow_id or uuid.uuid4().hex
+            frozen = VoiceDraftTarget(workflow_id, 0, target, 0, 0)
         transition = self._controller.request_capture_for_press(command.press_id, frozen)
         if transition.ignored:
+            self._notify_shortcut_rejected("Voice Input is already active.")
             return False
-        self._workflows.create_voice_workflow(workflow_id, target)
+        if admission.kind == "create":
+            self._workflows.create_voice_workflow(frozen.workflow_id, frozen.paste_target)
+        elif admission.kind == "reuse":
+            self._workflows.reuse_voice_workflow(frozen.workflow_id, frozen.paste_target)
         self._start_watchdog(command.press_id)
         self._execute(transition)
         return True
+
+    def _notify_shortcut_rejected(self, message: str) -> None:
+        if self._notifier is not None:
+            self._notifier.notify("Voice Input", message)
 
     def handle_shortcut_ended(self, command: ShortcutPressEnded) -> bool:
         transition = (
@@ -111,13 +122,27 @@ class VoiceInputRuntimeModule:
         self._execute(transition)
         return True
 
-    def handle(self, command: OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
+    def handle(self, command: OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
         if isinstance(command, OpenVoiceSetup):
             if self._setup_presenter is not None:
                 self._setup_presenter.show_voice_setup()
             return True
         if isinstance(command, OpenVoicePermissionSettings):
             self._open_permission_settings()
+            return True
+        if isinstance(command, RetryVoiceInputSetup):
+            transition = self._controller.request_setup(command.setup_id)
+            if transition.ignored:
+                return False
+            try:
+                self._engine.reset_permission_profile()
+            except OSError:
+                transition = self._controller.complete_setup(VoiceEngineSetupFailed(
+                    command.setup_id,
+                    VoiceTransportFailure.INITIALIZATION_FAILED,
+                    "ClipAI could not reset its microphone permission. Close any ClipAI helper windows and try again.",
+                ))
+            self._execute(transition)
             return True
         if isinstance(command, VoiceCaptureWatchdogExpired):
             self._cancel_watchdog(command.press_id)
@@ -168,6 +193,12 @@ class VoiceInputRuntimeModule:
             self._setup_presenter.set_voice_projection(transition.projection)
         if transition.projection.capability is VoiceCapabilityPhase.READY and self._setup_presenter is not None:
             self._setup_presenter.close_voice_setup()
+        elif (
+            transition.projection.capability is VoiceCapabilityPhase.PERMISSION_BLOCKED
+            and transition.projection.capture_id is None
+            and self._setup_presenter is not None
+        ):
+            self._setup_presenter.show_voice_setup()
         if transition.projection.workflow_id is not None:
             controller = self._workflows.controller_for(transition.projection.workflow_id)
             if controller is not None:

@@ -9,9 +9,10 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
+from ClipAI.core.voice import VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.providers.fake import FakeProvider
@@ -35,6 +36,7 @@ class FakeView:
         self.actions = None
         self.speech_coordinator = None
         self.paste_target_states = []
+        self.attentions = []
 
     def set_command_sink(self, sink) -> None:
         self.sink = sink
@@ -56,6 +58,9 @@ class FakeView:
 
     def present_paste_target(self, target) -> None:
         self.paste_target_states.append(target)
+
+    def present_workflow_attention(self, attention) -> None:
+        self.attentions.append(attention)
 
     def show_provider_settings(self, state) -> None:
         self.provider_settings_states.append(state)
@@ -598,6 +603,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         operation_tracker=operation_tracker,
         notifier=notifier,
         speech_coordinator=speech_coordinator,
+        attention_presenter=view,
     )
     output_module = ResultOutputRuntimeModule(
         output_actions=outputs,
@@ -1323,8 +1329,8 @@ def test_short_escape_closes_focused_popup_without_stopping_unowned_speech() -> 
     assert speech.current_identity == (SpeechJob.operation_id, SpeechJob.workflow_id)
 
 
-def test_global_cancel_keeps_foreground_and_completed_pinned_workflow_open() -> None:
-    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+def test_pinned_workflow_reuses_the_same_popup_for_a_new_visible_action() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
     pinned_id = view.snapshots[-1].session_id
@@ -1335,19 +1341,85 @@ def test_global_cancel_keeps_foreground_and_completed_pinned_workflow_open() -> 
         pinned=True,
         active_invocation_id=None,
     )
+    prior_task_ids = set(supervisor.work)
 
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
-    foreground_id = view.snapshots[-1].session_id
-    runtime.enqueue(InterruptAll())
-    runtime.drain_commands()
 
-    foreground = view.workflow_controller(foreground_id)
-    assert foreground is not None
-    assert foreground.snapshot.status == SessionStatus.STOPPED
-    assert foreground.snapshot.active_invocation_id is None
     assert view.workflow_controller(pinned_id) is pinned
     assert pinned.snapshot.content == "keep me"
+    assert pinned.snapshot.pinned is True
+    assert pinned.snapshot.active_invocation_id is not None
+    assert pinned.snapshot.active_invocation_id not in prior_task_ids
+    assert pinned.snapshot.active_invocation_id in supervisor.work
+    assert len({snapshot.session_id for snapshot in view.snapshots}) == 1
+    assert view.attentions == []
+
+
+def test_pinned_workflow_reuses_the_same_popup_for_a_new_voice_capture() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    runtime.enqueue(TogglePin(workflow_id))
+    runtime.drain_commands()
+    pinned = workflow(view, workflow_id)
+    invocation_id = pinned.snapshot.active_invocation_id
+    assert invocation_id is not None
+
+    reused = runtime._workflow_module.admit_voice_shortcut(None, None)
+    continued = runtime._workflow_module.admit_voice_shortcut(None, workflow_id)
+
+    assert reused.kind == "reuse"
+    assert reused.workflow_id == workflow_id
+    assert continued.kind == "continue"
+    assert continued.workflow_id == workflow_id
+
+    assert runtime._workflow_module.reuse_voice_workflow(workflow_id, None) is pinned
+    assert runtime._workflow_module.controller_for(workflow_id) is pinned
+    assert pinned.snapshot.status is SessionStatus.VOICE_PREPARING
+    assert pinned.snapshot.pinned is True
+    assert pinned.snapshot.voice_origin == VoiceOrigin(None)
+    assert invocation_id in _supervisor.cancelled
+    attention = view.attentions[-1]
+    assert attention.workflow_id == workflow_id
+    assert attention.message.startswith("Preparing microphone")
+    assert attention.request_focus is True
+    assert attention.warning is False
+
+
+def test_focused_result_popup_is_reused_instead_of_rejecting_voice_input() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+
+    admission = runtime._workflow_module.admit_voice_shortcut(
+        ControlSurfaceRef(workflow_id, "workflow"),
+        None,
+    )
+
+    assert admission.kind == "reuse"
+    assert admission.workflow_id == workflow_id
+
+
+def test_failed_active_voice_attention_repeats_the_status_through_the_notifier() -> None:
+    notifier = Notifier()
+    runtime, view, _supervisor, _outputs, _listener = make_runtime(notifier=notifier)
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    admission = runtime._workflow_module.admit_voice_shortcut(None, workflow_id)
+    assert admission.kind == "continue"
+    attention = view.attentions[-1]
+
+    runtime.enqueue(WorkflowAttentionCompleted(attention.attention_id, workflow_id, False))
+    runtime.drain_commands()
+
+    assert notifier.messages[-1] == (
+        "ClipAI",
+        "語音輸入進行中。視窗未取得焦點，請先點選該視窗後再操作。",
+    )
 
 
 def test_global_cancel_stops_pinned_invocation_and_restores_its_completed_content() -> None:
@@ -1406,7 +1478,7 @@ def test_contextual_action_reuses_active_workflow_and_prefers_popup_selection() 
     assert invocation.parent_step_id == "step-1"
 
 
-def test_released_hidden_workflow_does_not_capture_the_next_shortcut() -> None:
+def test_new_visible_action_replaces_a_released_unpinned_popup() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
@@ -1433,7 +1505,7 @@ def test_released_hidden_workflow_does_not_capture_the_next_shortcut() -> None:
     workflow_ids = {snapshot.session_id for snapshot in view.snapshots}
     assert len(workflow_ids) == 2
     assert hidden_id in workflow_ids
-    assert runtime._workflow_module.controller_for(hidden_id) is controller
+    assert runtime._workflow_module.controller_for(hidden_id) is None
 
 
 def test_contextual_action_without_popup_context_creates_external_workflow() -> None:
@@ -1501,7 +1573,7 @@ def test_cancel_ends_workflow_and_repeated_cancel_is_idempotent() -> None:
     assert supervisor.cancelled.count(invocation_id) == 1
 
 
-def test_stale_activation_does_not_replace_valid_foreground_workflow() -> None:
+def test_pinned_workflow_ignores_stale_activation_and_reuses_its_popup() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
@@ -1509,27 +1581,18 @@ def test_stale_activation_does_not_replace_valid_foreground_workflow() -> None:
     runtime.enqueue(TogglePin(first_id))
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
-    foreground_id = view.snapshots[-1].session_id
-    controller = workflow(view, foreground_id)
-    step = WorkflowStep("step-1", "a", "Action", "input", "result", "plain_text")
-    controller._snapshot = controller.snapshot.evolve(
-        status=SessionStatus.COMPLETED,
-        content=step.result_text,
-        steps=(step,),
-        displayed_step_index=0,
-        active_invocation_id=None,
-    )
-    view.context = ActiveWorkflowContext(foreground_id, step.step_id, step.result_text, "selected")
-
     runtime.enqueue(ActivateWorkflow("already-ended"))
     runtime.enqueue(StartAction("shorten", "short"))
     runtime.drain_commands()
 
-    assert view.snapshots[-1].session_id == foreground_id
-    assert workflow(view, foreground_id).snapshot.active_invocation_id is not None
+    assert view.workflow_controller(first_id) is not None
+    assert len({snapshot.session_id for snapshot in view.snapshots}) == 1
+    assert workflow(view, first_id).snapshot.action_id == "shorten"
+    assert workflow(view, first_id).snapshot.active_invocation_id is not None
+    assert view.attentions == []
 
 
-def test_ending_foreground_does_not_implicitly_activate_pinned_workflow() -> None:
+def test_pinned_workflow_remains_the_only_activation_candidate() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
@@ -1537,14 +1600,7 @@ def test_ending_foreground_does_not_implicitly_activate_pinned_workflow() -> Non
     runtime.enqueue(TogglePin(pinned_id))
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
-    foreground_id = view.snapshots[-1].session_id
-
-    runtime.enqueue(CloseSession(foreground_id))
-    runtime.drain_commands()
-    assert runtime._workflow_module.has_foreground_workflow() is False
-
-    runtime.enqueue(ActivateWorkflow(pinned_id))
-    runtime.drain_commands()
+    assert runtime._workflow_module.controller_for(pinned_id) is not None
     assert runtime._workflow_module.has_foreground_workflow() is True
 
 
@@ -1572,7 +1628,7 @@ def test_headless_workflow_cannot_be_activated(monkeypatch) -> None:
     assert runtime._workflow_module.has_foreground_workflow() is False
 
 
-def test_duplicate_workflow_identity_is_rejected(monkeypatch) -> None:
+def test_pinned_workflow_reuse_prevents_duplicate_visible_workflow_admission(monkeypatch) -> None:
     class FixedIdentity:
         hex = "duplicate-workflow"
 
@@ -1584,10 +1640,11 @@ def test_duplicate_workflow_identity_is_rejected(monkeypatch) -> None:
     runtime.drain_commands()
 
     runtime.enqueue(StartAction("a", "short"))
-    with pytest.raises(RuntimeError, match="already registered"):
-        runtime.drain_commands()
+    runtime.drain_commands()
 
     assert view.workflow_controller("duplicate-workflow") is not None
+    assert len({snapshot.session_id for snapshot in view.snapshots}) == 1
+    assert view.attentions == []
 
 
 def test_visible_submission_failure_remains_as_failed_workflow() -> None:
@@ -1815,7 +1872,7 @@ def test_speech_reports_one_external_api_lifecycle() -> None:
     assert operations.events == [("start", f"tts:{operation_id}", "tts"), ("success", f"tts:{operation_id}")]
 
 
-def test_closing_old_popup_cannot_stop_newer_popup_speech() -> None:
+def test_pinned_popup_stops_owned_speech_before_reusing_the_visible_action() -> None:
     runtime, view, _supervisor, outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
@@ -1823,21 +1880,15 @@ def test_closing_old_popup_cannot_stop_newer_popup_speech() -> None:
     first = workflow(view, first_id)
     first._snapshot = first.snapshot.evolve(status=SessionStatus.COMPLETED, content="first")
     runtime.enqueue(TogglePin(first_id))
+    runtime.enqueue(ToggleSpeech(first_id, operation_id="speech-a"))
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
-    second_id = view.snapshots[-1].session_id
-    second = workflow(view, second_id)
-    second._snapshot = second.snapshot.evolve(status=SessionStatus.COMPLETED, content="second")
 
-    runtime.enqueue(ToggleSpeech(first_id, operation_id="speech-a"))
-    runtime.enqueue(ToggleSpeech(second_id, operation_id="speech-b"))
-    runtime.drain_commands()
-    stops_after_replacement = outputs.stops
-    runtime.enqueue(CloseSession(first_id))
-    runtime.drain_commands()
-
-    assert view.speech_coordinator.operation_for(second_id) == "speech-b"
-    assert outputs.stops == stops_after_replacement
+    assert view.speech_coordinator.operation_for(first_id) is None
+    assert outputs.stops == 1
+    assert first.snapshot.pinned is True
+    assert first.snapshot.active_invocation_id is not None
+    assert view.attentions == []
 
 
 def test_diagnostics_export_is_typed_supervised_work_with_feedback() -> None:
@@ -1956,22 +2007,16 @@ def test_completion_for_non_foreground_workflow_does_not_release_current_foregro
     assert runtime._workflow_module._foreground_id == current_workflow_id
 
 
-def test_overlapping_paste_from_another_workflow_is_rejected_without_cancelling_active_dispatch() -> None:
+def test_overlapping_paste_on_the_single_popup_is_rejected_without_cancelling_active_dispatch() -> None:
     runtime, view, supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
-    first_workflow_id = view.snapshots[-1].session_id
-    first = workflow(view, first_workflow_id)
-    first._snapshot = first.snapshot.evolve(content="first")
-    runtime.enqueue(TogglePin(first_workflow_id))
-    runtime.enqueue(StartAction("a", "short"))
-    runtime.drain_commands()
-    second_workflow_id = view.snapshots[-1].session_id
-    second = workflow(view, second_workflow_id)
-    second._snapshot = second.snapshot.evolve(content="second")
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    controller._snapshot = controller.snapshot.evolve(content="first")
 
-    runtime.enqueue(PasteResult(first_workflow_id, operation_id="old-paste"))
-    runtime.enqueue(PasteResult(second_workflow_id, operation_id="new-paste"))
+    runtime.enqueue(PasteResult(workflow_id, operation_id="old-paste"))
+    runtime.enqueue(PasteResult(workflow_id, operation_id="new-paste"))
     runtime.drain_commands()
 
     assert view.output_results[-1].operation_id == "new-paste"
@@ -1981,11 +2026,8 @@ def test_overlapping_paste_from_another_workflow_is_rejected_without_cancelling_
     supervisor.work["old-paste"]()
     runtime.drain_commands()
 
-    assert view.workflow_controller(first_workflow_id) is first
-    assert view.workflow_controller(second_workflow_id) is second
+    assert view.workflow_controller(workflow_id) is controller
     assert _outputs.pasted == ["first"]
-    assert view.output_results[-1].operation_id == "old-paste"
-    assert view.output_results[-1].state == "dispatched_unconfirmed"
 
 
 def test_paste_captures_latest_target_when_operation_begins() -> None:
@@ -2007,6 +2049,26 @@ def test_paste_captures_latest_target_when_operation_begins() -> None:
 
     assert outputs.paste_targets == [target_two]
     assert view.paste_target_states[-1] == target_three
+
+
+def test_targetless_voice_draft_uses_latest_target_when_paste_begins() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    controller._snapshot = controller.snapshot.evolve(
+        content="dictated text",
+        voice_origin=VoiceOrigin(None, "dictated text"),
+    )
+
+    runtime.enqueue(PasteResult(workflow_id, operation_id="paste-op"))
+    runtime.drain_commands()
+    supervisor.work["paste-op"]()
+
+    assert outputs.paste_targets == [
+        PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
+    ]
 
 
 def test_paste_without_target_fails_without_scheduling_keyboard_output() -> None:

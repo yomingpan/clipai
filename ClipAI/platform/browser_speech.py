@@ -23,6 +23,7 @@ from ClipAI.core.voice import (
     VoiceSetupId,
     VoiceTransportFailure,
 )
+from ClipAI.platform.voice_webview_profile import reset_voice_webview_profile
 
 
 VOICE_PROTOCOL_VERSION = 1
@@ -47,11 +48,15 @@ class BrowserSpeechWebView2Engine:
         process_factory: Callable[..., Any] = subprocess.Popen,
         capture_start_timeout_schedule: Callable[[float, Callable[[], None]], object] = _schedule_capture_start_timeout,
         profile_root: Path | None = None,
+        on_process_started: Callable[[int], None] = lambda _process_id: None,
+        on_process_stopped: Callable[[int], None] = lambda _process_id: None,
     ) -> None:
         self._event_sink = event_sink
         self._process_factory = process_factory
         self._capture_start_timeout_schedule = capture_start_timeout_schedule
         self._profile_root = profile_root
+        self._on_process_started = on_process_started
+        self._on_process_stopped = on_process_stopped
         self._process: Any | None = None
         self._setup_id: VoiceSetupId | None = None
         self._capture_id: VoiceCaptureId | None = None
@@ -87,6 +92,11 @@ class BrowserSpeechWebView2Engine:
     def cancel_capture(self, capture_id: VoiceCaptureId) -> None:
         self._request_capture_termination(capture_id, "cancel")
 
+    def reset_permission_profile(self) -> None:
+        """Forget only this app-owned WebView profile after a user requests repair."""
+        self.shutdown()
+        reset_voice_webview_profile(self._profile_root or Path.cwd())
+
     def _request_capture_termination(self, capture_id: VoiceCaptureId, command: str) -> None:
         try:
             with self._lock:
@@ -115,6 +125,8 @@ class BrowserSpeechWebView2Engine:
                 process.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 process.kill()
+        finally:
+            self._notify_process_stopped(process)
 
     def _ensure_process(self) -> None:
         if self._process is not None and self._process.poll() is None:
@@ -134,6 +146,7 @@ class BrowserSpeechWebView2Engine:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         self._process = process
+        self._notify_process_started(process)
         threading.Thread(target=self._read_events, args=(process,), daemon=True).start()
 
     def _send(self, payload: dict[str, object]) -> None:
@@ -199,6 +212,7 @@ class BrowserSpeechWebView2Engine:
             self._cancel_capture_stop_timeout()
             if capture_id is not None:
                 self._terminal_captures.add(capture_id)
+        self._notify_process_stopped(process)
         if setup_id is not None:
             self._event_sink(VoiceEngineSetupFailed(setup_id, VoiceTransportFailure.PROCESS_CRASHED))
         if capture_id is not None:
@@ -285,6 +299,20 @@ class BrowserSpeechWebView2Engine:
                 process.terminate()
             except OSError:
                 pass
+        if process is not None:
+            self._notify_process_stopped(process)
+
+    def _notify_process_stopped(self, process: Any) -> None:
+        try:
+            self._on_process_stopped(int(process.pid))
+        except (AttributeError, TypeError, ValueError):
+            pass
+
+    def _notify_process_started(self, process: Any) -> None:
+        try:
+            self._on_process_started(int(process.pid))
+        except (AttributeError, TypeError, ValueError):
+            pass
 
 
 def _decode_event(line: str) -> VoiceEngineEvent | None:

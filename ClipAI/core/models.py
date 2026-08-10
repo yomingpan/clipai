@@ -475,6 +475,18 @@ class PasteTarget:
 
 
 @dataclass(frozen=True)
+class WorkflowAttention:
+    """A transient request to surface an existing Workflow to the user."""
+
+    attention_id: str
+    workflow_id: str
+    message: str
+    duration_ms: int = 3000
+    request_focus: bool = True
+    warning: bool = True
+
+
+@dataclass(frozen=True)
 class PasteRequest:
     operation_id: str
     workflow_id: str

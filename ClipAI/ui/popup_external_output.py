@@ -22,7 +22,7 @@ class SetFocusProjection:
 
 @dataclass(frozen=True)
 class FocusPopup:
-    pass
+    attention_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,7 @@ class ShowOutputMessage:
     message: str
     duration_ms: int
     only_when_overflow_collapsed: bool = False
+    warning: bool = False
 
 
 PopupTransitionAction: TypeAlias = (
@@ -101,6 +102,11 @@ class OutsideFocusObserved:
 
 
 @dataclass(frozen=True)
+class OutsidePointerPressed:
+    pinned: bool
+
+
+@dataclass(frozen=True)
 class OwnedDialogOpened:
     pass
 
@@ -116,6 +122,7 @@ PopupFocusFact: TypeAlias = (
     | FocusEntered
     | OutsideFocusCheckRequested
     | OutsideFocusObserved
+    | OutsidePointerPressed
     | OwnedDialogOpened
     | OwnedDialogClosed
 )
@@ -127,6 +134,15 @@ class BeginTransition:
     actions: tuple[PopupTransitionAction, ...] = ()
 
 
+@dataclass(frozen=True)
+class _DeferredAttention:
+    attention_id: str
+    message: str
+    duration_ms: int
+    request_focus: bool
+    warning: bool
+
+
 class PopupExternalOutputTransitions:
     """Own popup output identities, visibility policy, and focus generations."""
 
@@ -135,6 +151,8 @@ class PopupExternalOutputTransitions:
         self._paste_pinned = False
         self._registered = False
         self._shown = False
+        self._withdrawn_for_paste = False
+        self._deferred_attention: _DeferredAttention | None = None
         self._initial_focus_established = False
         self._outside_check_pending = False
         self._focused_inside = False
@@ -162,6 +180,7 @@ class PopupExternalOutputTransitions:
         if kind != "paste":
             return BeginTransition(True)
         self._paste_pinned = pinned
+        self._withdrawn_for_paste = True
         self._mark_unfocused()
         return BeginTransition(True, (
             SetFocusProjection(False),
@@ -190,6 +209,8 @@ class PopupExternalOutputTransitions:
         if result.kind == "paste":
             actions.extend(self._finish_paste(result))
         actions.extend(_feedback_actions(result, slot_id))
+        if result.kind == "paste":
+            actions.extend(self._release_deferred_attention())
         return tuple(actions)
 
     def focus(self, fact: PopupFocusFact) -> tuple[PopupTransitionAction, ...]:
@@ -198,8 +219,11 @@ class PopupExternalOutputTransitions:
             return ()
         if isinstance(fact, PopupShown):
             self._shown = True
+            self._withdrawn_for_paste = False
             return ()
         if isinstance(fact, FocusEntered):
+            if "paste" not in self._operations:
+                self._withdrawn_for_paste = False
             self._mark_focused()
             return (SetFocusProjection(True),)
         if isinstance(fact, OutsideFocusCheckRequested):
@@ -224,6 +248,18 @@ class PopupExternalOutputTransitions:
                 if self._ready and not fact.pinned:
                     actions.append(RequestPopupClose())
             return tuple(actions)
+        if isinstance(fact, OutsidePointerPressed):
+            if (
+                not self._visible
+                or self._owned_dialog_active
+                or "paste" in self._operations
+            ):
+                return ()
+            self._mark_unfocused()
+            actions = [SetFocusProjection(False), ReportControlSurfaceReleased()]
+            if not fact.pinned:
+                actions.append(RequestPopupClose())
+            return tuple(actions)
         if isinstance(fact, OwnedDialogOpened):
             self._owned_dialog_active = True
             self._mark_unfocused()
@@ -237,9 +273,58 @@ class PopupExternalOutputTransitions:
             return (SetFocusProjection(False),)
         raise TypeError(f"unsupported popup focus fact: {fact!r}")
 
+    def attention(
+        self,
+        attention_id: str,
+        message: str,
+        *,
+        duration_ms: int,
+        request_focus: bool,
+        warning: bool,
+    ) -> tuple[PopupTransitionAction, ...]:
+        """Present a runtime-owned attention request through the focus owner."""
+        attention = _DeferredAttention(
+            attention_id,
+            message,
+            duration_ms,
+            request_focus,
+            warning,
+        )
+        if "paste" in self._operations:
+            self._deferred_attention = attention
+            return ()
+        return self._attention_actions(attention)
+
+    def _attention_actions(
+        self,
+        attention: _DeferredAttention,
+    ) -> tuple[PopupTransitionAction, ...]:
+        actions: list[PopupTransitionAction] = []
+        if self._withdrawn_for_paste:
+            visibility: PopupVisibility = (
+                "visible_activate" if attention.request_focus else "visible_no_activate"
+            )
+            actions.append(SetPopupVisibility(visibility))
+        if attention.request_focus:
+            actions.append(FocusPopup(attention.attention_id))
+        actions.append(ShowOutputMessage(
+            attention.message,
+            attention.duration_ms,
+            warning=attention.warning,
+        ))
+        return tuple(actions)
+
+    def _release_deferred_attention(self) -> tuple[PopupTransitionAction, ...]:
+        attention, self._deferred_attention = self._deferred_attention, None
+        return self._attention_actions(attention) if attention is not None else ()
+
     @property
     def _ready(self) -> bool:
-        return self._registered and self._shown and self._initial_focus_established
+        return self._visible and self._initial_focus_established
+
+    @property
+    def _visible(self) -> bool:
+        return self._registered and self._shown
 
     def _mark_focused(self) -> None:
         self._initial_focus_established = True
@@ -258,10 +343,13 @@ class PopupExternalOutputTransitions:
     ) -> tuple[PopupTransitionAction, ...]:
         pinned, self._paste_pinned = self._paste_pinned, False
         if result.state == "failed":
+            self._withdrawn_for_paste = False
             return (SetPopupVisibility("visible_activate"),)
         if result.state in {"cancelled", "cleanup_failed"}:
+            self._withdrawn_for_paste = False
             return (SetPopupVisibility("visible_no_activate"),)
         if result.state == "dispatched_unconfirmed" and pinned:
+            self._withdrawn_for_paste = False
             return (SetPopupVisibility("visible_no_activate"),)
         return ()
 

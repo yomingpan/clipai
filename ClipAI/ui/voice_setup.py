@@ -5,7 +5,7 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import EnableVoiceInput
+from ClipAI.core.commands import EnableVoiceInput, RetryVoiceInputSetup
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceProjection, VoiceSetupId
 
 
@@ -56,18 +56,18 @@ class VoiceSetupDialog:
             return
         if projection.capability is VoiceCapabilityPhase.PERMISSION_BLOCKED:
             self._status.configure(
-                text="Microphone permission is blocked. Enable ClipAI in Windows microphone privacy settings and the browser permission settings, then try again."
+                text="ClipAI has a saved microphone refusal. Reset ClipAI permission to request access again. If it stays blocked, check Windows microphone privacy settings."
             )
-            self._enable_button.configure(text="Try again", state="normal")
+            self._enable_button.configure(text="Reset & try again", command=self._repair_permission, state="normal")
         elif projection.capability is VoiceCapabilityPhase.REQUESTING_PERMISSION:
             self._status.configure(text="Waiting for the browser and system permission prompt…")
             self._enable_button.configure(state="disabled")
         elif projection.capability is VoiceCapabilityPhase.UNAVAILABLE:
             self._status.configure(text=projection.message or "Voice Input is unavailable. Check that Edge WebView2 Runtime is installed.")
-            self._enable_button.configure(text="Try again", state="normal")
+            self._enable_button.configure(text="Try again", command=self._enable, state="normal")
         else:
             self._status.configure(text=projection.message)
-            self._enable_button.configure(state="normal")
+            self._enable_button.configure(command=self._enable, state="normal")
 
     def close(self) -> None:
         if self._dialog is not None and self._dialog.winfo_exists():
@@ -75,3 +75,6 @@ class VoiceSetupDialog:
 
     def _enable(self) -> None:
         self._command_sink(EnableVoiceInput(VoiceSetupId(uuid.uuid4().hex)))
+
+    def _repair_permission(self) -> None:
+        self._command_sink(RetryVoiceInputSetup(VoiceSetupId(uuid.uuid4().hex)))

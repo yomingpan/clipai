@@ -56,3 +56,22 @@ def test_monitor_ignores_targets_rejected_by_platform_reader() -> None:
     monitor.stop()
 
     assert targets == []
+
+
+def test_monitor_never_reports_an_app_owned_helper_process_as_a_paste_target() -> None:
+    user32 = User32()
+    targets = []
+    monitor = WindowsForegroundWindowMonitor(
+        targets.append,
+        user32=user32,
+        process_id=7,
+        is_owned_process=lambda process_id: process_id == 99,
+        callback_factory=lambda callback: callback,
+        read_target=lambda _handle, _own_pid: (99, "python", "ClipAI Voice Engine"),
+    )
+
+    monitor.start()
+    user32.callback(None, EVENT_SYSTEM_FOREGROUND, 20, 0, 0, 0, 0)
+    monitor.stop()
+
+    assert targets == []

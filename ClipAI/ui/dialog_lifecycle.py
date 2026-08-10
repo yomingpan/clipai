@@ -5,9 +5,16 @@ from typing import Callable
 
 
 class DialogLifecycle:
-    def __init__(self, root: tk.Misc, *, owns_mainloop: bool = True) -> None:
+    def __init__(
+        self,
+        root: tk.Misc,
+        *,
+        owns_mainloop: bool = True,
+        window_activator: Callable[[tk.Misc], bool] | None = None,
+    ) -> None:
         self._root = root
         self._owns_mainloop = owns_mainloop
+        self._window_activator = window_activator
         self._scheduled_jobs: list[str] = []
         self._unsubscribers: list[Callable[[], None]] = []
         self._closed = False
@@ -69,9 +76,14 @@ class DialogLifecycle:
         try:
             self._root.update_idletasks()
             self._root.lift()
+            native_focus = (
+                self._window_activator(self._root)
+                if self._window_activator is not None
+                else True
+            )
             target.focus_force()
             focused = self._root.focus_get()
-            return focused is not None and (
+            return native_focus and focused is not None and (
                 focused is target or focused.winfo_toplevel() is self._root
             )
         except (AttributeError, tk.TclError):

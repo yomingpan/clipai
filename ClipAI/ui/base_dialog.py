@@ -389,6 +389,51 @@ def hide_window_from_task_switcher(window, user32=None) -> bool:
         return False
 
 
+def activate_window(window, *, user32=None, kernel32=None) -> bool:
+    """Activate a Windows popup and verify native foreground ownership."""
+    if user32 is None:
+        if sys.platform != "win32":
+            try:
+                window.deiconify()
+                window.lift()
+                return True
+            except (AttributeError, tk.TclError):
+                return False
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+    try:
+        window.deiconify()
+        window.update_idletasks()
+        child = int(window.winfo_id())
+        hwnd = int(user32.GetParent(child)) or child
+        foreground = int(user32.GetForegroundWindow())
+        current_thread = int(kernel32.GetCurrentThreadId())
+        foreground_thread = (
+            int(user32.GetWindowThreadProcessId(foreground, None))
+            if foreground
+            else 0
+        )
+        attached = bool(
+            foreground_thread
+            and foreground_thread != current_thread
+            and user32.AttachThreadInput(current_thread, foreground_thread, True)
+        )
+        try:
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0043)  # HWND_TOPMOST | NOMOVE | NOSIZE | SHOWWINDOW
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+            user32.SetActiveWindow(hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(current_thread, foreground_thread, False)
+        return int(user32.GetForegroundWindow()) == hwnd
+    except (AttributeError, OSError, TypeError, ValueError, tk.TclError):
+        return False
+
+
 def show_window_without_activation(window, user32=None) -> bool:
     """Show a withdrawn Windows popup without taking focus from its paste target."""
     if user32 is None:
@@ -507,7 +552,11 @@ class BaseDialog:
             self.canvas.bind("<Configure>", self._on_canvas_configure, add="+")
             self.main_frame = self.surface
 
-            self.lifecycle = DialogLifecycle(self.root, owns_mainloop=master is None)
+            self.lifecycle = DialogLifecycle(
+                self.root,
+                owns_mainloop=master is None,
+                window_activator=activate_window,
+            )
             self._flash_controller = SurfaceFlashController(
                 colors=self._state_colors,
                 apply_color=self._painter.draw,
@@ -531,6 +580,24 @@ class BaseDialog:
         try:
             return bool(self.root.winfo_exists())
         except tk.TclError:
+            return False
+
+    def contains_screen_point(self, x: int, y: int) -> bool:
+        """Return whether a screen-coordinate point is inside this popup."""
+        try:
+            self.root.update_idletasks()
+            left = int(self.root.winfo_rootx())
+            top = int(self.root.winfo_rooty())
+            width = int(self.root.winfo_width())
+            height = int(self.root.winfo_height())
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            return False
+        return left <= x < left + width and top <= y < top + height
+
+    def is_visible(self) -> bool:
+        try:
+            return bool(self.root.winfo_viewable())
+        except (AttributeError, tk.TclError):
             return False
 
     def flash(self, state: DialogState) -> None:

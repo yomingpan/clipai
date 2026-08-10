@@ -36,19 +36,19 @@ TERMINAL_STATUSES = {
 }
 
 ALLOWED_TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
-    SessionStatus.CREATED: {SessionStatus.READING_INPUT, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.READING_INPUT: {SessionStatus.PREPARING_REQUEST, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.PREPARING_REQUEST: {SessionStatus.REQUESTING_PROVIDER, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.REQUESTING_PROVIDER: {SessionStatus.PROCESSING_RESULT, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.PROCESSING_RESULT: {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.COMPLETED: {SessionStatus.PREPARING_REQUEST, SessionStatus.CLOSED},
+    SessionStatus.CREATED: {SessionStatus.READING_INPUT, SessionStatus.VOICE_PREPARING, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.READING_INPUT: {SessionStatus.PREPARING_REQUEST, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.PREPARING_REQUEST: {SessionStatus.REQUESTING_PROVIDER, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.REQUESTING_PROVIDER: {SessionStatus.PROCESSING_RESULT, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.PROCESSING_RESULT: {SessionStatus.COMPLETED, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.COMPLETED: {SessionStatus.PREPARING_REQUEST, SessionStatus.VOICE_PREPARING, SessionStatus.CLOSED},
     SessionStatus.VOICE_PREPARING: {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING, SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
     SessionStatus.VOICE_LISTENING: {SessionStatus.VOICE_FINALIZING, SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
     SessionStatus.VOICE_FINALIZING: {SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
     SessionStatus.VOICE_REVIEW: {SessionStatus.VOICE_PREPARING, SessionStatus.CLOSED},
-    SessionStatus.FAILED: {SessionStatus.CLOSED},
-    SessionStatus.STOPPED: {SessionStatus.CLOSED},
-    SessionStatus.CANCELLED: {SessionStatus.CLOSED},
+    SessionStatus.FAILED: {SessionStatus.VOICE_PREPARING, SessionStatus.CLOSED},
+    SessionStatus.STOPPED: {SessionStatus.VOICE_PREPARING, SessionStatus.CLOSED},
+    SessionStatus.CANCELLED: {SessionStatus.VOICE_PREPARING, SessionStatus.CLOSED},
     SessionStatus.CLOSED: set(),
 }
 

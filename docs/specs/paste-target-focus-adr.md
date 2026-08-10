@@ -14,19 +14,26 @@ focus or the destination of the paste side effect.
   while Editing-mode Voice Draft fields retain native clipboard insertion.
   `Ctrl+Enter` toggles the view into Reading mode, where `Ctrl+V` becomes the
   external Paste gesture. The explicit Paste button remains available in both
-  modes for sending a reviewed draft to its frozen external target.
+  modes for sending a reviewed draft to its external target.
 - Track the latest non-ClipAI Windows foreground window as an immutable,
   in-memory paste target.
 - Let `PasteTargetCoordinator` own the latest target; the Windows adapter only
   observes, validates, activates, and sends keyboard input.
 - Capture the target when `PasteResult` begins. A later foreground observation
   cannot redirect that operation.
+- A Voice Draft freezes the target observed when capture starts when one is
+  available. A targetless Voice Draft remains valid and uses the latest target
+  only when `PasteResult` begins.
 - Show focus and destination with both a persistent label and border state.
-- Establish initial interactive Popup focus only after layout and raise have
-  completed. Voice Listening and Finalizing remain non-activating; their first
-  focus request occurs when Voice Review becomes interactive. Report
-  `FocusEntered` only when the toolkit confirms focus is inside that Popup. A
-  failed focus request is not focus truth.
+- Establish initial interactive Popup focus only after layout and native window
+  activation have completed. All shortcut-created result Popups, including
+  Voice Listening and Finalizing, request foreground activation immediately.
+  Report `FocusEntered` only when both native activation and toolkit focus are
+  confirmed; a failed focus request is not focus truth.
+- Treat native outside-pointer presses as an independent Popup lifecycle fact.
+  A visible unpinned Popup closes on the first outside press even when Windows
+  denied its initial foreground request. The same transition owner retains the
+  pin, owned-dialog, and active-Paste guards.
 - Reject an unavailable target and focus the Popup with a visible error. Never
   fall back to whichever window happens to be foreground.
 - Keep window titles out of persistence, logs, and diagnostics.
@@ -58,8 +65,14 @@ visible because an automatic retry could duplicate content.
 copy, archive, speech, and Paste acknowledgements. Its small interface accepts
 operation begin, acknowledgement, and toolkit focus facts, then returns explicit
 UI actions. It owns stale acknowledgement rejection, Paste pin capture,
-hide/restore/no-activate decisions, and focus-check generations. BaseDialog and
-the presenter execute those actions without duplicating their policy.
+hide/restore/no-activate decisions, whether Paste still owns a withdrawal, and
+focus-check generations. A later explicit Workflow attention request restores
+a Popup that remains withdrawn after an unpinned Paste. Attention received
+before Paste settles is deferred until its ordered terminal acknowledgement so
+it cannot steal the external target before dispatch. Only an observed focus
+entry or an explicit Paste restoration releases that local withdrawal fact,
+and snapshot revisions do not imply visibility. BaseDialog and the presenter
+execute those actions without duplicating their policy.
 
 Voice Draft rendering separately preserves the current insertion caret when an
 authoritative content revision replaces widget text. Toolkit text marks remain
