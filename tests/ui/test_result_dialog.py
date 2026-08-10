@@ -510,6 +510,45 @@ def test_voice_capture_popup_establishes_initial_focus_immediately() -> None:
     assert requested_initial_focus == [True]
 
 
+def test_empty_voice_review_surfaces_the_capture_failure_message() -> None:
+    class Button:
+        def configure(self, **_kwargs) -> None:
+            pass
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    for method in (
+        "set_pinned_state",
+        "set_title",
+        "set_source_preview",
+        "set_model",
+        "configure_action_contract",
+        "configure_back_action",
+        "configure_standard_actions",
+        "hide_feedback",
+    ):
+        setattr(view.surface, method, lambda *_args, **_kwargs: None)
+    view.surface.close_button = Button()
+    view.surface.pin_button = Button()
+    view.dialog.flash = lambda _state: None
+    presenter._configure_voice_capture_controls = lambda _snapshot, _view: None
+
+    target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
+    presenter._apply(SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.VOICE_REVIEW,
+        "voice_input",
+        "Voice Input",
+        "model",
+        content="",
+        status_text="Voice Input is unavailable on this device.",
+        voice_origin=VoiceOrigin(target, "", 0),
+    ))
+
+    assert "message:Voice Input is unavailable on this device.:4000" in events
+
+
 def test_ctrl_v_pastes_only_for_active_popup() -> None:
     class ShortcutRoot:
         def __init__(self) -> None:

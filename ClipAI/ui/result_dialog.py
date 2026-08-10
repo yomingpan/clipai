@@ -511,6 +511,9 @@ class ResultDialogPresenter:
 
                 view.surface.set_editable_content(snapshot.content, update_voice_draft)
                 view.surface.set_voice_draft_editing(view.voice_draft_editing)
+                if not snapshot.content and snapshot.status_text:
+                    view.dialog.flash("warning")
+                    view.surface.show_action_message(snapshot.status_text, 4000)
         elif snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
             if content_changed:
