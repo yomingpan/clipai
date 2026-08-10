@@ -18,9 +18,10 @@ permission setup and be observed as an external paste target.
   a Voice Workflow.
 - Popup attention has an identity and reports whether native and toolkit focus
   were actually acquired. Failed focus repeats the warning through the notifier.
-- WebView microphone consent is allowed only during explicit Voice Setup using
-  a non-activating tool surface. Capture-time permission requests fail closed
-  and direct the user back to Setup.
+- WebView microphone consent is allowed only for an explicit Voice Setup or an
+  admitted Push-to-Talk capture, using a non-activating tool surface. Stop,
+  cancel, and all unknown helper requests fail closed. This supports WebView2
+  runtimes that re-request microphone access when capture begins after setup.
 - The Browser Speech helper process is registered as app-owned and can never be
   selected as a `PasteTarget`.
 

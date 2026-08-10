@@ -7,6 +7,7 @@ from ClipAI.platform.voice_webview_host import (
     _Api,
     _dispatch_host_command,
     allow_microphone_permission,
+    is_explicit_voice_microphone_request,
     show_permission_surface_without_activation,
     voice_webview_profile_dir,
 )
@@ -99,6 +100,14 @@ def test_microphone_permission_is_allowed_saved_and_handled() -> None:
     assert request.State == "allow"
     assert request.SavesInProfile is True
     assert request.Handled is True
+
+
+def test_only_explicit_setup_and_push_to_talk_capture_may_request_the_microphone() -> None:
+    assert is_explicit_voice_microphone_request("prepare") is True
+    assert is_explicit_voice_microphone_request("start") is True
+    assert is_explicit_voice_microphone_request("stop") is False
+    assert is_explicit_voice_microphone_request("cancel") is False
+    assert is_explicit_voice_microphone_request("") is False
 
 
 def test_non_microphone_permissions_keep_the_webview_default() -> None:

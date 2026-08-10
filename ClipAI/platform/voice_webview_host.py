@@ -12,6 +12,11 @@ from ClipAI.platform.browser_speech import VOICE_PROTOCOL_VERSION
 from ClipAI.platform.voice_webview_profile import voice_webview_profile_dir
 
 
+def is_explicit_voice_microphone_request(command: str) -> bool:
+    """Only explicit setup or admitted Push-to-Talk capture may access the microphone."""
+    return command in {"prepare", "start"}
+
+
 def allow_microphone_permission(
     request: Any,
     *,
@@ -87,7 +92,8 @@ def _attach_microphone_permission_handler(
     def handle_permission(_sender: object, request: Any) -> None:
         if request.PermissionKind != CoreWebView2PermissionKind.Microphone:
             return
-        if permission_command[0] != "prepare":
+        command = permission_command[0]
+        if not is_explicit_voice_microphone_request(command):
             request.State = CoreWebView2PermissionState.Deny
             request.Handled = True
             return
