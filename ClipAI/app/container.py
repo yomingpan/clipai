@@ -135,6 +135,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         display_metrics=WindowsDisplayMetricsReader(),
         pointer_press_reader=WindowsPointerPressReader(),
         native_window_surface=native_window_surface,
+        focus_transition_diagnostics=bundle.logging.diagnostics.enabled("focus_transitions"),
     )
     diagnostics_exporter = SafeDiagnosticsExporter(
         metadata={

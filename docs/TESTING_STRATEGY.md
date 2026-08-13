@@ -183,6 +183,11 @@ Integration 應測：
 - streaming 中按 copy/speak/archive。
 - popup 關閉後 background callback 不造成 crash。
 - clipboard restore 在錯誤與取消情境下仍穩定。
+- `FocusEntered` 必須具名攜帶 native foreground 與 toolkit focus；兩軸皆真
+  才能通過 initial-focus gate。
+- Alt+Tab、taskbar switch 與 external foreground theft 必須透過獨立事實
+  釋放 focus，且 Paste/owned dialog guard 不得被繞過。手動矩陣見
+  `docs/testing/popup-focus-manual-checklist.md`。
 
 ### Paste Operation 測試矩陣
 

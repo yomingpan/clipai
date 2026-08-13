@@ -30,6 +30,7 @@ class Dialog:
         })()
         self.alive = alive
         self.pinned = False
+        self.native_foreground = True
 
     def is_alive(self) -> bool:
         return self.alive
@@ -46,6 +47,9 @@ class Dialog:
 
     def contains_screen_point(self, x: int, y: int) -> bool:
         return (x, y) == (10, 10)
+
+    def native_owns_foreground(self) -> bool:
+        return self.native_foreground
 
 
 class Surface:
@@ -132,13 +136,14 @@ def presenter_with_selection(selected: str | None):
     external_output = PopupExternalOutputTransitions()
     external_output.focus(PopupRegistered())
     external_output.focus(PopupShown())
-    external_output.focus(FocusEntered())
+    external_output.focus(FocusEntered(native_foreground=True, toolkit_focused=True))
     presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events), external_output=external_output)}
     presenter._command_sink = lambda command: events.append(command)
     presenter._paste_target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
     presenter._paste_target_updates = queue.Queue()
     presenter._shortcut_guide_focus_hold_active = False
     presenter._shortcut_guide_focus_return = None
+    presenter._focus_transition_diagnostics = False
     return presenter, events
 
 
@@ -475,6 +480,7 @@ def test_failed_initial_focus_attempt_does_not_claim_popup_focus() -> None:
     view.dialog.root = ShortcutRoot()
     view.dialog.lifecycle = Lifecycle()
     view.surface.focus_result = False
+    view.dialog.native_foreground = False
 
     presenter._register_view("s1", view)
     view.dialog.lifecycle.callbacks[0]()

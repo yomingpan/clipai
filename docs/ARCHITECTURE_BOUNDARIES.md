@@ -359,6 +359,10 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
   output-operation identity, stale acknowledgement rejection, Paste visibility,
   captured pin policy, and toolkit focus generations. It returns explicit UI
   actions; widgets and presenters only execute those actions.
+- Popup focus is confirmed only when mandatory `FocusEntered` evidence reports
+  both native foreground ownership and toolkit focus. `ForegroundLeftApplication`
+  handles Alt+Tab/taskbar/external foreground loss through the same transition
+  owner; active Paste and owned dialogs suppress that intentional handoff.
 
 ## Paste Operation ownership (ADR-0004)
 

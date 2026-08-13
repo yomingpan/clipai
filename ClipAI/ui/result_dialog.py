@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+import logging
 import queue
 import threading
 import tkinter as tk
@@ -14,7 +15,7 @@ from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, Feedbac
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
-from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
+from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, ForegroundLeftApplication, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
@@ -24,6 +25,7 @@ from ClipAI.ui.voice_setup import VoiceSetupDialog
 # Windows Tk maps Num Lock to Mod1 (0x0008), while physical Alt uses
 # the separate 0x00020000 state bit. Lock states must not disable Ctrl shortcuts.
 _POPUP_SHORTCUT_ALLOWED_MODIFIERS = 0x0002 | 0x0004 | 0x0008 | 0x0010
+_LOGGER = logging.getLogger("clipai.ui.focus")
 
 
 @dataclass
@@ -83,6 +85,7 @@ class ResultDialogPresenter:
         layout_policy: PopupLayoutPolicy | None = None,
         pointer_press_reader: PointerPressReader | None = None,
         native_window_surface: NativeWindowSurface | None = None,
+        focus_transition_diagnostics: bool = False,
     ) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
@@ -100,6 +103,7 @@ class ResultDialogPresenter:
         self._layout_policy = layout_policy or PopupLayoutPolicy()
         self._pointer_press_reader = pointer_press_reader
         self._native_window_surface = native_window_surface
+        self._focus_transition_diagnostics = focus_transition_diagnostics
         self._provider_settings_dialog: ProviderSettingsDialog | None = None
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
         self._shortcut_guide_focus_hold_active = False
@@ -261,8 +265,23 @@ class ResultDialogPresenter:
     ) -> None:
         for action in actions:
             if isinstance(action, SetPopupVisibility):
-                view.dialog.apply_external_output_visibility(action.visibility)
+                visibility_applied = view.dialog.apply_external_output_visibility(action.visibility)
+                if visibility_applied is False:
+                    _LOGGER.warning(
+                        "popup visibility application failed workflow_id=%s visibility=%s",
+                        workflow_id,
+                        action.visibility,
+                    )
             elif isinstance(action, SetFocusProjection):
+                if self._focus_transition_diagnostics:
+                    native_foreground, toolkit_focused = self._focus_evidence(view)
+                    _LOGGER.info(
+                        "focus transition workflow_id=%s native_foreground=%s toolkit_focused=%s projection=%s",
+                        workflow_id,
+                        native_foreground,
+                        toolkit_focused,
+                        action.focused,
+                    )
                 view.surface.set_paste_focus_state(
                     action.focused,
                     self._paste_target,
@@ -379,6 +398,13 @@ class ResultDialogPresenter:
             pass
 
     def _drain_updates(self) -> None:
+        for workflow_id, view in tuple(self._views.items()):
+            if view.external_output.focused_inside and not view.dialog.native_owns_foreground():
+                self._apply_transition_actions(
+                    workflow_id,
+                    view,
+                    view.external_output.focus(ForegroundLeftApplication(pinned=view.dialog.pinned)),
+                )
         point = self._pointer_press_reader.poll() if self._pointer_press_reader is not None else None
         if point is not None:
             self._handle_pointer_press(*point)
@@ -810,12 +836,15 @@ class ResultDialogPresenter:
         def establish_initial_focus() -> None:
             if self._views.get(session_id) is not view or view.external_output.focused_inside:
                 return
-            if not view.surface.focus_content():
-                return
+            view.surface.focus_content()
+            native_foreground, toolkit_focused = self._focus_evidence(view)
             self._apply_transition_actions(
                 session_id,
                 view,
-                view.external_output.focus(FocusEntered()),
+                view.external_output.focus(FocusEntered(
+                    native_foreground=native_foreground,
+                    toolkit_focused=toolkit_focused,
+                )),
             )
 
         view.dialog.lifecycle.schedule(0, establish_initial_focus)
@@ -861,13 +890,28 @@ class ResultDialogPresenter:
         view = self._views.get(session_id)
         if view is None:
             return
+        native_foreground, toolkit_focused = self._focus_evidence(view)
         self._apply_transition_actions(
             session_id,
             view,
-            view.external_output.focus(FocusEntered()),
+            view.external_output.focus(FocusEntered(
+                native_foreground=native_foreground,
+                toolkit_focused=toolkit_focused,
+            )),
         )
+        if not (native_foreground and toolkit_focused):
+            return
         self._command_sink(ControlSurfaceActivated(ControlSurfaceRef(session_id, "workflow")))
         self._activate(session_id)
+
+    @staticmethod
+    def _focus_evidence(view: _SessionView) -> tuple[bool, bool]:
+        try:
+            focused = view.dialog.root.focus_get()
+            toolkit_focused = focused is not None and focused.winfo_toplevel() is view.dialog.root
+        except (AttributeError, tk.TclError):
+            toolkit_focused = False
+        return view.dialog.native_owns_foreground(), toolkit_focused
 
     def _activate(self, session_id: str) -> None:
         self._command_sink(ActivateWorkflow(session_id))

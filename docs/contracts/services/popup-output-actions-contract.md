@@ -14,6 +14,11 @@ Clipboard Preservation 採 fail-closed。只要 adapter 無法安全保存任一
 
 Popup visibility 與 Workflow lifetime 分離。未 pinned Popup 收到 `dispatched_unconfirmed` 後保持隱藏並釋放 semantic Foreground Workflow，但 Workflow membership 與結果仍保留，不能把 view 隱藏誤解為 operation success 或 Workflow deletion。Pinned Popup 可恢復顯示警告；`failed`、`cancelled` 與 `cleanup_failed` 依 UI contract 恢復 surface，但只有 dispatch 前 `failed` 可以主動取回 focus。
 
+Popup focus 必須同時有 native foreground 與 toolkit focus 證據；單獨的
+`<FocusIn>` 不是 confirmed focus。Alt+Tab、taskbar switch 或外部程式搶走
+foreground 以 `ForegroundLeftApplication` 進入同一 transition owner。Paste 與
+owned dialog 是刻意讓出 foreground 的 guard，不得被解讀為 outside close。
+
 Speech preprocessing 屬於 service，移除 Markdown heading、emphasis、list marker、code fence 與 URL 噪音，但不得修改 popup、copy 或 paste 的原文。
 
 Popup、global hotkey 與 shortcut-sequence speech 共用一個 `SpeechCoordinator`。TTS 是單一資源，但取消必須比對 operation ID；舊 popup 關閉、舊 worker 完成或舊 handle 取消，都不得停止或清除新 operation 的 speaking state。

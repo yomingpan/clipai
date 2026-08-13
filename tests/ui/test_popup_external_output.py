@@ -3,14 +3,14 @@ from __future__ import annotations
 import pytest
 
 from ClipAI.core.models import OutputOperationResult, UserFacingError
-from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
+from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, ForegroundLeftApplication, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 
 
 def ready_transitions() -> PopupExternalOutputTransitions:
     transitions = PopupExternalOutputTransitions()
     transitions.focus(PopupRegistered())
     transitions.focus(PopupShown())
-    transitions.focus(FocusEntered())
+    transitions.focus(FocusEntered(native_foreground=True, toolkit_focused=True))
     return transitions
 
 
@@ -99,7 +99,7 @@ def test_attention_reveals_popup_left_hidden_after_unpinned_paste() -> None:
         warning=False,
     )
 
-    transitions.focus(FocusEntered())
+    transitions.focus(FocusEntered(native_foreground=True, toolkit_focused=True))
     assert SetPopupVisibility("visible_activate") not in transitions.attention(
         "attention-3",
         "Voice Input is active",
@@ -231,7 +231,7 @@ def test_focus_checks_wait_for_registration_show_and_initial_focus() -> None:
     transitions.focus(PopupRegistered())
     transitions.focus(PopupShown())
     assert transitions.focus(OutsideFocusCheckRequested()) == ()
-    transitions.focus(FocusEntered())
+    transitions.focus(FocusEntered(native_foreground=True, toolkit_focused=True))
 
     scheduled = transitions.focus(OutsideFocusCheckRequested())
 
@@ -271,7 +271,7 @@ def test_new_focus_invalidates_a_stale_outside_check_generation() -> None:
     scheduled = transitions.focus(OutsideFocusCheckRequested())[0]
     assert isinstance(scheduled, ScheduleOutsideFocusCheck)
 
-    transitions.focus(FocusEntered())
+    transitions.focus(FocusEntered(native_foreground=True, toolkit_focused=True))
 
     assert transitions.focus(OutsideFocusObserved(
         scheduled.generation,
@@ -280,6 +280,37 @@ def test_new_focus_invalidates_a_stale_outside_check_generation() -> None:
     )) == ()
     assert transitions.focused_inside is True
 
+
+def test_unconfirmed_focus_cannot_open_initial_gate_or_replace_confirmed_focus() -> None:
+    transitions = PopupExternalOutputTransitions()
+    transitions.focus(PopupRegistered())
+    transitions.focus(PopupShown())
+
+    assert transitions.focus(FocusEntered(native_foreground=False, toolkit_focused=True)) == (
+        SetFocusProjection(False),
+    )
+    assert transitions.focus(OutsideFocusCheckRequested()) == ()
+
+    transitions.focus(FocusEntered(native_foreground=True, toolkit_focused=True))
+    assert transitions.focus(FocusEntered(native_foreground=False, toolkit_focused=True)) == ()
+    assert transitions.focused_inside is True
+
+
+def test_foreground_left_application_closes_unpinned_popup_and_respects_guards() -> None:
+    transitions = ready_transitions()
+    assert transitions.focus(ForegroundLeftApplication(pinned=False)) == (
+        SetFocusProjection(False),
+        ReportControlSurfaceReleased(),
+        RequestPopupClose(),
+    )
+
+    transitions = ready_transitions()
+    transitions.begin("paste", "paste-op")
+    assert transitions.focus(ForegroundLeftApplication(pinned=False)) == ()
+
+    transitions = ready_transitions()
+    transitions.focus(OwnedDialogOpened())
+    assert transitions.focus(ForegroundLeftApplication(pinned=False)) == ()
 
 @pytest.mark.parametrize(
     ("pinned", "focused_inside", "expected_tail"),
