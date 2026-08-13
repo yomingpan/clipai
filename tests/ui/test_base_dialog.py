@@ -397,6 +397,53 @@ def test_voice_draft_content_refresh_preserves_the_current_caret() -> None:
     assert surface.content_text.caret_updates == [("insert", "1.4")]
 
 
+def test_finalized_voice_insertion_moves_caret_to_inserted_text_end() -> None:
+    class ContentText:
+        def __init__(self) -> None:
+            self.text = "first"
+            self.caret_updates = []
+            self.removed_tags = []
+
+        def configure(self, **_values) -> None:
+            pass
+
+        def get(self, start, end) -> str:
+            assert (start, end) == ("1.0", "end-1c")
+            return self.text
+
+        def index(self, mark) -> str:
+            assert mark == "insert"
+            return "1.0"
+
+        def delete(self, _start, _end) -> None:
+            self.text = ""
+
+        def insert(self, _index, text, _tag) -> None:
+            self.text = text
+
+        def mark_set(self, mark, index) -> None:
+            self.caret_updates.append((mark, index))
+
+        def tag_remove(self, tag, start, end) -> None:
+            self.removed_tags.append((tag, start, end))
+
+        def bind(self, _sequence, _callback) -> None:
+            pass
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = ContentText()
+    surface._canonical_selection_segments = ()
+
+    surface.set_editable_content(
+        "first second",
+        lambda _text: None,
+        caret_offset=len("first second"),
+    )
+
+    assert surface.content_text.caret_updates == [("insert", "1.0 + 12 chars")]
+    assert surface.content_text.removed_tags == [("sel", "1.0", "end")]
+
+
 def test_voice_draft_mode_shortcut_binds_directly_to_the_text_widget() -> None:
     class ContentText:
         def __init__(self) -> None:

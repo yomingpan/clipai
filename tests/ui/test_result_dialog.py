@@ -6,7 +6,7 @@ from dataclasses import replace
 from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceOrigin
+from ClipAI.core.voice import VoiceDraftInsertion, VoiceOrigin
 from ClipAI.ui.popup_external_output import FocusEntered, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, workflow_render_patch
 
@@ -126,8 +126,10 @@ class Surface:
         self.voice_draft_editing = editing
         self.events.append(f"voice-editor:{editing}")
 
-    def set_editable_content(self, text: str, _on_changed) -> None:
+    def set_editable_content(self, text: str, _on_changed, *, caret_offset=None) -> None:
         self.events.append(f"voice-content:{text}")
+        if caret_offset is not None:
+            self.events.append(f"voice-caret:{caret_offset}")
 
 
 def presenter_with_selection(selected: str | None):
@@ -751,6 +753,47 @@ def test_voice_draft_snapshot_keeps_the_selected_reading_mode() -> None:
 
     assert events[-2:] == ["voice-content:updated draft", "voice-editor:False"]
     assert view.voice_draft_editing is False
+
+
+def test_finalized_voice_insertion_projects_its_caret_endpoint_once() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
+    previous = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.VOICE_FINALIZING,
+        "voice_input",
+        "Voice Input",
+        "",
+        content="hello world",
+        voice_origin=VoiceOrigin(target, "hello world", 0),
+    )
+    insertion = VoiceDraftInsertion(1, 6, 12)
+    finalized = replace(
+        previous,
+        revision=2,
+        status=SessionStatus.VOICE_REVIEW,
+        content="hello ClipAI",
+        voice_origin=VoiceOrigin(target, "hello ClipAI", 1, insertion),
+    )
+    view.revision = previous.revision
+    view.last_snapshot = previous
+    view.dialog.lifecycle.schedule = lambda _delay, _callback: "scheduled"
+
+    presenter._apply(finalized)
+    presenter._apply(replace(finalized, revision=3, status_text="Ready"))
+    next_draft_insertion = VoiceDraftInsertion(4, 0, 4)
+    presenter._apply(replace(
+        finalized,
+        revision=4,
+        content="next",
+        voice_origin=VoiceOrigin(target, "next", 1, next_draft_insertion),
+    ))
+
+    assert events.count("voice-caret:12") == 1
+    assert events.count("voice-caret:4") == 1
+    assert view.applied_voice_insertion_revision == 4
 
 
 def test_ctrl_e_toggles_pin_for_active_popup() -> None:

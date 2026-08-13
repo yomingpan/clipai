@@ -43,6 +43,7 @@ class _SessionView:
     close_requested: bool = False
     last_snapshot: SessionSnapshot | None = None
     voice_draft_revision: int = 0
+    applied_voice_insertion_revision: int | None = None
     voice_draft_editing: bool = True
     voice_stop_button: object | None = None
     voice_cancel_button: object | None = None
@@ -542,13 +543,26 @@ class ResultDialogPresenter:
             origin = snapshot.voice_origin
             if origin is not None:
                 view.voice_draft_revision = origin.revision
+                insertion = origin.latest_insertion
+                caret_offset = None
+                if (
+                    insertion is not None
+                    and insertion.projection_revision != view.applied_voice_insertion_revision
+                ):
+                    caret_offset = insertion.end
 
                 def update_voice_draft(text: str, sid=snapshot.session_id, rendered=view) -> None:
                     expected_revision = rendered.voice_draft_revision
                     rendered.voice_draft_revision += 1
                     self._command_sink(UpdateVoiceDraft(sid, expected_revision, text))
 
-                view.surface.set_editable_content(snapshot.content, update_voice_draft)
+                view.surface.set_editable_content(
+                    snapshot.content,
+                    update_voice_draft,
+                    caret_offset=caret_offset,
+                )
+                if insertion is not None and caret_offset is not None:
+                    view.applied_voice_insertion_revision = insertion.projection_revision
                 view.surface.set_voice_draft_editing(view.voice_draft_editing)
                 if not snapshot.content and snapshot.status_text:
                     view.dialog.flash("warning")

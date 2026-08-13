@@ -132,8 +132,10 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
   Voice Listening／Finalizing 保持 non-activating，直到進入 Voice Review 才提出
   初始焦點請求。只有 toolkit 確認焦點位於該 Popup 內，Presenter 才能回報
   `FocusEntered`；焦點呼叫失敗不得被投影成 focused state。
-- Voice Draft 因權威 snapshot 更新而替換內容時，surface 必須保存並恢復目前
-  caret，避免非使用者導覽造成插入游標跳動。
+- Voice Draft 因一般權威 snapshot 更新而替換內容時，surface 必須保存並恢復
+  目前 caret，避免非使用者導覽造成插入游標跳動。Voice capture finalized 時則
+  使用 revision-bound typed insertion projection，將 selection 收合並把 caret 放在
+  本次插入文字的語意終點；UI 不得由前後文字 diff 猜測位置，也不得一律移到全文尾端。
 - Paste target 無效、已關閉或無法成為 foreground 時，系統不得向其他視窗
   fallback 或盲送 `Ctrl+V`，必須恢復 surface 並顯示失敗狀態。
 

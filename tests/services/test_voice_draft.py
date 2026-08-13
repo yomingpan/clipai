@@ -4,7 +4,7 @@ import pytest
 
 from ClipAI.core.models import PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCapturePhase, VoiceLanguage, VoiceOrigin, VoiceProjection
+from ClipAI.core.voice import VoiceCapturePhase, VoiceDraftInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.services import voice_draft
 
 
@@ -90,6 +90,7 @@ def test_finalize_capture_splices_text_and_advances_draft_revision() -> None:
     assert finalized.voice_origin is not None
     assert finalized.voice_origin.text == "hello ClipAI"
     assert finalized.voice_origin.revision == 1
+    assert finalized.voice_origin.latest_insertion == VoiceDraftInsertion(1, 6, 12)
     assert finalized.status is SessionStatus.VOICE_REVIEW
     assert finalized.voice_capture_id is None
 
@@ -105,7 +106,12 @@ def test_targetless_draft_can_freeze_and_finalize_without_a_paste_destination() 
 
     assert finalized is not None
     assert finalized.content == "hello"
-    assert finalized.voice_origin == VoiceOrigin(None, "hello", 1)
+    assert finalized.voice_origin == VoiceOrigin(
+        None,
+        "hello",
+        1,
+        VoiceDraftInsertion(2, 0, 5),
+    )
 
 
 def test_stale_capture_cannot_overwrite_a_newer_edit() -> None:
@@ -138,14 +144,19 @@ def test_finalize_capture_rejects_blank_text_or_mismatched_target() -> None:
 
 
 def test_edit_draft_requires_the_current_review_revision() -> None:
-    snapshot = draft_snapshot()
+    snapshot = draft_snapshot("hello world")
+    target = voice_draft.freeze_insertion(snapshot, 6, 11)
+    assert target is not None
+    snapshot = voice_draft.finalize_capture(snapshot, target, "ClipAI")
+    assert snapshot is not None
 
-    edited = voice_draft.edit_draft(snapshot, 0, "edited")
+    edited = voice_draft.edit_draft(snapshot, 1, "edited")
 
     assert edited is not None
     assert edited.content == "edited"
     assert edited.voice_origin is not None
-    assert edited.voice_origin.revision == 1
+    assert edited.voice_origin.revision == 2
+    assert edited.voice_origin.latest_insertion is None
     assert voice_draft.edit_draft(edited, 0, "stale") is None
     assert voice_draft.edit_draft(
         draft_snapshot(status=SessionStatus.VOICE_LISTENING),

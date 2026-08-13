@@ -1485,8 +1485,14 @@ class BaseResultSurface:
             insert_display_text(self.content_text, "end", text, tag)
         self.content_text.configure(state="disabled")
 
-    def set_editable_content(self, text: str, on_changed: Callable[[str], None]) -> None:
-        """Render canonical Voice draft text while preserving normal text-editing behavior."""
+    def set_editable_content(
+        self,
+        text: str,
+        on_changed: Callable[[str], None],
+        *,
+        caret_offset: int | None = None,
+    ) -> None:
+        """Render canonical Voice draft text and apply explicit insertion placement."""
         self._canonical_selection_segments = ()
         self._editable_content_changed = on_changed
         self.content_text.configure(state="normal")
@@ -1494,18 +1500,26 @@ class BaseResultSurface:
             current = self.content_text.get("1.0", "end-1c")
         except (tk.TclError, AttributeError):
             current = ""
-        if current != text:
+        preserved_caret = None
+        if current != text and caret_offset is None:
             try:
-                caret = self.content_text.index("insert")
+                preserved_caret = self.content_text.index("insert")
             except (tk.TclError, AttributeError):
-                caret = None
+                pass
+        if current != text:
             self.content_text.delete("1.0", "end")
             self.content_text.insert("1.0", text, "body")
-            if caret is not None:
-                try:
-                    self.content_text.mark_set("insert", caret)
-                except (tk.TclError, AttributeError):
-                    pass
+        if caret_offset is not None and 0 <= caret_offset <= len(text):
+            try:
+                self.content_text.tag_remove("sel", "1.0", "end")
+                self.content_text.mark_set("insert", f"1.0 + {caret_offset} chars")
+            except (tk.TclError, AttributeError):
+                pass
+        elif preserved_caret is not None:
+            try:
+                self.content_text.mark_set("insert", preserved_caret)
+            except (tk.TclError, AttributeError):
+                pass
         self.content_text.bind("<KeyRelease>", self._notify_editable_content_changed)
 
     def set_voice_draft_editing(self, editing: bool) -> None:

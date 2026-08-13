@@ -148,12 +148,32 @@ class VoiceDraftTarget:
 
 
 @dataclass(frozen=True)
+class VoiceDraftInsertion:
+    """The revision-bound semantic range produced by one finalized capture."""
+
+    projection_revision: int
+    start: int
+    end: int
+
+    def __post_init__(self) -> None:
+        if self.projection_revision < 0 or self.start < 0 or self.end < self.start:
+            raise ValueError("Voice Input insertion range is invalid")
+
+
+@dataclass(frozen=True)
 class VoiceOrigin:
     """Workflow-owned, ephemeral canonical Voice Input draft."""
 
     paste_target: PasteTarget | None
     text: str = ""
     revision: int = 0
+    latest_insertion: VoiceDraftInsertion | None = None
+
+    def __post_init__(self) -> None:
+        if self.revision < 0:
+            raise ValueError("Voice Draft revision is invalid")
+        if self.latest_insertion is not None and self.latest_insertion.end > len(self.text):
+            raise ValueError("Voice Input insertion exceeds the Voice Draft")
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from ClipAI.core.models import PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCapturePhase, VoiceDraftTarget, VoiceOrigin, VoiceProjection
+from ClipAI.core.voice import VoiceCapturePhase, VoiceDraftInsertion, VoiceDraftTarget, VoiceOrigin, VoiceProjection
 
 
 def begin_draft(
@@ -131,6 +131,12 @@ def finalize_capture(
     ):
         return None
     content = f"{origin.text[:target.selection_start]}{text}{origin.text[target.selection_end:]}"
+    revision = origin.revision + 1
+    insertion = VoiceDraftInsertion(
+        snapshot.revision + 1,
+        target.selection_start,
+        target.selection_start + len(text),
+    )
     return snapshot.evolve(
         status=SessionStatus.VOICE_REVIEW,
         title="Voice Input",
@@ -152,7 +158,12 @@ def finalize_capture(
         show_guidance_hint=False,
         result_completeness="complete",
         available_actions=("copy", "paste", "follow_up"),
-        voice_origin=replace(origin, text=content, revision=origin.revision + 1),
+        voice_origin=replace(
+            origin,
+            text=content,
+            revision=revision,
+            latest_insertion=insertion,
+        ),
         voice_capture_id=None,
     )
 
@@ -172,7 +183,12 @@ def edit_draft(
         return None
     return snapshot.evolve(
         content=text,
-        voice_origin=replace(origin, text=text, revision=origin.revision + 1),
+        voice_origin=replace(
+            origin,
+            text=text,
+            revision=origin.revision + 1,
+            latest_insertion=None,
+        ),
     )
 
 
