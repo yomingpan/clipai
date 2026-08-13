@@ -104,6 +104,12 @@ tests/              # Unit sims 與 integration tests
 - 受控 Edge WebView2 Browser Speech host 與 engine adapter。
 - File system output。
 
+Voice WebView2 的 WinForms host 是 platform infrastructure，不是 UI surface。
+它的 native realisation 由 `platform/voice_webview_host.py` 單點擁有：保持
+`Opacity=0`、只設定 non-activating extended style、再呼叫 WinForms 原生
+`Show()`。`prepare` 與 `start` 都必須先得到 realisation 成功，否則發出
+`initialization_failed` terminal event；不得用 pywebview `show()` 代替。
+
 不得放入：
 
 - Prompt 決策。

@@ -244,6 +244,16 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 - Missing release 的 stale recovery、listener shutdown 與 injected key events
   不得產生第二次 terminal outcome 或污染下一個 press。
 
+### Voice WebView 可見性量測
+
+- Native seam double 必須保留 `System.IntPtr` 的 `ToInt64()` 契約，且只記錄
+  Win32/WinForms 請求；不得把 fake 的綠燈當成 Windows compositor 證據。
+- `prepare`、`start`、realisation failure 與 UI-thread/direct execution 由快速
+  unit tests 覆蓋。
+- 發版前在互動式 Windows desktop 以 `scripts/app_flash_watch.py` 每 20 ms
+  取樣目標行程全部 visible top-level windows；每個候選策略至少四次，記錄
+  samples、visible frames、opaque frames 與最終 layered/visibility 狀態。
+
 Recipe 回饋與使用引導應測：
 
 - Popup 原始尺寸與結果區高度不因契約、回饋或 coachmark 縮小。
