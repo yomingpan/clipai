@@ -10,7 +10,9 @@ from ClipAI.core.voice import (
     VoiceCapabilityPhase,
     VoiceEngineFinalSegment,
     VoiceEngineSetupReady,
+    VoiceDraftInsertion,
     VoiceLanguage,
+    VoiceOrigin,
     VoiceSetupId,
 )
 
@@ -52,3 +54,8 @@ def test_voice_commands_are_part_of_the_typed_application_command_union() -> Non
 
     assert isinstance(setup, AppCommand)
     assert isinstance(event, AppCommand)
+
+
+def test_voice_origin_rejects_an_insertion_outside_its_canonical_text() -> None:
+    with pytest.raises(ValueError, match="exceeds the Voice Draft"):
+        VoiceOrigin(None, "short", 1, VoiceDraftInsertion(4, 0, 6))

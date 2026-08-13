@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, NewType
 
+from ClipAI.core.errors import PasteFailureReason
 from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
@@ -232,6 +233,7 @@ class OutputOperationResult:
     state: OutputOperationState
     error: UserFacingError | None = None
     message: str = ""
+    reason: PasteFailureReason | None = None
 
     def __post_init__(self) -> None:
         common_states = {"pending", "failed", "cancelled"}
@@ -506,6 +508,7 @@ class PasteOutcome:
     delivery: PasteDeliveryState
     cleanup: PasteCleanupState
     message: str = ""
+    reason: PasteFailureReason | None = None
 
 
 @dataclass(frozen=True)

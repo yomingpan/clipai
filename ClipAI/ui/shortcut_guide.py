@@ -8,6 +8,7 @@ import customtkinter as ctk
 from ClipAI.core.commands import CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, SelectShortcutGuideItem
 from ClipAI.core.hotkeys import GRAVE_KEY_TOKEN
 from ClipAI.core.models import ControlSurfaceRef, ShortcutGuideItem, ShortcutGuideSnapshot
+from ClipAI.core.ports import NativeWindowSurface
 from ClipAI.ui.window_icons import CUSTOMTKINTER_ICON_DELAY_MS, destroy_window_icons, install_clipai_window_icons
 
 
@@ -26,8 +27,9 @@ _KEY_PRESSED = ("#C7E8CB", "#236B38")
 class ShortcutGuideDialog:
     """Toolkit-only projection of the shortcut guide."""
 
-    def __init__(self, master, command_sink: Callable[[object], None]) -> None:
+    def __init__(self, master, command_sink: Callable[[object], None], native_window_surface: NativeWindowSurface) -> None:
         self._command_sink = command_sink
+        self._native_window_surface = native_window_surface
         self._snapshot: ShortcutGuideSnapshot | None = None
         self._window_icon_handles: tuple[int, ...] = ()
         self._list_buttons: dict[str, ctk.CTkButton] = {}
@@ -128,7 +130,7 @@ class ShortcutGuideDialog:
             self._window.destroy()
         except tk.TclError:
             pass
-        destroy_window_icons(self._window_icon_handles)
+        destroy_window_icons(self._native_window_surface, self._window_icon_handles)
         self._window_icon_handles = ()
 
     def _build_keyboard(self, parent) -> None:
@@ -227,6 +229,6 @@ class ShortcutGuideDialog:
 
     def _apply_window_icons(self) -> None:
         try:
-            self._window_icon_handles = install_clipai_window_icons(self._window)
+            self._window_icon_handles = install_clipai_window_icons(self._window, self._native_window_surface)
         except (OSError, tk.TclError):
             pass

@@ -4,7 +4,7 @@ from collections.abc import Callable
 import ctypes
 import time
 
-from ClipAI.core.errors import CancelledError
+from ClipAI.core.errors import CancelledError, PASTE_FAILURE_MESSAGES, PasteFailure
 from ClipAI.core.models import PasteDispatchReceipt, PasteTarget
 from ClipAI.core.state import CancellationToken
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_modifier_is_pressed
@@ -41,22 +41,28 @@ class SystemKeyboardOutput:
         while any(self._modifier_is_pressed(modifier) is True for modifier in MODIFIER_KEYS):
             _raise_if_cancelled(cancellation)
             if time.monotonic() >= deadline:
-                raise RuntimeError("Keyboard modifiers were not released in time.")
+                raise PasteFailure("modifiers_held", PASTE_FAILURE_MESSAGES["modifiers_held"])
             self._wait(self._poll_sec)
         _raise_if_cancelled(cancellation)
         if not self._target_is_valid(target):
-            raise RuntimeError("找不到貼上目標。請先點選要貼入的視窗，再回到 ClipAI。")
+            raise PasteFailure("target_gone", PASTE_FAILURE_MESSAGES["target_gone"])
         if not self._activate_target(target) and not self._target_is_foreground(target):
-            raise RuntimeError("找不到貼上目標。請先點選要貼入的視窗，再回到 ClipAI。")
+            raise PasteFailure(
+                "target_refused_focus",
+                PASTE_FAILURE_MESSAGES["target_refused_focus"],
+            )
         activation_deadline = time.monotonic() + self._target_activation_timeout_sec
         while not self._target_is_foreground(target):
             _raise_if_cancelled(cancellation)
             if time.monotonic() >= activation_deadline:
-                raise RuntimeError("找不到貼上目標。請先點選要貼入的視窗，再回到 ClipAI。")
+                raise PasteFailure(
+                    "target_focus_timeout",
+                    PASTE_FAILURE_MESSAGES["target_focus_timeout"],
+                )
             self._wait(self._poll_sec)
         _raise_if_cancelled(cancellation)
         if not self._target_is_valid(target) or not self._target_is_foreground(target):
-            raise RuntimeError("Paste target changed before dispatch.")
+            raise PasteFailure("target_changed", PASTE_FAILURE_MESSAGES["target_changed"])
         _raise_if_cancelled(cancellation)
         detail = ""
         try:

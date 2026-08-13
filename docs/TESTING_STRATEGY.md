@@ -183,6 +183,11 @@ Integration 應測：
 - streaming 中按 copy/speak/archive。
 - popup 關閉後 background callback 不造成 crash。
 - clipboard restore 在錯誤與取消情境下仍穩定。
+- `FocusEntered` 必須具名攜帶 native foreground 與 toolkit focus；兩軸皆真
+  才能通過 initial-focus gate。
+- Alt+Tab、taskbar switch 與 external foreground theft 必須透過獨立事實
+  釋放 focus，且 Paste/owned dialog guard 不得被繞過。手動矩陣見
+  `docs/testing/popup-focus-manual-checklist.md`。
 
 ### Paste Operation 測試矩陣
 
@@ -214,6 +219,10 @@ Service 與 runtime sims 必須覆蓋以下 dispatch × cleanup × cancellation
 - runtime 不持有 concrete Paste handle 或 `_paste_jobs` registry；architecture
   test 必須防止這個 ownership 退化。
 - stale、重複或晚到 completion 不得完成較新的 output operation。
+- `TaskSupervisor.submit()` 拒絕工作時，pending 必須立即接 terminal
+  acknowledgement，且 interruption plan 不得殘留 phantom operation。
+- tracker/presenter 拋錯時，matching、replaced 與 cancel-all records 的 lease
+  仍須釋放；stale settlement 不得碰 handle 或 lease。
 - Popup outcome/focus matrix 與 `docs/specs/paste-target-focus-adr.md` 一致。
 
 Windows integration smoke 必須覆蓋 clipboard snapshot、temporary text、
@@ -232,6 +241,12 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
   plain text，不遺失 canonical content。
 - Selection Capture 與 Paste 共用 clipboard transaction owner；late restore
   不得覆寫使用者或較新的 operation 所做的 clipboard change。
+- 九個 `PasteFailureReason` 都必須有 detection-path 測試；reason 由 typed
+  error 傳遞，不得從訊息比對推回，且任兩 reason 不得共用同一句使用者訊息。
+- Paste `failed`／`cancelled` 必須在 transaction 與 active membership 釋放後
+  將 canonical result 保留到 clipboard，並明示可手動 Ctrl+V。
+  `dispatched_unconfirmed`／`cleanup_failed` 必須逐位元保留原 clipboard，
+  不得因 convenience fallback 製造重複貼上的風險。
 
 ### Physical-key release 測試
 
@@ -243,6 +258,16 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
   不得被 late timer 誤判為 long press。
 - Missing release 的 stale recovery、listener shutdown 與 injected key events
   不得產生第二次 terminal outcome 或污染下一個 press。
+
+### Voice WebView 可見性量測
+
+- Native seam double 必須保留 `System.IntPtr` 的 `ToInt64()` 契約，且只記錄
+  Win32/WinForms 請求；不得把 fake 的綠燈當成 Windows compositor 證據。
+- `prepare`、`start`、realisation failure 與 UI-thread/direct execution 由快速
+  unit tests 覆蓋。
+- 發版前在互動式 Windows desktop 以 `scripts/app_flash_watch.py` 每 20 ms
+  取樣目標行程全部 visible top-level windows；每個候選策略至少四次，記錄
+  samples、visible frames、opaque frames 與最終 layered/visibility 狀態。
 
 Recipe 回饋與使用引導應測：
 
@@ -281,6 +306,10 @@ Recipe 回饋與使用引導應測：
 - 只有 `app` 可以同時知道 concrete adapters 與 services。
 - `app/container.py` 是 assembly entry point；runtime provider rebuild 可位於 focused app composition adapter，但不得下沉到 `services` 或 `providers`。
 - 不得存在 global Event Bus 或未設移除期限的 compatibility shim。
+- `platform/` 之外不得 import `ctypes`、`win32api`、`win32con`、`win32gui`
+  或 `winreg`；此規則使用獨立 AST test，讓錯誤直接指出 native owner。
+- `ui/` 不得出現 `sys.platform` 或 `windll`。Native-window doubles 只記錄
+  contract request，Headless adapter 必須回傳保守結果，不模擬 Windows。
 
 ## Marker 規則
 

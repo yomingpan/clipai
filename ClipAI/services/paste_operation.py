@@ -6,7 +6,7 @@ import threading
 from typing import Literal
 
 from ClipAI.core.commands import PasteOperationCompleted
-from ClipAI.core.errors import CancelledError
+from ClipAI.core.errors import CancelledError, PASTE_FAILURE_MESSAGES, PasteFailure
 from ClipAI.core.models import PasteDispatchReceipt, PasteOutcome, PasteRequest
 from ClipAI.core.ports import TargetedPasteOutput
 from ClipAI.core.state import CancellationToken
@@ -32,6 +32,10 @@ class PasteOperationCoordinator:
     def admit(self, request: PasteRequest) -> bool:
         with self._lock:
             if self._active is not None:
+                failure = PasteFailure(
+                    "another_paste_active",
+                    PASTE_FAILURE_MESSAGES["another_paste_active"],
+                )
                 rejected = PasteOperationCompleted(
                     request.operation_id,
                     request.workflow_id,
@@ -39,7 +43,8 @@ class PasteOperationCoordinator:
                         "failed",
                         "not_dispatched",
                         "not_required",
-                        "Another Paste Operation is still in progress.",
+                        str(failure),
+                        failure.reason,
                     ),
                 )
             else:
@@ -66,9 +71,16 @@ class PasteOperationCoordinator:
             )
             outcome = _paste_outcome(transaction)
         except BaseException as exc:
+            failure = _paste_failure(exc)
             self._finish(
                 active,
-                PasteOutcome("failed", "not_dispatched", "not_required", str(exc)),
+                PasteOutcome(
+                    "failed",
+                    "not_dispatched",
+                    "not_required",
+                    str(failure),
+                    failure.reason,
+                ),
             )
             raise
         self._finish(active, outcome)
@@ -116,7 +128,7 @@ class PasteOperationCoordinator:
             active.state = "finishing"
         self._emit_and_release(
             active,
-            PasteOutcome("failed", "not_dispatched", "not_required", str(error)),
+            _failed_outcome(error),
         )
         return True
 
@@ -134,13 +146,11 @@ class PasteOperationCoordinator:
             active.request.workflow_id,
             outcome,
         )
-        try:
-            self._completion_sink(completion)
-        finally:
-            with self._lock:
-                active.state = "completed"
-                if self._active is active:
-                    self._active = None
+        with self._lock:
+            active.state = "completed"
+            if self._active is active:
+                self._active = None
+        self._completion_sink(completion)
 
     def _matching_active(self, operation_id: str) -> _ActivePaste | None:
         active = self._active
@@ -161,7 +171,13 @@ def _paste_outcome(result: TemporaryTextResult[PasteDispatchReceipt]) -> PasteOu
             message = "Paste may already be pasted, but the previous clipboard content could not be restored. Confirm the target before trying again."
         else:
             message = "Paste was not dispatched, but ClipAI could not restore the previous clipboard content."
-        return PasteOutcome("cleanup_failed", delivery, "failed", message)
+        return PasteOutcome(
+            "cleanup_failed",
+            delivery,
+            "failed",
+            message,
+            "clipboard_unavailable",
+        )
     if result.value is not None:
         message = result.value.detail or "Paste command was sent, but the target application cannot confirm completion. Check the target before trying again."
         if result.cleanup == "external_change":
@@ -169,5 +185,25 @@ def _paste_outcome(result: TemporaryTextResult[PasteDispatchReceipt]) -> PasteOu
         return PasteOutcome("dispatched_unconfirmed", delivery, result.cleanup, message)
     if result.cancelled or isinstance(result.error, CancelledError):
         return PasteOutcome("cancelled", "not_dispatched", result.cleanup)
-    message = str(result.error) if result.error is not None else "Paste could not be dispatched."
-    return PasteOutcome("failed", "not_dispatched", result.cleanup, message)
+    return _failed_outcome(result.error, cleanup=result.cleanup)
+
+
+def _failed_outcome(
+    error: BaseException | None,
+    *,
+    cleanup: Literal["not_required", "restored", "external_change", "failed"] = "not_required",
+) -> PasteOutcome:
+    failure = _paste_failure(error)
+    return PasteOutcome(
+        "failed",
+        "not_dispatched",
+        cleanup,
+        str(failure),
+        failure.reason,
+    )
+
+
+def _paste_failure(error: BaseException | None) -> PasteFailure:
+    if isinstance(error, PasteFailure):
+        return error
+    return PasteFailure("unknown", PASTE_FAILURE_MESSAGES["unknown"])

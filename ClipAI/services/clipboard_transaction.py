@@ -8,6 +8,7 @@ import time
 from typing import Generic, TypeVar
 import uuid
 
+from ClipAI.core.errors import PASTE_FAILURE_MESSAGES, PasteFailure
 from ClipAI.core.models import PasteCleanupState, SelectionCaptureOutcome
 from ClipAI.core.ports import ClipboardTransactionStore, SelectionCaptureAdapter
 from ClipAI.core.state import CancellationToken
@@ -51,7 +52,7 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
                     raise OSError("Clipboard sequence tracking is unavailable.")
                 original = self._clipboard.snapshot()
             except Exception as exc:
-                return TemporaryTextResult(error=exc)
+                return TemporaryTextResult(error=_clipboard_failure(exc))
             if self._cancelled(cancellation):
                 return TemporaryTextResult(cancelled=True)
 
@@ -62,7 +63,7 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
                     raise OSError("Clipboard sequence tracking was lost after mutation.")
             except Exception as exc:
                 return TemporaryTextResult(
-                    error=exc,
+                    error=_clipboard_failure(exc),
                     cleanup="failed",
                 )
 
@@ -77,14 +78,14 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
             except Exception as exc:
                 error = exc
 
-            cleanup = "restored"
+            cleanup: PasteCleanupState = "restored"
             try:
                 if not self._clipboard.restore_if_unchanged(original, owned_sequence):
                     cleanup = "external_change"
             except Exception as exc:
                 cleanup = "failed"
                 if error is None:
-                    error = exc
+                    error = _clipboard_failure(exc)
 
             return TemporaryTextResult(
                 value=value,
@@ -92,6 +93,12 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
                 cancelled=cancelled,
                 cleanup=cleanup,
             )
+
+    def write_text(self, text: str) -> None:
+        """Serialize durable clipboard writes with temporary Paste ownership."""
+
+        with self._transaction("clipboard-write"):
+            self._clipboard.write_text(text)
 
     def capture_selection(
         self,
@@ -165,3 +172,12 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
     def _raise_if_cancelled(cls, cancellation: CancellationToken | None) -> None:
         if cls._cancelled(cancellation):
             raise RuntimeError("clipboard transaction was cancelled")
+
+
+def _clipboard_failure(error: Exception) -> PasteFailure:
+    if isinstance(error, PasteFailure):
+        return error
+    return PasteFailure(
+        "clipboard_unavailable",
+        PASTE_FAILURE_MESSAGES["clipboard_unavailable"],
+    )

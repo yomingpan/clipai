@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import threading
 
-from ClipAI.core.errors import CancelledError, InputError
+from ClipAI.core.errors import CancelledError, InputError, PasteFailure
 from ClipAI.core.models import PasteDispatchReceipt, PasteRequest, PasteTarget
 from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
@@ -124,6 +124,7 @@ def test_preservation_failure_is_fail_closed_before_dispatch() -> None:
     assert outcome.state == "failed"
     assert outcome.delivery == "not_dispatched"
     assert outcome.cleanup == "not_required"
+    assert outcome.reason == "clipboard_unavailable"
     assert dispatcher.calls == 0
     assert clipboard.transient_writes == []
     assert clipboard.value == "original"
@@ -282,6 +283,7 @@ def test_new_operation_is_rejected_until_older_operation_reaches_terminal_outcom
     assert paste.admit(request("newer")) is False
     assert completions[-1].operation_id == "newer"
     assert completions[-1].outcome.state == "failed"
+    assert completions[-1].outcome.reason == "another_paste_active"
 
     assert paste.request_cancel("older") is True
     older_outcome = completions[-1].outcome
@@ -339,3 +341,39 @@ def test_external_clipboard_change_is_not_overwritten_and_is_visible_in_outcome(
     assert outcome.state == "dispatched_unconfirmed"
     assert outcome.cleanup == "external_change"
     assert clipboard.value == "external"
+
+
+def test_untyped_dispatch_failure_is_reported_as_unknown_without_message_inference() -> None:
+    clipboard = Clipboard()
+    dispatcher = Dispatcher()
+    dispatcher.error = RuntimeError("arbitrary adapter detail")
+
+    outcome = execute_once(clipboard, dispatcher)
+
+    assert outcome.state == "failed"
+    assert outcome.reason == "unknown"
+
+
+def test_completion_is_emitted_after_transaction_and_membership_release() -> None:
+    clipboard = Clipboard()
+    transactions = ClipboardTransactionCoordinator(clipboard)
+    dispatcher = Dispatcher()
+    paste = None
+    completions = []
+
+    def complete(command) -> None:
+        completions.append(command)
+        transactions.write_text("fallback")
+        assert paste.admit(request("next")) is True
+
+    paste = PasteOperationCoordinator(
+        clipboard_transactions=transactions,
+        dispatcher=dispatcher,
+        completion_sink=complete,
+    )
+    assert paste.admit(request()) is True
+
+    paste.execute("paste-1")
+
+    assert len(completions) == 1
+    assert clipboard.value == "fallback"

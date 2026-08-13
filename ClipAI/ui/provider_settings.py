@@ -8,14 +8,16 @@ import customtkinter as ctk
 
 from ClipAI.core.commands import CloseProviderSettings, ControlSurfaceActivated, ControlSurfaceReleased, OpenProviderSettings, RefreshProviderModels, ValidateAndSaveProviderSettings
 from ClipAI.core.models import ControlSurfaceRef, ModelCatalogConnection, ProviderOption, ProviderSettingsInput, ProviderSettingsState
+from ClipAI.core.ports import NativeWindowSurface
 from ClipAI.ui.window_icons import CUSTOMTKINTER_ICON_DELAY_MS, destroy_window_icons, install_clipai_window_icons
 
 
 class ProviderSettingsDialog:
     """Toolkit-only editor that emits one typed save intent."""
 
-    def __init__(self, master, command_sink: Callable[[object], None]) -> None:
+    def __init__(self, master, command_sink: Callable[[object], None], native_window_surface: NativeWindowSurface) -> None:
         self._command_sink = command_sink
+        self._native_window_surface = native_window_surface
         self._state: ProviderSettingsState | None = None
         self._loaded_provider = ""
         self._gateway_custom_mode = tk.BooleanVar(value=True)
@@ -246,7 +248,7 @@ class ProviderSettingsDialog:
 
     def _apply_windows_window_icons(self) -> None:
         try:
-            self._window_icon_handles = install_clipai_window_icons(self._window)
+            self._window_icon_handles = install_clipai_window_icons(self._window, self._native_window_surface)
         except (OSError, tk.TclError):
             pass
 
@@ -255,7 +257,7 @@ class ProviderSettingsDialog:
             self._window.destroy()
         except tk.TclError:
             pass
-        destroy_window_icons(self._window_icon_handles)
+        destroy_window_icons(self._native_window_surface, self._window_icon_handles)
         self._window_icon_handles = ()
 
 

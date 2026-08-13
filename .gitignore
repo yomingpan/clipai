@@ -10,3 +10,4 @@ dist/
 diagnostics/
 data/
 .agents/
+.codex-test-tmp/

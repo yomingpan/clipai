@@ -86,7 +86,17 @@ class PopupShown:
 
 @dataclass(frozen=True)
 class FocusEntered:
-    pass
+    native_foreground: bool
+    toolkit_focused: bool
+
+    @property
+    def confirmed(self) -> bool:
+        return self.native_foreground and self.toolkit_focused
+
+
+@dataclass(frozen=True)
+class ForegroundLeftApplication:
+    pinned: bool
 
 
 @dataclass(frozen=True)
@@ -120,6 +130,7 @@ PopupFocusFact: TypeAlias = (
     PopupRegistered
     | PopupShown
     | FocusEntered
+    | ForegroundLeftApplication
     | OutsideFocusCheckRequested
     | OutsideFocusObserved
     | OutsidePointerPressed
@@ -222,10 +233,26 @@ class PopupExternalOutputTransitions:
             self._withdrawn_for_paste = False
             return ()
         if isinstance(fact, FocusEntered):
+            if not fact.confirmed:
+                if self._focused_inside:
+                    return ()
+                self._mark_unfocused()
+                return (SetFocusProjection(False),)
             if "paste" not in self._operations:
                 self._withdrawn_for_paste = False
             self._mark_focused()
             return (SetFocusProjection(True),)
+        if isinstance(fact, ForegroundLeftApplication):
+            if not self._focused_inside or self._owned_dialog_active or "paste" in self._operations:
+                return ()
+            self._mark_unfocused()
+            actions: list[PopupTransitionAction] = [
+                SetFocusProjection(False),
+                ReportControlSurfaceReleased(),
+            ]
+            if not fact.pinned:
+                actions.append(RequestPopupClose())
+            return tuple(actions)
         if isinstance(fact, OutsideFocusCheckRequested):
             if (
                 not self._ready

@@ -89,3 +89,4 @@ logging:
     hotkey_raw_events: false
     selection_capture_polls: false
     paste_timing: false
+    focus_transitions: false

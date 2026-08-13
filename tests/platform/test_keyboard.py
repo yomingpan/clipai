@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from ClipAI.core.errors import PasteFailure
 from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.core.models import PasteTarget
 from ClipAI.core.state import CancellationToken
@@ -52,9 +53,10 @@ def test_paste_fails_without_injecting_when_modifiers_do_not_release() -> None:
         target_is_foreground=lambda _target: True,
     )
 
-    with pytest.raises(RuntimeError, match="modifiers were not released"):
+    with pytest.raises(PasteFailure) as raised:
         keyboard.dispatch(TARGET, CancellationToken())
 
+    assert raised.value.reason == "modifiers_held"
     assert pasted == []
 
 
@@ -68,9 +70,10 @@ def test_paste_rejects_invalid_target_without_injecting() -> None:
         target_is_foreground=lambda _target: True,
     )
 
-    with pytest.raises(RuntimeError, match="找不到貼上目標"):
+    with pytest.raises(PasteFailure) as raised:
         keyboard.dispatch(TARGET, CancellationToken())
 
+    assert raised.value.reason == "target_gone"
     assert pasted == []
 
 
@@ -111,10 +114,41 @@ def test_paste_revalidates_target_and_foreground_at_commit_gate() -> None:
         target_is_foreground=lambda _target: True,
     )
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(PasteFailure) as raised:
         keyboard.dispatch(TARGET, CancellationToken())
 
+    assert raised.value.reason == "target_changed"
     assert pasted == []
+
+
+def test_paste_reports_target_refused_focus_at_activation_gate() -> None:
+    keyboard = SystemKeyboardOutput(
+        modifier_is_pressed=lambda _modifier: False,
+        target_is_valid=lambda _target: True,
+        activate_target=lambda _target: False,
+        target_is_foreground=lambda _target: False,
+    )
+
+    with pytest.raises(PasteFailure) as raised:
+        keyboard.dispatch(TARGET, CancellationToken())
+
+    assert raised.value.reason == "target_refused_focus"
+
+
+def test_paste_reports_target_focus_timeout_after_accepted_activation() -> None:
+    keyboard = SystemKeyboardOutput(
+        modifier_is_pressed=lambda _modifier: False,
+        target_activation_timeout_sec=0,
+        wait=lambda _delay: None,
+        target_is_valid=lambda _target: True,
+        activate_target=lambda _target: True,
+        target_is_foreground=lambda _target: False,
+    )
+
+    with pytest.raises(PasteFailure) as raised:
+        keyboard.dispatch(TARGET, CancellationToken())
+
+    assert raised.value.reason == "target_focus_timeout"
 
 
 def test_input_injection_error_after_commit_is_reported_as_unconfirmed_dispatch() -> None:

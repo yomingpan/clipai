@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import traceback
 from argparse import ArgumentParser
 from collections.abc import Callable
 from pathlib import Path
@@ -34,14 +35,14 @@ def allow_microphone_permission(
             # permission request; do not restore or focus the host.
             activate_host()
         except Exception:
-            pass
+            traceback.print_exc(file=sys.stderr)
     request.State = allow_state
     request.SavesInProfile = True
     request.Handled = True
 
 
-def show_permission_surface_without_activation(window: Any, *, user32: Any | None = None) -> bool:
-    """Make the WebView visible enough for consent without entering foreground."""
+def realise_voice_host_invisibly(window: Any, *, user32: Any | None = None) -> bool:
+    """Realise the WinForms WebView host while keeping every frame transparent."""
     if user32 is None:
         if sys.platform != "win32":
             return False
@@ -50,34 +51,49 @@ def show_permission_surface_without_activation(window: Any, *, user32: Any | Non
         user32 = ctypes.windll.user32
     try:
         native = window.native
-        handle = int(native.Handle)
-        gwl_exstyle = -20
-        ws_ex_toolwindow = 0x00000080
-        ws_ex_appwindow = 0x00040000
-        ws_ex_noactivate = 0x08000000
-        style = int(user32.GetWindowLongW(handle, gwl_exstyle))
-        user32.SetWindowLongW(
-            handle,
-            gwl_exstyle,
-            (style | ws_ex_toolwindow | ws_ex_noactivate) & ~ws_ex_appwindow,
-        )
-        swp_noactivate = 0x0010
-        swp_noownerzorder = 0x0200
-        swp_nozorder = 0x0004
-        swp_showwindow = 0x0040
-        user32.SetWindowPos(
-            handle,
-            0,
-            -32000,
-            -32000,
-            1,
-            1,
-            swp_noactivate | swp_noownerzorder | swp_nozorder | swp_showwindow,
-        )
-        user32.ShowWindow(handle, 4)  # SW_SHOWNOACTIVATE
+
+        def realise() -> None:
+            native.Opacity = 0.0
+            handle = _native_handle_value(native.Handle)
+            gwl_exstyle = -20
+            ws_ex_toolwindow = 0x00000080
+            ws_ex_appwindow = 0x00040000
+            ws_ex_noactivate = 0x08000000
+            style = int(user32.GetWindowLongW(handle, gwl_exstyle))
+            user32.SetWindowLongW(
+                handle,
+                gwl_exstyle,
+                (style | ws_ex_toolwindow | ws_ex_noactivate) & ~ws_ex_appwindow,
+            )
+            native.Show()
+
+        _run_on_winforms_ui_thread(native, realise)
         return True
     except (AttributeError, OSError, TypeError, ValueError):
+        traceback.print_exc(file=sys.stderr)
         return False
+
+
+def _native_handle_value(handle: Any) -> int:
+    """Convert pythonnet's System.IntPtr without relying on int(IntPtr)."""
+    to_int64 = getattr(handle, "ToInt64", None)
+    if callable(to_int64):
+        return int(to_int64())
+    return int(handle)
+
+
+def _run_on_winforms_ui_thread(native: Any, action: Callable[[], None]) -> None:
+    """Marshal only when required; invoking from the UI thread can deadlock."""
+    if not bool(getattr(native, "InvokeRequired", False)):
+        action()
+        return
+    try:
+        from System import Action
+
+        callback = Action(action)
+    except ImportError:
+        callback = action
+    native.Invoke(callback)
 
 
 def _attach_microphone_permission_handler(
@@ -87,8 +103,6 @@ def _attach_microphone_permission_handler(
 ) -> None:
     """Attach the WebView2 permission policy on its Windows UI thread."""
     from Microsoft.Web.WebView2.Core import CoreWebView2PermissionKind, CoreWebView2PermissionState
-    from System import Action
-
     def handle_permission(_sender: object, request: Any) -> None:
         if request.PermissionKind != CoreWebView2PermissionKind.Microphone:
             return
@@ -101,14 +115,14 @@ def _attach_microphone_permission_handler(
             request,
             microphone_kind=CoreWebView2PermissionKind.Microphone,
             allow_state=CoreWebView2PermissionState.Allow,
-            activate_host=lambda: show_permission_surface_without_activation(window),
+            activate_host=lambda: realise_voice_host_invisibly(window),
         )
 
     def attach() -> None:
         core_webview = window.native.browser.webview.CoreWebView2
         core_webview.PermissionRequested += handle_permission
 
-    window.native.Invoke(Action(attach))
+    _run_on_winforms_ui_thread(window.native, attach)
     retained_handlers.append(handle_permission)
 
 
@@ -139,7 +153,7 @@ def _dispatch_host_command(
     *,
     loaded: threading.Event,
     permission_command: list[str] | None = None,
-    capture_surface: Callable[[Any], bool] | None = show_permission_surface_without_activation,
+    capture_surface: Callable[[Any], bool] | None = realise_voice_host_invisibly,
 ) -> bool:
     """Forward one validated transport command to the voice page.
 
@@ -159,17 +173,18 @@ def _dispatch_host_command(
         return True
     if permission_command is not None and name in {"prepare", "start"}:
         permission_command[0] = name
-    if name == "start" and capture_surface is not None:
+    if name in {"prepare", "start"} and capture_surface is not None:
         try:
             # Web Speech requires its WebView host to be available when capture
             # begins. Request a non-activating native surface first, then let
             # pywebview record its own visible lifecycle transition.
-            capture_surface(window)
-            # pywebview records this lifecycle transition independently from its
-            # native handle. The non-activating style is already in place.
-            window.show()
+            realised = capture_surface(window)
         except Exception:
-            pass
+            traceback.print_exc(file=sys.stderr)
+            realised = False
+        if not realised:
+            _emit_command_failure(api, command, "initialization_failed")
+            return True
     # This is an intentionally hidden host. It has an explicit WebView2
     # microphone-permission policy and a persistent app-owned profile, so
     # preparing or starting capture must not steal focus from the user's work.
