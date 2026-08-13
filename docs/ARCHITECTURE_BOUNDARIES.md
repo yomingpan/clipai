@@ -110,6 +110,13 @@ Voice WebView2 的 WinForms host 是 platform infrastructure，不是 UI surface
 `Show()`。`prepare` 與 `start` 都必須先得到 realisation 成功，否則發出
 `initialization_failed` terminal event；不得用 pywebview `show()` 代替。
 
+應用程式視窗的 native OS 事實由注入的 `NativeWindowSurface` 單點擁有，包含
+task-switcher 隱藏、activation、no-activate show、foreground ownership 與
+window icon handle。UI 只傳 toolkit child id；top-level native handle 的解析
+留在 Windows adapter。Headless adapter 回傳保守結果，兩者都不得向 contract
+外拋出 native failure。Pointer press 同樣由 platform adapter 透過
+`PointerPressReader` 注入。
+
 不得放入：
 
 - Prompt 決策。
@@ -232,6 +239,9 @@ UI 只負責：
 - `ui` 不得 import concrete `providers`。
 - UI 操作只能送出 typed command，不得直接呼叫 service 或 concrete adapter。
 - Tray 是由 `app` 注入的 `StatusIndicator` UI adapter；Workflow 與 operation status 只能透過明確 projection 更新，禁止使用 global Event Bus 或由 provider 更新 tray。
+- `deiconify`、`withdraw`、`update_idletasks`、`winfo_id`、`focus_get` 與 UI
+  resource 定位留在 UI；`ctypes`、pywin32、`sys.platform` 與 native handle
+  interpretation 不得出現在 UI。
 
 ## App
 

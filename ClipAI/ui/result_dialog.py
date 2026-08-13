@@ -11,10 +11,9 @@ import customtkinter as ctk
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelVoiceCapture, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
 from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
-from ClipAI.core.ports import DisplayMetricsReader
+from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
-from ClipAI.ui.pointer_input import PointerPressReader, WindowsPointerPressReader
 from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
@@ -83,6 +82,7 @@ class ResultDialogPresenter:
         display_metrics: DisplayMetricsReader | None = None,
         layout_policy: PopupLayoutPolicy | None = None,
         pointer_press_reader: PointerPressReader | None = None,
+        native_window_surface: NativeWindowSurface | None = None,
     ) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
@@ -98,7 +98,8 @@ class ResultDialogPresenter:
         self._paste_target: PasteTarget | None = None
         self._display_metrics = display_metrics
         self._layout_policy = layout_policy or PopupLayoutPolicy()
-        self._pointer_press_reader = pointer_press_reader or WindowsPointerPressReader()
+        self._pointer_press_reader = pointer_press_reader
+        self._native_window_surface = native_window_surface
         self._provider_settings_dialog: ProviderSettingsDialog | None = None
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
         self._shortcut_guide_focus_hold_active = False
@@ -145,7 +146,13 @@ class ResultDialogPresenter:
 
     def show_provider_settings(self, state: ProviderSettingsState) -> None:
         if self._provider_settings_dialog is None:
-            self._provider_settings_dialog = ProviderSettingsDialog(self._root, self._command_sink)
+            if self._native_window_surface is None:
+                return
+            self._provider_settings_dialog = ProviderSettingsDialog(
+                self._root,
+                self._command_sink,
+                self._native_window_surface,
+            )
         self._provider_settings_dialog.apply(state)
 
     def set_provider_settings(self, state: ProviderSettingsState) -> None:
@@ -159,7 +166,13 @@ class ResultDialogPresenter:
     def show_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
         self._hold_focus_for_shortcut_guide()
         if self._shortcut_guide_dialog is None:
-            self._shortcut_guide_dialog = ShortcutGuideDialog(self._root, self._command_sink)
+            if self._native_window_surface is None:
+                return
+            self._shortcut_guide_dialog = ShortcutGuideDialog(
+                self._root,
+                self._command_sink,
+                self._native_window_surface,
+            )
         self._shortcut_guide_dialog.show(snapshot)
 
     def set_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
@@ -366,7 +379,7 @@ class ResultDialogPresenter:
             pass
 
     def _drain_updates(self) -> None:
-        point = self._pointer_press_reader.poll()
+        point = self._pointer_press_reader.poll() if self._pointer_press_reader is not None else None
         if point is not None:
             self._handle_pointer_press(*point)
         while True:
@@ -733,6 +746,7 @@ class ResultDialogPresenter:
             minimum_height=220,
             hide_from_task_switcher=True,
             on_close_request=lambda sid=session_id: self._request_close(sid),
+            native_window_surface=self._native_window_surface,
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()

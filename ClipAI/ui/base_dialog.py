@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import tkinter as tk
 import tkinter.font as tkfont
-import sys
 from dataclasses import dataclass
 from typing import Callable, Literal, Mapping, Protocol
 
 import customtkinter as ctk
 
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PresentationDocument
+from ClipAI.core.ports import NativeWindowSurface
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
@@ -366,101 +366,6 @@ class RoundedSurfacePainter:
         self._canvas.create_oval(x2 - radius * 2, y2 - radius * 2, x2, y2, **options)
 
 
-def hide_window_from_task_switcher(window, user32=None) -> bool:
-    """Hide a Windows popup from both the taskbar and Alt+Tab."""
-    if user32 is None:
-        if sys.platform != "win32":
-            return False
-        import ctypes
-
-        user32 = ctypes.windll.user32
-    try:
-        window.update_idletasks()
-        child = int(window.winfo_id())
-        hwnd = int(user32.GetParent(child)) or child
-        gwl_exstyle = -20
-        ws_ex_toolwindow = 0x00000080
-        ws_ex_appwindow = 0x00040000
-        style = int(user32.GetWindowLongW(hwnd, gwl_exstyle))
-        user32.SetWindowLongW(hwnd, gwl_exstyle, (style | ws_ex_toolwindow) & ~ws_ex_appwindow)
-        user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0027)
-        return True
-    except (AttributeError, OSError, TypeError, ValueError):
-        return False
-
-
-def activate_window(window, *, user32=None, kernel32=None) -> bool:
-    """Activate a Windows popup and verify native foreground ownership."""
-    if user32 is None:
-        if sys.platform != "win32":
-            try:
-                window.deiconify()
-                window.lift()
-                return True
-            except (AttributeError, tk.TclError):
-                return False
-        import ctypes
-
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-    try:
-        window.deiconify()
-        window.update_idletasks()
-        child = int(window.winfo_id())
-        hwnd = int(user32.GetParent(child)) or child
-        foreground = int(user32.GetForegroundWindow())
-        current_thread = int(kernel32.GetCurrentThreadId())
-        foreground_thread = (
-            int(user32.GetWindowThreadProcessId(foreground, None))
-            if foreground
-            else 0
-        )
-        attached = bool(
-            foreground_thread
-            and foreground_thread != current_thread
-            and user32.AttachThreadInput(current_thread, foreground_thread, True)
-        )
-        try:
-            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-            user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0043)  # HWND_TOPMOST | NOMOVE | NOSIZE | SHOWWINDOW
-            user32.BringWindowToTop(hwnd)
-            user32.SetForegroundWindow(hwnd)
-            user32.SetActiveWindow(hwnd)
-        finally:
-            if attached:
-                user32.AttachThreadInput(current_thread, foreground_thread, False)
-        return int(user32.GetForegroundWindow()) == hwnd
-    except (AttributeError, OSError, TypeError, ValueError, tk.TclError):
-        return False
-
-
-def show_window_without_activation(window, user32=None) -> bool:
-    """Show a withdrawn Windows popup without taking focus from its paste target."""
-    if user32 is None:
-        if sys.platform != "win32":
-            try:
-                window.deiconify()
-                return True
-            except (AttributeError, tk.TclError):
-                return False
-        import ctypes
-
-        user32 = ctypes.windll.user32
-    try:
-        previous_foreground = int(user32.GetForegroundWindow())
-        window.deiconify()
-        window.update_idletasks()
-        child = int(window.winfo_id())
-        hwnd = int(user32.GetParent(child)) or child
-        sw_show_no_activate = 4
-        user32.ShowWindow(hwnd, sw_show_no_activate)
-        if previous_foreground and previous_foreground != hwnd:
-            user32.SetForegroundWindow(previous_foreground)
-        return True
-    except (AttributeError, OSError, TypeError, ValueError, tk.TclError):
-        return False
-
-
 class BaseDialog:
     def __init__(
         self,
@@ -486,6 +391,7 @@ class BaseDialog:
         minimum_height: int | None = None,
         hide_from_task_switcher: bool = False,
         on_close_request: Callable[[], None] | None = None,
+        native_window_surface: NativeWindowSurface | None = None,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
@@ -496,6 +402,7 @@ class BaseDialog:
         self._drag_offset_x = 0
         self._drag_offset_y = 0
         self._on_close_request = on_close_request
+        self._native_window_surface = native_window_surface
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
         self._surface_inset = surface_inset
         self._corner_radius = corner_radius
@@ -555,7 +462,7 @@ class BaseDialog:
             self.lifecycle = DialogLifecycle(
                 self.root,
                 owns_mainloop=master is None,
-                window_activator=activate_window,
+                window_activator=self._activate_native_window,
             )
             self._flash_controller = SurfaceFlashController(
                 colors=self._state_colors,
@@ -567,7 +474,7 @@ class BaseDialog:
             self.root.bind("<Escape>", lambda _event: self.request_close())
             self.enable_drag(self.canvas, self.surface)
             if hide_from_task_switcher:
-                self.root.after_idle(lambda: hide_window_from_task_switcher(self.root))
+                self.root.after_idle(self._hide_from_task_switcher)
         except Exception:
             self._valid = False
             raise
@@ -621,24 +528,60 @@ class BaseDialog:
     def apply_external_output_visibility(
         self,
         visibility: Literal["hidden", "visible_activate", "visible_no_activate"],
-    ) -> None:
+    ) -> bool:
         if visibility == "hidden":
             try:
                 self.root.withdraw()
             except tk.TclError:
-                pass
-            return
+                return False
+            return True
         if visibility == "visible_activate":
             try:
                 self.root.deiconify()
             except tk.TclError:
-                return
-            self.lifecycle.focus()
-            return
+                return False
+            return self.lifecycle.focus()
         if visibility == "visible_no_activate":
-            show_window_without_activation(self.root)
-            return
+            try:
+                self.root.deiconify()
+                self.root.update_idletasks()
+                child_id = int(self.root.winfo_id())
+            except (AttributeError, TypeError, ValueError, tk.TclError):
+                return False
+            native = self._native_window_surface
+            return native.show_without_activation(child_id) if native is not None else False
         raise ValueError(f"unsupported popup visibility: {visibility}")
+
+    def native_owns_foreground(self) -> bool:
+        native = self._native_window_surface
+        if native is None:
+            return False
+        try:
+            self.root.update_idletasks()
+            return native.owns_foreground(int(self.root.winfo_id()))
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            return False
+
+    def _activate_native_window(self, window: tk.Misc) -> bool:
+        native = self._native_window_surface
+        if native is None:
+            return False
+        try:
+            window.deiconify()
+            window.update_idletasks()
+            return native.activate(int(window.winfo_id()))
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            return False
+
+    def _hide_from_task_switcher(self) -> bool:
+        native = self._native_window_surface
+        if native is None:
+            return False
+        try:
+            self.root.update_idletasks()
+            return native.hide_from_task_switcher(int(self.root.winfo_id()))
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            return False
 
     def request_close(self) -> str:
         """Emit the semantic close request; only the presenter destroys views."""

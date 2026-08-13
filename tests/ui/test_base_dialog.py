@@ -40,9 +40,6 @@ from ClipAI.ui.base_dialog import (
     BaseResultSurface,
     _PresentationTextbox,
     apply_widget_font_scaling,
-    activate_window,
-    hide_window_from_task_switcher,
-    show_window_without_activation,
     rgb_to_hex,
     configure_presentation_typography,
     configure_display_break_typography,
@@ -53,140 +50,10 @@ from ClipAI.ui.base_dialog import (
     _CanonicalSelectionSegment,
     _canonical_selection_text,
 )
-from ClipAI.ui.pointer_input import WindowsPointerPressReader
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 
 
-def test_windows_tool_window_style_hides_taskbar_and_alt_tab() -> None:
-    class Window:
-        def update_idletasks(self):
-            pass
-
-        def winfo_id(self):
-            return 10
-
-    class User32:
-        def __init__(self):
-            self.style = 0x00040000
-            self.updated = None
-            self.positioned = None
-
-        def GetParent(self, hwnd):
-            return 20
-
-        def GetWindowLongW(self, hwnd, index):
-            assert (hwnd, index) == (20, -20)
-            return self.style
-
-        def SetWindowLongW(self, hwnd, index, style):
-            self.updated = (hwnd, index, style)
-
-        def SetWindowPos(self, *args):
-            self.positioned = args
-
-    user32 = User32()
-    assert hide_window_from_task_switcher(Window(), user32) is True
-    assert user32.updated == (20, -20, 0x00000080)
-    assert user32.positioned[-1] == 0x0027
-
-
-def test_windows_popup_restore_preserves_external_foreground_window() -> None:
-    class Window:
-        deiconified = False
-
-        def deiconify(self):
-            self.deiconified = True
-
-        def update_idletasks(self):
-            pass
-
-        def winfo_id(self):
-            return 10
-
-    class User32:
-        shown = None
-        restored = None
-
-        def GetForegroundWindow(self):
-            return 30
-
-        def GetParent(self, hwnd):
-            return 20
-
-        def ShowWindow(self, hwnd, command):
-            self.shown = (hwnd, command)
-
-        def SetForegroundWindow(self, hwnd):
-            self.restored = hwnd
-
-    window = Window()
-    user32 = User32()
-
-    assert show_window_without_activation(window, user32) is True
-    assert window.deiconified is True
-    assert user32.shown == (20, 4)
-    assert user32.restored == 30
-
-
-def test_windows_popup_activation_joins_foreground_input_before_activation() -> None:
-    class Window:
-        def deiconify(self):
-            pass
-
-        def update_idletasks(self):
-            pass
-
-        def winfo_id(self):
-            return 10
-
-    class Kernel32:
-        def GetCurrentThreadId(self):
-            return 1
-
-    class User32:
-        def __init__(self):
-            self.foreground = 30
-            self.attached = []
-            self.positioned = None
-
-        def GetParent(self, hwnd):
-            return 20
-
-        def GetForegroundWindow(self):
-            return self.foreground
-
-        def GetWindowThreadProcessId(self, hwnd, _process_id):
-            return 2 if hwnd == 30 else 1
-
-        def AttachThreadInput(self, current, foreground, attached):
-            self.attached.append((current, foreground, attached))
-            return True
-
-        def ShowWindow(self, _hwnd, _command):
-            return True
-
-        def SetWindowPos(self, *args):
-            self.positioned = args
-            return True
-
-        def BringWindowToTop(self, _hwnd):
-            return True
-
-        def SetForegroundWindow(self, hwnd):
-            self.foreground = hwnd
-            return True
-
-        def SetActiveWindow(self, _hwnd):
-            return 0
-
-    user32 = User32()
-
-    assert activate_window(Window(), user32=user32, kernel32=Kernel32()) is True
-    assert user32.attached == [(1, 2, True), (1, 2, False)]
-    assert user32.positioned == (20, -1, 0, 0, 0, 0, 0x0043)
-
-
-def test_external_output_visibility_actions_are_mechanical(monkeypatch) -> None:
+def test_external_output_visibility_actions_are_mechanical() -> None:
     events = []
 
     class Window:
@@ -196,17 +63,26 @@ def test_external_output_visibility_actions_are_mechanical(monkeypatch) -> None:
         def deiconify(self) -> None:
             events.append("deiconify")
 
+        def update_idletasks(self) -> None:
+            pass
+
+        def winfo_id(self) -> int:
+            return 10
+
     class Lifecycle:
-        def focus(self) -> None:
+        def focus(self) -> bool:
             events.append("focus")
+            return True
 
     dialog = BaseDialog.__new__(BaseDialog)
     dialog.root = Window()
     dialog.lifecycle = Lifecycle()
-    monkeypatch.setattr(
-        "ClipAI.ui.base_dialog.show_window_without_activation",
-        lambda window: events.append(("show_no_activate", window)),
-    )
+    class NativeWindowSurface:
+        def show_without_activation(self, child_id: int) -> bool:
+            events.append(("show_no_activate", child_id))
+            return True
+
+    dialog._native_window_surface = NativeWindowSurface()
 
     dialog.apply_external_output_visibility("hidden")
     dialog.apply_external_output_visibility("visible_activate")
@@ -216,7 +92,8 @@ def test_external_output_visibility_actions_are_mechanical(monkeypatch) -> None:
         "withdraw",
         "deiconify",
         "focus",
-        ("show_no_activate", dialog.root),
+        "deiconify",
+        ("show_no_activate", 10),
     ]
 
 
@@ -714,31 +591,6 @@ def test_dialog_visibility_uses_toolkit_viewable_truth() -> None:
     dialog = BaseDialog.__new__(BaseDialog)
     dialog.root = type("Root", (), {"winfo_viewable": lambda _self: 1})()
     assert dialog.is_visible() is True
-
-
-def test_windows_pointer_reader_reports_each_press_once() -> None:
-    class User32:
-        def __init__(self) -> None:
-            self.states = {0x01: 0x8001, 0x02: 0, 0x04: 0}
-
-        def GetAsyncKeyState(self, button):
-            return self.states[button]
-
-        def GetCursorPos(self, pointer):
-            pointer._obj.x = 321
-            pointer._obj.y = 654
-            return True
-
-    user32 = User32()
-    reader = WindowsPointerPressReader(user32)
-
-    assert reader.poll() == (321, 654)
-    user32.states[0x01] = 0x8000
-    assert reader.poll() is None
-    user32.states[0x01] = 0
-    assert reader.poll() is None
-    user32.states[0x01] = 0x8000
-    assert reader.poll() == (321, 654)
 
 
 def test_dialog_lifecycle_exposes_closed_state() -> None:

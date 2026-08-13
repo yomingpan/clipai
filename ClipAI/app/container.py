@@ -35,6 +35,8 @@ from ClipAI.platform.dotenv_preferences import DotenvModelPreferenceStore
 from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
+from ClipAI.platform.native_window import WindowsNativeWindowSurface
+from ClipAI.platform.pointer_input import WindowsPointerPressReader
 from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
 from ClipAI.platform.browser_speech import BrowserSpeechWebView2Engine
 from ClipAI.platform.voice_permissions import open_microphone_privacy_settings
@@ -128,7 +130,12 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         on_manage_voice_permission=lambda: runtime_holder[0].enqueue(OpenVoicePermissionSettings()),
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
-    view = ResultDialogPresenter(display_metrics=WindowsDisplayMetricsReader())
+    native_window_surface = WindowsNativeWindowSurface()
+    view = ResultDialogPresenter(
+        display_metrics=WindowsDisplayMetricsReader(),
+        pointer_press_reader=WindowsPointerPressReader(),
+        native_window_surface=native_window_surface,
+    )
     diagnostics_exporter = SafeDiagnosticsExporter(
         metadata={
             "version": _application_version(),

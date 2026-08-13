@@ -291,6 +291,10 @@ Recipe 回饋與使用引導應測：
 - 只有 `app` 可以同時知道 concrete adapters 與 services。
 - `app/container.py` 是 assembly entry point；runtime provider rebuild 可位於 focused app composition adapter，但不得下沉到 `services` 或 `providers`。
 - 不得存在 global Event Bus 或未設移除期限的 compatibility shim。
+- `platform/` 之外不得 import `ctypes`、`win32api`、`win32con`、`win32gui`
+  或 `winreg`；此規則使用獨立 AST test，讓錯誤直接指出 native owner。
+- `ui/` 不得出現 `sys.platform` 或 `windll`。Native-window doubles 只記錄
+  contract request，Headless adapter 必須回傳保守結果，不模擬 Windows。
 
 ## Marker 規則
 
