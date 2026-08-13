@@ -219,6 +219,10 @@ Service 與 runtime sims 必須覆蓋以下 dispatch × cleanup × cancellation
 - runtime 不持有 concrete Paste handle 或 `_paste_jobs` registry；architecture
   test 必須防止這個 ownership 退化。
 - stale、重複或晚到 completion 不得完成較新的 output operation。
+- `TaskSupervisor.submit()` 拒絕工作時，pending 必須立即接 terminal
+  acknowledgement，且 interruption plan 不得殘留 phantom operation。
+- tracker/presenter 拋錯時，matching、replaced 與 cancel-all records 的 lease
+  仍須釋放；stale settlement 不得碰 handle 或 lease。
 - Popup outcome/focus matrix 與 `docs/specs/paste-target-focus-adr.md` 一致。
 
 Windows integration smoke 必須覆蓋 clipboard snapshot、temporary text、

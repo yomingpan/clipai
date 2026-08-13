@@ -669,6 +669,26 @@ def workflow(view: FakeView, workflow_id: str):
     return controller
 
 
+def test_output_submit_failure_settles_pending_and_releases_interruption_lease() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime(
+        submit_error=RuntimeError("task supervisor is closed")
+    )
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    controller._snapshot = controller.snapshot.evolve(content="copy me")
+
+    runtime.enqueue(CopyResult(workflow_id, operation_id="copy-op-1"))
+    runtime.drain_commands()
+
+    assert [result.state for result in view.output_results[-2:]] == ["pending", "failed"]
+    assert all(
+        operation.operation_id != "copy-op-1"
+        for operation in runtime._user_control.interrupt_current().operations
+    )
+
+
 def test_push_to_talk_invoked_event_never_reaches_the_action_shortcut_resolver() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime(include_voice_input=True)
 

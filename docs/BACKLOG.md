@@ -1,5 +1,31 @@
 # ClipAI Next-gen Backlog
 
+## App shutdown must drain terminal output commands before stopping routing
+
+**Problem**
+
+`AppRuntime.stop()` stops command routing before modules can always deliver
+terminal output commands. Normal submit failure is now `pending → failed` with
+no leaked lease, but shutdown can still strand a completion after the ordered
+command channel has closed.
+
+**Outcome**
+
+Reject new intents, drain or explicitly settle admitted output operations,
+route their terminal acknowledgements, then stop routing and destroy UI.
+
+**Constraints**
+
+Do not let workers call UI, create a second output registry, or bypass ADR-0004's
+single `PasteOperationCompleted` path. This is outside ADR-0008 because it
+changes whole-application lifecycle ownership and ordering.
+
+**Verification**
+
+Stop during copy, speech, archive, admitted Paste, and provider completion;
+assert exactly one legal terminal acknowledgement per operation, zero leases,
+an empty ordered queue, and no callback after root destruction.
+
 > Completed sections and historical test counts below are an implementation
 > record, not the current normative architecture. Current Paste and clipboard
 > behavior is defined by

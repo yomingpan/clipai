@@ -1,159 +1,145 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from dataclasses import dataclass
 
-from ClipAI.core.models import OutputOperationIntent, OutputOperationResult, OutputOperationState, PasteOutcome, UserFacingError
+from ClipAI.core.models import InterruptibleOperationRef, OutputOperationIntent, OutputOperationResult, PasteOutcome, UserFacingError
 from ClipAI.core.ports import OperationHandle, OperationTracker, OutputOperationPresenter
+from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
+
+
+@dataclass(frozen=True)
+class _ActiveOutputOperation:
+    intent: OutputOperationIntent
+    handle: OperationHandle | None
+    lease: InterruptibleOperationLease | None
 
 
 class OutputOperationCoordinator:
-    """Own output-operation identity and reject stale terminal projections."""
+    """Own output identity, terminal acknowledgement, tracker, and interruption lease."""
 
     def __init__(self, presenter: OutputOperationPresenter, tracker: OperationTracker | None = None) -> None:
         self._presenter = presenter
         self._tracker = tracker
-        self._active: dict[tuple[str, str], tuple[OutputOperationIntent, OperationHandle | None]] = {}
+        self._user_control: UserControlCoordinator | None = None
+        self._active: dict[tuple[str, str], _ActiveOutputOperation] = {}
         self._lock = threading.RLock()
 
-    def begin(self, intent: OutputOperationIntent) -> OperationHandle | None:
-        key = (intent.workflow_id, intent.kind)
+    def bind_user_control(self, user_control: UserControlCoordinator) -> None:
+        self._user_control = user_control
+
+    def begin(self, intent: OutputOperationIntent) -> None:
         tracker_kind = "tts" if intent.kind == "speech" else intent.kind
         handle = self._tracker.start(f"{tracker_kind}:{intent.operation_id}", tracker_kind) if self._tracker else None
+        lease = self._user_control.begin(InterruptibleOperationRef(
+            intent.operation_id,
+            intent.kind,
+            workflow_id=intent.workflow_id,
+            surface_id=intent.workflow_id if intent.workflow_id != "global" else "",
+        )) if self._user_control is not None else None
+        record = _ActiveOutputOperation(intent, handle, lease)
+        key = (intent.workflow_id, intent.kind)
         with self._lock:
-            previous = self._active.get(key)
-            self._active[key] = (intent, handle)
-        if previous is not None and previous[1] is not None:
-            previous[1].cancel()
+            previous = self._active.pop(key, None)
+            self._active[key] = record
+        try:
+            self._release(previous, "cancelled")
+        except BaseException:
+            with self._lock:
+                if self._active.get(key) is record:
+                    self._active.pop(key, None)
+            self._release(record, "cancelled")
+            raise
         self._presenter.present_output_operation(
             OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, "pending")
         )
-        return handle
 
-    def cancel_all(self, *, exclude_operation_ids: frozenset[str] = frozenset()) -> tuple[OutputOperationIntent, ...]:
+    def settle(self, result: OutputOperationResult) -> bool:
+        if result.state == "pending":
+            raise ValueError("pending output-operation state belongs to begin()")
+        key = (result.workflow_id, result.kind)
         with self._lock:
-            active = tuple(
-                value
-                for value in self._active.values()
-                if value[0].operation_id not in exclude_operation_ids
-            )
-            self._active = {
-                key: value
-                for key, value in self._active.items()
-                if value[0].operation_id in exclude_operation_ids
-            }
-        for intent, handle in active:
-            if handle is not None:
-                handle.cancel()
-            self._presenter.present_output_operation(
-                OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, "cancelled")
-            )
-        return tuple(intent for intent, _handle in active)
+            record = self._active.get(key)
+            if record is None or record.intent.operation_id != result.operation_id:
+                return False
+            self._active.pop(key, None)
+        release_error: BaseException | None = None
+        try:
+            self._release(record, result.state)
+        except BaseException as exc:
+            release_error = exc
+        self._presenter.present_output_operation(result)
+        if release_error is not None:
+            raise release_error
+        return True
+
+    def fail(self, intent: OutputOperationIntent, error: BaseException) -> bool:
+        return self.settle(OutputOperationResult(
+            intent.operation_id,
+            intent.workflow_id,
+            intent.kind,
+            "failed",
+            UserFacingError(str(error), "Try again or open diagnostics if the problem continues."),
+        ))
 
     def cancel_operation(self, operation_id: str) -> OutputOperationIntent | None:
         with self._lock:
-            match = next(
-                (
-                    (key, intent, handle)
-                    for key, (intent, handle) in self._active.items()
-                    if intent.operation_id == operation_id
-                ),
-                None,
-            )
-            if match is None:
-                return None
-            key, intent, handle = match
-            self._active.pop(key, None)
-        if handle is not None:
-            handle.cancel()
-        self._presenter.present_output_operation(
-            OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, "cancelled")
-        )
-        return intent
+            record = next((value for value in self._active.values() if value.intent.operation_id == operation_id), None)
+        if record is None:
+            return None
+        self.settle(OutputOperationResult(operation_id, record.intent.workflow_id, record.intent.kind, "cancelled"))
+        return record.intent
 
-    def succeed(self, intent: OutputOperationIntent, handle: OperationHandle | None = None) -> bool:
-        if intent.kind == "paste":
-            raise ValueError("Paste Operation cannot report confirmed success")
-        handle = handle or self._active_handle(intent)
-        if handle is not None:
-            handle.succeed()
-        return self._finish(intent, "succeeded")
+    def cancel_all(self, *, exclude_operation_ids: frozenset[str] = frozenset()) -> tuple[OutputOperationIntent, ...]:
+        with self._lock:
+            records = tuple(record for record in self._active.values() if record.intent.operation_id not in exclude_operation_ids)
+        first_error: BaseException | None = None
+        for record in records:
+            try:
+                self.settle(OutputOperationResult(
+                    record.intent.operation_id,
+                    record.intent.workflow_id,
+                    record.intent.kind,
+                    "cancelled",
+                ))
+            except BaseException as exc:
+                first_error = first_error or exc
+        if first_error is not None:
+            raise first_error
+        return tuple(record.intent for record in records)
 
-    def fail(self, intent: OutputOperationIntent, error: BaseException, handle: OperationHandle | None = None) -> bool:
-        handle = handle or self._active_handle(intent)
-        if handle is not None:
-            handle.fail()
-        return self._finish(
-            intent,
-            "failed",
-            UserFacingError(str(error), "Try again or open diagnostics if the problem continues."),
-        )
-
-    def cancel(self, intent: OutputOperationIntent, handle: OperationHandle | None = None) -> bool:
-        handle = handle or self._active_handle(intent)
-        if handle is not None:
-            handle.cancel()
-        return self._finish(intent, "cancelled")
-
-    def warn(
-        self,
-        intent: OutputOperationIntent,
-        state: OutputOperationState,
-        message: str,
-        handle: OperationHandle | None = None,
-    ) -> bool:
-        if intent.kind != "paste" or state not in {"dispatched_unconfirmed", "cleanup_failed"}:
-            raise ValueError(f"unsupported output warning state: {state}")
-        handle = handle or self._active_handle(intent)
-        if handle is not None:
-            if state == "cleanup_failed":
-                handle.fail()
-            else:
-                handle.succeed()
-        return self._finish(intent, state, message=message)
-
-    def finish_paste(self, intent: OutputOperationIntent, outcome: PasteOutcome) -> bool:
-        if intent.kind != "paste":
-            raise ValueError("Paste outcome requires a Paste Operation intent")
-        if outcome.state == "failed":
-            return self.fail(intent, RuntimeError(outcome.message))
-        if outcome.state == "cancelled":
-            return self.cancel(intent)
-        if outcome.state in {"dispatched_unconfirmed", "cleanup_failed"}:
-            return self.warn(intent, outcome.state, outcome.message)
-        raise ValueError(f"unsupported Paste outcome state: {outcome.state}")
-
-    def run(self, intent: OutputOperationIntent, work: Callable[[], None]) -> None:
-        handle = self.begin(intent)
+    @staticmethod
+    def _release(record: _ActiveOutputOperation | None, state: str) -> None:
+        if record is None:
+            return
         try:
-            work()
-        except BaseException as exc:
-            self.fail(intent, exc, handle)
-            raise
-        self.succeed(intent, handle)
+            if record.handle is not None:
+                if state in {"succeeded", "dispatched_unconfirmed"}:
+                    record.handle.succeed()
+                elif state in {"failed", "cleanup_failed"}:
+                    record.handle.fail()
+                else:
+                    record.handle.cancel()
+        finally:
+            if record.lease is not None:
+                record.lease.finish()
 
-    def _finish(
-        self,
-        intent: OutputOperationIntent,
-        state: OutputOperationState,
-        error: UserFacingError | None = None,
-        message: str = "",
-    ) -> bool:
-        key = (intent.workflow_id, intent.kind)
-        with self._lock:
-            active = self._active.get(key)
-            if active is None or active[0].operation_id != intent.operation_id:
-                return False
-            self._active.pop(key, None)
-        self._presenter.present_output_operation(
-            OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, state, error, message)
+
+def paste_outcome_result(intent: OutputOperationIntent, outcome: PasteOutcome) -> OutputOperationResult:
+    if intent.kind != "paste":
+        raise ValueError("Paste outcome requires a Paste Operation intent")
+    if outcome.state == "failed":
+        return OutputOperationResult(
+            intent.operation_id,
+            intent.workflow_id,
+            "paste",
+            "failed",
+            UserFacingError(outcome.message, "Try again or open diagnostics if the problem continues."),
         )
-        return True
-
-    def _active_handle(self, intent: OutputOperationIntent) -> OperationHandle | None:
-        key = (intent.workflow_id, intent.kind)
-        with self._lock:
-            active = self._active.get(key)
-            if active is None or active[0].operation_id != intent.operation_id:
-                return None
-            return active[1]
+    return OutputOperationResult(
+        intent.operation_id,
+        intent.workflow_id,
+        "paste",
+        outcome.state,
+        message=outcome.message,
+    )

@@ -363,6 +363,10 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
   both native foreground ownership and toolkit focus. `ForegroundLeftApplication`
   handles Alt+Tab/taskbar/external foreground loss through the same transition
   owner; active Paste and owned dialogs suppress that intentional handoff.
+- `OutputOperationCoordinator` owns output-operation active records, tracker
+  handles, interruption leases, and terminal acknowledgement. `settle()` is the
+  only terminal path; runtime may not keep a parallel lease registry or repeat
+  the kind/state matrix.
 
 ## Paste Operation ownership (ADR-0004)
 

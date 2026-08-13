@@ -4,6 +4,11 @@ Speaker、copy、paste、archive 使用 selection-first：有非空 selection �
 
 所有 output action 先投影 `pending`，並以 operation ID 拒絕 stale completion。Copy、archive 與 speech 可進入 `succeeded / failed / cancelled`；Paste 不可宣稱已被目標程式消費，因此只有 `failed / cancelled / dispatched_unconfirmed / cleanup_failed` 四種 terminal acknowledgement。
 
+`OutputOperationCoordinator.settle(OutputOperationResult)` 是唯一 terminal
+入口，並同時結束 tracker handle 與 interruption lease。`begin()` 只投影
+pending；submit failure 必須轉為 terminal failure。Stale result 比對
+operation id、Workflow id 與 kind 失敗時，不得碰目前 handle 或 lease。
+
 `PasteOperationCoordinator` 是 Paste active membership、取消、dispatch truth 與 terminal outcome 的單一 owner。整個 container 同時只允許一個 Paste Operation；重疊請求立即以原 operation ID 回報失敗，不排隊，也不取代進行中的操作。Runtime 只排程 operation identity，不持有 concrete Paste handle 或 Paste registry。
 
 Paste 使用共用 `ClipboardTransactionCoordinator`：保存完整文字／圖片 snapshot、寫入文字、記錄 owned sequence、送出 paste，並只在 sequence 未被使用者或其他程式更新時還原。它不得建立第二套 clipboard lock、snapshot 或 restoration owner。
