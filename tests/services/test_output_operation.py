@@ -31,7 +31,7 @@ def test_failure_is_visible_and_carries_user_facing_error() -> None:
     coordinator.begin(intent)
     coordinator.fail(intent, RuntimeError("paste failed"))
     assert presenter.results[-1].state == "failed"
-    assert presenter.results[-1].error.message == "paste failed"
+    assert presenter.results[-1].reason == "unknown"
 
 
 def test_late_completion_cannot_replace_newer_same_kind_operation() -> None:

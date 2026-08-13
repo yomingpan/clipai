@@ -184,7 +184,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         else None
     )
     output_actions = OutputActions(
-        clipboard=clipboard,
+        clipboard=clipboard_transactions,
         archive=JsonlArchiveStore(),
     )
     paste_operations = PasteOperationCoordinator(

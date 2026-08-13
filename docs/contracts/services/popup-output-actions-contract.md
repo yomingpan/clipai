@@ -13,6 +13,20 @@ operation id、Workflow id 與 kind 失敗時，不得碰目前 handle 或 lease
 
 Paste 使用共用 `ClipboardTransactionCoordinator`：保存完整文字／圖片 snapshot、寫入文字、記錄 owned sequence、送出 paste，並只在 sequence 未被使用者或其他程式更新時還原。它不得建立第二套 clipboard lock、snapshot 或 restoration owner。
 
+Paste failure 在偵測點建立 `PasteFailure(reason, message)`；合法 reason 為
+`no_target_observed / target_gone / target_refused_focus /
+target_focus_timeout / target_changed / modifiers_held /
+another_paste_active / clipboard_unavailable / unknown`。`PasteOutcome` 與
+`OutputOperationResult` 原樣傳遞 reason，任何 layer 不得比較 localized
+message 來反推語意。
+
+`OutputActions.copy()` 由 container 注入同一個
+`ClipboardTransactionCoordinator`。Paste `failed` 或 `cancelled` 時，只有在
+temporary transaction 與 Paste membership 都釋放後，runtime 才把 active
+operation 的 canonical text 留在 clipboard，並提示使用者可自行 Ctrl+V。
+`dispatched_unconfirmed` 與 `cleanup_failed` 表示可能已送達，禁止 fallback
+copy，clipboard 必須逐位元不變。
+
 Clipboard Preservation 採 fail-closed。只要 adapter 無法安全保存任一非冗餘原生格式，就必須在 clipboard mutation 與 Paste Dispatch 前以 `failed / not_dispatched` 結束。若 dispatch 已發生，cleanup failure 不得把 delivery truth 改寫成一般失敗；必須回報 `cleanup_failed` 並警告使用者先確認目標，避免盲目重試造成重複內容。
 
 取消只表示 intent。Worker 尚未開始時可在 cleanup 後立即回報 `cancelled / not_dispatched`；worker 已開始後必須等待 coordinator 確認 dispatch 與 cleanup truth。Coordinator 恰好一次以 `PasteOperationCompleted` 經 application command queue 回報；TaskSupervisor task completion 不代表 Paste completion。

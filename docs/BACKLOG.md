@@ -1,5 +1,36 @@
 # ClipAI Next-gen Backlog
 
+## Paste retry is available only when delivery is known not to have happened
+
+**Problem**
+
+Paste failures now report a typed reason and preserve canonical content for
+manual Ctrl+V, but the Popup has no direct Retry control. Adding a generic retry
+to every terminal state would be unsafe: `dispatched_unconfirmed` and
+`cleanup_failed` may already have delivered content, so retry can silently
+duplicate user data.
+
+**Outcome**
+
+Offer an explicit Retry action only for terminal `failed` and `cancelled`, with
+feedback bound to a fresh Paste operation identity and the latest eligible
+target policy.
+
+**Constraints**
+
+Do not expose Retry for `dispatched_unconfirmed` or `cleanup_failed`; do not
+reuse a settled operation identity, bypass typed intent, infer eligibility from
+message text, or introduce a second clipboard/Paste registry. This is outside
+ADR-0009 because it adds a product interaction and target-resolution decision,
+not failure recovery correctness.
+
+**Verification**
+
+For every terminal Paste state, assert button availability, accessible label,
+fresh operation identity, pending/terminal feedback, single-flight admission,
+clipboard preservation, and zero dispatch for the two potentially delivered
+states.
+
 ## App shutdown must drain terminal output commands before stopping routing
 
 **Problem**

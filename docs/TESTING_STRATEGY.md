@@ -241,6 +241,12 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
   plain text，不遺失 canonical content。
 - Selection Capture 與 Paste 共用 clipboard transaction owner；late restore
   不得覆寫使用者或較新的 operation 所做的 clipboard change。
+- 九個 `PasteFailureReason` 都必須有 detection-path 測試；reason 由 typed
+  error 傳遞，不得從訊息比對推回，且任兩 reason 不得共用同一句使用者訊息。
+- Paste `failed`／`cancelled` 必須在 transaction 與 active membership 釋放後
+  將 canonical result 保留到 clipboard，並明示可手動 Ctrl+V。
+  `dispatched_unconfirmed`／`cleanup_failed` 必須逐位元保留原 clipboard，
+  不得因 convenience fallback 製造重複貼上的風險。
 
 ### Physical-key release 測試
 

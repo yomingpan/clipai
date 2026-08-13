@@ -10,7 +10,7 @@ from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
@@ -163,9 +163,14 @@ class FakeOutputs:
         self.pasted: list[str] = []
         self.archived: list[str] = []
         self.paste_targets: list[PasteTarget] = []
+        self.clipboard_bits = b"\x00\xfforiginal\x00"
+        self.copy_error: Exception | None = None
 
     def copy(self, text: str) -> None:
+        if self.copy_error is not None:
+            raise self.copy_error
         self.copied.append(text)
+        self.clipboard_bits = text.encode("utf-8")
 
     def speak(self, text: str) -> None:
         self.spoken.append(text)
@@ -2106,4 +2111,84 @@ def test_paste_without_target_fails_without_scheduling_keyboard_output() -> None
     assert "paste-op" not in supervisor.work
     assert outputs.pasted == []
     assert view.output_results[-1].state == "failed"
-    assert "找不到貼上目標" in view.output_results[-1].error.message
+    assert view.output_results[-1].reason == "no_target_observed"
+    assert outputs.copied == ["use me"]
+    assert "Ctrl+V" in view.output_results[-1].error.message
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expects_copy"),
+    (
+        (
+            PasteOutcome(
+                "failed",
+                "not_dispatched",
+                "restored",
+                "target changed",
+                "target_changed",
+            ),
+            True,
+        ),
+        (PasteOutcome("cancelled", "not_dispatched", "restored"), True),
+        (
+            PasteOutcome(
+                "dispatched_unconfirmed",
+                "dispatched_unconfirmed",
+                "restored",
+            ),
+            False,
+        ),
+        (
+            PasteOutcome(
+                "cleanup_failed",
+                "dispatched_unconfirmed",
+                "failed",
+                reason="clipboard_unavailable",
+            ),
+            False,
+        ),
+    ),
+)
+def test_paste_terminal_state_controls_clipboard_fallback(outcome, expects_copy) -> None:
+    runtime, view, _supervisor, outputs, _listener = make_runtime()
+    workflow_id = "workflow-fallback"
+    intent = OutputOperationIntent("paste-fallback", workflow_id, "paste", "canonical result")
+    runtime._result_output_module._operations.begin(intent)
+    bits_before = outputs.clipboard_bits
+
+    runtime.enqueue(PasteOperationCompleted(intent.operation_id, workflow_id, outcome))
+    runtime.drain_commands()
+
+    if expects_copy:
+        assert outputs.copied == ["canonical result"]
+        assert outputs.clipboard_bits == b"canonical result"
+        terminal = view.output_results[-1]
+        message = terminal.error.message if terminal.error is not None else terminal.message
+        assert "Ctrl+V" in message
+    else:
+        assert outputs.copied == []
+        assert outputs.clipboard_bits == bits_before
+
+
+def test_failed_paste_fallback_copy_failure_settles_with_clipboard_reason() -> None:
+    runtime, view, _supervisor, outputs, _listener = make_runtime()
+    outputs.copy_error = OSError("clipboard busy")
+    intent = OutputOperationIntent("paste-copy-failed", "workflow", "paste", "result")
+    runtime._result_output_module._operations.begin(intent)
+
+    runtime.enqueue(PasteOperationCompleted(
+        intent.operation_id,
+        intent.workflow_id,
+        PasteOutcome(
+            "failed",
+            "not_dispatched",
+            "restored",
+            "target changed",
+            "target_changed",
+        ),
+    ))
+    runtime.drain_commands()
+
+    assert view.output_results[-1].state == "failed"
+    assert view.output_results[-1].reason == "clipboard_unavailable"
+    assert outputs.clipboard_bits == b"\x00\xfforiginal\x00"

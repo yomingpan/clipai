@@ -3,7 +3,8 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 
-from ClipAI.core.models import InterruptibleOperationRef, OutputOperationIntent, OutputOperationResult, PasteOutcome, UserFacingError
+from ClipAI.core.errors import PASTE_FAILURE_MESSAGES, PasteFailure
+from ClipAI.core.models import InterruptibleOperationRef, OutputActionKind, OutputOperationIntent, OutputOperationResult, PasteOutcome, UserFacingError
 from ClipAI.core.ports import OperationHandle, OperationTracker, OutputOperationPresenter
 from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
 
@@ -73,13 +74,33 @@ class OutputOperationCoordinator:
             raise release_error
         return True
 
+    def active_intent(
+        self,
+        operation_id: str,
+        workflow_id: str,
+        kind: OutputActionKind,
+    ) -> OutputOperationIntent | None:
+        with self._lock:
+            record = self._active.get((workflow_id, kind))
+            if record is None or record.intent.operation_id != operation_id:
+                return None
+            return record.intent
+
     def fail(self, intent: OutputOperationIntent, error: BaseException) -> bool:
+        if intent.kind == "paste" and not isinstance(error, PasteFailure):
+            error = PasteFailure("unknown", PASTE_FAILURE_MESSAGES["unknown"])
+        reason = (
+            error.reason
+            if intent.kind == "paste" and isinstance(error, PasteFailure)
+            else None
+        )
         return self.settle(OutputOperationResult(
             intent.operation_id,
             intent.workflow_id,
             intent.kind,
             "failed",
             UserFacingError(str(error), "Try again or open diagnostics if the problem continues."),
+            reason=reason,
         ))
 
     def cancel_operation(self, operation_id: str) -> OutputOperationIntent | None:
@@ -135,6 +156,7 @@ def paste_outcome_result(intent: OutputOperationIntent, outcome: PasteOutcome) -
             "paste",
             "failed",
             UserFacingError(outcome.message, "Try again or open diagnostics if the problem continues."),
+            reason=outcome.reason,
         )
     return OutputOperationResult(
         intent.operation_id,
@@ -142,4 +164,5 @@ def paste_outcome_result(intent: OutputOperationIntent, outcome: PasteOutcome) -
         "paste",
         outcome.state,
         message=outcome.message,
+        reason=outcome.reason,
     )

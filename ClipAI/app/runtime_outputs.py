@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import TypeAlias
 import logging
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ArchiveResult, CopyResult, ExportDiagnostics, PasteOperationCompleted, PasteResult, SpeakSelectionOrClipboard, ToggleSpeech
-from ClipAI.core.models import OutputOperationIntent, OutputOperationResult, PasteRequest, PasteTarget
+from ClipAI.core.errors import PASTE_FAILURE_MESSAGES, PasteFailure
+from ClipAI.core.models import OutputOperationIntent, OutputOperationResult, PasteOutcome, PasteRequest, PasteTarget
 from ClipAI.core.ports import DiagnosticsExporter, OperationTracker, OutputOperationPresenter, UserNotifier
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.output_operation import OutputOperationCoordinator, paste_outcome_result
@@ -166,8 +168,14 @@ class ResultOutputRuntimeModule:
         controller = self._workflow_controller(command.session_id)
         operation_id = command.operation_id or uuid.uuid4().hex
         if controller is None or not controller.snapshot.content:
-            self._reject_paste(operation_id, command.session_id, "This result is no longer available to paste.")
+            self._reject_paste(
+                operation_id,
+                command.session_id,
+                "",
+                PasteFailure("unknown", PASTE_FAILURE_MESSAGES["unknown"]),
+            )
             return
+        text = _selected_or_result(command.text, controller)
         voice_origin = controller.snapshot.voice_origin
         target = (
             voice_origin.paste_target
@@ -178,10 +186,13 @@ class ResultOutputRuntimeModule:
             self._reject_paste(
                 operation_id,
                 command.session_id,
-                "找不到貼上目標。請先點選要貼入的視窗，再回到 ClipAI。",
+                text,
+                PasteFailure(
+                    "no_target_observed",
+                    PASTE_FAILURE_MESSAGES["no_target_observed"],
+                ),
             )
             return
-        text = _selected_or_result(command.text, controller)
         intent = OutputOperationIntent(operation_id, command.session_id, "paste", text)
         try:
             self._operations.begin(intent)
@@ -211,11 +222,29 @@ class ResultOutputRuntimeModule:
             self._paste_operations.fail_to_start(intent.operation_id, exc)
             logger.error("Could not schedule paste session_id=%s: %s", command.session_id, exc)
 
-    def _reject_paste(self, operation_id: str, workflow_id: str, message: str) -> None:
-        intent = OutputOperationIntent(operation_id, workflow_id, "paste", "")
+    def _reject_paste(
+        self,
+        operation_id: str,
+        workflow_id: str,
+        text: str,
+        failure: PasteFailure,
+    ) -> None:
+        intent = OutputOperationIntent(operation_id, workflow_id, "paste", text)
         try:
             self._operations.begin(intent)
-            self._operations.fail(intent, RuntimeError(message))
+            result = paste_outcome_result(
+                intent,
+                PasteOutcome(
+                    "failed",
+                    "not_dispatched",
+                    "not_required",
+                    str(failure),
+                    failure.reason,
+                ),
+            )
+            preserved = self._preserve_failed_paste_content(intent, result)
+            if preserved is not None:
+                self._operations.settle(preserved)
         except BaseException as exc:
             logger.error("Could not reject paste workflow_id=%s: %s", workflow_id, exc)
 
@@ -240,8 +269,44 @@ class ResultOutputRuntimeModule:
         ))
 
     def _paste_completed(self, command: PasteOperationCompleted) -> None:
-        intent = OutputOperationIntent(command.operation_id, command.workflow_id, "paste", "")
-        self._operations.settle(paste_outcome_result(intent, command.outcome))
+        intent = self._operations.active_intent(
+            command.operation_id,
+            command.workflow_id,
+            "paste",
+        )
+        if intent is None:
+            return
+        result = paste_outcome_result(intent, command.outcome)
+        if result.state in {"failed", "cancelled"}:
+            preserved = self._preserve_failed_paste_content(intent, result)
+            if preserved is None:
+                return
+            result = preserved
+        self._operations.settle(result)
+
+    def _preserve_failed_paste_content(
+        self,
+        intent: OutputOperationIntent,
+        result: OutputOperationResult,
+    ) -> OutputOperationResult | None:
+        if not intent.text:
+            return result
+        try:
+            self._output_actions.copy(intent.text)
+        except BaseException:
+            failure = PasteFailure(
+                "clipboard_unavailable",
+                PASTE_FAILURE_MESSAGES["clipboard_unavailable"],
+            )
+            self._operations.fail(intent, failure)
+            return None
+        fallback = "結果已保留在剪貼簿，可切回目標視窗自行按 Ctrl+V。"
+        if result.error is not None:
+            return replace(
+                result,
+                error=replace(result.error, message=f"{result.error.message} {fallback}"),
+            )
+        return replace(result, message=f"{result.message or '貼上已取消。'} {fallback}")
 
     def _speak_selection_or_clipboard(self) -> None:
         if self._speech_coordinator is None:

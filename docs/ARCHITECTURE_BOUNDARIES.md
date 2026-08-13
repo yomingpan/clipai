@@ -367,6 +367,10 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
   handles, interruption leases, and terminal acknowledgement. `settle()` is the
   only terminal path; runtime may not keep a parallel lease registry or repeat
   the kind/state matrix.
+- Paste failure semantics are created at the detection boundary as
+  `PasteFailure(reason, message)`. `PasteOutcome` and `OutputOperationResult`
+  carry the typed reason; runtime, UI, and diagnostics must not infer it from
+  localized message text.
 
 ## Paste Operation ownership (ADR-0004)
 
@@ -399,6 +403,12 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
   injection proves dispatch only, not target consumption.
 - Clipboard Preservation is fail-closed. Unsupported non-redundant native
   formats stop the Paste Operation before clipboard mutation and dispatch.
+- `OutputActions.copy()` is wired through the same container-scoped
+  `ClipboardTransactionCoordinator`, which serializes durable clipboard writes
+  with temporary ownership. After Paste membership and transaction ownership
+  are released, `failed` and `cancelled` preserve canonical text for manual
+  Ctrl+V. `dispatched_unconfirmed` and `cleanup_failed` never perform that
+  fallback because delivery may already have occurred.
 
 ## Canonical content, presentation, and selection ownership
 
