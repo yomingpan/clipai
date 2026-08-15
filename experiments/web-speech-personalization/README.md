@@ -1,60 +1,35 @@
-# Web Speech personalization feasibility experiment
+# Web Speech 個人化可行性實驗
 
-This is deliberately throwaway, standalone browser code. It does not integrate
-with ClipAI or make any network request. Its job is to gather a small amount of
-honest evidence about Chrome Web Speech recognition for a single user's
-Chinese-English voice-input workflow.
+這是刻意保持一次性、獨立的瀏覽器實驗。它不會整合至 ClipAI，也不會發出網路請求；目的只是為單一使用者的中英混合語音輸入流程，蒐集 Chrome Web Speech 的可靠證據。
 
-## Run it in desktop Chrome
+## 在桌面版 Chrome 執行
 
-1. Open `index.html` in **desktop Chrome**. If Chrome blocks microphone access
-   from a `file:` URL, serve this folder with a local static server, for example
-   `python -m http.server 8000 -d experiments/web-speech-personalization`, then
-   browse to `http://localhost:8000`.
-2. Allow microphone permission. The banner must say that Web Speech recognition
-   is available. It separately reports whether `SpeechRecognitionPhrase` is
-   supported; do not treat an unsupported holdout run as a biased run.
-3. In Stage 1, select each of the three categories and collect four natural
-   utterances per category (12 total). Leave the reference field empty until a
-   final recognition result appears, then correct it to the actual spoken text
-   and accept it. Add any expected technical terms before recording.
-4. Review the vocabulary suggestions. They are only suggestions from adaptation
-   corrections. Select and confirm the terms you actually want in your personal
-   vocabulary. Confirmed terms persist in browser local storage.
-5. Switch to Stage 2. Collect 8 new sentences containing confirmed vocabulary,
-   4 with unseen English terms, and 4 Mandarin-only controls. This phase applies
-   the confirmed phrases at boost 3 only when the browser supports the API.
-6. Use the individual-sample table to inspect every hypothesis and the dashboard
-   to inspect aggregates. Export JSON and CSV before clearing browser data.
+1. 在**桌面版 Chrome**開啟 `index.html`。若 Chrome 不允許以 `file:` URL 使用麥克風，可在儲存庫根目錄執行：
 
-The dashboard's baseline versus holdout comparison is **not paired**: an
-utterance is recognized under one condition. It is an N-of-1 feasibility signal,
-not a causal or population claim. If it is ambiguous, collect more holdout data
-rather than changing application architecture.
+   ```powershell
+   python -m http.server 8000 -d experiments/web-speech-personalization
+   ```
 
-## What is stored
+   再前往 `http://localhost:8000`。
+2. 允許麥克風權限。頁面會分別顯示 Web Speech 辨識是否可用，以及是否偵測到 `SpeechRecognitionPhrase` API。
+3. `SpeechRecognitionPhrase` 的物件存在並不保證能用。開始階段 2 時，Chrome 仍可能回傳 `phrases-not-supported`；這表示辨識引擎拒絕情境短語。實驗會明確停止該保留測試並標示為不支援，**不會**暗中改以無偏誤模式重試。此時可執行階段 1，或在支援該 API 的 Chrome 環境重新測試。
+4. 在階段 1 的三個類別各收集四句自然語句（共 12 句）。最終辨識結果出現後，將它修正為實際說出的文字並接受樣本。開始錄音前，輸入預期的技術詞彙。
+5. 檢視詞彙建議；它們只來自適應階段的修正。選取並確認真正要使用的詞彙，才會永久保存並用於情境偏誤。
+6. 切換到階段 2，收集 8 句使用已確認詞彙的新句子、4 句未見過的英文技術詞彙，以及 4 句純中文控制組。只有在執行時確認支援的情況下，才會以權重 3 套用這些詞彙。
+7. 使用個別樣本表檢查每個候選，並從儀表板檢視彙總。清除瀏覽器資料前，請先匯出 JSON 和 CSV。
 
-The experiment saves accepted samples and explicitly confirmed vocabulary under
-two namespaced `localStorage` keys. Recognition hypotheses, timestamps, manual
-correction, and calculated metrics are retained only in that Chrome profile.
-`Clear all samples` and `Clear confirmed vocabulary` remove those respective
-local records.
+基準組與保留組的比較**不是配對實驗**：每一句只會在一種條件下辨識。它是 N-of-1 的可行性訊號，不是因果或母體結論。結果不明確時，應增加保留資料，而不是變更應用程式架構。
 
-## Metrics
+## 本機儲存內容
 
-- Mixed error rate tokenizes Han characters individually and runs contiguous
-  English/number tokens as words. Punctuation and whitespace are ignored.
-- Technical-term recall is expected canonical terms found in the transcript.
-  Case is ignored, but split terms such as `Fast API` do not count as `FastAPI`.
-  Precision is intentionally not claimed because the experiment does not have
-  an annotated universe of non-expected terms.
-- Human correction cost measures time from the first edit (or accept, if no
-  edit) through accept, edit distance, and accept-without-edit.
-- The first `postProcess` implementation is identity-only. It exposes the
-  required isolated interface and cannot introduce a harmful correction; future
-  deterministic or LLM strategies can be compared using the recorded samples.
-- Latency reports both speech-end to final-result and final-result to accept
-  median/p95 values when the browser supplied a speech-end event.
+實驗會在兩個具命名空間的 `localStorage` key 中保存已接受樣本與明確確認的詞彙。辨識候選、時間戳、人工修正與計算指標只會留在目前 Chrome 設定檔。`清除所有樣本` 與 `清除已確認詞彙` 分別移除相對應的本機資料。
 
-Use **Run metric self-check** before a session to verify the tokenizer and
-alignment implementation with a punctuation-insensitive Chinese-English case.
+## 指標
+
+- 混合錯誤率會將漢字逐字切分，連續英文／數字視為一個詞；計算時忽略標點與空白。
+- 技術詞彙召回率會尋找預期的標準詞彙；忽略大小寫，但 `Fast API` 不算辨識到 `FastAPI`。由於實驗沒有標註所有非預期詞彙，因此不宣稱精確率。
+- 人工修正成本包含從第一次編輯（或直接接受）到接受的時間、編輯距離，以及免編輯接受率。
+- 第一版 `postProcess` 為原樣輸出；它保留了可替換的明確介面，因此未來可比較確定性或 LLM 後處理，且目前不會引入有害修正。
+- 延遲會在瀏覽器提供語音結束事件時，回報「語音結束到最終結果」與「最終結果到接受」的中位數／p95。
+
+每次實驗前，使用「執行指標自我檢查」驗證中英混合切詞與標點忽略行為。
