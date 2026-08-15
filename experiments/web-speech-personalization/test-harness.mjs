@@ -43,11 +43,21 @@ const run = new Function('window', 'document', 'localStorage', 'confirm', 'URL',
 run(window, document, localStorage, () => true, { createObjectURL: () => '', revokeObjectURL: () => {} }, class {}, { userAgent: 'test-chrome' });
 
 const experiment = window.WebSpeechExperiment;
-assert.deepEqual(experiment.changedSpan('請開啟派森專案', '請開啟 Python 專案'), {
-  rawPhrase: '派森', correctedPhrase: 'Python', contextBefore: '請開啟', contextAfter: '專案',
+const streamlitAlias = experiment.changedSpan(
+  '我想先用streamlet做介面，再看看要不要正式开发。',
+  '我想先用 Streamlit 做介面，再看看要不要正式開發。',
+  ['Streamlit'],
+);
+assert.deepEqual(streamlitAlias, {
+  rawPhrase: 'streamlet', correctedPhrase: 'Streamlit', kind: 'vocabulary_alias',
+  contextBefore: '我想先用', contextAfter: '做介面，再看看要不要正式开发。',
 });
-experiment.state.correctionMemory = [{ id: 'python', rawPhrase: '派森', correctedPhrase: 'Python', successfulConfirmations: 2, failedApplications: 0, disabled: false }];
-assert.deepEqual(experiment.applyCorrectionMemory('請開啟派森專案'), { text: '請開啟Python專案', applied: ['python'] });
+assert.equal(experiment.changedSpan('我想先用streamlet做介面。', '我想先用 Streamlit 做介面。', []), null);
+experiment.state.correctionMemory = [
+  { id: 'legacy', rawPhrase: 'streamlet做介面', correctedPhrase: 'Streamlit 做介面', successfulConfirmations: 9, failedApplications: 0, disabled: false },
+  { id: 'streamlit', rawPhrase: 'streamlet', correctedPhrase: 'Streamlit', kind: 'vocabulary_alias', successfulConfirmations: 2, failedApplications: 0, disabled: false },
+];
+assert.deepEqual(experiment.applyCorrectionMemory('我想先用streamlet做介面。'), { text: '我想先用Streamlit做介面。', applied: ['streamlit'] });
 assert.equal(
   experiment.classify({ remotePhrase: 'unsupported', localPhrase: 'untested', availableResult: 'unavailable' }),
   'UNSUPPORTED IN CURRENT ENVIRONMENT',
