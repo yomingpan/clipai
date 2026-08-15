@@ -1,0 +1,32 @@
+{
+  "exportedAt": "2026-08-15T12:00:00.000Z",
+  "vocabulary": ["Python", "FastAPI", "ClipAI"],
+  "samples": [
+    {
+      "id": "1723723200000-ab12cd",
+      "phase": "holdout",
+      "category": "known_vocabulary",
+      "contextActive": true,
+      "biasingSupported": true,
+      "expectedTerms": ["FastAPI", "ClipAI"],
+      "rawTranscript": "我用 fast api 建立 clip ai",
+      "alternatives": [
+        { "transcript": "我用 fast api 建立 clip ai", "confidence": 0.79 }
+      ],
+      "confidence": 0.79,
+      "recognitionStartAt": 1723723200000,
+      "speechEndAt": 1723723202100,
+      "finalResultAt": 1723723202600,
+      "correctionStartAt": 1723723202700,
+      "acceptedAt": 1723723203500,
+      "postProcessedTranscript": "我用 fast api 建立 clip ai",
+      "finalTranscript": "我用 FastAPI 建立 ClipAI",
+      "correctionDurationMs": 800,
+      "edit": { "substitutions": 0, "deletions": 0, "insertions": 0, "distance": 0, "mer": 0 },
+      "acceptedWithoutEdit": false,
+      "speechToFinalMs": 500,
+      "finalToAcceptedMs": 900,
+      "harmfulCorrection": false
+    }
+  ]
+}

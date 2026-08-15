@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web Speech Personalization Feasibility Experiment</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, "Noto Sans TC", system-ui, sans-serif; background: #f6f8fb; color: #18202a; }
+    body { margin: 0 auto; max-width: 1180px; padding: 24px; }
+    h1, h2, h3 { margin: 0 0 10px; } h1 { font-size: 1.7rem; } h2 { font-size: 1.2rem; margin-top: 28px; }
+    p, .muted { color: #53606e; line-height: 1.5; } .notice { border-left: 4px solid #2364aa; padding: 10px 12px; background: #eaf3ff; }
+    .card { background: #fff; border: 1px solid #dfe5ec; border-radius: 10px; padding: 18px; margin: 14px 0; box-shadow: 0 1px 2px #18202a0b; }
+    .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); } label { display: block; font-size: .9rem; font-weight: 650; }
+    input, select, textarea, button { box-sizing: border-box; font: inherit; } input, select, textarea { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #b8c4d0; border-radius: 6px; background: #fff; }
+    textarea { min-height: 76px; resize: vertical; } button { padding: 9px 13px; border-radius: 6px; border: 1px solid #2463a5; background: #2463a5; color: #fff; cursor: pointer; font-weight: 650; }
+    button.secondary { color: #2463a5; background: #fff; } button.danger { border-color: #aa3340; color: #aa3340; background: #fff; } button:disabled { opacity: .55; cursor: not-allowed; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; } .status { font-weight: 650; }
+    .good { color: #137333; } .warn { color: #a15800; } .bad { color: #b3261e; } code { background: #edf1f5; padding: 1px 4px; border-radius: 3px; }
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; } th, td { border-bottom: 1px solid #dfe5ec; padding: 8px; text-align: left; vertical-align: top; } th { background: #f4f7fa; position: sticky; top: 0; }
+    .scroll { overflow-x: auto; max-height: 420px; } .pill { display: inline-block; padding: 2px 7px; border-radius: 12px; background: #e8eef5; font-size: .78rem; }
+    .samples { max-width: 320px; white-space: pre-wrap; word-break: break-word; } details { margin: 6px 0; } summary { cursor: pointer; } .check-list label { font-weight: normal; margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Web Speech Personalization Feasibility Experiment</h1>
+    <p>Throwaway, local-only N-of-1 experiment. It tests whether contextual biasing and conservative correction reduce the time needed to reach paste-ready Chinese-English text.</p>
+    <div id="capability" class="notice">Checking browser capabilities…</div>
+  </header>
+
+  <section class="card">
+    <h2>Protocol</h2>
+    <div class="grid">
+      <label>Collection phase
+        <select id="phase">
+          <option value="adaptation">Stage 1 — baseline adaptation (no biasing)</option>
+          <option value="holdout">Stage 2 — contextual-biasing holdout</option>
+        </select>
+      </label>
+      <label>Utterance category
+        <select id="category"></select>
+      </label>
+      <label>Expected technical terms (comma-separated)
+        <input id="expectedTerms" placeholder="Python, ClipAI">
+      </label>
+    </div>
+    <p id="protocolHint" class="muted"></p>
+    <div class="actions"><button id="recordButton">Start recording</button><span id="recordStatus" class="status">Idle</span></div>
+    <p class="muted">The experiment captures final recognition hypotheses only. Begin correcting after a final result appears; the first edit starts the correction timer.</p>
+  </section>
+
+  <section class="card">
+    <h2>Current recognition</h2>
+    <div class="grid">
+      <label>Raw top-1 transcript<textarea id="rawTranscript" readonly placeholder="Final Web Speech transcript appears here"></textarea></label>
+      <label>Paste-ready, manually confirmed transcript<textarea id="finalTranscript" placeholder="Correct the transcript, then accept it"></textarea></label>
+    </div>
+    <div class="actions"><button id="acceptButton" disabled>Accept sample</button><button id="discardButton" class="secondary" disabled>Discard current result</button></div>
+    <details><summary>Returned N-best alternatives and confidence</summary><pre id="hypotheses">No result yet.</pre></details>
+  </section>
+
+  <section class="card">
+    <h2>Personal vocabulary (explicit confirmation required)</h2>
+    <p class="muted">Suggestions are extracted from accepted Stage 1 corrections. They are never used for biasing until you explicitly confirm them below.</p>
+    <div id="suggestions" class="check-list">No suggestions yet.</div>
+    <div class="actions"><button id="confirmTerms" class="secondary">Confirm selected terms</button><button id="clearTerms" class="danger">Clear confirmed vocabulary</button></div>
+    <p>Confirmed persistent vocabulary: <span id="confirmedTerms" class="muted">None</span></p>
+  </section>
+
+  <section class="card">
+    <h2>Experiment dashboard</h2>
+    <p id="decision" class="notice">Record samples to generate an assessment.</p>
+    <div class="scroll"><table id="metricsTable"><thead><tr><th>Condition</th><th>Breakdown</th><th>n</th><th>MER</th><th>Technical terms</th><th>Median correction</th><th>Accept without edit</th><th>Harmful corrections</th><th>Speech→final</th><th>Final→accepted</th></tr></thead><tbody></tbody></table></div>
+    <h3>Individual samples</h3>
+    <div class="scroll"><table id="samplesTable"><thead><tr><th>Phase / category</th><th>Condition</th><th>Raw → accepted</th><th>Hypotheses</th><th>Terms</th><th>Correction</th><th>Latency</th><th>Actions</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Export and verification</h2>
+    <div class="actions"><button id="jsonExport" class="secondary">Export JSON</button><button id="csvExport" class="secondary">Export CSV</button><button id="selfTest" class="secondary">Run metric self-check</button><button id="clearSamples" class="danger">Clear all samples</button><span id="testResult" class="muted"></span></div>
+  </section>
+
+  <script>
+  (() => {
+    'use strict';
+    const STORAGE_KEY = 'clipai.web-speech-personalization.v1';
+    const VOCAB_KEY = 'clipai.web-speech-personalization.vocabulary.v1';
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const Phrase = window.SpeechRecognitionPhrase || window.webkitSpeechRecognitionPhrase;
+    const hasRecognition = Boolean(Recognition);
+    const hasPhrases = Boolean(Phrase && Recognition && 'phrases' in new Recognition());
+    const categories = {
+      adaptation: [
+        ['mandarin_dominant', 'Mandarin-dominant (target: 4)'],
+        ['code_switched', 'Mandarin-English code-switched (target: 4)'],
+        ['technical_terms', 'Domain technical terms (target: 4)'],
+      ],
+      holdout: [
+        ['known_vocabulary', 'Known code-switched vocabulary (target: 8)'],
+        ['unseen_technical', 'Unseen English technical terms (target: 4)'],
+        ['mandarin_control', 'Mandarin-only control (target: 4)'],
+      ],
+    };
+    const el = (id) => document.getElementById(id);
+    const state = {
+      samples: load(STORAGE_KEY, []), vocabulary: load(VOCAB_KEY, []), current: null, recognition: null,
+    };
+
+    function load(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } }
+    function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.samples)); localStorage.setItem(VOCAB_KEY, JSON.stringify(state.vocabulary)); }
+    function now() { return Date.now(); }
+    function uid() { return `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
+    function normText(value) { return (value || '').normalize('NFKC').replace(/[\p{P}\p{S}\s]/gu, '').toLowerCase(); }
+    function tokenize(value) {
+      const compact = normText(value); const tokens = []; let latin = '';
+      for (const char of compact) { if (/[a-z0-9+#._-]/i.test(char)) latin += char; else { if (latin) tokens.push(latin), latin = ''; if (/\p{Script=Han}/u.test(char)) tokens.push(char); } }
+      if (latin) tokens.push(latin); return tokens;
+    }
+    function alignment(a, b) {
+      const d = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+      for (let i = 0; i <= a.length; i++) d[i][0] = i; for (let j = 0; j <= b.length; j++) d[0][j] = j;
+      for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = a[i - 1] === b[j - 1] ? d[i - 1][j - 1] : Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + 1);
+      let i = a.length, j = b.length, substitutions = 0, deletions = 0, insertions = 0;
+      while (i || j) { if (i && j && a[i - 1] === b[j - 1]) { i--; j--; } else if (i && j && d[i][j] === d[i - 1][j - 1] + 1) { substitutions++; i--; j--; } else if (i && d[i][j] === d[i - 1][j] + 1) { deletions++; i--; } else { insertions++; j--; } }
+      return { substitutions, deletions, insertions, distance: d[a.length][b.length], mer: a.length ? d[a.length][b.length] / a.length : (b.length ? 1 : 0) };
+    }
+    function percent(value) { return value == null ? '—' : `${(value * 100).toFixed(1)}%`; }
+    function ms(value) { return value == null ? '—' : `${Math.round(value)} ms`; }
+    function quantile(values, p) { if (!values.length) return null; const ordered = [...values].sort((a,b) => a-b); return ordered[Math.min(ordered.length - 1, Math.ceil(ordered.length * p) - 1)]; }
+    function termStats(text, expectedTerms) {
+      const raw = (text || '').normalize('NFKC').toLowerCase(); const expected = expectedTerms.filter(Boolean); const hits = expected.filter((term) => raw.includes(term.normalize('NFKC').toLowerCase()));
+      const recognizedVocabulary = state.vocabulary.filter((term) => raw.includes(term.normalize('NFKC').toLowerCase()));
+      return { expected: expected.length, hits: hits.length, recognizedVocabulary: recognizedVocabulary.length };
+    }
+    // Deliberately conservative seam for a future optional correction strategy.
+    function postProcess({ rawTranscript, alternatives, personalVocabulary, correctionMemory }) {
+      void alternatives; void personalVocabulary; void correctionMemory;
+      return rawTranscript;
+    }
+    function correctionMemory() { return state.samples.filter(s => s.phase === 'adaptation').map(s => ({ raw: s.rawTranscript, corrected: s.finalTranscript })); }
+    function setStatus(message, kind = '') { el('recordStatus').textContent = message; el('recordStatus').className = `status ${kind}`; }
+    function phaseChanged() {
+      const phase = el('phase').value; el('category').replaceChildren(...categories[phase].map(([value, label]) => new Option(label, value)));
+      const count = state.samples.filter(s => s.phase === phase).length;
+      const context = phase === 'holdout' && hasPhrases && state.vocabulary.length ? 'Contextual phrases will be applied with boost 3.' : phase === 'holdout' && hasPhrases ? 'Confirm at least one personal-vocabulary term before starting the holdout.' : phase === 'holdout' ? 'Contextual phrases are unavailable; holdout samples will be marked unsupported, not biased.' : 'Contextual phrases are deliberately disabled for the baseline.';
+      el('protocolHint').textContent = `${count}/${phase === 'adaptation' ? 12 : 16} target samples collected. ${context}`;
+    }
+    function renderCapability() {
+      el('capability').innerHTML = hasRecognition
+        ? `Web Speech recognition: <strong class="good">available</strong> (${Recognition === window.SpeechRecognition ? 'SpeechRecognition' : 'webkitSpeechRecognition'}). Contextual biasing: <strong class="${hasPhrases ? 'good' : 'warn'}">${hasPhrases ? 'available (SpeechRecognitionPhrase, boost 3)' : 'unsupported in this browser'}</strong>.`
+        : '<strong class="bad">SpeechRecognition is unavailable.</strong> Open this page in desktop Chrome and allow microphone permission.';
+      el('recordButton').disabled = !hasRecognition;
+    }
+    function startRecording() {
+      if (!hasRecognition || state.recognition) return;
+      if (el('phase').value === 'holdout' && !state.vocabulary.length) { setStatus('Confirm at least one personal-vocabulary term before Stage 2.', 'warn'); return; }
+      const phase = el('phase').value, contextActive = phase === 'holdout' && hasPhrases;
+      const recognition = new Recognition(); recognition.lang = 'zh-TW'; recognition.interimResults = true; recognition.maxAlternatives = 5; recognition.continuous = false;
+      if (contextActive) { try { recognition.phrases = state.vocabulary.map(phrase => new Phrase(phrase, 3)); } catch (error) { console.warn('Unable to apply contextual phrases', error); } }
+      state.current = { id: uid(), phase, category: el('category').value, expectedTerms: splitTerms(el('expectedTerms').value), contextActive, biasingSupported: hasPhrases, recognitionStartAt: now(), speechEndAt: null, finalResultAt: null, rawTranscript: '', alternatives: [], confidence: null, correctionStartAt: null };
+      state.recognition = recognition; el('rawTranscript').value = ''; el('finalTranscript').value = ''; el('hypotheses').textContent = 'Listening…'; el('acceptButton').disabled = true; el('discardButton').disabled = false;
+      el('recordButton').textContent = 'Stop recording'; setStatus(contextActive ? 'Listening with contextual biasing…' : 'Listening…', 'good');
+      recognition.onspeechend = () => { if (state.current && !state.current.speechEndAt) state.current.speechEndAt = now(); setStatus('Speech ended; waiting for final result…'); };
+      recognition.onresult = (event) => {
+        const result = event.results[event.results.length - 1]; const alternatives = Array.from(result, item => ({ transcript: item.transcript.trim(), confidence: Number.isFinite(item.confidence) ? item.confidence : null }));
+        if (!result.isFinal) { el('rawTranscript').value = alternatives[0]?.transcript || ''; return; }
+        Object.assign(state.current, { rawTranscript: alternatives[0]?.transcript || '', alternatives, confidence: alternatives[0]?.confidence ?? null, finalResultAt: now() });
+        state.current.postProcessedTranscript = postProcess({ rawTranscript: state.current.rawTranscript, alternatives, personalVocabulary: state.vocabulary, correctionMemory: correctionMemory() });
+        el('rawTranscript').value = state.current.rawTranscript; el('finalTranscript').value = state.current.postProcessedTranscript;
+        el('hypotheses').textContent = JSON.stringify(alternatives, null, 2); el('acceptButton').disabled = false; setStatus('Final result ready for correction.', 'good');
+      };
+      recognition.onerror = (event) => { setStatus(`Recognition error: ${event.error}`, 'bad'); };
+      recognition.onend = () => { state.recognition = null; el('recordButton').textContent = 'Start recording'; if (!state.current?.finalResultAt) { el('discardButton').disabled = false; if (el('recordStatus').textContent === 'Listening…') setStatus('Recognition ended without a final result.', 'warn'); } };
+      try { recognition.start(); } catch (error) { state.recognition = null; setStatus(`Could not start: ${error.message}`, 'bad'); el('recordButton').textContent = 'Start recording'; }
+    }
+    function stopRecording() { if (state.recognition) { setStatus('Stopping…'); state.recognition.stop(); } }
+    function onFinalInput() { if (state.current?.finalResultAt && !state.current.correctionStartAt) state.current.correctionStartAt = now(); }
+    function accept() {
+      const current = state.current; const finalTranscript = el('finalTranscript').value.trim();
+      if (!current?.finalResultAt || !finalTranscript) return;
+      current.acceptedAt = now(); current.finalTranscript = finalTranscript;
+      current.correctionStartAt ||= current.acceptedAt; current.correctionDurationMs = current.acceptedAt - current.correctionStartAt;
+      current.edit = alignment(tokenize(finalTranscript), tokenize(current.rawTranscript));
+      current.postProcessEdit = alignment(tokenize(finalTranscript), tokenize(current.postProcessedTranscript));
+      current.acceptedWithoutEdit = current.rawTranscript === finalTranscript;
+      current.speechToFinalMs = current.speechEndAt && current.finalResultAt ? current.finalResultAt - current.speechEndAt : null;
+      current.finalToAcceptedMs = current.acceptedAt - current.finalResultAt;
+      current.termStats = termStats(current.rawTranscript, current.expectedTerms);
+      current.postProcessTermStats = termStats(current.postProcessedTranscript, current.expectedTerms);
+      current.harmfulCorrection = current.postProcessEdit.distance > current.edit.distance;
+      state.samples.push(current); save(); state.current = null; el('rawTranscript').value = ''; el('finalTranscript').value = ''; el('hypotheses').textContent = 'No result yet.'; el('acceptButton').disabled = true; el('discardButton').disabled = true; setStatus('Sample accepted and saved locally.', 'good');
+      render();
+    }
+    function discard() { if (state.recognition) state.recognition.abort(); state.recognition = null; state.current = null; el('rawTranscript').value = ''; el('finalTranscript').value = ''; el('hypotheses').textContent = 'No result yet.'; el('acceptButton').disabled = true; el('discardButton').disabled = true; el('recordButton').textContent = 'Start recording'; setStatus('Current result discarded.'); }
+    function splitTerms(text) { return [...new Set(text.split(',').map(term => term.trim()).filter(Boolean))]; }
+    function suggestions() {
+      const known = new Set(state.vocabulary.map(normText)); const found = new Map();
+      state.samples.filter(s => s.phase === 'adaptation').forEach(s => {
+        const rawWords = new Set((s.rawTranscript.match(/[A-Za-z][A-Za-z0-9+#._-]*/g) || []).map(normText));
+        (s.finalTranscript.match(/[A-Za-z][A-Za-z0-9+#._-]*/g) || []).forEach(term => { if (!rawWords.has(normText(term)) && !known.has(normText(term))) found.set(normText(term), term); });
+        s.expectedTerms.forEach(term => { if (!known.has(normText(term))) found.set(normText(term), term); });
+      }); return [...found.values()];
+    }
+    function renderVocabulary() {
+      const candidates = suggestions(); const holder = el('suggestions'); holder.replaceChildren();
+      if (!candidates.length) holder.textContent = 'No unconfirmed suggestions yet.';
+      candidates.forEach(term => { const label = document.createElement('label'); const box = document.createElement('input'); box.type = 'checkbox'; box.value = term; box.style.width = 'auto'; label.append(box, document.createTextNode(` ${term}`)); holder.append(label); });
+      el('confirmedTerms').textContent = state.vocabulary.length ? state.vocabulary.join(', ') : 'None';
+    }
+    function confirmTerms() { const chosen = [...document.querySelectorAll('#suggestions input:checked')].map(box => box.value); state.vocabulary = [...new Map([...state.vocabulary, ...chosen].map(term => [normText(term), term])).values()]; save(); renderVocabulary(); render(); }
+    function groupName(sample) { return sample.phase === 'adaptation' ? ({ mandarin_dominant: 'Mandarin control', code_switched: 'Known code-switched vocabulary', technical_terms: 'Known code-switched vocabulary' }[sample.category] || sample.category) : ({ mandarin_control: 'Mandarin control', known_vocabulary: 'Known code-switched vocabulary', unseen_technical: 'Unseen code-switched vocabulary' }[sample.category] || sample.category); }
+    function condition(sample) { return sample.phase === 'adaptation' ? 'Raw baseline' : sample.contextActive ? 'Contextually biased' : 'Biasing unsupported'; }
+    function aggregate(samples, output) {
+      if (!samples.length) return null; const totals = samples.reduce((sum, s) => { const edit = output === 'post' ? s.postProcessEdit : s.edit; const terms = output === 'post' ? s.postProcessTermStats : s.termStats; sum.distance += edit.distance; sum.reference += tokenize(s.finalTranscript).length; sum.expected += terms.expected; sum.hits += terms.hits; sum.correction.push(s.correctionDurationMs); sum.without += s.acceptedWithoutEdit ? 1 : 0; sum.harmful += output === 'post' && s.harmfulCorrection ? 1 : 0; if (s.speechToFinalMs != null) sum.speech.push(s.speechToFinalMs); if (s.finalToAcceptedMs != null) sum.accepted.push(s.finalToAcceptedMs); return sum; }, { distance: 0, reference: 0, expected: 0, hits: 0, correction: [], without: 0, harmful: 0, speech: [], accepted: [] });
+      return { n: samples.length, mer: totals.reference ? totals.distance / totals.reference : null, termRecall: totals.expected ? totals.hits / totals.expected : null, correction: quantile(totals.correction, .5), without: totals.without / samples.length, harmful: totals.harmful, speechMedian: quantile(totals.speech, .5), speechP95: quantile(totals.speech, .95), acceptedMedian: quantile(totals.accepted, .5), acceptedP95: quantile(totals.accepted, .95) };
+    }
+    function metricRow(label, breakdown, metrics) { if (!metrics) return ''; return `<tr><td>${label}</td><td>${breakdown}</td><td>${metrics.n}</td><td>${percent(metrics.mer)}</td><td>${percent(metrics.termRecall)}</td><td>${ms(metrics.correction)}</td><td>${percent(metrics.without)}</td><td>${metrics.harmful}</td><td>${ms(metrics.speechMedian)} / ${ms(metrics.speechP95)}</td><td>${ms(metrics.acceptedMedian)} / ${ms(metrics.acceptedP95)}</td></tr>`; }
+    function renderMetrics() {
+      const rows = []; const groups = ['Mandarin control', 'Known code-switched vocabulary', 'Unseen code-switched vocabulary'];
+      const source = [{ label: 'Raw Web Speech', samples: state.samples.filter(s => s.phase === 'adaptation'), output: 'raw' }, { label: 'Contextual biasing', samples: state.samples.filter(s => s.phase === 'holdout' && s.contextActive), output: 'raw' }, { label: 'Post-processing (currently identity)', samples: state.samples, output: 'post' }];
+      source.forEach(({ label, samples, output }) => { rows.push(metricRow(label, 'All included samples', aggregate(samples, output))); groups.forEach(group => rows.push(metricRow(label, group, aggregate(samples.filter(s => groupName(s) === group), output)))); });
+      el('metricsTable').querySelector('tbody').innerHTML = rows.join('') || '<tr><td colspan="10">No accepted samples yet.</td></tr>';
+    }
+    function escape(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' })[char]); }
+    function renderSamples() {
+      el('samplesTable').querySelector('tbody').innerHTML = state.samples.map(s => `<tr><td><span class="pill">${escape(s.phase)}</span><br>${escape(s.category)}</td><td>${condition(s)}${s.contextActive ? '<br><span class="pill">boost 3</span>' : ''}</td><td class="samples">${escape(s.rawTranscript)}<br>→ <strong>${escape(s.finalTranscript)}</strong></td><td class="samples">${escape(s.alternatives.map(a => `${a.transcript}${a.confidence == null ? '' : ` (${a.confidence.toFixed(2)})`}`).join('\n'))}</td><td>${escape(s.expectedTerms.join(', ') || '—')}<br>${s.termStats.hits}/${s.termStats.expected} recognized</td><td>${ms(s.correctionDurationMs)}<br>${s.edit.distance} edits</td><td>${ms(s.speechToFinalMs)}<br>${ms(s.finalToAcceptedMs)}</td><td><button class="secondary" data-delete="${s.id}">Delete</button></td></tr>`).join('') || '<tr><td colspan="8">No samples yet.</td></tr>';
+    }
+    function renderDecision() {
+      const base = aggregate(state.samples.filter(s => s.phase === 'adaptation'), 'raw'); const biased = aggregate(state.samples.filter(s => s.phase === 'holdout' && s.contextActive), 'raw'); const known = aggregate(state.samples.filter(s => s.phase === 'holdout' && s.contextActive && s.category === 'known_vocabulary'), 'raw');
+      const decision = el('decision');
+      if (!base || !biased) { decision.textContent = `Incomplete evidence: baseline ${base?.n || 0}/12, contextual holdout ${biased?.n || 0}/16. Continue the prescribed collection before interpreting a decision.`; return; }
+      const improvement = base.correction ? 1 - biased.correction / base.correction : null; const strong = improvement >= .30 && biased.without >= .80 && (known?.termRecall ?? 0) >= .80 && aggregate(state.samples, 'post').harmful === 0;
+      const enough = base.n >= 12 && biased.n >= 16; const label = strong && enough ? 'GO' : strong ? 'CONDITIONAL GO' : 'NO-GO / collect more holdout evidence';
+      decision.innerHTML = `<strong>${label}</strong>: median correction time changed from ${ms(base.correction)} (baseline) to ${ms(biased.correction)} (biasing), ${improvement == null ? 'not calculable' : percent(improvement)} reduction; holdout accept-without-edit ${percent(biased.without)}; known-vocabulary term recall ${percent(known?.termRecall)}; harmful post-corrections ${aggregate(state.samples, 'post').harmful}. ${enough ? 'This remains a non-paired N-of-1 comparison.' : 'The target count is incomplete; increase holdout samples rather than changing architecture.'}`;
+    }
+    function render() { renderCapability(); phaseChanged(); renderVocabulary(); renderMetrics(); renderSamples(); renderDecision(); }
+    function download(name, content, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([content], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
+    function exportJSON() { download('web-speech-personalization-experiment.json', JSON.stringify({ exportedAt: new Date().toISOString(), vocabulary: state.vocabulary, samples: state.samples }, null, 2), 'application/json'); }
+    function csv(value) { return `"${String(value ?? '').replace(/"/g, '""')}"`; }
+    function exportCSV() { const fields = ['id','phase','category','condition','contextActive','expectedTerms','rawTranscript','postProcessedTranscript','finalTranscript','alternatives','confidence','recognitionStartAt','speechEndAt','finalResultAt','correctionStartAt','acceptedAt','correctionDurationMs','editDistance','normalizedEditDistance','acceptedWithoutEdit','harmfulCorrection','speechToFinalMs','finalToAcceptedMs']; const data = state.samples.map(s => [s.id,s.phase,s.category,condition(s),s.contextActive,s.expectedTerms.join('|'),s.rawTranscript,s.postProcessedTranscript,s.finalTranscript,JSON.stringify(s.alternatives),s.confidence,s.recognitionStartAt,s.speechEndAt,s.finalResultAt,s.correctionStartAt,s.acceptedAt,s.correctionDurationMs,s.edit.distance,s.edit.mer,s.acceptedWithoutEdit,s.harmfulCorrection,s.speechToFinalMs,s.finalToAcceptedMs]); download('web-speech-personalization-samples.csv', [fields.map(csv).join(','), ...data.map(row => row.map(csv).join(','))].join('\n'), 'text/csv;charset=utf-8'); }
+    function runSelfTest() { try { const exact = alignment(tokenize('你好 Python'), tokenize('你好Python！')); const changed = alignment(tokenize('你好 FastAPI'), tokenize('你好 Python')); if (exact.distance !== 0 || changed.distance !== 1 || Math.abs(changed.mer - 1 / 3) > .0001) throw new Error(`unexpected token metric ${JSON.stringify({ exact, changed })}`); el('testResult').textContent = 'Metric self-check passed: punctuation ignored; Chinese characters and English words tokenized correctly.'; el('testResult').className = 'good'; } catch (error) { el('testResult').textContent = `Metric self-check failed: ${error.message}`; el('testResult').className = 'bad'; } }
+    el('phase').addEventListener('change', phaseChanged); el('recordButton').addEventListener('click', () => state.recognition ? stopRecording() : startRecording()); el('finalTranscript').addEventListener('input', onFinalInput); el('acceptButton').addEventListener('click', accept); el('discardButton').addEventListener('click', discard); el('confirmTerms').addEventListener('click', confirmTerms); el('clearTerms').addEventListener('click', () => { if (confirm('Clear confirmed personal vocabulary?')) { state.vocabulary = []; save(); render(); } }); el('jsonExport').addEventListener('click', exportJSON); el('csvExport').addEventListener('click', exportCSV); el('selfTest').addEventListener('click', runSelfTest); el('clearSamples').addEventListener('click', () => { if (confirm('Clear all locally saved experiment samples? This cannot be undone.')) { state.samples = []; save(); render(); } });
+    el('samplesTable').addEventListener('click', event => { const id = event.target.dataset.delete; if (id) { state.samples = state.samples.filter(s => s.id !== id); save(); render(); } });
+    window.WebSpeechExperiment = { postProcess, tokenize, alignment, state }; render();
+  })();
+  </script>
+</body>
+</html>
