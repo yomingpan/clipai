@@ -48,6 +48,10 @@ assert.deepEqual(experiment.changedSpan('請開啟派森專案', '請開啟 Pyth
 });
 experiment.state.correctionMemory = [{ id: 'python', rawPhrase: '派森', correctedPhrase: 'Python', successfulConfirmations: 2, failedApplications: 0, disabled: false }];
 assert.deepEqual(experiment.applyCorrectionMemory('請開啟派森專案'), { text: '請開啟Python專案', applied: ['python'] });
+assert.equal(
+  experiment.classify({ remotePhrase: 'unsupported', localPhrase: 'untested', availableResult: 'unavailable' }),
+  'UNSUPPORTED IN CURRENT ENVIRONMENT',
+);
 
 experiment.state.vocabulary = ['ClipAI'];
 nodes.testNativeBiasing.checked = true;
