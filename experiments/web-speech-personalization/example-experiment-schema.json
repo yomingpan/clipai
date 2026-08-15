@@ -1,32 +1,61 @@
 {
+  "schemaVersion": 2,
   "exportedAt": "2026-08-15T12:00:00.000Z",
   "vocabulary": ["Python", "FastAPI", "ClipAI"],
+  "nativeCapability": {
+    "checkedAt": 1786795200000,
+    "userAgent": "Mozilla/5.0 ... Chrome/140.0",
+    "browserVersion": "140.0",
+    "hasRecognition": true,
+    "hasPhrase": true,
+    "hasProcessLocally": true,
+    "availableResult": "available",
+    "availableError": null,
+    "remotePhrase": "unsupported",
+    "remotePhraseDetail": "phrases-not-supported",
+    "localPhrase": "supported",
+    "localPhraseDetail": ""
+  },
+  "correctionMemory": [
+    {
+      "id": "rule-python",
+      "rawPhrase": "派森",
+      "correctedPhrase": "Python",
+      "contextBefore": "請開啟",
+      "contextAfter": "專案",
+      "occurrenceCount": 2,
+      "successfulConfirmations": 2,
+      "failedApplications": 0,
+      "lastUsedAt": 1786795210000,
+      "reliabilityScore": 1,
+      "disabled": false
+    }
+  ],
   "samples": [
     {
       "id": "1723723200000-ab12cd",
-      "phase": "holdout",
+      "phase": "evaluation",
       "category": "known_vocabulary",
-      "contextActive": true,
-      "biasingSupported": true,
+      "servedPipeline": "memory",
+      "recognitionPath": "remote",
+      "nativeBiasingTest": false,
       "expectedTerms": ["FastAPI", "ClipAI"],
-      "rawTranscript": "我用 fast api 建立 clip ai",
-      "alternatives": [
-        { "transcript": "我用 fast api 建立 clip ai", "confidence": 0.79 }
-      ],
-      "confidence": 0.79,
-      "recognitionStartAt": 1723723200000,
-      "speechEndAt": 1723723202100,
-      "finalResultAt": 1723723202600,
-      "correctionStartAt": 1723723202700,
-      "acceptedAt": 1723723203500,
-      "postProcessedTranscript": "我用 fast api 建立 clip ai",
+      "rawOutput": "我用 fast api 建立 clip ai",
+      "memoryOutput": "我用 FastAPI 建立 ClipAI",
+      "contextOutput": "我用 FastAPI 建立 ClipAI",
       "finalTranscript": "我用 FastAPI 建立 ClipAI",
-      "correctionDurationMs": 800,
-      "edit": { "substitutions": 0, "deletions": 0, "insertions": 0, "distance": 0, "mer": 0 },
-      "acceptedWithoutEdit": false,
-      "speechToFinalMs": 500,
-      "finalToAcceptedMs": 900,
-      "harmfulCorrection": false
+      "learnedCorrectionsAtStart": 8,
+      "correctionDurationMs": 480,
+      "repeatErrorOpportunity": true,
+      "repeatErrorRemaining": false,
+      "repeatContextErrorRemaining": false,
+      "harmfulMemory": false,
+      "harmfulContext": false,
+      "outputs": {
+        "raw": { "edit": { "distance": 2, "mer": 0.29 }, "acceptedWithoutEdit": false, "termStats": { "expected": 2, "hits": 0, "predicted": 0, "precision": null } },
+        "memory": { "edit": { "distance": 0, "mer": 0 }, "acceptedWithoutEdit": true, "termStats": { "expected": 2, "hits": 2, "predicted": 2, "precision": 1 } },
+        "context": { "edit": { "distance": 0, "mer": 0 }, "acceptedWithoutEdit": true, "termStats": { "expected": 2, "hits": 2, "predicted": 2, "precision": 1 } }
+      }
     }
   ]
 }

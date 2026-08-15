@@ -6,78 +6,79 @@
   <title>Web Speech 個人化可行性實驗</title>
   <style>
     :root { color-scheme: light; font-family: Inter, "Noto Sans TC", system-ui, sans-serif; background: #f6f8fb; color: #18202a; }
-    body { margin: 0 auto; max-width: 1180px; padding: 24px; }
-    h1, h2, h3 { margin: 0 0 10px; } h1 { font-size: 1.7rem; } h2 { font-size: 1.2rem; margin-top: 28px; }
-    p, .muted { color: #53606e; line-height: 1.5; } .notice { border-left: 4px solid #2364aa; padding: 10px 12px; background: #eaf3ff; }
-    .card { background: #fff; border: 1px solid #dfe5ec; border-radius: 10px; padding: 18px; margin: 14px 0; box-shadow: 0 1px 2px #18202a0b; }
-    .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); } label { display: block; font-size: .9rem; font-weight: 650; }
-    input, select, textarea, button { box-sizing: border-box; font: inherit; } input, select, textarea { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #b8c4d0; border-radius: 6px; background: #fff; }
-    textarea { min-height: 76px; resize: vertical; } button { padding: 9px 13px; border-radius: 6px; border: 1px solid #2463a5; background: #2463a5; color: #fff; cursor: pointer; font-weight: 650; }
-    button.secondary { color: #2463a5; background: #fff; } button.danger { border-color: #aa3340; color: #aa3340; background: #fff; } button:disabled { opacity: .55; cursor: not-allowed; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; } .status { font-weight: 650; }
-    .good { color: #137333; } .warn { color: #a15800; } .bad { color: #b3261e; } code { background: #edf1f5; padding: 1px 4px; border-radius: 3px; }
-    table { width: 100%; border-collapse: collapse; font-size: .88rem; } th, td { border-bottom: 1px solid #dfe5ec; padding: 8px; text-align: left; vertical-align: top; } th { background: #f4f7fa; position: sticky; top: 0; }
-    .scroll { overflow-x: auto; max-height: 420px; } .pill { display: inline-block; padding: 2px 7px; border-radius: 12px; background: #e8eef5; font-size: .78rem; }
-    .samples { max-width: 320px; white-space: pre-wrap; word-break: break-word; } details { margin: 6px 0; } summary { cursor: pointer; } .check-list label { font-weight: normal; margin: 6px 0; }
+    body { margin: 0 auto; max-width: 1240px; padding: 24px; } h1,h2,h3 { margin: 0 0 10px; } h1 { font-size: 1.7rem; } h2 { font-size: 1.2rem; margin-top: 20px; }
+    p,.muted { color: #53606e; line-height: 1.5; } .card { background:#fff; border:1px solid #dfe5ec; border-radius:10px; padding:18px; margin:14px 0; box-shadow:0 1px 2px #18202a0b; }
+    .notice { border-left:4px solid #2364aa; padding:10px 12px; background:#eaf3ff; white-space:pre-wrap; } .grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+    label { display:block; font-size:.9rem; font-weight:650; } input,select,textarea,button { box-sizing:border-box; font:inherit; } input,select,textarea { width:100%; padding:8px; margin-top:5px; border:1px solid #b8c4d0; border-radius:6px; background:#fff; }
+    textarea { min-height:94px; resize:vertical; } button { padding:9px 13px; border-radius:6px; border:1px solid #2463a5; background:#2463a5; color:#fff; cursor:pointer; font-weight:650; } button.secondary { color:#2463a5; background:#fff; } button.danger { border-color:#aa3340; color:#aa3340; background:#fff; } button:disabled { opacity:.55; cursor:not-allowed; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; } .status { font-weight:650; } .good { color:#137333; } .warn { color:#a15800; } .bad { color:#b3261e; } code { background:#edf1f5; padding:1px 4px; border-radius:3px; }
+    table { width:100%; border-collapse:collapse; font-size:.86rem; } th,td { border-bottom:1px solid #dfe5ec; padding:8px; text-align:left; vertical-align:top; } th { background:#f4f7fa; } .scroll { overflow-x:auto; max-height:460px; } .samples { max-width:260px; white-space:pre-wrap; word-break:break-word; }
+    .pill { display:inline-block; padding:2px 7px; border-radius:12px; background:#e8eef5; font-size:.78rem; } details { margin:6px 0; } summary { cursor:pointer; } .compare { border-top:3px solid #cbd9e7; padding-top:12px; } .small { font-size:.83rem; }
   </style>
 </head>
 <body>
   <header>
     <h1>Web Speech 個人化可行性實驗</h1>
-    <p>這是一次性、僅在本機執行的 N-of-1 實驗，用來驗證情境偏誤與保守後處理是否能縮短中英混合語音轉為可貼上文字所需的人工修正時間。</p>
-    <div id="capability" class="notice">正在檢查瀏覽器能力…</div>
+    <p>一次性、僅在本機執行的 N-of-1 實驗：以同一個 Web Speech 原始結果，同時比較原始輸出、修正記憶與保守情境修正。它不會變更或接入 ClipAI 正式產品。</p>
+    <div id="capability" class="notice">正在檢查 Web Speech 能力…</div>
   </header>
 
   <section class="card">
-    <h2>實驗流程</h2>
+    <h2>階段 0：原生能力診斷</h2>
+    <p class="muted">這項診斷不會開啟麥克風。它會嘗試查詢 <code>available({ langs: ['zh-TW'], processLocally: true })</code>，並把遠端／本機短語偏誤的實際結果分開保存。本機短語測試必須由您在有麥克風權限的 Chrome 中按「開始錄音」後完成。</p>
+    <div class="actions"><button id="diagnoseButton" class="secondary">執行能力診斷</button><span id="capabilityStatus" class="status">尚未診斷</span></div>
+    <pre id="capabilityReport" class="notice small">尚無診斷資料。</pre>
+  </section>
+
+  <section class="card">
+    <h2>錄製與受控分組</h2>
     <div class="grid">
-      <label>蒐集階段
-        <select id="phase">
-          <option value="adaptation">階段 1 — 基準適應資料（不啟用偏誤）</option>
-          <option value="holdout">階段 2 — 情境偏誤保留資料</option>
-        </select>
-      </label>
-      <label>語句類別
-        <select id="category"></select>
-      </label>
-      <label>預期技術詞彙（以半形逗號分隔）
-        <input id="expectedTerms" placeholder="Python, ClipAI">
-      </label>
+      <label>蒐集階段<select id="phase"><option value="teaching">教學資料：建立修正記憶</option><option value="evaluation">成對評估：不新增規則</option></select></label>
+      <label>語句類別<select id="category"><option value="known_vocabulary">A．已學得的詞彙</option><option value="unseen_technical">B．未見技術詞彙</option><option value="mandarin_control">C．純中文控制組</option></select></label>
+      <label>您實際說出的預期技術詞彙（半形逗號分隔）<input id="expectedTerms" placeholder="Python, ClipAI"></label>
+      <label>要以哪個輸出作為人工修正起點？<select id="servedPipeline"><option value="raw">A．原始 Web Speech</option><option value="memory">B．修正記憶</option><option value="context">C．修正記憶＋保守情境</option></select></label>
+      <label>辨識路徑<select id="recognitionPath"><option value="remote">遠端／預設辨識</option><option value="local">本機 on-device 辨識</option></select></label>
+      <label>（選填）本句已知情境<input id="contextInput" placeholder="例如：正在討論 Python 專案"></label>
     </div>
     <p id="protocolHint" class="muted"></p>
+    <label class="small"><input id="testNativeBiasing" type="checkbox" style="width:auto"> 本次要驗證原生短語偏誤（只有已確認詞彙時才會設定 <code>recognition.phrases</code>；失敗時會停止並記錄，不會偽裝為無偏誤成功。）</label>
     <div class="actions"><button id="recordButton">開始錄音</button><span id="recordStatus" class="status">待命</span></div>
-    <p class="muted">實驗只會保存最終辨識候選。請在最終結果出現後開始修正；第一次編輯會啟動修正計時。</p>
   </section>
 
-  <section class="card">
-    <h2>目前辨識結果</h2>
+  <section class="card compare">
+    <h2>同一原始結果的三條輸出</h2>
+    <p class="muted">三欄都由同一個 top-1 結果產生；只有您選作修正起點的欄位會量測實際人工修正時間。其餘兩欄的「免編輯」是與最後人工確認文字的反事實比對，並不虛構操作時間。</p>
     <div class="grid">
-      <label>原始 top-1 辨識結果<textarea id="rawTranscript" readonly placeholder="最終 Web Speech 辨識結果會顯示在這裡"></textarea></label>
-      <label>已人工確認、可貼上的文字<textarea id="finalTranscript" placeholder="修正文字後，再接受此樣本"></textarea></label>
+      <label>A．原始 Web Speech<textarea id="rawTranscript" readonly placeholder="最終辨識結果會顯示在這裡"></textarea></label>
+      <label>B．修正記憶<textarea id="memoryTranscript" readonly></textarea></label>
+      <label>C．記憶＋保守情境<textarea id="contextTranscript" readonly></textarea></label>
     </div>
+    <label>已人工確認、可貼上的文字<textarea id="finalTranscript" placeholder="選定的輸出會帶入此處；修正後再接受樣本"></textarea></label>
     <div class="actions"><button id="acceptButton" disabled>接受樣本</button><button id="discardButton" class="secondary" disabled>捨棄目前結果</button></div>
-    <details><summary>回傳的 N-best 候選與信心值</summary><pre id="hypotheses">尚無結果。</pre></details>
+    <details><summary>N-best 候選（不以信心值作為決策指標）</summary><pre id="hypotheses">尚無結果。</pre></details>
   </section>
 
   <section class="card">
-    <h2>個人詞彙（必須明確確認）</h2>
-    <p class="muted">建議詞彙來自已接受的階段 1 修正結果。只有您在下方明確確認的詞彙，才會用於情境偏誤。</p>
-    <div id="suggestions" class="check-list">尚無建議詞彙。</div>
-    <div class="actions"><button id="confirmTerms" class="secondary">確認選取的詞彙</button><button id="clearTerms" class="danger">清除已確認詞彙</button></div>
-    <p>已確認且會持續保存的詞彙：<span id="confirmedTerms" class="muted">無</span></p>
+    <h2>已確認個人詞彙與修正記憶</h2>
+    <p class="muted">修正規則只會由您明確接受的修正建立。自動套用門檻是至少 2 次相同成功確認且可靠度至少 0.80；若套用後又被您更改，可靠度會下降。</p>
+    <div class="actions"><input id="newVocabulary" placeholder="新增已確認詞彙（例如 Python）"><button id="addVocabulary" class="secondary">新增詞彙</button><button id="clearMemory" class="danger">清除修正記憶</button></div>
+    <p>已確認詞彙：<span id="confirmedTerms" class="muted">無</span></p>
+    <div class="scroll"><table><thead><tr><th>誤辨片段 → 確認文字</th><th>成功／失敗</th><th>可靠度</th><th>最後使用</th></tr></thead><tbody id="memoryTable"></tbody></table></div>
   </section>
 
   <section class="card">
-    <h2>實驗儀表板</h2>
+    <h2>儀表板：成對比較</h2>
     <p id="decision" class="notice">請記錄樣本以產生評估結果。</p>
-    <div class="scroll"><table id="metricsTable"><thead><tr><th>條件</th><th>分組</th><th>n</th><th>MER</th><th>技術詞彙</th><th>修正時間中位數</th><th>免編輯接受率</th><th>有害修正數</th><th>語音→最終結果</th><th>最終結果→接受</th></tr></thead><tbody></tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>輸出</th><th>n</th><th>MER</th><th>免編輯接受率</th><th>已顯示→接受</th><th>重複錯誤</th><th>有害修正</th><th>技術詞彙召回／精確率</th></tr></thead><tbody id="metricsBody"></tbody></table></div>
+    <h3>學習曲線（依辨識當時已累積修正數）</h3>
+    <div class="scroll"><table><thead><tr><th>學習量</th><th>n</th><th>原始 MER</th><th>記憶 MER</th><th>記憶免編輯</th><th>重複錯誤率</th></tr></thead><tbody id="learningBody"></tbody></table></div>
     <h3>個別樣本</h3>
-    <div class="scroll"><table id="samplesTable"><thead><tr><th>階段／類別</th><th>條件</th><th>原始 → 接受</th><th>候選</th><th>詞彙</th><th>修正</th><th>延遲</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>組別／路徑</th><th>原始 → 最後確認</th><th>B／C 輸出</th><th>實際修正</th><th>重複／有害</th><th>操作</th></tr></thead><tbody id="samplesBody"></tbody></table></div>
   </section>
 
   <section class="card">
     <h2>匯出與驗證</h2>
-    <div class="actions"><button id="jsonExport" class="secondary">匯出 JSON</button><button id="csvExport" class="secondary">匯出 CSV</button><button id="selfTest" class="secondary">執行指標自我檢查</button><button id="clearSamples" class="danger">清除所有樣本</button><span id="testResult" class="muted"></span></div>
+    <div class="actions"><button id="jsonExport" class="secondary">匯出 JSON</button><button id="csvExport" class="secondary">匯出 CSV</button><button id="selfTest" class="secondary">執行自我檢查</button><button id="clearSamples" class="danger">清除所有樣本</button><span id="testResult" class="muted"></span></div>
   </section>
 
   <script>
@@ -85,172 +86,73 @@
     'use strict';
     const STORAGE_KEY = 'clipai.web-speech-personalization.v1';
     const VOCAB_KEY = 'clipai.web-speech-personalization.vocabulary.v1';
+    const MEMORY_KEY = 'clipai.web-speech-personalization.memory.v1';
+    const CAPABILITY_KEY = 'clipai.web-speech-personalization.capability.v1';
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const Phrase = window.SpeechRecognitionPhrase || window.webkitSpeechRecognitionPhrase;
-    const hasRecognition = Boolean(Recognition);
-    const hasPhrases = Boolean(Phrase && Recognition && 'phrases' in new Recognition());
-    const categories = {
-      adaptation: [
-        ['mandarin_dominant', '中文為主（目標：4）'],
-        ['code_switched', '中英混合（目標：4）'],
-        ['technical_terms', '領域技術詞彙（目標：4）'],
-      ],
-      holdout: [
-        ['known_vocabulary', '已學得詞彙的中英混合（目標：8）'],
-        ['unseen_technical', '未見過的英文技術詞彙（目標：4）'],
-        ['mandarin_control', '純中文控制組（目標：4）'],
-      ],
-    };
     const el = (id) => document.getElementById(id);
-    const state = {
-      samples: load(STORAGE_KEY, []), vocabulary: load(VOCAB_KEY, []), current: null, recognition: null, phrasesRejected: false,
-    };
-
-    function load(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } }
-    function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.samples)); localStorage.setItem(VOCAB_KEY, JSON.stringify(state.vocabulary)); }
-    function now() { return Date.now(); }
-    function uid() { return `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
-    function normText(value) { return (value || '').normalize('NFKC').replace(/[\p{P}\p{S}\s]/gu, '').toLowerCase(); }
-    function tokenize(value) {
-      const compact = normText(value); const tokens = []; let latin = '';
-      for (const char of compact) { if (/[a-z0-9+#._-]/i.test(char)) latin += char; else { if (latin) tokens.push(latin), latin = ''; if (/\p{Script=Han}/u.test(char)) tokens.push(char); } }
-      if (latin) tokens.push(latin); return tokens;
-    }
-    function alignment(a, b) {
-      const d = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
-      for (let i = 0; i <= a.length; i++) d[i][0] = i; for (let j = 0; j <= b.length; j++) d[0][j] = j;
-      for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = a[i - 1] === b[j - 1] ? d[i - 1][j - 1] : Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + 1);
-      let i = a.length, j = b.length, substitutions = 0, deletions = 0, insertions = 0;
-      while (i || j) { if (i && j && a[i - 1] === b[j - 1]) { i--; j--; } else if (i && j && d[i][j] === d[i - 1][j - 1] + 1) { substitutions++; i--; j--; } else if (i && d[i][j] === d[i - 1][j] + 1) { deletions++; i--; } else { insertions++; j--; } }
-      return { substitutions, deletions, insertions, distance: d[a.length][b.length], mer: a.length ? d[a.length][b.length] / a.length : (b.length ? 1 : 0) };
-    }
-    function percent(value) { return value == null ? '—' : `${(value * 100).toFixed(1)}%`; }
-    function ms(value) { return value == null ? '—' : `${Math.round(value)} ms`; }
-    function quantile(values, p) { if (!values.length) return null; const ordered = [...values].sort((a,b) => a-b); return ordered[Math.min(ordered.length - 1, Math.ceil(ordered.length * p) - 1)]; }
-    function termStats(text, expectedTerms) {
-      const raw = (text || '').normalize('NFKC').toLowerCase(); const expected = expectedTerms.filter(Boolean); const hits = expected.filter((term) => raw.includes(term.normalize('NFKC').toLowerCase()));
-      const recognizedVocabulary = state.vocabulary.filter((term) => raw.includes(term.normalize('NFKC').toLowerCase()));
-      return { expected: expected.length, hits: hits.length, recognizedVocabulary: recognizedVocabulary.length };
-    }
-    // Deliberately conservative seam for a future optional correction strategy.
-    function postProcess({ rawTranscript, alternatives, personalVocabulary, correctionMemory }) {
-      void alternatives; void personalVocabulary; void correctionMemory;
-      return rawTranscript;
-    }
-    function correctionMemory() { return state.samples.filter(s => s.phase === 'adaptation').map(s => ({ raw: s.rawTranscript, corrected: s.finalTranscript })); }
-    function setStatus(message, kind = '') { el('recordStatus').textContent = message; el('recordStatus').className = `status ${kind}`; }
-    function biasingAvailable() { return hasPhrases && !state.phrasesRejected; }
-    function updateRecordAvailability() { el('recordButton').disabled = !hasRecognition || (el('phase').value === 'holdout' && !biasingAvailable()); }
-    function rejectRuntimePhrases(reason) {
-      state.phrasesRejected = true; state.current = null; state.recognition = null;
-      el('rawTranscript').value = ''; el('finalTranscript').value = ''; el('hypotheses').textContent = '尚未取得結果。';
-      el('acceptButton').disabled = true; el('discardButton').disabled = true; el('recordButton').textContent = '開始錄音';
-      setStatus(`情境偏誤不受此瀏覽器支援：${reason}。本次保留測試已停止，未改以無偏誤模式重試。`, 'bad'); render();
-    }
-    function phaseChanged() {
-      const phase = el('phase').value; el('category').replaceChildren(...categories[phase].map(([value, label]) => new Option(label, value)));
-      const count = state.samples.filter(s => s.phase === phase).length;
-      const context = phase === 'holdout' && biasingAvailable() && state.vocabulary.length ? '將以權重 3 套用情境短語。' : phase === 'holdout' && biasingAvailable() ? '請先確認至少一個個人詞彙，再開始保留測試。' : phase === 'holdout' ? '此瀏覽器不支援可用的情境偏誤；保留測試不會冒充為已啟用偏誤。' : '基準階段刻意不啟用情境偏誤。';
-      el('protocolHint').textContent = `已蒐集 ${count}/${phase === 'adaptation' ? 12 : 16} 個目標樣本。${context}`; updateRecordAvailability();
-    }
-    function renderCapability() {
-      el('capability').innerHTML = hasRecognition
-        ? `Web Speech 辨識：<strong class="good">可用</strong>（${Recognition === window.SpeechRecognition ? 'SpeechRecognition' : 'webkitSpeechRecognition'}）。情境偏誤：<strong class="${biasingAvailable() ? 'warn' : 'bad'}">${biasingAvailable() ? '偵測到 API，會在開始辨識時驗證' : '不支援（辨識引擎拒絕情境短語）'}</strong>。`
-        : '<strong class="bad">無法使用 SpeechRecognition。</strong>請以桌面版 Chrome 開啟此頁，並允許使用麥克風。';
-      updateRecordAvailability();
-    }
+    const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } };
+    const now = () => Date.now();
+    const uid = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const state = { samples: load(STORAGE_KEY, []).map(hydrate), vocabulary: load(VOCAB_KEY, []), correctionMemory: load(MEMORY_KEY, []), nativeCapability: load(CAPABILITY_KEY, null), current: null, recognition: null };
+    function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.samples)); localStorage.setItem(VOCAB_KEY, JSON.stringify(state.vocabulary)); localStorage.setItem(MEMORY_KEY, JSON.stringify(state.correctionMemory)); localStorage.setItem(CAPABILITY_KEY, JSON.stringify(state.nativeCapability)); }
+    function hydrate(sample) { return { ...sample, rawOutput: sample.rawOutput || sample.rawTranscript || '', memoryOutput: sample.memoryOutput || sample.postProcessedTranscript || sample.rawTranscript || '', contextOutput: sample.contextOutput || sample.postProcessedTranscript || sample.rawTranscript || '', servedPipeline: sample.servedPipeline || 'raw' }; }
+    function norm(value) { return (value || '').normalize('NFKC').replace(/[\p{P}\p{S}\s]/gu, '').toLowerCase(); }
+    function tokens(value) { const compact = norm(value), out = [], latin = []; for (const c of compact) { if (/[a-z0-9+#._-]/i.test(c)) latin.push(c); else { if (latin.length) out.push(latin.join('')), latin.length = 0; if (/\p{Script=Han}/u.test(c)) out.push(c); } } if (latin.length) out.push(latin.join('')); return out; }
+    function alignment(reference, observed) { const a = Array.isArray(reference) ? reference : tokens(reference), b = Array.isArray(observed) ? observed : tokens(observed); const d = Array.from({length:a.length + 1}, () => Array(b.length + 1).fill(0)); for (let i=0;i<=a.length;i++) d[i][0]=i; for (let j=0;j<=b.length;j++) d[0][j]=j; for (let i=1;i<=a.length;i++) for (let j=1;j<=b.length;j++) d[i][j] = a[i-1] === b[j-1] ? d[i-1][j-1] : Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+1); return { distance:d[a.length][b.length], mer:a.length ? d[a.length][b.length]/a.length : (b.length ? 1 : 0) }; }
+    function quantile(values, p) { if (!values.length) return null; const x=[...values].sort((a,b)=>a-b); return x[Math.min(x.length-1, Math.ceil(x.length*p)-1)]; }
+    const percent = (n) => n == null ? '—' : `${(n * 100).toFixed(1)}%`;
+    const duration = (n) => n == null ? '—' : `${Math.round(n)} ms`;
+    function changedSpan(raw, corrected) { let start=0, rawEnd=raw.length, correctedEnd=corrected.length; while (start<rawEnd && start<correctedEnd && raw[start]===corrected[start]) start++; while (rawEnd>start && correctedEnd>start && raw[rawEnd-1]===corrected[correctedEnd-1]) { rawEnd--; correctedEnd--; } const rawPhrase=raw.slice(start,rawEnd).trim(), correctedPhrase=corrected.slice(start,correctedEnd).trim(); return rawPhrase && correctedPhrase && rawPhrase !== correctedPhrase && rawPhrase.length<=32 && correctedPhrase.length<=32 ? { rawPhrase, correctedPhrase, contextBefore:raw.slice(Math.max(0,start-20),start), contextAfter:raw.slice(rawEnd,rawEnd+20) } : null; }
+    function reliability(rule) { const trials = rule.successfulConfirmations + rule.failedApplications; return trials ? rule.successfulConfirmations / trials : 0; }
+    function activeRules() { return state.correctionMemory.filter(r => !r.disabled && r.successfulConfirmations >= 2 && reliability(r) >= .8).sort((a,b) => b.rawPhrase.length - a.rawPhrase.length); }
+    function applyCorrectionMemory(raw) { let text=raw; const applied=[]; for (const rule of activeRules()) { if (text.includes(rule.rawPhrase)) { text=text.split(rule.rawPhrase).join(rule.correctedPhrase); applied.push(rule.id); } } return { text, applied }; }
+    function applyConservativeContext(memory, context) { void context; return { text:memory.text, applied:[], changes:[] }; }
+    function outputFor(sample, pipeline) { return pipeline === 'raw' ? sample.rawOutput : pipeline === 'memory' ? sample.memoryOutput : sample.contextOutput; }
+    function termStats(text, expectedTerms) { const expected=(expectedTerms || []).filter(Boolean); const lower=(text || '').normalize('NFKC').toLowerCase(); const hits=expected.filter(term=>lower.includes(term.normalize('NFKC').toLowerCase())); const predicted=state.vocabulary.filter(term=>lower.includes(term.normalize('NFKC').toLowerCase())); return { expected:expected.length, hits:hits.length, predicted:predicted.length, precision:predicted.length ? hits.length/predicted.length : null }; }
+    function classify(c) { if (!c) return 'UNKNOWN'; if (c.remotePhrase === 'supported') return 'SUPPORTED'; if (c.localPhrase === 'supported') return 'SUPPORTED ONLY ON-DEVICE'; if (c.availableResult === 'unavailable') return 'UNSUPPORTED FOR zh-TW'; if (c.remotePhrase === 'unsupported' && c.localPhrase === 'unsupported') return 'UNSUPPORTED IN CURRENT ENVIRONMENT'; return 'UNKNOWN'; }
+    function setStatus(message, kind='') { el('recordStatus').textContent=message; el('recordStatus').className=`status ${kind}`; }
+    function setCapability(message, kind='') { el('capabilityStatus').textContent=message; el('capabilityStatus').className=`status ${kind}`; }
+    function describeCapability(c) { if (!c) return '尚無診斷資料。'; return [`分類：${classify(c)}`, `執行時間：${new Date(c.checkedAt).toLocaleString()}`, `Chrome 版本：${c.browserVersion || 'unknown'}`, `使用者代理：${c.userAgent}`, `SpeechRecognition：${c.hasRecognition ? '有' : '無'}`, `SpeechRecognitionPhrase：${c.hasPhrase ? '有' : '無'}`, `processLocally 屬性：${c.hasProcessLocally ? '有' : '無'}`, `zh-TW 本機語言包：${c.availableResult || '無法查詢'}${c.availableError ? `（${c.availableError}）` : ''}`, `遠端短語偏誤：${c.remotePhrase || '尚未測試'}`, `本機短語偏誤：${c.localPhrase || '尚未測試'}`].join('\n'); }
+    async function diagnoseNative() { const probe = Recognition ? new Recognition() : null; const agentText=navigator.userAgent; const c = { checkedAt:now(), userAgent:agentText, browserVersion:/(?:Chrome|Chromium)\/([\d.]+)/.exec(agentText)?.[1] || 'unknown', hasRecognition:Boolean(Recognition), hasPhrase:Boolean(Phrase), hasProcessLocally:Boolean(probe && 'processLocally' in probe), availableResult:null, availableError:null, remotePhrase:state.nativeCapability?.remotePhrase || 'untested', localPhrase:state.nativeCapability?.localPhrase || 'untested' }; setCapability('正在查詢本機 zh-TW 語言包…'); try { if (Recognition && typeof Recognition.available === 'function') c.availableResult=await Recognition.available({ langs:['zh-TW'], processLocally:true }); else c.availableResult='API unavailable'; } catch (error) { c.availableError=error.name || error.message || String(error); } state.nativeCapability=c; save(); renderCapability(); setCapability(`已完成：${classify(c)}`, classify(c)==='UNKNOWN' ? 'warn' : 'good'); }
+    function renderCapability() { const c=state.nativeCapability; el('capability').textContent = Recognition ? `Web Speech 辨識可用。原生短語偏誤診斷：${classify(c)}。遠端與本機結果必須各自以真實錄音驗證。` : '無法使用 SpeechRecognition。請用桌面版 Chrome 開啟，並允許使用麥克風。'; el('capability').className=`notice ${Recognition ? '' : 'bad'}`; el('capabilityReport').textContent=describeCapability(c); }
+    function protocolHint() { const control=el('category').value === 'mandarin_control'; if (control) el('expectedTerms').value=''; el('expectedTerms').disabled=control; const teaching=state.samples.filter(s=>s.phase==='teaching').length, evaluation=state.samples.filter(s=>s.phase==='evaluation').length; el('protocolHint').textContent=`已收集：教學 ${teaching} 筆、成對評估 ${evaluation} 筆。${control ? '純中文控制組的預期技術詞彙必須留空。' : '只填入您實際說出的技術詞彙，勿把提示詞或詞彙表當成目標詞。'} 遠端短語拒絕不會阻止 A/B/C 後處理比較。`; }
     function startRecording() {
-      if (!hasRecognition || state.recognition) return;
-      if (el('phase').value === 'holdout' && !biasingAvailable()) { setStatus('此瀏覽器不支援情境偏誤；無法執行階段 2。', 'bad'); return; }
-      if (el('phase').value === 'holdout' && !state.vocabulary.length) { setStatus('請先確認至少一個個人詞彙，再開始階段 2。', 'warn'); return; }
-      const phase = el('phase').value, contextActive = phase === 'holdout' && biasingAvailable();
-      const recognition = new Recognition(); recognition.lang = 'zh-TW'; recognition.interimResults = true; recognition.maxAlternatives = 5; recognition.continuous = false;
-      if (contextActive) { try { recognition.phrases = state.vocabulary.map(phrase => new Phrase(phrase, 3)); } catch (error) { rejectRuntimePhrases(error.message || '無法設定情境短語'); return; } }
-      state.current = { id: uid(), phase, category: el('category').value, expectedTerms: splitTerms(el('expectedTerms').value), contextActive, biasingSupported: hasPhrases, recognitionStartAt: now(), speechEndAt: null, finalResultAt: null, rawTranscript: '', alternatives: [], confidence: null, correctionStartAt: null };
-      state.recognition = recognition; el('rawTranscript').value = ''; el('finalTranscript').value = ''; el('hypotheses').textContent = '正在聆聽…'; el('acceptButton').disabled = true; el('discardButton').disabled = false;
-      el('recordButton').textContent = '停止錄音'; setStatus(contextActive ? '正在以情境偏誤聆聽…' : '正在聆聽…', 'good');
-      recognition.onspeechend = () => { if (state.current && !state.current.speechEndAt) state.current.speechEndAt = now(); setStatus('語音結束，正在等待最終結果…'); };
-      recognition.onresult = (event) => {
-        const result = event.results[event.results.length - 1]; const alternatives = Array.from(result, item => ({ transcript: item.transcript.trim(), confidence: Number.isFinite(item.confidence) ? item.confidence : null }));
-        if (!result.isFinal) { el('rawTranscript').value = alternatives[0]?.transcript || ''; return; }
-        Object.assign(state.current, { rawTranscript: alternatives[0]?.transcript || '', alternatives, confidence: alternatives[0]?.confidence ?? null, finalResultAt: now() });
-        state.current.postProcessedTranscript = postProcess({ rawTranscript: state.current.rawTranscript, alternatives, personalVocabulary: state.vocabulary, correctionMemory: correctionMemory() });
-        el('rawTranscript').value = state.current.rawTranscript; el('finalTranscript').value = state.current.postProcessedTranscript;
-        el('hypotheses').textContent = JSON.stringify(alternatives, null, 2); el('acceptButton').disabled = false; setStatus('最終結果已就緒，可進行修正。', 'good');
-      };
-      recognition.onerror = (event) => { if (event.error === 'phrases-not-supported' && contextActive) { rejectRuntimePhrases('辨識引擎回傳 phrases-not-supported'); return; } setStatus(`辨識錯誤：${event.error}`, 'bad'); };
-      recognition.onend = () => { state.recognition = null; el('recordButton').textContent = '開始錄音'; if (!state.current?.finalResultAt) { el('discardButton').disabled = false; if (el('recordStatus').textContent === '正在聆聽…') setStatus('辨識結束，但未收到最終結果。', 'warn'); } };
-      try { recognition.start(); } catch (error) { state.recognition = null; setStatus(`無法開始辨識：${error.message}`, 'bad'); el('recordButton').textContent = '開始錄音'; }
+      if (!Recognition || state.recognition) return; const path=el('recognitionPath').value, testBias=el('testNativeBiasing').checked, vocabulary=[...state.vocabulary];
+      if (testBias && !vocabulary.length) { setStatus('請先新增至少一個已確認詞彙，才能測試原生短語偏誤。','warn'); return; }
+      const recognition=new Recognition(); recognition.lang='zh-TW'; recognition.interimResults=true; recognition.maxAlternatives=5; recognition.continuous=false;
+      if (path==='local') { if (!('processLocally' in recognition)) { recordPhraseResult('local','unsupported','processLocally 屬性不存在'); setStatus('此環境沒有 processLocally，無法測試本機辨識。','bad'); return; } try { recognition.processLocally=true; } catch (error) { recordPhraseResult('local','unsupported',error.message); setStatus(`無法啟用本機辨識：${error.message}`,'bad'); return; } }
+      if (testBias) { try { recognition.phrases=vocabulary.map(term=>new Phrase(term,3)); } catch (error) { recordPhraseResult(path,'unsupported',error.message || '無法設定短語'); setStatus(`無法設定原生短語偏誤：${error.message}`,'bad'); return; } }
+      const learnedAtStart=state.correctionMemory.reduce((n,r)=>n+r.successfulConfirmations,0); state.current={ id:uid(), phase:el('phase').value, category:el('category').value, expectedTerms:splitTerms(el('expectedTerms').value), servedPipeline:el('servedPipeline').value, recognitionPath:path, nativeBiasingTest:testBias, contextInput:el('contextInput').value.trim(), recognitionStartAt:now(), learnedCorrectionsAtStart:learnedAtStart, rawOutput:'', memoryOutput:'', contextOutput:'', correctionStartAt:null };
+      state.recognition=recognition; ['rawTranscript','memoryTranscript','contextTranscript','finalTranscript'].forEach(id=>el(id).value=''); el('hypotheses').textContent='正在聆聽…'; el('recordButton').textContent='停止錄音'; el('discardButton').disabled=false; setStatus(path==='local' ? '正在以本機辨識聆聽…' : '正在聆聽…','good');
+      recognition.onspeechend=()=>{ if (state.current) state.current.speechEndAt ||= now(); setStatus('語音結束，正在等待最終結果…'); };
+      recognition.onresult=(event)=>{ const result=event.results[event.results.length-1]; const alternatives=Array.from(result,item=>({transcript:item.transcript.trim(), confidence:Number.isFinite(item.confidence)?item.confidence:null})); if (!result.isFinal) { el('rawTranscript').value=alternatives[0]?.transcript || ''; return; } const raw=alternatives[0]?.transcript || ''; const memory=applyCorrectionMemory(raw), context=applyConservativeContext(memory,state.current.contextInput); Object.assign(state.current,{rawOutput:raw,memoryOutput:memory.text,contextOutput:context.text,memoryAppliedRuleIds:memory.applied,contextAppliedRuleIds:context.applied,alternatives,finalResultAt:now(), repeatErrorOpportunity:activeRules().some(rule=>raw.includes(rule.rawPhrase))}); el('rawTranscript').value=raw; el('memoryTranscript').value=memory.text; el('contextTranscript').value=context.text; el('finalTranscript').value=outputFor(state.current,state.current.servedPipeline); el('hypotheses').textContent=JSON.stringify(alternatives,null,2); el('acceptButton').disabled=false; if (testBias) recordPhraseResult(path,'supported'); setStatus('最終結果已就緒，可進行修正。','good'); };
+      recognition.onerror=(event)=>{ if (event.error==='phrases-not-supported' && testBias) { recordPhraseResult(path,'unsupported','phrases-not-supported'); state.current=null; el('acceptButton').disabled=true; setStatus('原生短語偏誤不受此辨識引擎支援（phrases-not-supported）。本次已停止，未改以無偏誤模式重試。','bad'); return; } setStatus(`辨識錯誤：${event.error}`,'bad'); };
+      recognition.onend=()=>{ state.recognition=null; el('recordButton').textContent='開始錄音'; };
+      try { recognition.start(); } catch (error) { state.recognition=null; el('recordButton').textContent='開始錄音'; setStatus(`無法開始辨識：${error.message}`,'bad'); }
     }
+    function recordPhraseResult(path, result, detail='') { const agentText=navigator.userAgent; const c=state.nativeCapability || { checkedAt:now(), userAgent:agentText, browserVersion:/(?:Chrome|Chromium)\/([\d.]+)/.exec(agentText)?.[1] || 'unknown', hasRecognition:Boolean(Recognition), hasPhrase:Boolean(Phrase), hasProcessLocally:Boolean(Recognition && 'processLocally' in new Recognition()), availableResult:null, availableError:null, remotePhrase:'untested', localPhrase:'untested' }; c.checkedAt=now(); c[`${path}Phrase`]=result; c[`${path}PhraseDetail`]=detail; state.nativeCapability=c; save(); renderCapability(); }
     function stopRecording() { if (state.recognition) { setStatus('正在停止…'); state.recognition.stop(); } }
-    function onFinalInput() { if (state.current?.finalResultAt && !state.current.correctionStartAt) state.current.correctionStartAt = now(); }
-    function accept() {
-      const current = state.current; const finalTranscript = el('finalTranscript').value.trim();
-      if (!current?.finalResultAt || !finalTranscript) return;
-      current.acceptedAt = now(); current.finalTranscript = finalTranscript;
-      current.correctionStartAt ||= current.acceptedAt; current.correctionDurationMs = current.acceptedAt - current.correctionStartAt;
-      current.edit = alignment(tokenize(finalTranscript), tokenize(current.rawTranscript));
-      current.postProcessEdit = alignment(tokenize(finalTranscript), tokenize(current.postProcessedTranscript));
-      current.acceptedWithoutEdit = current.rawTranscript === finalTranscript;
-      current.speechToFinalMs = current.speechEndAt && current.finalResultAt ? current.finalResultAt - current.speechEndAt : null;
-      current.finalToAcceptedMs = current.acceptedAt - current.finalResultAt;
-      current.termStats = termStats(current.rawTranscript, current.expectedTerms);
-      current.postProcessTermStats = termStats(current.postProcessedTranscript, current.expectedTerms);
-      current.harmfulCorrection = current.postProcessEdit.distance > current.edit.distance;
-      state.samples.push(current); save(); state.current = null; el('rawTranscript').value = ''; el('finalTranscript').value = ''; el('hypotheses').textContent = '尚無結果。'; el('acceptButton').disabled = true; el('discardButton').disabled = true; setStatus('已接受樣本並儲存在本機。', 'good');
-      render();
-    }
-    function discard() { if (state.recognition) state.recognition.abort(); state.recognition = null; state.current = null; el('rawTranscript').value = ''; el('finalTranscript').value = ''; el('hypotheses').textContent = '尚無結果。'; el('acceptButton').disabled = true; el('discardButton').disabled = true; el('recordButton').textContent = '開始錄音'; setStatus('已捨棄目前結果。'); }
-    function splitTerms(text) { return [...new Set(text.split(',').map(term => term.trim()).filter(Boolean))]; }
-    function suggestions() {
-      const known = new Set(state.vocabulary.map(normText)); const found = new Map();
-      state.samples.filter(s => s.phase === 'adaptation').forEach(s => {
-        const rawWords = new Set((s.rawTranscript.match(/[A-Za-z][A-Za-z0-9+#._-]*/g) || []).map(normText));
-        (s.finalTranscript.match(/[A-Za-z][A-Za-z0-9+#._-]*/g) || []).forEach(term => { if (!rawWords.has(normText(term)) && !known.has(normText(term))) found.set(normText(term), term); });
-        s.expectedTerms.forEach(term => { if (!known.has(normText(term))) found.set(normText(term), term); });
-      }); return [...found.values()];
-    }
-    function renderVocabulary() {
-      const candidates = suggestions(); const holder = el('suggestions'); holder.replaceChildren();
-      if (!candidates.length) holder.textContent = '尚無未確認的建議詞彙。';
-      candidates.forEach(term => { const label = document.createElement('label'); const box = document.createElement('input'); box.type = 'checkbox'; box.value = term; box.style.width = 'auto'; label.append(box, document.createTextNode(` ${term}`)); holder.append(label); });
-      el('confirmedTerms').textContent = state.vocabulary.length ? state.vocabulary.join(', ') : '無';
-    }
-    function confirmTerms() { const chosen = [...document.querySelectorAll('#suggestions input:checked')].map(box => box.value); state.vocabulary = [...new Map([...state.vocabulary, ...chosen].map(term => [normText(term), term])).values()]; save(); renderVocabulary(); render(); }
-    function groupName(sample) { return sample.phase === 'adaptation' ? ({ mandarin_dominant: '純中文控制組', code_switched: '已知中英混合詞彙', technical_terms: '已知中英混合詞彙' }[sample.category] || sample.category) : ({ mandarin_control: '純中文控制組', known_vocabulary: '已知中英混合詞彙', unseen_technical: '未知中英混合詞彙' }[sample.category] || sample.category); }
-    function condition(sample) { return sample.phase === 'adaptation' ? '原始基準' : sample.contextActive ? '已啟用情境偏誤' : '情境偏誤不支援'; }
-    function aggregate(samples, output) {
-      if (!samples.length) return null; const totals = samples.reduce((sum, s) => { const edit = output === 'post' ? s.postProcessEdit : s.edit; const terms = output === 'post' ? s.postProcessTermStats : s.termStats; sum.distance += edit.distance; sum.reference += tokenize(s.finalTranscript).length; sum.expected += terms.expected; sum.hits += terms.hits; sum.correction.push(s.correctionDurationMs); sum.without += s.acceptedWithoutEdit ? 1 : 0; sum.harmful += output === 'post' && s.harmfulCorrection ? 1 : 0; if (s.speechToFinalMs != null) sum.speech.push(s.speechToFinalMs); if (s.finalToAcceptedMs != null) sum.accepted.push(s.finalToAcceptedMs); return sum; }, { distance: 0, reference: 0, expected: 0, hits: 0, correction: [], without: 0, harmful: 0, speech: [], accepted: [] });
-      return { n: samples.length, mer: totals.reference ? totals.distance / totals.reference : null, termRecall: totals.expected ? totals.hits / totals.expected : null, correction: quantile(totals.correction, .5), without: totals.without / samples.length, harmful: totals.harmful, speechMedian: quantile(totals.speech, .5), speechP95: quantile(totals.speech, .95), acceptedMedian: quantile(totals.accepted, .5), acceptedP95: quantile(totals.accepted, .95) };
-    }
-    function metricRow(label, breakdown, metrics) { if (!metrics) return ''; return `<tr><td>${label}</td><td>${breakdown}</td><td>${metrics.n}</td><td>${percent(metrics.mer)}</td><td>${percent(metrics.termRecall)}</td><td>${ms(metrics.correction)}</td><td>${percent(metrics.without)}</td><td>${metrics.harmful}</td><td>${ms(metrics.speechMedian)} / ${ms(metrics.speechP95)}</td><td>${ms(metrics.acceptedMedian)} / ${ms(metrics.acceptedP95)}</td></tr>`; }
-    function renderMetrics() {
-      const rows = []; const groups = ['純中文控制組', '已知中英混合詞彙', '未知中英混合詞彙'];
-      const source = [{ label: '原始 Web Speech', samples: state.samples.filter(s => s.phase === 'adaptation'), output: 'raw' }, { label: '情境偏誤', samples: state.samples.filter(s => s.phase === 'holdout' && s.contextActive), output: 'raw' }, { label: '後處理（目前為原樣輸出）', samples: state.samples, output: 'post' }];
-      source.forEach(({ label, samples, output }) => { rows.push(metricRow(label, '所有納入樣本', aggregate(samples, output))); groups.forEach(group => rows.push(metricRow(label, group, aggregate(samples.filter(s => groupName(s) === group), output)))); });
-      el('metricsTable').querySelector('tbody').innerHTML = rows.join('') || '<tr><td colspan="10">尚無已接受樣本。</td></tr>';
-    }
-    function escape(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' })[char]); }
-    function renderSamples() {
-      el('samplesTable').querySelector('tbody').innerHTML = state.samples.map(s => `<tr><td><span class="pill">${escape(s.phase)}</span><br>${escape(s.category)}</td><td>${condition(s)}${s.contextActive ? '<br><span class="pill">權重 3</span>' : ''}</td><td class="samples">${escape(s.rawTranscript)}<br>→ <strong>${escape(s.finalTranscript)}</strong></td><td class="samples">${escape(s.alternatives.map(a => `${a.transcript}${a.confidence == null ? '' : ` (${a.confidence.toFixed(2)})`}`).join('\n'))}</td><td>${escape(s.expectedTerms.join(', ') || '—')}<br>辨識 ${s.termStats.hits}/${s.termStats.expected}</td><td>${ms(s.correctionDurationMs)}<br>${s.edit.distance} 次編輯</td><td>${ms(s.speechToFinalMs)}<br>${ms(s.finalToAcceptedMs)}</td><td><button class="secondary" data-delete="${s.id}">刪除</button></td></tr>`).join('') || '<tr><td colspan="8">尚無樣本。</td></tr>';
-    }
-    function renderDecision() {
-      const base = aggregate(state.samples.filter(s => s.phase === 'adaptation'), 'raw'); const biased = aggregate(state.samples.filter(s => s.phase === 'holdout' && s.contextActive), 'raw'); const known = aggregate(state.samples.filter(s => s.phase === 'holdout' && s.contextActive && s.category === 'known_vocabulary'), 'raw');
-      const decision = el('decision');
-      if (!base || !biased) { decision.textContent = `證據尚未完整：基準資料 ${base?.n || 0}/12、情境偏誤保留資料 ${biased?.n || 0}/16。請完成規定的蒐集數量後，再解讀結論。`; return; }
-      const improvement = base.correction ? 1 - biased.correction / base.correction : null; const strong = improvement >= .30 && biased.without >= .80 && (known?.termRecall ?? 0) >= .80 && aggregate(state.samples, 'post').harmful === 0;
-      const enough = base.n >= 12 && biased.n >= 16; const label = strong && enough ? '可行（GO）' : strong ? '有條件可行（CONDITIONAL GO）' : '暫不建議採用／請增加保留資料';
-      decision.innerHTML = `<strong>${label}</strong>：修正時間中位數從基準的 ${ms(base.correction)} 變為偏誤條件的 ${ms(biased.correction)}，${improvement == null ? '無法計算' : `縮短 ${percent(improvement)}`}；保留資料免編輯接受率 ${percent(biased.without)}；已知詞彙召回率 ${percent(known?.termRecall)}；有害後處理 ${aggregate(state.samples, 'post').harmful} 次。${enough ? '這仍是未配對的 N-of-1 比較。' : '目標樣本數尚未完成；請增加保留資料，而不是更動系統架構。'}`;
-    }
-    function render() { renderCapability(); phaseChanged(); renderVocabulary(); renderMetrics(); renderSamples(); renderDecision(); }
-    function download(name, content, mime) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([content], { type: mime })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
-    function exportJSON() { download('web-speech-personalization-experiment.json', JSON.stringify({ exportedAt: new Date().toISOString(), vocabulary: state.vocabulary, samples: state.samples }, null, 2), 'application/json'); }
-    function csv(value) { return `"${String(value ?? '').replace(/"/g, '""')}"`; }
-    function exportCSV() { const fields = ['id','phase','category','condition','contextActive','expectedTerms','rawTranscript','postProcessedTranscript','finalTranscript','alternatives','confidence','recognitionStartAt','speechEndAt','finalResultAt','correctionStartAt','acceptedAt','correctionDurationMs','editDistance','normalizedEditDistance','acceptedWithoutEdit','harmfulCorrection','speechToFinalMs','finalToAcceptedMs']; const data = state.samples.map(s => [s.id,s.phase,s.category,condition(s),s.contextActive,s.expectedTerms.join('|'),s.rawTranscript,s.postProcessedTranscript,s.finalTranscript,JSON.stringify(s.alternatives),s.confidence,s.recognitionStartAt,s.speechEndAt,s.finalResultAt,s.correctionStartAt,s.acceptedAt,s.correctionDurationMs,s.edit.distance,s.edit.mer,s.acceptedWithoutEdit,s.harmfulCorrection,s.speechToFinalMs,s.finalToAcceptedMs]); download('web-speech-personalization-samples.csv', [fields.map(csv).join(','), ...data.map(row => row.map(csv).join(','))].join('\n'), 'text/csv;charset=utf-8'); }
-    function runSelfTest() { try { const exact = alignment(tokenize('你好 Python'), tokenize('你好Python！')); const changed = alignment(tokenize('你好 FastAPI'), tokenize('你好 Python')); if (exact.distance !== 0 || changed.distance !== 1 || Math.abs(changed.mer - 1 / 3) > .0001) throw new Error(`指標結果不符預期 ${JSON.stringify({ exact, changed })}`); el('testResult').textContent = '指標自我檢查通過：已忽略標點，並正確將中文字元與英文單字切分。'; el('testResult').className = 'good'; } catch (error) { el('testResult').textContent = `指標自我檢查失敗：${error.message}`; el('testResult').className = 'bad'; } }
-    el('phase').addEventListener('change', phaseChanged); el('recordButton').addEventListener('click', () => state.recognition ? stopRecording() : startRecording()); el('finalTranscript').addEventListener('input', onFinalInput); el('acceptButton').addEventListener('click', accept); el('discardButton').addEventListener('click', discard); el('confirmTerms').addEventListener('click', confirmTerms); el('clearTerms').addEventListener('click', () => { if (confirm('要清除已確認的個人詞彙嗎？')) { state.vocabulary = []; save(); render(); } }); el('jsonExport').addEventListener('click', exportJSON); el('csvExport').addEventListener('click', exportCSV); el('selfTest').addEventListener('click', runSelfTest); el('clearSamples').addEventListener('click', () => { if (confirm('要清除所有儲存在本機的實驗樣本嗎？此操作無法復原。')) { state.samples = []; save(); render(); } });
-    el('samplesTable').addEventListener('click', event => { const id = event.target.dataset.delete; if (id) { state.samples = state.samples.filter(s => s.id !== id); save(); render(); } });
-    window.WebSpeechExperiment = { postProcess, tokenize, alignment, state }; render();
+    function splitTerms(value) { return [...new Map((value || '').split(',').map(x=>x.trim()).filter(Boolean).map(x=>[norm(x),x])).values()]; }
+    function onFinalInput() { if (state.current?.finalResultAt && !state.current.correctionStartAt) state.current.correctionStartAt=now(); }
+    function learnFromAcceptance(sample) { const span=changedSpan(sample.rawOutput,sample.finalTranscript); if (span) { let rule=state.correctionMemory.find(r=>r.rawPhrase===span.rawPhrase && r.correctedPhrase===span.correctedPhrase); if (!rule) { rule={id:uid(),...span,occurrenceCount:0,successfulConfirmations:0,failedApplications:0,lastUsedAt:null,reliabilityScore:0,disabled:false}; state.correctionMemory.push(rule); } rule.occurrenceCount++; rule.successfulConfirmations++; rule.reliabilityScore=reliability(rule); } for (const id of sample.memoryAppliedRuleIds || []) { const rule=state.correctionMemory.find(r=>r.id===id); if (!rule) continue; rule.lastUsedAt=now(); if (sample.memoryOutput !== sample.finalTranscript) rule.failedApplications++; rule.reliabilityScore=reliability(rule); } }
+    function accept() { const s=state.current, final=el('finalTranscript').value.trim(); if (!s?.finalResultAt || !final) return; s.acceptedAt=now(); s.finalTranscript=final; s.correctionDurationMs=s.acceptedAt-(s.correctionStartAt || s.finalResultAt); s.actualCorrectionStarted=s.correctionStartAt != null; s.finalToAcceptedMs=s.acceptedAt-s.finalResultAt; s.outputs={}; for (const p of ['raw','memory','context']) { const output=outputFor(s,p); s.outputs[p]={ edit:alignment(final,output), acceptedWithoutEdit:output===final, termStats:termStats(output,s.expectedTerms) }; } s.repeatErrorRemaining=s.repeatErrorOpportunity && !s.outputs.memory.acceptedWithoutEdit; s.repeatContextErrorRemaining=s.repeatErrorOpportunity && !s.outputs.context.acceptedWithoutEdit; s.harmfulMemory=s.outputs.memory.edit.distance>s.outputs.raw.edit.distance; s.harmfulContext=s.outputs.context.edit.distance>s.outputs.raw.edit.distance; if (s.phase==='teaching') learnFromAcceptance(s); state.samples.push(s); save(); state.current=null; ['rawTranscript','memoryTranscript','contextTranscript','finalTranscript'].forEach(id=>el(id).value=''); el('hypotheses').textContent='尚無結果。'; el('acceptButton').disabled=true; el('discardButton').disabled=true; setStatus('已接受樣本並儲存在本機。','good'); render(); }
+    function discard() { if (state.recognition) state.recognition.abort(); state.recognition=null; state.current=null; ['rawTranscript','memoryTranscript','contextTranscript','finalTranscript'].forEach(id=>el(id).value=''); el('acceptButton').disabled=true; el('discardButton').disabled=true; el('recordButton').textContent='開始錄音'; setStatus('已捨棄目前結果。'); }
+    function metrics(samples,pipeline) { if (!samples.length) return null; const aggregate=samples.reduce((x,s)=>{ const o=s.outputs?.[pipeline] || {edit:alignment(s.finalTranscript,outputFor(s,pipeline)),acceptedWithoutEdit:outputFor(s,pipeline)===s.finalTranscript,termStats:termStats(outputFor(s,pipeline),s.expectedTerms)}; x.distance+=o.edit.distance; x.reference+=tokens(s.finalTranscript).length; x.accept+=o.acceptedWithoutEdit?1:0; x.expected+=o.termStats.expected; x.hits+=o.termStats.hits; x.predicted+=o.termStats.predicted; if (s.servedPipeline===pipeline) x.times.push(s.correctionDurationMs); if (pipeline!=='raw') { x.harm+=pipeline==='memory'?s.harmfulMemory:s.harmfulContext; if (s.repeatErrorOpportunity) { x.opportunities++; if (pipeline==='memory' ? s.repeatErrorRemaining : (s.repeatContextErrorRemaining ?? s.repeatErrorRemaining)) x.remaining++; } } return x; },{distance:0,reference:0,accept:0,expected:0,hits:0,predicted:0,times:[],harm:0,opportunities:0,remaining:0}); return {n:samples.length,mer:aggregate.reference?aggregate.distance/aggregate.reference:null,accept:aggregate.accept/samples.length,median:quantile(aggregate.times,.5),p95:quantile(aggregate.times,.95),repeat:aggregate.opportunities?aggregate.remaining/aggregate.opportunities:null,harm:aggregate.harm,recall:aggregate.expected?aggregate.hits/aggregate.expected:null,precision:aggregate.predicted?aggregate.hits/aggregate.predicted:null}; }
+    function row(label,m) { return m ? `<tr><td>${label}</td><td>${m.n}</td><td>${percent(m.mer)}</td><td>${percent(m.accept)}</td><td>${duration(m.median)} / ${duration(m.p95)}</td><td>${percent(m.repeat)}</td><td>${m.harm}</td><td>${percent(m.recall)} / ${percent(m.precision)}</td></tr>` : ''; }
+    function renderMetrics() { const data=state.samples; el('metricsBody').innerHTML=['raw','memory','context'].map(p=>row(p==='raw'?'A．原始 Web Speech':p==='memory'?'B．修正記憶':'C．記憶＋保守情境',metrics(data,p))).join('') || '<tr><td colspan="8">尚無樣本。</td></tr>'; const bands=[['0',n=>n===0],['1–4',n=>n>=1&&n<=4],['5–9',n=>n>=5&&n<=9],['10–19',n=>n>=10&&n<=19],['20+',n=>n>=20]]; el('learningBody').innerHTML=bands.map(([name,match])=>{const s=data.filter(x=>match(x.learnedCorrectionsAtStart||0)), raw=metrics(s,'raw'), mem=metrics(s,'memory'); return `<tr><td>${name}</td><td>${s.length}</td><td>${percent(raw?.mer)}</td><td>${percent(mem?.mer)}</td><td>${percent(mem?.accept)}</td><td>${percent(mem?.repeat)}</td></tr>`;}).join(''); }
+    function esc(value) { return String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
+    function renderSamples() { el('samplesBody').innerHTML=state.samples.map(s=>`<tr><td><span class="pill">${esc(s.phase)}</span> ${esc(s.category)}<br>${esc(s.recognitionPath || 'remote')}</td><td class="samples">${esc(s.rawOutput)}<br>→ <strong>${esc(s.finalTranscript)}</strong></td><td class="samples">B：${esc(s.memoryOutput)}<br>C：${esc(s.contextOutput)}</td><td>${esc(s.servedPipeline)}<br>${duration(s.servedPipeline ? s.correctionDurationMs : null)}</td><td>${s.repeatErrorOpportunity ? `重複：${s.repeatErrorRemaining?'仍存在':'已消除'}`:'—'}<br>有害 B/C：${s.harmfulMemory?'是':'否'}／${s.harmfulContext?'是':'否'}</td><td><button class="secondary" data-delete="${esc(s.id)}">刪除</button></td></tr>`).join('') || '<tr><td colspan="6">尚無樣本。</td></tr>'; }
+    function renderMemory() { el('confirmedTerms').textContent=state.vocabulary.length?state.vocabulary.join(', '):'無'; el('memoryTable').innerHTML=state.correctionMemory.map(r=>`<tr><td>${esc(r.rawPhrase)} → <strong>${esc(r.correctedPhrase)}</strong></td><td>${r.successfulConfirmations}／${r.failedApplications}</td><td>${percent(reliability(r))}</td><td>${r.lastUsedAt?new Date(r.lastUsedAt).toLocaleString():'尚未自動使用'}</td></tr>`).join('') || '<tr><td colspan="4">尚無規則。</td></tr>'; }
+    function renderDecision() { const raw=metrics(state.samples,'raw'), mem=metrics(state.samples,'memory'), ctx=metrics(state.samples,'context'); const judgment=(label,m)=>!m?'資料不足':m.n<12?'資料不足（少於 12 筆）':m.harm>0?'暫不採用（有害修正）':m.repeat!=null && m.repeat>.2?'暫不採用（重複錯誤過高）':m.accept>=.8?'有條件可行':'暫不採用（免編輯接受率不足）'; el('decision').innerHTML=`<strong>問題：Web Speech 能否維持第一層 ASR，並讓 ClipAI 學習修正？</strong>目前結論必須分開判讀：A 原始＝${judgment('A',raw)}；B 記憶＝${judgment('B',mem)}；C 記憶＋情境＝${judgment('C',ctx)}。決策以成本（實際已顯示→接受時間）、重複錯誤、有害修正與免編輯接受率為主；不使用不變的 confidence。`; }
+    function render() { renderCapability(); protocolHint(); renderMemory(); renderMetrics(); renderSamples(); renderDecision(); }
+    function download(name,content,mime) { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type:mime})); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
+    function exportJSON() { download('web-speech-personalization-experiment.json',JSON.stringify({schemaVersion:2,exportedAt:new Date().toISOString(),vocabulary:state.vocabulary,correctionMemory:state.correctionMemory,nativeCapability:state.nativeCapability,samples:state.samples},null,2),'application/json'); }
+    function csv(v) { return `"${String(v??'').replace(/"/g,'""')}"`; }
+    function exportCSV() { const fields=['id','phase','category','servedPipeline','recognitionPath','nativeBiasingTest','expectedTerms','rawOutput','memoryOutput','contextOutput','finalTranscript','learnedCorrectionsAtStart','correctionDurationMs','rawMer','memoryMer','contextMer','repeatErrorOpportunity','repeatErrorRemaining','repeatContextErrorRemaining','harmfulMemory','harmfulContext']; const rows=state.samples.map(s=>[s.id,s.phase,s.category,s.servedPipeline,s.recognitionPath,s.nativeBiasingTest,s.expectedTerms?.join('|'),s.rawOutput,s.memoryOutput,s.contextOutput,s.finalTranscript,s.learnedCorrectionsAtStart,s.correctionDurationMs,s.outputs?.raw?.edit?.mer,s.outputs?.memory?.edit?.mer,s.outputs?.context?.edit?.mer,s.repeatErrorOpportunity,s.repeatErrorRemaining,s.repeatContextErrorRemaining,s.harmfulMemory,s.harmfulContext]); download('web-speech-personalization-samples.csv',[fields.map(csv).join(','),...rows.map(r=>r.map(csv).join(','))].join('\n'),'text/csv;charset=utf-8'); }
+    function selfTest() { try { const exact=alignment('你好 Python','你好Python！'); const span=changedSpan('請開啟派森專案','請開啟 Python 專案'); const testRules=[{id:'x',rawPhrase:'派森',correctedPhrase:'Python',successfulConfirmations:2,failedApplications:0,disabled:false}]; const previous=state.correctionMemory; state.correctionMemory=testRules; const memory=applyCorrectionMemory('請開啟派森專案'); state.correctionMemory=previous; if (exact.distance!==0 || !span || memory.text!=='請開啟Python專案') throw new Error('切詞或保守修正規則不符預期'); el('testResult').textContent='自我檢查通過：標點正規化與兩次確認後的修正記憶均符合預期。'; el('testResult').className='good'; } catch (error) { el('testResult').textContent=`自我檢查失敗：${error.message}`; el('testResult').className='bad'; } }
+    el('diagnoseButton').addEventListener('click',diagnoseNative); el('phase').addEventListener('change',protocolHint); el('category').addEventListener('change',protocolHint); el('recordButton').addEventListener('click',()=>state.recognition?stopRecording():startRecording()); el('finalTranscript').addEventListener('input',onFinalInput); el('acceptButton').addEventListener('click',accept); el('discardButton').addEventListener('click',discard); el('addVocabulary').addEventListener('click',()=>{const terms=splitTerms(el('newVocabulary').value); state.vocabulary=[...new Map([...state.vocabulary,...terms].map(v=>[norm(v),v])).values()]; el('newVocabulary').value=''; save(); render();}); el('clearMemory').addEventListener('click',()=>{if(confirm('要清除所有修正記憶嗎？')) {state.correctionMemory=[];save();render();}}); el('jsonExport').addEventListener('click',exportJSON); el('csvExport').addEventListener('click',exportCSV); el('selfTest').addEventListener('click',selfTest); el('clearSamples').addEventListener('click',()=>{if(confirm('要清除所有樣本嗎？此操作無法復原。')){state.samples=[];save();render();}}); el('samplesBody').addEventListener('click',e=>{const id=e.target.dataset.delete;if(id){state.samples=state.samples.filter(s=>s.id!==id);save();render();}});
+    window.WebSpeechExperiment={ state, tokenize:tokens, alignment, changedSpan, applyCorrectionMemory, activeRules, classify, diagnoseNative, startRecording, recordPhraseResult }; render();
   })();
   </script>
 </body>
