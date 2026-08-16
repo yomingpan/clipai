@@ -121,7 +121,10 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
                     return SelectionCaptureOutcome(status="modifier_timeout")
                 wait(poll_sec)
 
-            original = self._clipboard.snapshot()
+            try:
+                original = self._clipboard.snapshot()
+            except Exception:
+                return SelectionCaptureOutcome(status="failed")
             marker = f"__CLIPAI_SELECTION_{uuid.uuid4().hex}__"
             owned_sequence: int | None = None
             try:
