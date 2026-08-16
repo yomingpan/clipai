@@ -8,7 +8,7 @@ import warnings
 
 from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, ActionVariant, ExternalFallback, FeedbackReason, InputMode, OutputMode, OutputProfile, PressType, ShortcutCommandKind, ShortcutDefinition
+from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, ActionVariant, ExternalFallback, FeedbackReason, InputMode, OutputMode, OutputProfile, PersonalStyleMode, PressType, ShortcutCommandKind, ShortcutDefinition
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.output_profiles import OutputProfileCatalog
@@ -18,7 +18,7 @@ from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
 APP_CONFIG_SCHEMA_VERSION = 2
-ACTIONS_SCHEMA_VERSION = 9
+ACTIONS_SCHEMA_VERSION = 10
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -209,7 +209,7 @@ def load_action_catalog(
 def _parse_action(value: Any, index: int) -> ActionDefinition:
     path = f"actions.actions[{index}]"
     data = _mapping(value, path)
-    allowed = {"id", "name", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "input_policy", "external_fallback", "output_mode", "temperature", "output_profile", "feedback"}
+    allowed = {"id", "name", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "input_policy", "external_fallback", "output_mode", "temperature", "output_profile", "feedback", "personal_style_mode"}
     _reject_unknown(data, allowed, path)
     variants: dict[PressType, ActionVariant] = {}
     raw_variants = _mapping(data.get("press_variants"), f"{path}.press_variants", allow_none=True)
@@ -256,6 +256,11 @@ def _parse_action(value: Any, index: int) -> ActionDefinition:
         output_profile=_string(data.get("output_profile"), f"{path}.output_profile", default="plain_text"),
         external_fallback=cast(ExternalFallback, external_fallback),
         feedback_contract=feedback_contract,
+        personal_style_mode=(
+            cast(PersonalStyleMode, _choice(data.get("personal_style_mode"), f"{path}.personal_style_mode", {"formal", "informal"}, "formal"))
+            if "personal_style_mode" in data
+            else None
+        ),
     )
 
 

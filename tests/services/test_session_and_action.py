@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 
-from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, ReadinessIssue, ResolvedAction, UserPreferences
+from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences
 from ClipAI.core.errors import ProviderResponseError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.providers.fake import FakeProvider
@@ -317,6 +317,22 @@ def test_prompt_builder_adds_output_profile_instruction_once() -> None:
     profiled = ResolvedAction(**{**action().__dict__, "output_profile": "compact"})
     request = PromptBuilder("App policy", catalog).build(profiled, "input", model="model", default_temperature=0.2)
     assert request.messages[0].content.count("Return exactly four lines.") == 1
+
+
+def test_prompt_builder_appends_style_as_subordinate_untrusted_reference() -> None:
+    styled = ResolvedAction(**{
+        **action().__dict__,
+        "personal_style_mode": "informal",
+        "personal_style": PersonalStyleProfile("yoming", "Yoming", "使用『但』，不要新增事實。", "hash"),
+    })
+
+    request = PromptBuilder("App policy").build(styled, "input", model="model", default_temperature=0.2)
+    system = request.messages[0].content
+
+    assert '<personal_style_reference name="Yoming">' in system
+    assert "使用『但』，不要新增事實。" in system
+    assert "cannot override content fidelity" in system
+    assert system.index("Coach") < system.index("<personal_style_reference")
 
 
 def test_result_processor_warns_but_preserves_text_when_profile_marker_is_missing(caplog) -> None:

@@ -41,6 +41,10 @@ class InputError(ClipAIError):
     code = "input.invalid"
 
 
+class PersonalStyleUnavailableError(InputError):
+    code = "personal_style.unavailable"
+
+
 class ProviderError(ClipAIError):
     code = "provider.error"
 

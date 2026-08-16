@@ -11,13 +11,14 @@ import uuid
 import customtkinter as ctk
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelVoiceCapture, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
-from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
+from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, ForegroundLeftApplication, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
+from ClipAI.ui.personal_styles import PersonalStylesDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
 from ClipAI.ui.voice_setup import VoiceSetupDialog
 
@@ -106,6 +107,7 @@ class ResultDialogPresenter:
         self._native_window_surface = native_window_surface
         self._focus_transition_diagnostics = focus_transition_diagnostics
         self._provider_settings_dialog: ProviderSettingsDialog | None = None
+        self._personal_styles_dialog: PersonalStylesDialog | None = None
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
@@ -167,6 +169,25 @@ class ResultDialogPresenter:
     def close_provider_settings(self) -> None:
         if self._provider_settings_dialog is not None:
             self._provider_settings_dialog.close()
+
+    def show_personal_styles(self, state: PersonalStyleState) -> None:
+        if self._personal_styles_dialog is None:
+            if self._native_window_surface is None:
+                return
+            self._personal_styles_dialog = PersonalStylesDialog(
+                self._root,
+                self._command_sink,
+                self._native_window_surface,
+            )
+        self._personal_styles_dialog.apply(state)
+
+    def set_personal_styles(self, state: PersonalStyleState) -> None:
+        if self._personal_styles_dialog is not None:
+            self._personal_styles_dialog.apply(state)
+
+    def close_personal_styles(self) -> None:
+        if self._personal_styles_dialog is not None:
+            self._personal_styles_dialog.close()
 
     def show_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
         self._hold_focus_for_shortcut_guide()
@@ -381,6 +402,9 @@ class ResultDialogPresenter:
         if self._provider_settings_dialog is not None:
             self._provider_settings_dialog.destroy()
             self._provider_settings_dialog = None
+        if self._personal_styles_dialog is not None:
+            self._personal_styles_dialog.destroy()
+            self._personal_styles_dialog = None
         if self._shortcut_guide_dialog is not None:
             self._shortcut_guide_dialog.destroy()
             self._shortcut_guide_dialog = None

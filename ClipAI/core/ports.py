@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 from ClipAI.core.voice import VoiceCaptureId, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
 
@@ -95,6 +95,16 @@ class UserPreferencesStore(Protocol):
     def save(self, preferences: UserPreferences) -> None: ...
 
 
+class PersonalStyleStore(Protocol):
+    def load(self) -> PersonalStyleCollection: ...
+
+    def save(self, collection: PersonalStyleCollection) -> None: ...
+
+
+class PersonalStyleFileReader(Protocol):
+    def read_text(self, path: str) -> str: ...
+
+
 class SpeechOutput(Protocol):
     def speak(self, request: SpeechRequest) -> None: ...
 
@@ -129,6 +139,14 @@ class ProviderSettingsPresenter(Protocol):
     def set_provider_settings(self, state: ProviderSettingsState) -> None: ...
 
     def close_provider_settings(self) -> None: ...
+
+
+class PersonalStylePresenter(Protocol):
+    def show_personal_styles(self, state: PersonalStyleState) -> None: ...
+
+    def set_personal_styles(self, state: PersonalStyleState) -> None: ...
+
+    def close_personal_styles(self) -> None: ...
 
 
 class GuidancePreferencesPresenter(Protocol):

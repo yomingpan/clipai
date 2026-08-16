@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import pytest
 
 from ClipAI.app.runtime import AppRuntime
@@ -10,7 +11,8 @@ from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
+from ClipAI.core.errors import PersonalStyleUnavailableError
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
@@ -137,6 +139,7 @@ class FakeExecute:
         self.models = []
         self.bindings = []
         self.follow_ups = []
+        self.actions = []
 
     def execute(self, action, controller) -> None:
         pass
@@ -145,6 +148,7 @@ class FakeExecute:
         pass
 
     async def execute_invocation(self, action, invocation, controller, *, binding) -> None:
+        self.actions.append(action)
         self.invocations.append(invocation)
         self.models.append(binding.model)
         self.bindings.append(binding)
@@ -452,6 +456,25 @@ class Notifier:
         self.messages.append((title, message))
 
 
+class MissingPersonalStyles:
+    def bind(self, action):
+        if action.personal_style_mode is None:
+            return action
+        raise PersonalStyleUnavailableError("尚未選擇個人風格。")
+
+
+class SwitchingPersonalStyles:
+    def __init__(self) -> None:
+        self.active = PersonalStyleProfile("first", "First", "first voice", "hash-first")
+
+    def bind(self, action):
+        return self.bind_to(action, self.active)
+
+    @staticmethod
+    def bind_to(action, profile):
+        return replace(action, personal_style=profile, version_id=f"{action.version_id}:{profile.profile_id}")
+
+
 class SpeechJob:
     operation_id = "tts:clipboard:unique"
     workflow_id = "global"
@@ -540,8 +563,15 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False):
-    action = ActionDefinition("a", "Action", "system", "{input}", {})
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, personal_styles=None):
+    action = ActionDefinition(
+        "a",
+        "Action",
+        "system",
+        "{input}",
+        {},
+        personal_style_mode="informal" if personal_styles is not None else None,
+    )
     shorten = ActionDefinition(
         "shorten",
         "Shorten",
@@ -609,6 +639,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         notifier=notifier,
         speech_coordinator=speech_coordinator,
         attention_presenter=view,
+        personal_styles=personal_styles,
     )
     output_module = ResultOutputRuntimeModule(
         output_actions=outputs,
@@ -672,6 +703,54 @@ def workflow(view: FakeView, workflow_id: str):
     controller = view.workflow_controller(workflow_id)
     assert controller is not None
     return controller
+
+
+def test_missing_personal_style_stops_before_workflow_and_provider_execution() -> None:
+    notifier = Notifier()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(
+        notifier=notifier,
+        personal_styles=MissingPersonalStyles(),
+    )
+
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+
+    assert view.execute_action.invocations == []
+    assert view.snapshots == []
+    assert supervisor.work == {}
+    assert notifier.messages == [
+        ("ClipAI", "尚未選擇個人風格。 Open Personal Styles from the tray menu."),
+    ]
+
+
+def test_contextual_personal_style_actions_keep_the_workflow_profile_snapshot() -> None:
+    styles = SwitchingPersonalStyles()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(personal_styles=styles)
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    first_invocation = controller.snapshot.active_invocation_id
+    assert first_invocation is not None
+    supervisor.work[first_invocation]()
+    step = WorkflowStep("step-1", "a", "Action", "input", "result", "plain_text")
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        content=step.result_text,
+        steps=(step,),
+        displayed_step_index=0,
+        active_invocation_id=None,
+    )
+    view.context = ActiveWorkflowContext(workflow_id, step.step_id, step.result_text)
+    styles.active = PersonalStyleProfile("second", "Second", "second voice", "hash-second")
+
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    second_invocation = controller.snapshot.active_invocation_id
+    assert second_invocation is not None
+    supervisor.work[second_invocation]()
+
+    assert [item.personal_style.profile_id for item in view.execute_action.actions] == ["first", "first"]
 
 
 def test_output_submit_failure_settles_pending_and_releases_interruption_lease() -> None:

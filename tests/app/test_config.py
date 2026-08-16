@@ -45,7 +45,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "After the example, add a separate `語感：` line" in profile.instruction
     assert "mark conversational alternatives with `（口語常用）`" in profile.instruction
     assert bundle.schema_versions.app == 2
-    assert bundle.schema_versions.actions == 9
+    assert bundle.schema_versions.actions == 10
     assert bundle.schema_versions.output_profiles == 1
     assert bundle.schema_versions.shortcuts == 1
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
@@ -97,6 +97,37 @@ def test_name_idea_keeps_two_part_format_without_markdown_headings() -> None:
     assert "不要使用 Markdown heading" in action.prompt
     assert "## 洞察命名" not in action.prompt
     assert "## 想法原貌" not in action.prompt
+
+
+def test_personal_style_actions_have_distinct_poi_contracts_and_shortcuts() -> None:
+    bundle = load_config_bundle()
+    expected = {
+        "personal_style_informal": ("ctrl+alt+i", "informal"),
+        "personal_style_oral": ("ctrl+alt+o", "formal"),
+        "personal_style_presentation": ("ctrl+alt+p", "formal"),
+    }
+
+    for action_id, (hotkey, mode) in expected.items():
+        shortcut = bundle.shortcuts.definition(action_id)
+        action = bundle.actions.get(action_id)
+        assert shortcut.hotkey == hotkey
+        assert shortcut.action_id == action_id
+        assert action.personal_style_mode == mode
+        assert action.input_mode == "selection_or_clipboard"
+        assert action.feedback_contract is not None
+        assert "Preserve every distinct fact" in action.system_prompt
+        assert "Preserve the source language" in action.system_prompt
+
+    informal = bundle.actions.get("personal_style_informal")
+    oral = bundle.actions.get("personal_style_oral")
+    presentation = bundle.actions.get("personal_style_presentation")
+    assert "one coherent private message without headings" in informal.system_prompt
+    assert "express it once" in informal.system_prompt
+    assert "Do not output bullets" in oral.system_prompt
+    assert "PREP-like order only when" in oral.system_prompt
+    assert "Every bullet must begin with `- `" in presentation.system_prompt
+    assert "exactly one blank line" in presentation.system_prompt
+    assert "Do not add a heading" in presentation.system_prompt
 
 
 def test_long_press_uses_variant_prompt() -> None:
@@ -392,8 +423,8 @@ def test_future_catalog_schema_version_is_rejected(tmp_path: Path, filename: str
 
 def test_future_actions_schema_version_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "actions.yaml"
-    path.write_text("schema_version: 10\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 10"):
+    path.write_text("schema_version: 11\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 11"):
         load_action_catalog(path)
 
 
@@ -449,7 +480,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 23
+    assert len(start_actions) == 26
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "voice_input": "ctrl+alt+w",
         "translate_to_traditional_chinese": "ctrl+alt+1",
@@ -475,8 +506,11 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "speak_selection_or_clipboard": "ctrl+alt+q",
         "shorten_content": "ctrl+alt+x",
         "intent_preserving_dictation_editor": "ctrl+alt+~",
-        "command_copilot": "ctrl+alt+c",
-    }
+            "command_copilot": "ctrl+alt+c",
+            "personal_style_informal": "ctrl+alt+i",
+            "personal_style_oral": "ctrl+alt+o",
+            "personal_style_presentation": "ctrl+alt+p",
+        }
     for shortcut in start_actions:
         for press_type in ("short", "long"):
             command = bundle.shortcuts.resolve(shortcut["id"], press_type)

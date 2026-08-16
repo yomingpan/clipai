@@ -21,13 +21,14 @@ from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.owned_processes import AppOwnedProcessRegistry
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
-from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
 from ClipAI.platform.clipboard import SystemClipboard
 from ClipAI.platform.action_feedback import JsonlActionFeedbackStore
 from ClipAI.platform.user_preferences import JsonUserPreferencesStore
+from ClipAI.platform.personal_styles import JsonPersonalStyleStore, Utf8PersonalStyleFileReader
 from ClipAI.platform.hotkey import register_hotkeys_with_long_press
 from ClipAI.platform.selection import SystemSelectionCaptureAdapter
 from ClipAI.platform.filesystem import JsonlArchiveStore
@@ -51,6 +52,7 @@ from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.action_feedback import ActionFeedbackService
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
+from ClipAI.services.personal_styles import PersonalStyleCoordinator
 from ClipAI.services.provider_binding import ProviderRuntimeSnapshot
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.input_resolver import InputResolver
@@ -68,6 +70,7 @@ from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.ui.result_dialog import ResultDialogPresenter
 from ClipAI.ui.tray import TrayController
+from ClipAI.app.runtime_personal_styles import PersonalStyleRuntimeModule
 from ClipAI.support.logging_setup import configure_logging
 from ClipAI.support.diagnostics import SafeDiagnosticsExporter
 from ClipAI.support.diagnostics import IncidentReporter
@@ -104,6 +107,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         base_speech_rate=bundle.tts.rate,
         speech_available=speech_available,
     )
+    personal_styles = PersonalStyleCoordinator(
+        JsonPersonalStyleStore(),
+        Utf8PersonalStyleFileReader(),
+    )
     runtime_holder: list[AppRuntime] = []
     enqueue = lambda command: runtime_holder[0].enqueue(command)
     voice_controller = VoiceInputController(
@@ -118,6 +125,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         provider_selection=ProviderSelectionState(snapshot.options, snapshot.active_provider),
         on_open_provider_settings=lambda: runtime_holder[0].enqueue(OpenProviderSettings()),
         on_open_shortcut_guide=lambda: runtime_holder[0].enqueue(OpenShortcutGuide(uuid.uuid4().hex)),
+        on_open_personal_styles=lambda: runtime_holder[0].enqueue(OpenPersonalStyles()),
         guidance_preferences=user_preferences.guidance_preferences,
         on_set_first_use_hints=lambda enabled: runtime_holder[0].enqueue(SetFirstUseHintsEnabled(enabled, uuid.uuid4().hex)),
         on_reset_first_use_hints=lambda: runtime_holder[0].enqueue(ResetFirstUseHints(uuid.uuid4().hex)),
@@ -243,6 +251,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         speech_coordinator=speech_coordinator,
         user_control=user_control,
         attention_presenter=view,
+        personal_styles=personal_styles,
     )
     result_output_module = ResultOutputRuntimeModule(
         output_actions=output_actions,
@@ -282,6 +291,13 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         speech_speed_presenter=tray,
         operation_tracker=operation_tracker,
         notifier=tray,
+    )
+    personal_styles_module = PersonalStyleRuntimeModule(
+        coordinator=personal_styles,
+        supervisor=supervisor,
+        enqueue=enqueue,
+        presenter=view,
+        operation_tracker=operation_tracker,
     )
     local_app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
     owned_processes = AppOwnedProcessRegistry()
@@ -350,6 +366,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         foreground_monitor=foreground_monitor,
         user_control=user_control,
         voice_input=voice_input_module,
+        personal_styles=personal_styles_module,
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):

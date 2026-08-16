@@ -40,6 +40,7 @@ tests/              # Unit sims 與 integration tests
 - 所有 LLM/TTS operation 狀態由單一 `OperationLifecycleCoordinator` 管理；tray 不擁有 success/error timer。
 - Tray menu 只能 enqueue typed command，不得直接匯出檔案、讀 config 或執行 diagnostics。
 - Provider/model 選擇、設定驗證、reload 與 model catalog refresh 由單一 `ProviderConfigurationCoordinator` 擁有狀態與 operation identity；`AppRuntime` 只 dispatch、supervise worker 與投影狀態。
+- Personal Style profiles、active profile identity 與 import/select lifecycle 由單一 `PersonalStyleCoordinator` 擁有。Workflow 在 provider invocation 前綁定 profile snapshot；UI 與 filesystem adapter 不得形成第二套 selection owner。完整規則見 `docs/contracts/services/personal-style-contract.md`。
 - 所有 provider configuration mutation 共用一個 operation gate。設定儲存或 catalog refresh 進行中，不得由 tray 或其他入口同時寫入 provider 設定。
 - Provider environment mapping、credential resolution、concrete provider 建構與 `.env` persistence 屬於 app composition adapter；services 只依賴 typed backend contract。
 

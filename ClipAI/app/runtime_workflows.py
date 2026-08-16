@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, PasteOperationCompleted, ShortcutPressInvoked, StartAction, TogglePin, WorkflowAttentionCompleted
-from ClipAI.core.models import ActionInvocation, ControlSurfaceRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, WorkflowAttention
+from ClipAI.core.errors import PersonalStyleUnavailableError
+from ClipAI.core.models import ActionInvocation, ControlSurfaceRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceDraftSelectionReader, WorkflowAttentionPresenter, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceDraftTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.input_target_resolver import InputTargetResolver
+from ClipAI.services.personal_styles import PersonalStyleCoordinator
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -65,6 +67,7 @@ class _WorkflowRecord:
     controller: WorkflowController
     binding: ProviderExecutionBinding
     presentation: WorkflowPresentation
+    personal_style: PersonalStyleProfile | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +112,7 @@ class WorkflowRuntimeModule:
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         user_control: UserControlCoordinator | None = None,
         attention_presenter: WorkflowAttentionPresenter | None = None,
+        personal_styles: PersonalStyleCoordinator | None = None,
     ) -> None:
         self._actions = actions
         self._execute_action = execute_action
@@ -126,6 +130,7 @@ class WorkflowRuntimeModule:
         self._records: dict[str, _WorkflowRecord] = {}
         self._user_control = user_control
         self._attention_presenter = attention_presenter
+        self._personal_styles = personal_styles
         self._pending_attention: dict[str, tuple[str, str]] = {}
         self._interruption_leases: dict[str, InterruptibleOperationLease] = {}
         self._foreground_id: str | None = None
@@ -362,6 +367,12 @@ class WorkflowRuntimeModule:
 
     def _start_action(self, command: StartAction) -> None:
         action = self._actions.resolve(command.action_id, command.press_type)
+        if self._personal_styles is not None:
+            try:
+                action = self._personal_styles.bind(action)
+            except PersonalStyleUnavailableError as error:
+                self._sequence_error(str(error), "Open Personal Styles from the tray menu.")
+                return
         if command.result_route == "speech":
             self._start_headless_action(action, command)
             return
@@ -396,7 +407,21 @@ class WorkflowRuntimeModule:
                     controller,
                     self._provider_configuration.active_binding,
                     "visible",
+                    personal_style=action.personal_style,
                 )
+        if action.personal_style_mode is not None and self._personal_styles is not None:
+            if record.personal_style is not None:
+                if (
+                    action.personal_style is None
+                    or action.personal_style.profile_id != record.personal_style.profile_id
+                ):
+                    action = self._personal_styles.bind_to(
+                        self._actions.resolve(command.action_id, command.press_type),
+                        record.personal_style,
+                    )
+            elif action.personal_style is not None:
+                record = replace(record, personal_style=action.personal_style)
+                self._records[workflow_id] = record
         active_id = controller.snapshot.active_invocation_id
         if active_id is not None:
             controller.cancel_active()
@@ -441,6 +466,7 @@ class WorkflowRuntimeModule:
             controller,
             self._provider_configuration.active_binding,
             "headless",
+            personal_style=action.personal_style,
         )
 
         async def execute() -> None:
@@ -471,6 +497,16 @@ class WorkflowRuntimeModule:
             return
         parent = previous.steps[previous.displayed_step_index]
         action = self._actions.resolve(parent.action_id, parent.press_type)
+        if self._personal_styles is not None:
+            try:
+                action = (
+                    self._personal_styles.bind_to(action, record.personal_style)
+                    if record.personal_style is not None
+                    else self._personal_styles.bind(action)
+                )
+            except PersonalStyleUnavailableError as error:
+                self._sequence_error(str(error), "Open Personal Styles from the tray menu.")
+                return
         invocation = ActionInvocation(
             uuid.uuid4().hex,
             action.id,
@@ -577,12 +613,14 @@ class WorkflowRuntimeModule:
         controller: WorkflowController,
         binding: ProviderExecutionBinding,
         presentation: WorkflowPresentation,
+        *,
+        personal_style: PersonalStyleProfile | None = None,
     ) -> _WorkflowRecord:
         if workflow_id in self._records:
             raise RuntimeError(f"workflow identity is already registered: {workflow_id}")
         if presentation == "visible" and self._visible_record() is not None:
             raise RuntimeError("only one visible Workflow may own the popup")
-        record = _WorkflowRecord(controller, binding, presentation)
+        record = _WorkflowRecord(controller, binding, presentation, personal_style)
         self._records[workflow_id] = record
         return record
 
