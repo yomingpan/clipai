@@ -192,7 +192,9 @@ Services 負責把能力串起來，例如：
 hotkey -> input -> safety/config -> prompt -> provider -> postprocess -> output
 ```
 
-`WorkflowController` 仍是 Workflow snapshot、history、render 與 lock scope 的唯一 owner。`services/voice_draft.py` 只封裝無狀態、無副作用的 Voice Draft transition：它不得儲存 snapshot、持有 lock、呼叫 presenter，或形成第二套 Workflow state owner。
+`WorkflowController` 仍是 Workflow snapshot、history、render 與 lock scope 的唯一 owner。`services/voice_draft.py` 與 `services/voice_follow_up.py` 只封裝無狀態、無副作用的 Voice transition：它們不得儲存 snapshot、持有 lock、呼叫 presenter，或形成第二套 Workflow state owner。
+
+`VoiceInputController` 是 microphone capability、capture lifecycle、真實音量取樣與 terminal settlement 的唯一 owner。Popup waveform 只能呈現 typed `VoiceProjection`／Workflow snapshot；不得自行開啟 microphone、製造裝飾性假音量，或從 widget visibility 推測 capture 狀態。Voice Draft 與 Popup follow-up 是明確的 capture destination；follow-up settlement 必須同時符合 Workflow identity 與 capture identity，且只插入文字，不得自動送出 provider request。
 
 不得放入：
 
