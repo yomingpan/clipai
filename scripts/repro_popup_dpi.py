@@ -86,9 +86,13 @@ def main() -> int:
         )
 
     from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
+    import customtkinter as ctk
 
     from ClipAI.ui.base_dialog import BaseDialog
 
+    master = ctk.CTk()
+    master.withdraw()
+    master.update_idletasks()
     mismatches = 0
     for monitor in monitors:
         results = []
@@ -99,6 +103,9 @@ def main() -> int:
             height=336,
             x=monitor.left + 100,
             y=monitor.top + 100,
+            master=master,
+            frameless=True,
+            transparent_background=True,
         )
         for trial in range(30):
             if trial:
@@ -124,6 +131,7 @@ def main() -> int:
             f"visible={sum(row[3] for row in results)}/30"
         )
         mismatches += sum(not all(result) for result in results)
+    master.destroy()
 
     return 1 if mismatches else 0
 
