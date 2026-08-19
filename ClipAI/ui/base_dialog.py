@@ -987,6 +987,15 @@ class BaseResultSurface:
         self._back_button = self.add_action_slot("back", "←", None, width=24, tooltip="Previous result")
         self._back_button.pack_forget()
         self.standard_actions = StandardResultActions(self)
+        self.voice_input_button = self.add_action_slot(
+            "voice_input",
+            "▁▁▁▁  語音",
+            None,
+            width=76,
+            tooltip="Voice Input is unavailable",
+            icon=False,
+        )
+        self.voice_input_button.configure(state="disabled", fg_color="#4A4A4A")
         self._overflow_button = self.add_action_slot("overflow", "▶", self.toggle_overflow, width=24, tooltip="More actions")
         self._overflow_button.pack_configure(side="right", padx=(12, 0))
         self.action_status_label = ctk.CTkLabel(self.actions, text="", text_color="#8A8A8A", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]))
@@ -1409,6 +1418,33 @@ class BaseResultSurface:
             on_archive=on_archive,
             on_follow_up=on_follow_up,
         )
+
+    def configure_voice_action(
+        self,
+        *,
+        text: str,
+        command: Callable[[], None] | None,
+        enabled: bool,
+        tooltip: str,
+        active: bool = False,
+    ) -> None:
+        self.voice_input_button.configure(
+            text=text,
+            command=command,
+            state="normal" if enabled else "disabled",
+            fg_color="#244B44" if active else ACTION_COLOR if enabled else "#4A4A4A",
+            hover_color="#31665C" if active else ACTION_HOVER_COLOR,
+        )
+        self.set_action_tooltip("voice_input", tooltip)
+
+    def insert_follow_up_text(self, text: str) -> None:
+        if not text:
+            return
+        self.show_follow_up()
+        self.follow_entry.insert("insert", text)
+
+    def set_follow_up_send_enabled(self, enabled: bool) -> None:
+        self.follow_send_button.configure(state="normal" if enabled else "disabled")
 
     def configure_back_action(self, command: Callable[[], None] | None) -> None:
         self._back_button.configure(command=command, state="normal" if command is not None else "disabled")

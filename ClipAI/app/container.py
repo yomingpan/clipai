@@ -144,6 +144,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         pointer_press_reader=WindowsPointerPressReader(),
         native_window_surface=native_window_surface,
         focus_transition_diagnostics=bundle.logging.diagnostics.enabled("focus_transitions"),
+        voice_projection=voice_controller.projection,
     )
     diagnostics_exporter = SafeDiagnosticsExporter(
         metadata={
@@ -311,6 +312,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         lambda target: runtime_holder[0].enqueue(ExternalForegroundChanged(target)),
         is_owned_process=owned_processes.contains,
     )
+
+    def project_voice(projection) -> None:
+        tray.set_voice_projection(projection)
+        view.set_voice_projection(projection)
+
     voice_input_module = VoiceInputRuntimeModule(
         controller=voice_controller,
         engine=voice_engine,
@@ -334,7 +340,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         ),
         complete_voice_preference=user_preferences_module.complete_voice_enabled,
         dispatch=enqueue,
-        projection_sink=tray.set_voice_projection,
+        projection_sink=project_voice,
         notifier=tray,
         setup_presenter=view,
         focused_surface_reader=lambda: user_control.focused_surface,

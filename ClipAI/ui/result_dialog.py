@@ -10,10 +10,11 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelVoiceCapture, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
 from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceProjection
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, ForegroundLeftApplication, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
@@ -27,6 +28,23 @@ from ClipAI.ui.voice_setup import VoiceSetupDialog
 # the separate 0x00020000 state bit. Lock states must not disable Ctrl shortcuts.
 _POPUP_SHORTCUT_ALLOWED_MODIFIERS = 0x0002 | 0x0004 | 0x0008 | 0x0010
 _LOGGER = logging.getLogger("clipai.ui.focus")
+_VOICE_LEVEL_GLYPHS = "▁▂▃▄▅▆▇"
+
+
+def _voice_waveform_text(levels: list[float], *, silence_detected: bool = False) -> str:
+    if silence_detected:
+        return "▁▁▁▁  無聲"
+    padded = ([0.0] * 4 + levels)[-4:]
+    bars = "".join(
+        _VOICE_LEVEL_GLYPHS[
+            min(
+                len(_VOICE_LEVEL_GLYPHS) - 1,
+                int(max(0.0, min(1.0, level)) * len(_VOICE_LEVEL_GLYPHS)),
+            )
+        ]
+        for level in padded
+    )
+    return f"{bars}  聆聽"
 
 
 @dataclass
@@ -46,8 +64,8 @@ class _SessionView:
     voice_draft_revision: int = 0
     applied_voice_insertion_revision: int | None = None
     voice_draft_editing: bool = True
-    voice_stop_button: object | None = None
-    voice_cancel_button: object | None = None
+    voice_level_history: list[float] = field(default_factory=list)
+    applied_follow_up_capture_ids: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -88,6 +106,7 @@ class ResultDialogPresenter:
         pointer_press_reader: PointerPressReader | None = None,
         native_window_surface: NativeWindowSurface | None = None,
         focus_transition_diagnostics: bool = False,
+        voice_projection: VoiceProjection | None = None,
     ) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
@@ -112,6 +131,7 @@ class ResultDialogPresenter:
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
         self._voice_setup_dialog: VoiceSetupDialog | None = None
+        self._voice_projection = voice_projection
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
@@ -219,9 +239,13 @@ class ResultDialogPresenter:
         if self._voice_setup_dialog is not None:
             self._voice_setup_dialog.close()
 
-    def set_voice_projection(self, projection) -> None:
+    def set_voice_projection(self, projection: VoiceProjection) -> None:
+        self._voice_projection = projection
         if self._voice_setup_dialog is not None:
             self._voice_setup_dialog.set_voice_projection(projection)
+        for view in self._views.values():
+            if view.last_snapshot is not None:
+                self._configure_voice_control(view.last_snapshot, view)
 
     def _hold_focus_for_shortcut_guide(self) -> None:
         if self._shortcut_guide_focus_hold_active:
@@ -646,7 +670,12 @@ class ResultDialogPresenter:
                 on_archive=(lambda sid=snapshot.session_id: self._archive(sid)) if "archive" in snapshot.available_actions else None,
                 on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions else None,
             )
-        self._configure_voice_capture_controls(snapshot, view)
+        insertion = snapshot.voice_follow_up_insertion
+        if insertion is not None and insertion.capture_id not in view.applied_follow_up_capture_ids:
+            view.applied_follow_up_capture_ids.add(insertion.capture_id)
+            view.surface.insert_follow_up_text(insertion.text)
+            view.surface.set_follow_up_active(True)
+        self._configure_voice_control(snapshot, view)
         view.speaking = snapshot.speaking
         if patch.visual_state:
             view.surface.set_speaker_active(snapshot.speaking)
@@ -773,6 +802,9 @@ class ResultDialogPresenter:
         view = self._views.get(session_id)
         if view is None:
             return
+        if view.last_snapshot is not None and view.last_snapshot.voice_capture_id is not None:
+            view.surface.show_action_message("請先停止語音輸入", 1500)
+            return
         if view.surface.follow_up_visible:
             view.surface.hide_follow_up()
             view.surface.set_follow_up_active(False)
@@ -781,6 +813,8 @@ class ResultDialogPresenter:
         view.surface.set_follow_up_active(True)
 
         def send() -> None:
+            if view.last_snapshot is not None and view.last_snapshot.voice_capture_id is not None:
+                return
             question = view.surface.follow_entry.get().strip()
             if question:
                 view.surface.hide_follow_up()
@@ -814,33 +848,90 @@ class ResultDialogPresenter:
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
-        stop = surface.add_action_slot(
-            "voice_stop", "Stop", None, width=46, tooltip="Stop Voice Input", icon=False
-        )
-        cancel = surface.add_action_slot(
-            "voice_cancel", "Cancel", None, width=54, tooltip="Cancel Voice Input", icon=False
-        )
-        stop.pack_forget()
-        cancel.pack_forget()
-        return _SessionView(dialog=dialog, surface=surface, voice_stop_button=stop, voice_cancel_button=cancel)
+        return _SessionView(dialog=dialog, surface=surface)
 
-    def _configure_voice_capture_controls(self, snapshot: SessionSnapshot, view: _SessionView) -> None:
+    def _configure_voice_control(self, snapshot: SessionSnapshot, view: _SessionView) -> None:
+        global_projection = getattr(self, "_voice_projection", None)
         capture_id = snapshot.voice_capture_id
-        stop, cancel = view.voice_stop_button, view.voice_cancel_button
-        if stop is None or cancel is None:
+        phase = snapshot.voice_capture_phase
+        level = snapshot.voice_audio_level
+        silence_detected = snapshot.voice_silence_detected
+        if (
+            capture_id is None
+            and global_projection is not None
+            and global_projection.workflow_id == snapshot.session_id
+        ):
+            capture_id = global_projection.capture_id
+            phase = global_projection.capture_phase
+            level = global_projection.audio_level
+            silence_detected = global_projection.silence_detected
+
+        if capture_id is not None and phase is not None:
+            view.voice_level_history.append(level)
+            del view.voice_level_history[:-4]
+            finalizing = phase in {
+                VoiceCapturePhase.STOP_REQUESTED,
+                VoiceCapturePhase.FINALIZING,
+                VoiceCapturePhase.CANCEL_REQUESTED,
+            }
+            view.surface.configure_voice_action(
+                text=(
+                    "▇▅▃▁  整理"
+                    if finalizing
+                    else _voice_waveform_text(
+                        view.voice_level_history,
+                        silence_detected=silence_detected,
+                    )
+                ),
+                command=(lambda cid=capture_id: self._command_sink(StopVoiceCapture(cid))) if not finalizing else None,
+                enabled=not finalizing,
+                tooltip=(
+                    "No sound detected; click to stop Voice Input"
+                    if silence_detected
+                    else "Click to stop Voice Input"
+                ),
+                active=True,
+            )
+            view.surface.set_follow_up_send_enabled(False)
             return
-        listening = snapshot.status is SessionStatus.VOICE_LISTENING and capture_id is not None
-        finalizing = snapshot.status is SessionStatus.VOICE_FINALIZING and capture_id is not None
-        if listening:
-            stop.configure(command=lambda cid=capture_id: self._command_sink(StopVoiceCapture(cid)), state="normal")
-            if not stop.winfo_manager(): stop.pack(side="left", padx=(0, 5))
+
+        view.voice_level_history.clear()
+        projection = global_projection
+        capability = projection.capability if projection is not None else VoiceCapabilityPhase.SETUP_REQUIRED
+        ready_status = snapshot.status is SessionStatus.VOICE_REVIEW or (
+            snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
+            and snapshot.active_invocation_id is None
+            and "follow_up" in snapshot.available_actions
+        )
+        enabled = capability is VoiceCapabilityPhase.READY and ready_status
+        if snapshot.active_invocation_id is not None or snapshot.status in {
+            SessionStatus.READING_INPUT,
+            SessionStatus.PREPARING_REQUEST,
+            SessionStatus.REQUESTING_PROVIDER,
+            SessionStatus.PROCESSING_RESULT,
+        }:
+            tooltip = "Voice Input is available after the current answer finishes"
+        elif capability is not VoiceCapabilityPhase.READY:
+            tooltip = projection.message if projection is not None and projection.message else "Set up Voice Input from the tray"
         else:
-            stop.pack_forget()
-        if listening or finalizing:
-            cancel.configure(command=lambda cid=capture_id: self._command_sink(CancelVoiceCapture(cid)), state="normal")
-            if not cancel.winfo_manager(): cancel.pack(side="left", padx=(0, 5))
-        else:
-            cancel.pack_forget()
+            tooltip = "Click to start Voice Input (Ctrl+Alt+W); audio is not saved"
+        view.surface.configure_voice_action(
+            text="▁▁▁▁  語音",
+            command=(lambda sid=snapshot.session_id: self._start_popup_voice(sid)) if enabled else None,
+            enabled=enabled,
+            tooltip=tooltip,
+            active=False,
+        )
+        view.surface.set_follow_up_send_enabled(True)
+
+    def _start_popup_voice(self, workflow_id: str) -> None:
+        view = self._interactive_view(workflow_id)
+        if view is None:
+            return
+        if view.last_snapshot is not None and view.last_snapshot.status is not SessionStatus.VOICE_REVIEW:
+            view.surface.show_follow_up()
+            view.surface.set_follow_up_active(True)
+        self._command_sink(StartPopupVoiceCapture(workflow_id, VoiceCaptureId(uuid.uuid4().hex)))
 
     def _register_view(
         self,
@@ -1027,7 +1118,23 @@ def workflow_render_patch(previous: SessionSnapshot | None, current: SessionSnap
             current.feedback_message,
             current.status == SessionStatus.COMPLETED,
         ),
-        visual_state=previous.speaking != current.speaking,
+        visual_state=(
+            previous.speaking,
+            previous.voice_capture_id,
+            previous.voice_capture_phase,
+            previous.voice_audio_level,
+            previous.voice_silence_detected,
+            previous.voice_status_text,
+            previous.voice_follow_up_insertion,
+        ) != (
+            current.speaking,
+            current.voice_capture_id,
+            current.voice_capture_phase,
+            current.voice_audio_level,
+            current.voice_silence_detected,
+            current.voice_status_text,
+            current.voice_follow_up_insertion,
+        ),
     )
 
 
