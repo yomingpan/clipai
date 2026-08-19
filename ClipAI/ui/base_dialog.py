@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Literal, Mapping, Protocol
 
 import customtkinter as ctk
+from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PresentationDocument
 from ClipAI.core.ports import NativeWindowSurface
@@ -17,6 +18,19 @@ DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
 SOURCE_PREVIEW_MAX_CHARS = 36
 DISPLAY_BREAK_TAG = "display_break_hint"
+
+
+def _resample_window_dpi_scaling(window: tk.Misc) -> None:
+    """Refresh CustomTkinter's per-window scale after initial placement."""
+    previous_scaling = ScalingTracker.window_dpi_scaling_dict[window]
+    ScalingTracker.window_dpi_scaling_dict[window] = (
+        ScalingTracker.get_window_dpi_scaling(window)
+    )
+    try:
+        ScalingTracker.update_scaling_callbacks_for_window(window)
+    except Exception:
+        ScalingTracker.window_dpi_scaling_dict[window] = previous_scaling
+        raise
 
 
 @dataclass(frozen=True)
@@ -410,6 +424,7 @@ class BaseDialog:
 
         try:
             self.root = ctk.CTkToplevel(master) if master is not None else ctk.CTk()
+            self.root.withdraw()
             self.root.title(title)
             self.root.geometry(f"{width}x{height}")
             self.root.minsize(minimum_width or min(width, 320), minimum_height or min(height, 180))
@@ -427,6 +442,9 @@ class BaseDialog:
                 self.root.geometry(f"{width}x{height}+{x}+{y}")
             else:
                 self._position_window(width, height, position)
+            self.root.update_idletasks()
+            _resample_window_dpi_scaling(self.root)
+            self.root.deiconify()
 
             self.canvas = tk.Canvas(
                 self.root,

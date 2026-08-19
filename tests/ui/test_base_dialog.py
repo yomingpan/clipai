@@ -6,6 +6,9 @@ import tkinter as tk
 
 import customtkinter as ctk
 import pytest
+from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
+
+import ClipAI.ui.base_dialog as base_dialog_module
 
 from ClipAI.core.models import PasteTarget
 from ClipAI.ui.base_dialog import (
@@ -551,6 +554,69 @@ def test_dialog_never_precalculates_physical_widget_dimensions() -> None:
     source = inspect.getsource(BaseDialog)
     assert "_get_window_scaling" not in source
     assert 'bind("<Configure>", self._on_canvas_configure' in source
+
+
+def test_dialog_initial_show_positions_and_resamples_while_withdrawn() -> None:
+    source = inspect.getsource(BaseDialog.__init__)
+
+    created = source.index("self.root =")
+    withdrawn = source.index("self.root.withdraw()")
+    positioned = source.index("self._position_window")
+    laid_out = source.index("self.root.update_idletasks()")
+    resampled = source.index("_resample_window_dpi_scaling(self.root)")
+    shown = source.index("self.root.deiconify()")
+
+    assert created < withdrawn < positioned < laid_out < resampled < shown
+    assert "self.root.update()" not in source
+
+
+def test_window_dpi_resample_updates_cache_before_widget_callbacks(monkeypatch) -> None:
+    window = object()
+    monkeypatch.setitem(ScalingTracker.window_dpi_scaling_dict, window, 1.5)
+    observed_cache = []
+    monkeypatch.setattr(
+        ScalingTracker,
+        "get_window_dpi_scaling",
+        classmethod(lambda _cls, candidate: 1.0 if candidate is window else 1.5),
+    )
+    monkeypatch.setattr(
+        ScalingTracker,
+        "update_scaling_callbacks_for_window",
+        classmethod(
+            lambda cls, candidate: observed_cache.append(
+                cls.window_dpi_scaling_dict[candidate]
+            )
+        ),
+    )
+
+    base_dialog_module._resample_window_dpi_scaling(window)
+
+    assert ScalingTracker.window_dpi_scaling_dict[window] == 1.0
+    assert observed_cache == [1.0]
+
+
+def test_window_dpi_resample_rolls_back_cache_when_callback_fails(monkeypatch) -> None:
+    window = object()
+    monkeypatch.setitem(ScalingTracker.window_dpi_scaling_dict, window, 1.5)
+    monkeypatch.setattr(
+        ScalingTracker,
+        "get_window_dpi_scaling",
+        classmethod(lambda _cls, _window: 1.0),
+    )
+
+    def fail_callbacks(_cls, _window) -> None:
+        raise RuntimeError("widget scaling failed")
+
+    monkeypatch.setattr(
+        ScalingTracker,
+        "update_scaling_callbacks_for_window",
+        classmethod(fail_callbacks),
+    )
+
+    with pytest.raises(RuntimeError, match="widget scaling failed"):
+        base_dialog_module._resample_window_dpi_scaling(window)
+
+    assert ScalingTracker.window_dpi_scaling_dict[window] == 1.5
 
 
 def test_dialog_resize_only_requests_logical_window_geometry() -> None:
