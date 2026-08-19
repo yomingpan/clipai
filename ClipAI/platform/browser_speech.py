@@ -11,6 +11,7 @@ from typing import Any
 from ClipAI.core.voice import (
     VoiceCaptureId,
     VoiceEngineEnded,
+    VoiceEngineAudioLevel,
     VoiceEngineEvent,
     VoiceEngineFailed,
     VoiceEngineFinalSegment,
@@ -323,7 +324,7 @@ def _decode_event(line: str) -> VoiceEngineEvent | None:
     if not isinstance(payload, dict) or payload.get("version") != VOICE_PROTOCOL_VERSION:
         return None
     kind = payload.get("kind")
-    if kind not in {"setup_ready", "setup_blocked", "setup_failed", "listening", "interim", "final", "ended", "failed"}:
+    if kind not in {"setup_ready", "setup_blocked", "setup_failed", "listening", "interim", "audio_level", "final", "ended", "failed"}:
         return None
     if kind == "setup_ready":
         setup_id = str(payload.get("setup_id") or "")
@@ -342,6 +343,12 @@ def _decode_event(line: str) -> VoiceEngineEvent | None:
         return VoiceEngineListening(capture_id)
     if kind == "interim":
         return VoiceEngineInterim(capture_id, str(payload.get("text") or ""))
+    if kind == "audio_level":
+        try:
+            level = float(payload["level"])
+            return VoiceEngineAudioLevel(capture_id, level) if 0.0 <= level <= 1.0 else None
+        except (KeyError, TypeError, ValueError):
+            return None
     if kind == "final":
         try:
             sequence = int(payload["sequence"])

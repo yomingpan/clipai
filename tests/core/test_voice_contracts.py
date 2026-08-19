@@ -7,6 +7,7 @@ from ClipAI.core.voice import (
     SUPPORTED_VOICE_LANGUAGES,
     VoiceCaptureId,
     VoiceCapturePhase,
+    VoiceEngineAudioLevel,
     VoiceCapabilityPhase,
     VoiceEngineFinalSegment,
     VoiceEngineSetupReady,
@@ -46,6 +47,12 @@ def test_engine_events_are_identity_scoped_and_immutable() -> None:
 def test_voice_phases_do_not_use_free_form_strings() -> None:
     assert VoiceCapabilityPhase.READY.value == "ready"
     assert VoiceCapturePhase.FINALIZING.value == "finalizing"
+
+
+def test_audio_level_is_a_normalized_typed_engine_event() -> None:
+    assert VoiceEngineAudioLevel(VoiceCaptureId("capture-1"), 0.45).level == 0.45
+    with pytest.raises(ValueError):
+        VoiceEngineAudioLevel(VoiceCaptureId("capture-1"), 1.1)
 
 
 def test_voice_commands_are_part_of_the_typed_application_command_union() -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ClipAI.core.voice import VoiceEngineEnded, VoiceEngineFailed, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupFailed, VoiceEngineSetupReady, VoiceTransportFailure
+from ClipAI.core.voice import VoiceEngineAudioLevel, VoiceEngineEnded, VoiceEngineFailed, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupFailed, VoiceEngineSetupReady, VoiceTransportFailure
 from ClipAI.platform.browser_speech import CAPTURE_START_TIMEOUT_SECONDS, CAPTURE_STOP_TIMEOUT_SECONDS, BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event
 
 
@@ -68,6 +68,11 @@ def test_protocol_decoder_preserves_final_segment_order_and_typed_failures() -> 
     assert segment == VoiceEngineFinalSegment("capture-1", 2, "hello")
     assert failure is not None and failure.failure is VoiceTransportFailure.TIMEOUT
     assert VOICE_PROTOCOL_VERSION == 1
+
+
+def test_protocol_decoder_accepts_only_normalized_audio_levels() -> None:
+    assert _decode_event('{"version": 1, "kind": "audio_level", "capture_id": "capture-1", "level": 0.25}') == VoiceEngineAudioLevel("capture-1", 0.25)
+    assert _decode_event('{"version": 1, "kind": "audio_level", "capture_id": "capture-1", "level": 2}') is None
 
 
 def test_transport_delivers_only_one_terminal_event_for_a_capture() -> None:

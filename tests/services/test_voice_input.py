@@ -8,6 +8,7 @@ from ClipAI.core.voice import (
     VoiceDisableId,
     VoiceLanguageChangeId,
     VoiceDraftTarget,
+    VoiceEngineAudioLevel,
     VoiceEngineEnded,
     VoiceEngineFinalSegment,
     VoiceEngineFailed,
@@ -87,6 +88,31 @@ def test_capture_admission_is_single_flight_and_listening_waits_for_engine_ack()
     assert starting.effects == (StartVoiceCapture(capture, "zh-TW"),)
     assert controller.request_capture(VoiceCaptureId("capture-2"), target()).ignored is True
     assert controller.observe_engine(VoiceEngineListening(capture)).projection.capture_phase.value == "listening"
+
+
+def test_audio_level_projects_real_signal_and_clears_a_silence_hint() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+    controller.observe_engine(VoiceEngineListening(capture))
+
+    silent = controller.note_silence_timeout(capture)
+    heard = controller.observe_engine(VoiceEngineAudioLevel(capture, 0.35))
+
+    assert silent.projection.silence_detected is True
+    assert silent.projection.message == "No sound detected."
+    assert heard.projection.audio_level == 0.35
+    assert heard.projection.silence_detected is False
+    assert heard.projection.message == "Listening…"
+
+
+def test_silence_timeout_is_ignored_after_real_signal() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+    controller.observe_engine(VoiceEngineAudioLevel(capture, 0.1))
+
+    assert controller.note_silence_timeout(capture).ignored is True
 
 
 def test_capture_permission_failure_requires_explicit_setup_repair() -> None:

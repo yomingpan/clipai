@@ -98,6 +98,16 @@ class VoiceEngineInterim:
 
 
 @dataclass(frozen=True)
+class VoiceEngineAudioLevel:
+    capture_id: VoiceCaptureId
+    level: float
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.level <= 1.0:
+            raise ValueError("Voice Input audio level must be between zero and one")
+
+
+@dataclass(frozen=True)
 class VoiceEngineFinalSegment:
     capture_id: VoiceCaptureId
     sequence: int
@@ -126,6 +136,7 @@ VoiceEngineEvent = (
     | VoiceEngineSetupFailed
     | VoiceEngineListening
     | VoiceEngineInterim
+    | VoiceEngineAudioLevel
     | VoiceEngineFinalSegment
     | VoiceEngineEnded
     | VoiceEngineFailed
@@ -187,3 +198,5 @@ class VoiceProjection:
     interim_text: str = ""
     message: str = ""
     workflow_id: str | None = None
+    audio_level: float = 0.0
+    silence_detected: bool = False

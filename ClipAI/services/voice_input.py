@@ -8,6 +8,7 @@ from ClipAI.core.voice import (
     VoiceCapturePhase,
     VoiceCapabilityPhase,
     VoiceDraftTarget,
+    VoiceEngineAudioLevel,
     VoiceEngineEnded,
     VoiceEngineEvent,
     VoiceEngineFailed,
@@ -108,6 +109,9 @@ class _Capture:
     segments: dict[int, str] | None = None
     stop_requested: bool = False
     cancelled: bool = False
+    audio_level: float = 0.0
+    heard_audio: bool = False
+    silence_detected: bool = False
 
     def __post_init__(self) -> None:
         if self.segments is None:
@@ -145,6 +149,8 @@ class VoiceInputController:
             capture.interim_text if capture is not None else "",
             self._message,
             capture.target.workflow_id if capture is not None else None,
+            capture.audio_level if capture is not None else 0.0,
+            capture.silence_detected if capture is not None else False,
         )
 
     def request_setup(self, setup_id: VoiceSetupId) -> VoiceTransition:
@@ -333,12 +339,30 @@ class VoiceInputController:
                 return self._ignored()
             capture.interim_text = event.text
             return self._transition()
+        if isinstance(event, VoiceEngineAudioLevel):
+            if capture.stop_requested:
+                return self._ignored()
+            capture.audio_level = event.level
+            if event.level > 0.02:
+                capture.heard_audio = True
+                capture.silence_detected = False
+                self._message = "Listening…"
+            return self._transition()
         if isinstance(event, VoiceEngineFinalSegment):
             return self._observe_final_segment(capture, event)
         if isinstance(event, VoiceEngineEnded):
             return self._settle_ended(capture)
         assert isinstance(event, VoiceEngineFailed)
         return self._settle_failed(capture, event)
+
+    def note_silence_timeout(self, capture_id: VoiceCaptureId) -> VoiceTransition:
+        """Project a non-terminal no-signal hint for the matching capture."""
+        capture = self._matching_capture(capture_id)
+        if capture is None or capture.stop_requested or capture.heard_audio:
+            return self._ignored()
+        capture.silence_detected = True
+        self._message = "No sound detected."
+        return self._transition()
 
     def _observe_final_segment(self, capture: _Capture, event: VoiceEngineFinalSegment) -> VoiceTransition:
         assert capture.segments is not None
