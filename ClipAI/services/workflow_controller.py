@@ -264,9 +264,14 @@ class WorkflowController:
         self._presenter.render(snapshot)
         return snapshot
 
-    def restore_voice_follow_up(self, target: VoiceFollowUpTarget, message: str) -> SessionSnapshot | None:
+    def restore_voice_follow_up(
+        self,
+        capture_id: VoiceCaptureId,
+        target: VoiceFollowUpTarget,
+        message: str,
+    ) -> SessionSnapshot | None:
         with self._lock:
-            next_snapshot = voice_follow_up.restore(self._snapshot, target, message)
+            next_snapshot = voice_follow_up.restore(self._snapshot, capture_id, target, message)
             if next_snapshot is None:
                 return None
             self._snapshot = next_snapshot

@@ -40,10 +40,14 @@ def project_capture(
 
 def restore(
     snapshot: SessionSnapshot,
+    capture_id: VoiceCaptureId,
     target: VoiceFollowUpTarget,
     message: str,
 ) -> SessionSnapshot | None:
-    if target.workflow_id != snapshot.session_id:
+    if (
+        target.workflow_id != snapshot.session_id
+        or snapshot.voice_capture_id != capture_id
+    ):
         return None
     return snapshot.evolve(
         voice_capture_id=None,
@@ -60,7 +64,13 @@ def finalize(
     target: VoiceFollowUpTarget,
     text: str,
 ) -> SessionSnapshot | None:
-    if target.workflow_id != snapshot.session_id or not text.strip():
+    if (
+        target.workflow_id != snapshot.session_id
+        or snapshot.voice_capture_id != capture_id
+        or snapshot.status not in _FOLLOW_UP_READY_STATUSES
+        or snapshot.active_invocation_id is not None
+        or not text.strip()
+    ):
         return None
     return snapshot.evolve(
         voice_capture_id=None,

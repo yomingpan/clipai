@@ -235,7 +235,7 @@ def test_empty_follow_up_capture_restores_result_without_creating_a_voice_draft(
     terminal = controller.observe_engine(VoiceEngineEnded(capture))
 
     assert terminal.effects == (
-        RestoreVoiceFollowUp(target, "No speech was recognized. Try again."),
+        RestoreVoiceFollowUp(capture, target, "No speech was recognized. Try again."),
     )
 
 

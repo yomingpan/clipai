@@ -101,6 +101,7 @@ class RestoreVoiceReview:
 
 @dataclass(frozen=True)
 class RestoreVoiceFollowUp:
+    capture_id: VoiceCaptureId
     target: VoiceFollowUpTarget
     message: str
 
@@ -407,7 +408,7 @@ class VoiceInputController:
                 target = capture.target
                 self._capture = None
                 self._message = "Voice Input stopped before the microphone was ready. Try again."
-                return self._transition(self._restore_effect(target, self._message))
+                return self._transition(self._restore_effect(capture.capture_id, target, self._message))
             capture.phase = VoiceCapturePhase.STARTING
             capture.interim_text = ""
             self._message = "Listening…"
@@ -423,10 +424,10 @@ class VoiceInputController:
         self._capture = None
         if cancelled:
             self._message = "Voice Input cancelled."
-            return self._transition(self._restore_effect(target, self._message))
+            return self._transition(self._restore_effect(capture_id, target, self._message))
         if not text:
             self._message = "No speech was recognized. Try again."
-            return self._transition(self._restore_effect(target, self._message))
+            return self._transition(self._restore_effect(capture_id, target, self._message))
         self._message = warning or "Review your dictation."
         return self._transition(self._finalize_effect(capture_id, target, text, warning))
 
@@ -439,12 +440,16 @@ class VoiceInputController:
         }:
             self._capability = VoiceCapabilityPhase.PERMISSION_BLOCKED
         self._message = _failure_message(event.failure, event.detail)
-        return self._transition(self._restore_effect(target, self._message))
+        return self._transition(self._restore_effect(event.capture_id, target, self._message))
 
     @staticmethod
-    def _restore_effect(target: VoiceCaptureTarget, message: str) -> VoiceEffect:
+    def _restore_effect(
+        capture_id: VoiceCaptureId,
+        target: VoiceCaptureTarget,
+        message: str,
+    ) -> VoiceEffect:
         return (
-            RestoreVoiceFollowUp(target, message)
+            RestoreVoiceFollowUp(capture_id, target, message)
             if isinstance(target, VoiceFollowUpTarget)
             else RestoreVoiceReview(target, message)
         )

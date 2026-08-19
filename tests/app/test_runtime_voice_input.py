@@ -30,7 +30,7 @@ class Workflow:
     def apply_voice_follow_up_finalization(self, capture_id, target, text) -> None: self.follow_up_applied.append((capture_id, target, text))
     def project_voice_capture(self, projection) -> None: self.projections.append(projection)
     def restore_voice_review(self, _target, _message) -> None: pass
-    def restore_voice_follow_up(self, _target, _message) -> None: pass
+    def restore_voice_follow_up(self, _capture_id, _target, _message) -> None: pass
 
 
 class Workflows:

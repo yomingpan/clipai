@@ -48,9 +48,13 @@ def test_follow_up_capture_projects_lifecycle_without_replacing_result_content()
 
 def test_follow_up_finalization_is_an_identity_scoped_one_time_insertion_projection() -> None:
     target = VoiceFollowUpTarget("workflow-1")
+    snapshot = completed_snapshot().evolve(
+        voice_capture_id=VoiceCaptureId("capture-1"),
+        voice_capture_phase=VoiceCapturePhase.FINALIZING,
+    )
 
     updated = voice_follow_up.finalize(
-        completed_snapshot(),
+        snapshot,
         VoiceCaptureId("capture-1"),
         target,
         "What changed?",
@@ -64,7 +68,11 @@ def test_follow_up_finalization_is_an_identity_scoped_one_time_insertion_project
 
 
 def test_follow_up_projection_rejects_provider_activity_and_wrong_workflow() -> None:
-    snapshot = completed_snapshot().evolve(active_invocation_id="provider-1")
+    snapshot = completed_snapshot().evolve(
+        active_invocation_id="provider-1",
+        voice_capture_id=VoiceCaptureId("capture-1"),
+        voice_capture_phase=VoiceCapturePhase.FINALIZING,
+    )
     projection = VoiceProjection(
         VoiceCapabilityPhase.READY,
         "zh-TW",
@@ -76,3 +84,19 @@ def test_follow_up_projection_rejects_provider_activity_and_wrong_workflow() -> 
 
     assert voice_follow_up.project_capture(snapshot, projection) is None
     assert voice_follow_up.finalize(snapshot, "capture-1", VoiceFollowUpTarget("other"), "late") is None
+
+
+def test_stale_follow_up_settlement_cannot_touch_a_newer_capture() -> None:
+    snapshot = completed_snapshot().evolve(
+        voice_capture_id=VoiceCaptureId("capture-new"),
+        voice_capture_phase=VoiceCapturePhase.LISTENING,
+    )
+    target = VoiceFollowUpTarget("workflow-1")
+
+    assert voice_follow_up.restore(snapshot, VoiceCaptureId("capture-old"), target, "late") is None
+    assert voice_follow_up.finalize(
+        snapshot,
+        VoiceCaptureId("capture-old"),
+        target,
+        "late transcript",
+    ) is None

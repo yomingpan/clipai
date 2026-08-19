@@ -272,7 +272,7 @@ class VoiceInputRuntimeModule:
         elif isinstance(effect, RestoreVoiceFollowUp):
             controller = self._workflows.controller_for(effect.target.workflow_id)
             if controller is not None:
-                controller.restore_voice_follow_up(effect.target, effect.message)
+                controller.restore_voice_follow_up(effect.capture_id, effect.target, effect.message)
         else:
             assert isinstance(effect, FinalizeVoiceFollowUp)
             controller = self._workflows.controller_for(effect.target.workflow_id)
