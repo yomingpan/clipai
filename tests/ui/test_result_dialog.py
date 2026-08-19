@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import queue
+import ast
+import inspect
+import textwrap
 from dataclasses import replace
 
 from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
@@ -9,6 +12,24 @@ from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceDraftInsertion, VoiceOrigin
 from ClipAI.ui.popup_external_output import FocusEntered, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, workflow_render_patch
+
+
+def test_voice_word_buttons_explicitly_request_text_font_slots() -> None:
+    tree = ast.parse(textwrap.dedent(inspect.getsource(ResultDialogPresenter._create_view)))
+    icon_modes = {
+        call.args[0].value: next(
+            keyword.value.value for keyword in call.keywords if keyword.arg == "icon"
+        )
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "add_action_slot"
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+        and call.args[0].value in {"voice_stop", "voice_cancel"}
+    }
+
+    assert icon_modes == {"voice_stop": False, "voice_cancel": False}
 
 
 class Root:

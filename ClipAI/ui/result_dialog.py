@@ -814,8 +814,12 @@ class ResultDialogPresenter:
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
-        stop = surface.add_action_slot("voice_stop", "Stop", None, width=46, tooltip="Stop Voice Input")
-        cancel = surface.add_action_slot("voice_cancel", "Cancel", None, width=54, tooltip="Cancel Voice Input")
+        stop = surface.add_action_slot(
+            "voice_stop", "Stop", None, width=46, tooltip="Stop Voice Input", icon=False
+        )
+        cancel = surface.add_action_slot(
+            "voice_cancel", "Cancel", None, width=54, tooltip="Cancel Voice Input", icon=False
+        )
         stop.pack_forget()
         cancel.pack_forget()
         return _SessionView(dialog=dialog, surface=surface, voice_stop_button=stop, voice_cancel_button=cancel)

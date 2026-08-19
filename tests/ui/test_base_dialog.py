@@ -12,6 +12,7 @@ import ClipAI.ui.base_dialog as base_dialog_module
 
 from ClipAI.core.models import PasteTarget
 from ClipAI.ui.base_dialog import (
+    ACTION_ICON_FONT_FAMILY,
     ACTION_COLOR,
     ACTION_HOVER_COLOR,
     CONTENT_COLOR,
@@ -842,6 +843,29 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         "Archive accepted (Ctrl+S)",
         "Close follow-up (Ctrl+/)",
     ]
+
+
+def test_action_slot_selects_text_font_only_for_word_labels(monkeypatch) -> None:
+    class Button:
+        def __init__(self, _master, **options) -> None:
+            self.options = options
+
+        def pack(self, **_options) -> None:
+            pass
+
+    monkeypatch.setattr(ctk, "CTkButton", Button)
+    monkeypatch.setattr(ctk, "CTkFont", lambda **options: options)
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.actions = object()
+    surface.overflow_actions = object()
+    surface._action_buttons = {}
+    surface._action_tooltips = {}
+
+    icon = surface.add_action_slot("copy", COPY_ICON, None, width=24)
+    word = surface.add_action_slot("voice_stop", "Stop", None, width=46, icon=False)
+
+    assert icon.options["font"]["family"] == ACTION_ICON_FONT_FAMILY
+    assert word.options["font"]["family"] == TC_FONT_FAMILY
 
 
 def test_primary_and_overflow_action_placement_is_stable() -> None:

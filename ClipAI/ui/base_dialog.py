@@ -1446,6 +1446,7 @@ class BaseResultSurface:
         tooltip: str | None = None,
         text_color: str = CONTENT_COLOR,
         overflow: bool = False,
+        icon: bool = True,
     ) -> ctk.CTkButton:
         button = ctk.CTkButton(
             self.overflow_actions if overflow else self.actions,
@@ -1456,7 +1457,10 @@ class BaseResultSurface:
             fg_color=ACTION_COLOR,
             hover_color=ACTION_HOVER_COLOR,
             text_color=text_color,
-            font=ctk.CTkFont(family=ACTION_ICON_FONT_FAMILY, size=10),
+            font=ctk.CTkFont(
+                family=ACTION_ICON_FONT_FAMILY if icon else TC_FONT_FAMILY,
+                size=10,
+            ),
             command=command,
         )
         button.pack(side="left", padx=(0, 5))
