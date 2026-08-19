@@ -37,6 +37,11 @@ def begin_draft(
         result_completeness="none",
         voice_origin=VoiceOrigin(paste_target),
         voice_capture_id=None,
+        voice_capture_phase=None,
+        voice_audio_level=0.0,
+        voice_silence_detected=False,
+        voice_status_text="",
+        voice_follow_up_insertion=None,
     )
 
 
@@ -87,6 +92,10 @@ def project_capture(
         available_actions=(),
         result_completeness="none",
         voice_capture_id=projection.capture_id,
+        voice_capture_phase=projection.capture_phase,
+        voice_audio_level=projection.audio_level,
+        voice_silence_detected=projection.silence_detected,
+        voice_status_text=projection.message,
     )
 
 
@@ -110,6 +119,10 @@ def restore_review(
         result_completeness="complete",
         available_actions=("copy", "paste", "follow_up"),
         voice_capture_id=None,
+        voice_capture_phase=None,
+        voice_audio_level=0.0,
+        voice_silence_detected=False,
+        voice_status_text=message,
     )
 
 
@@ -165,6 +178,10 @@ def finalize_capture(
             latest_insertion=insertion,
         ),
         voice_capture_id=None,
+        voice_capture_phase=None,
+        voice_audio_level=0.0,
+        voice_silence_detected=False,
+        voice_status_text="Review your dictation.",
     )
 
 

@@ -5,15 +5,17 @@ import threading
 from collections.abc import Callable
 
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
-from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
 from ClipAI.core.ports import UserNotifier, VoiceInputEngine, VoiceSetupPresenter
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDraftTarget, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
+from ClipAI.core.state import SessionStatus
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceDraftTarget, VoiceEngineListening, VoiceEngineSetupFailed, VoiceFollowUpTarget, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
-from ClipAI.services.voice_input import FinalizeVoiceDraft, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
+from ClipAI.services.voice_input import FinalizeVoiceDraft, FinalizeVoiceFollowUp, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceFollowUp, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
 
 
 VOICE_CAPTURE_WATCHDOG_SECONDS = 120.0
+VOICE_SILENCE_HINT_SECONDS = 2.0
 
 
 def _schedule_watchdog(delay_seconds: float, callback: Callable[[], None]) -> threading.Timer:
@@ -63,6 +65,7 @@ class VoiceInputRuntimeModule:
         self._watchdog_schedule = watchdog_schedule
         self._notifier = notifier
         self._watchdogs: dict[ShortcutPressId, object] = {}
+        self._silence_watchdogs: dict[VoiceCaptureId, object] = {}
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
         focused_surface = self._focused_surface_reader()
@@ -119,10 +122,30 @@ class VoiceInputRuntimeModule:
         if transition.ignored:
             return False
         self._cancel_all_watchdogs()
+        self._cancel_all_silence_watchdogs()
         self._execute(transition)
         return True
 
-    def handle(self, command: OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
+    def _start_popup_capture(self, command: StartPopupVoiceCapture) -> VoiceTransition:
+        controller = self._workflows.controller_for(command.workflow_id)
+        if controller is None:
+            return VoiceTransition(self._controller.projection, ignored=True)
+        snapshot = controller.snapshot
+        if snapshot.status is SessionStatus.VOICE_REVIEW:
+            target = self._workflows.capture_target_for_voice_review(command.workflow_id)
+            if target is None:
+                return VoiceTransition(self._controller.projection, ignored=True)
+        elif (
+            snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
+            and snapshot.active_invocation_id is None
+            and "follow_up" in snapshot.available_actions
+        ):
+            target = VoiceFollowUpTarget(command.workflow_id)
+        else:
+            return VoiceTransition(self._controller.projection, ignored=True)
+        return self._controller.request_capture(command.capture_id, target)
+
+    def handle(self, command: OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
         if isinstance(command, OpenVoiceSetup):
             if self._setup_presenter is not None:
                 self._setup_presenter.show_voice_setup()
@@ -147,6 +170,11 @@ class VoiceInputRuntimeModule:
         if isinstance(command, VoiceCaptureWatchdogExpired):
             self._cancel_watchdog(command.press_id)
             transition = self._controller.expire_capture_watchdog(command.press_id)
+        elif isinstance(command, VoiceSilenceWatchdogExpired):
+            self._cancel_silence_watchdog(command.capture_id)
+            transition = self._controller.note_silence_timeout(command.capture_id)
+        elif isinstance(command, StartPopupVoiceCapture):
+            transition = self._start_popup_capture(command)
         elif isinstance(command, EnableVoiceInput):
             transition = self._controller.request_setup(command.setup_id)
         elif isinstance(command, DisableVoiceInput):
@@ -178,16 +206,21 @@ class VoiceInputRuntimeModule:
             return False
         if isinstance(command, (DisableVoiceInput, StopVoiceCapture, CancelVoiceCapture)):
             self._cancel_all_watchdogs()
+            self._cancel_all_silence_watchdogs()
         self._execute(transition)
+        if isinstance(command, VoiceEngineEventReceived) and isinstance(command.event, VoiceEngineListening):
+            self._start_silence_watchdog(command.event.capture_id)
         return True
 
     def stop(self) -> None:
         self._cancel_all_watchdogs()
+        self._cancel_all_silence_watchdogs()
         self._engine.shutdown()
 
     def _execute(self, transition: VoiceTransition) -> None:
         if transition.projection.capture_id is None:
             self._cancel_all_watchdogs()
+            self._cancel_all_silence_watchdogs()
         self._projection_sink(transition.projection)
         if self._setup_presenter is not None:
             self._setup_presenter.set_voice_projection(transition.projection)
@@ -232,10 +265,19 @@ class VoiceInputRuntimeModule:
             controller = self._workflows.controller_for(effect.target.workflow_id)
             if controller is not None:
                 controller.restore_voice_review(effect.target, effect.message)
-        else:
+        elif isinstance(effect, FinalizeVoiceDraft):
             controller = self._workflows.controller_for(effect.target.workflow_id)
             if controller is not None:
                 controller.apply_voice_finalization(effect.target, effect.text)
+        elif isinstance(effect, RestoreVoiceFollowUp):
+            controller = self._workflows.controller_for(effect.target.workflow_id)
+            if controller is not None:
+                controller.restore_voice_follow_up(effect.target, effect.message)
+        else:
+            assert isinstance(effect, FinalizeVoiceFollowUp)
+            controller = self._workflows.controller_for(effect.target.workflow_id)
+            if controller is not None:
+                controller.apply_voice_follow_up_finalization(effect.capture_id, effect.target, effect.text)
 
     def _start_watchdog(self, press_id: ShortcutPressId) -> None:
         self._cancel_watchdog(press_id)
@@ -252,3 +294,19 @@ class VoiceInputRuntimeModule:
     def _cancel_all_watchdogs(self) -> None:
         for press_id in tuple(self._watchdogs):
             self._cancel_watchdog(press_id)
+
+    def _start_silence_watchdog(self, capture_id: VoiceCaptureId) -> None:
+        self._cancel_silence_watchdog(capture_id)
+        self._silence_watchdogs[capture_id] = self._watchdog_schedule(
+            VOICE_SILENCE_HINT_SECONDS,
+            lambda: self._dispatch(VoiceSilenceWatchdogExpired(capture_id)),
+        )
+
+    def _cancel_silence_watchdog(self, capture_id: VoiceCaptureId) -> None:
+        watchdog = self._silence_watchdogs.pop(capture_id, None)
+        if watchdog is not None and hasattr(watchdog, "cancel"):
+            watchdog.cancel()
+
+    def _cancel_all_silence_watchdogs(self) -> None:
+        for capture_id in tuple(self._silence_watchdogs):
+            self._cancel_silence_watchdog(capture_id)

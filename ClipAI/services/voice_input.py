@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from ClipAI.core.voice import (
     VoiceCaptureId,
+    VoiceCaptureDestination,
+    VoiceCaptureTarget,
     VoiceDisableId,
     VoiceCapturePhase,
     VoiceCapabilityPhase,
@@ -18,6 +20,7 @@ from ClipAI.core.voice import (
     VoiceEngineSetupBlocked,
     VoiceEngineSetupFailed,
     VoiceEngineSetupReady,
+    VoiceFollowUpTarget,
     VoiceLanguage,
     VoiceLanguageChangeId,
     VoiceProjection,
@@ -83,12 +86,26 @@ class FinalizeVoiceDraft:
 
 
 @dataclass(frozen=True)
+class FinalizeVoiceFollowUp:
+    capture_id: VoiceCaptureId
+    target: VoiceFollowUpTarget
+    text: str
+    warning: str = ""
+
+
+@dataclass(frozen=True)
 class RestoreVoiceReview:
     target: VoiceDraftTarget
     message: str
 
 
-VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | ShutdownVoiceEngine | PersistVoiceDisabled | PersistVoiceLanguage | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft | RestoreVoiceReview
+@dataclass(frozen=True)
+class RestoreVoiceFollowUp:
+    target: VoiceFollowUpTarget
+    message: str
+
+
+VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | ShutdownVoiceEngine | PersistVoiceDisabled | PersistVoiceLanguage | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft | FinalizeVoiceFollowUp | RestoreVoiceReview | RestoreVoiceFollowUp
 
 
 @dataclass(frozen=True)
@@ -101,7 +118,7 @@ class VoiceTransition:
 @dataclass
 class _Capture:
     capture_id: VoiceCaptureId
-    target: VoiceDraftTarget
+    target: VoiceCaptureTarget
     press_id: ShortcutPressId | None = None
     phase: VoiceCapturePhase = VoiceCapturePhase.STARTING
     interim_text: str = ""
@@ -151,6 +168,11 @@ class VoiceInputController:
             capture.target.workflow_id if capture is not None else None,
             capture.audio_level if capture is not None else 0.0,
             capture.silence_detected if capture is not None else False,
+            (
+                VoiceCaptureDestination.FOLLOW_UP
+                if capture is not None and isinstance(capture.target, VoiceFollowUpTarget)
+                else VoiceCaptureDestination.VOICE_DRAFT if capture is not None else None
+            ),
         )
 
     def request_setup(self, setup_id: VoiceSetupId) -> VoiceTransition:
@@ -243,7 +265,7 @@ class VoiceInputController:
     def request_capture(
         self,
         capture_id: VoiceCaptureId,
-        target: VoiceDraftTarget,
+        target: VoiceCaptureTarget,
         *,
         press_id: ShortcutPressId | None = None,
     ) -> VoiceTransition:
@@ -385,7 +407,7 @@ class VoiceInputController:
                 target = capture.target
                 self._capture = None
                 self._message = "Voice Input stopped before the microphone was ready. Try again."
-                return self._transition(RestoreVoiceReview(target, self._message))
+                return self._transition(self._restore_effect(target, self._message))
             capture.phase = VoiceCapturePhase.STARTING
             capture.interim_text = ""
             self._message = "Listening…"
@@ -401,12 +423,12 @@ class VoiceInputController:
         self._capture = None
         if cancelled:
             self._message = "Voice Input cancelled."
-            return self._transition(RestoreVoiceReview(target, self._message))
+            return self._transition(self._restore_effect(target, self._message))
         if not text:
             self._message = "No speech was recognized. Try again."
-            return self._transition(RestoreVoiceReview(target, self._message))
+            return self._transition(self._restore_effect(target, self._message))
         self._message = warning or "Review your dictation."
-        return self._transition(FinalizeVoiceDraft(capture_id, target, text, warning))
+        return self._transition(self._finalize_effect(capture_id, target, text, warning))
 
     def _settle_failed(self, capture: _Capture, event: VoiceEngineFailed) -> VoiceTransition:
         target = capture.target
@@ -417,7 +439,28 @@ class VoiceInputController:
         }:
             self._capability = VoiceCapabilityPhase.PERMISSION_BLOCKED
         self._message = _failure_message(event.failure, event.detail)
-        return self._transition(RestoreVoiceReview(target, self._message))
+        return self._transition(self._restore_effect(target, self._message))
+
+    @staticmethod
+    def _restore_effect(target: VoiceCaptureTarget, message: str) -> VoiceEffect:
+        return (
+            RestoreVoiceFollowUp(target, message)
+            if isinstance(target, VoiceFollowUpTarget)
+            else RestoreVoiceReview(target, message)
+        )
+
+    @staticmethod
+    def _finalize_effect(
+        capture_id: VoiceCaptureId,
+        target: VoiceCaptureTarget,
+        text: str,
+        warning: str,
+    ) -> VoiceEffect:
+        return (
+            FinalizeVoiceFollowUp(capture_id, target, text, warning)
+            if isinstance(target, VoiceFollowUpTarget)
+            else FinalizeVoiceDraft(capture_id, target, text, warning)
+        )
 
     def _matching_capture(self, capture_id: VoiceCaptureId) -> _Capture | None:
         capture = self._capture

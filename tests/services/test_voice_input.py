@@ -15,6 +15,7 @@ from ClipAI.core.voice import (
     VoiceEngineInterim,
     VoiceEngineListening,
     VoiceEngineSetupReady,
+    VoiceFollowUpTarget,
     VoiceLanguage,
     VoiceSetupId,
     VoiceTransportFailure,
@@ -22,11 +23,13 @@ from ClipAI.core.voice import (
 from ClipAI.services.voice_input import (
     CancelVoiceCapture,
     FinalizeVoiceDraft,
+    FinalizeVoiceFollowUp,
     PersistVoiceEnabled,
     PersistVoiceDisabled,
     PersistVoiceLanguage,
     PrepareVoiceSetup,
     RestoreVoiceReview,
+    RestoreVoiceFollowUp,
     StartVoiceCapture,
     ShutdownVoiceEngine,
     StopVoiceCapture,
@@ -205,6 +208,35 @@ def test_terminal_applies_ordered_final_segments_once() -> None:
 
     assert terminal.effects == (FinalizeVoiceDraft(capture, frozen_target, "hello world"),)
     assert controller.observe_engine(VoiceEngineEnded(capture)).ignored is True
+
+
+def test_follow_up_capture_settles_to_its_typed_destination() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-follow-up")
+    target = VoiceFollowUpTarget("workflow-1")
+    controller.request_capture(capture, target)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "What changed?"))
+    controller.request_stop(capture)
+
+    terminal = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert terminal.effects == (
+        FinalizeVoiceFollowUp(capture, target, "What changed?"),
+    )
+
+
+def test_empty_follow_up_capture_restores_result_without_creating_a_voice_draft() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-follow-up")
+    target = VoiceFollowUpTarget("workflow-1")
+    controller.request_capture(capture, target)
+    controller.request_stop(capture)
+
+    terminal = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert terminal.effects == (
+        RestoreVoiceFollowUp(target, "No speech was recognized. Try again."),
+    )
 
 
 def test_natural_end_before_release_restarts_only_the_same_capture() -> None:

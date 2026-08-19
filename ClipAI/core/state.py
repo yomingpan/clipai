@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, PresentationDocument, ResultCompleteness, WorkflowStep
-    from ClipAI.core.voice import VoiceCaptureId, VoiceOrigin
+    from ClipAI.core.voice import VoiceCaptureId, VoiceCapturePhase, VoiceFollowUpInsertion, VoiceOrigin
 
 
 class SessionStatus(str, Enum):
@@ -96,6 +96,11 @@ class SessionSnapshot:
     result_completeness: ResultCompleteness = "none"
     voice_origin: VoiceOrigin | None = None
     voice_capture_id: VoiceCaptureId | None = None
+    voice_capture_phase: VoiceCapturePhase | None = None
+    voice_audio_level: float = 0.0
+    voice_silence_detected: bool = False
+    voice_status_text: str = ""
+    voice_follow_up_insertion: VoiceFollowUpInsertion | None = None
 
     def evolve(self, **changes: object) -> SessionSnapshot:
         return replace(self, revision=self.revision + 1, **changes)

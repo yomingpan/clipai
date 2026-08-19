@@ -359,6 +359,12 @@ class StopVoiceCapture:
 
 
 @dataclass(frozen=True)
+class StartPopupVoiceCapture:
+    workflow_id: str
+    capture_id: VoiceCaptureId
+
+
+@dataclass(frozen=True)
 class CancelVoiceCapture:
     capture_id: VoiceCaptureId
 
@@ -366,6 +372,11 @@ class CancelVoiceCapture:
 @dataclass(frozen=True)
 class VoiceCaptureWatchdogExpired:
     press_id: ShortcutPressId
+
+
+@dataclass(frozen=True)
+class VoiceSilenceWatchdogExpired:
+    capture_id: VoiceCaptureId
 
 
 @dataclass(frozen=True)
@@ -387,4 +398,4 @@ class UpdateVoiceDraft:
     text: str
 
 
-AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft
+AppCommand: TypeAlias = ShortcutInputEvent | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

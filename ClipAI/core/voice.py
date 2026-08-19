@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 if TYPE_CHECKING:
     from ClipAI.core.models import PasteTarget
@@ -55,6 +55,11 @@ class VoiceCapturePhase(str, Enum):
     FINALIZING = "finalizing"
     CANCEL_REQUESTED = "cancel_requested"
     TERMINAL = "terminal"
+
+
+class VoiceCaptureDestination(str, Enum):
+    VOICE_DRAFT = "voice_draft"
+    FOLLOW_UP = "follow_up"
 
 
 class VoiceTransportFailure(str, Enum):
@@ -159,6 +164,16 @@ class VoiceDraftTarget:
 
 
 @dataclass(frozen=True)
+class VoiceFollowUpTarget:
+    """A Popup follow-up draft that receives settled speech at its live caret."""
+
+    workflow_id: str
+
+
+VoiceCaptureTarget: TypeAlias = VoiceDraftTarget | VoiceFollowUpTarget
+
+
+@dataclass(frozen=True)
 class VoiceDraftInsertion:
     """The revision-bound semantic range produced by one finalized capture."""
 
@@ -169,6 +184,16 @@ class VoiceDraftInsertion:
     def __post_init__(self) -> None:
         if self.projection_revision < 0 or self.start < 0 or self.end < self.start:
             raise ValueError("Voice Input insertion range is invalid")
+
+
+@dataclass(frozen=True)
+class VoiceFollowUpInsertion:
+    capture_id: VoiceCaptureId
+    text: str
+
+    def __post_init__(self) -> None:
+        if not self.text.strip():
+            raise ValueError("Voice follow-up insertion must contain text")
 
 
 @dataclass(frozen=True)
@@ -200,3 +225,4 @@ class VoiceProjection:
     workflow_id: str | None = None
     audio_level: float = 0.0
     silence_detected: bool = False
+    capture_destination: VoiceCaptureDestination | None = None
