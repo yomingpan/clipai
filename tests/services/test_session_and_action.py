@@ -6,6 +6,7 @@ from dataclasses import replace
 from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
 from ClipAI.core.errors import ProviderResponseError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
+from ClipAI.core.voice import VoiceOrigin
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.input_resolver import InputResolver
@@ -15,6 +16,7 @@ from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
+from ClipAI.services.voice_draft_follow_up import action as voice_draft_follow_up_action
 
 
 class FakeClipboard:
@@ -298,6 +300,63 @@ def test_follow_up_keeps_previous_context() -> None:
     assert session.snapshot.content == "followed"
     assert [message.role for message in provider.requests[1].messages] == ["system", "user", "assistant", "user"]
     assert provider.requests[1].messages[-1].content == "More examples?"
+
+
+def test_voice_draft_follow_up_keeps_the_draft_and_prior_questions() -> None:
+    class RecordingProvider:
+        def __init__(self) -> None:
+            self.requests: list[LLMRequest] = []
+
+        async def execute(self, request: LLMRequest, cancellation: CancellationToken, *, stream):
+            self.requests.append(request)
+            yield LLMCompleted(LLMResult(f"answer-{len(self.requests)}", "fake", request.model))
+
+    provider = RecordingProvider()
+    use_case = workflow(FakeClipboard(""), FakeSelection(""))
+    controller = WorkflowController(
+        SessionSnapshot(
+            "w1", 0, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+            content="reviewed voice draft",
+            voice_origin=VoiceOrigin(None, "reviewed voice draft", 1),
+        ),
+        RecordingPresenter(),
+    )
+    action = voice_draft_follow_up_action()
+
+    first = ActionInvocation("voice-1", action.id, action.press_type, InputTarget("workflow_result"), workflow_id="w1")
+    controller.begin_invocation(first, action)
+    asyncio.run(use_case.execute_voice_draft_follow_up_invocation(
+        action,
+        "What should I do next?",
+        first,
+        controller,
+        voice_draft="reviewed voice draft",
+        history=(),
+        binding=binding(provider),
+    ))
+
+    second = ActionInvocation("voice-2", action.id, action.press_type, InputTarget("workflow_result"), workflow_id="w1", parent_step_id="voice-1")
+    controller.begin_invocation(second, action)
+    asyncio.run(use_case.execute_voice_draft_follow_up_invocation(
+        action,
+        "What is the first step?",
+        second,
+        controller,
+        voice_draft="reviewed voice draft",
+        history=controller.snapshot.steps,
+        binding=binding(provider),
+    ))
+
+    assert [message.content for message in provider.requests[0].messages[1:]] == [
+        "Reviewed voice draft:\nreviewed voice draft",
+        "What should I do next?",
+    ]
+    assert [message.content for message in provider.requests[1].messages[1:]] == [
+        "Reviewed voice draft:\nreviewed voice draft",
+        "What should I do next?",
+        "answer-1",
+        "What is the first step?",
+    ]
 
 
 def test_second_follow_up_keeps_original_content_and_first_follow_up_turn() -> None:

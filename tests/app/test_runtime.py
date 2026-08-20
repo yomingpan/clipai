@@ -139,6 +139,7 @@ class FakeExecute:
         self.models = []
         self.bindings = []
         self.follow_ups = []
+        self.voice_draft_follow_ups = []
         self.actions = []
 
     def execute(self, action, controller) -> None:
@@ -155,6 +156,9 @@ class FakeExecute:
 
     async def execute_follow_up_invocation(self, *args, **kwargs) -> None:
         self.follow_ups.append((args, kwargs))
+
+    async def execute_voice_draft_follow_up_invocation(self, *args, **kwargs) -> None:
+        self.voice_draft_follow_ups.append((args, kwargs))
 
 
 class FakeOutputs:
@@ -1539,6 +1543,38 @@ def test_open_voice_follow_up_routes_ptt_to_follow_up_instead_of_the_draft() -> 
 
     assert admission.kind == "follow_up"
     assert admission.target == VoiceFollowUpTarget(workflow_id)
+
+
+def test_voice_review_follow_up_submission_starts_a_voice_draft_provider_request() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime(include_voice_input=True)
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(
+        workflow_id,
+        PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1),
+    )
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.VOICE_REVIEW,
+        content="reviewed voice draft",
+        available_actions=("copy", "paste", "follow_up"),
+        voice_origin=VoiceOrigin(
+            PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1),
+            "reviewed voice draft",
+            1,
+        ),
+    )
+
+    runtime.enqueue(FollowUp(workflow_id, "What should I do next?"))
+    runtime.drain_commands()
+
+    invocation_id = controller.snapshot.active_invocation_id
+    assert invocation_id is not None
+    assert invocation_id in supervisor.work
+    supervisor.work[invocation_id]()
+    assert len(view.execute_action.voice_draft_follow_ups) == 1
+    args, kwargs = view.execute_action.voice_draft_follow_ups[0]
+    assert args[1] == "What should I do next?"
+    assert kwargs["voice_draft"] == "reviewed voice draft"
+    assert kwargs["history"] == ()
 
 
 def test_focused_answering_popup_rejects_a_second_voice_question() -> None:

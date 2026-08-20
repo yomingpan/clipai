@@ -190,6 +190,78 @@ class ActionExecutor:
         except ClipAIError as exc:
             workflow.fail(invocation.invocation_id, str(exc))
 
+    async def execute_voice_draft_follow_up_invocation(
+        self,
+        action: ResolvedAction,
+        question: str,
+        invocation: ActionInvocation,
+        workflow: WorkflowController,
+        *,
+        voice_draft: str,
+        history: tuple[WorkflowStep, ...],
+        binding: ProviderExecutionBinding,
+    ) -> None:
+        """Answer an explicit question about a Voice Draft without borrowing an Action recipe."""
+        token = workflow.cancellation
+        try:
+            if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id, binding):
+                return
+            if workflow.update(
+                invocation.invocation_id,
+                SessionStatus.PREPARING_REQUEST,
+                status_text=f"Preparing {action.name}...",
+                input_source="voice_draft",
+            ) is None:
+                return
+            request = await self._run_blocking(
+                f"prompt:{invocation.invocation_id}",
+                lambda: self._prompt_builder.build_voice_draft_follow_up(
+                    voice_draft=voice_draft,
+                    history=history,
+                    question=question,
+                    model=binding.model,
+                    default_temperature=self._default_temperature,
+                ),
+            )
+            if workflow.update(
+                invocation.invocation_id,
+                SessionStatus.REQUESTING_PROVIDER,
+                status_text=f"Asking {binding.provider_id}...",
+            ) is None:
+                return
+            result = await self._complete_provider_for_invocation(request, invocation.invocation_id, token, binding, action.stream, workflow)
+            if workflow.update(
+                invocation.invocation_id,
+                SessionStatus.PROCESSING_RESULT,
+                status_text="Rendering result...",
+            ) is None:
+                return
+            processed = await self._run_blocking(
+                f"result:{invocation.invocation_id}",
+                lambda: self._result_processor.process(result.text, action.output_profile),
+            )
+            document = InputDocument(question, "voice_draft", workflow.snapshot.session_id, invocation.parent_step_id)
+            await self._result_router.route(
+                invocation.result_route,
+                processed,
+                workflow_id=invocation.workflow_id or invocation.invocation_id,
+                cancellation=token,
+                popup_sink=lambda routed: workflow.complete(
+                    invocation,
+                    action,
+                    document,
+                    routed.text,
+                    self._available_actions,
+                    routed.document,
+                    provider=result.provider,
+                    model=result.model,
+                ),
+            )
+        except CancelledError:
+            return
+        except ClipAIError as exc:
+            workflow.fail(invocation.invocation_id, str(exc))
+
     def _consume_guidance_hint(self, action: ResolvedAction, invocation: ActionInvocation) -> bool:
         return bool(
             invocation.result_route == "popup"

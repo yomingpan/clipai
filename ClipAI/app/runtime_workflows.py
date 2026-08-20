@@ -22,6 +22,7 @@ from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.shortcut_intent import ShortcutIntentCoordinator
 from ClipAI.services.shortcut_sequence import ShortcutSequenceCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
+from ClipAI.services.voice_draft_follow_up import VOICE_DRAFT_FOLLOW_UP_ACTION_ID, action as voice_draft_follow_up_action
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
@@ -512,6 +513,12 @@ class WorkflowRuntimeModule:
             return
         controller = record.controller
         previous = controller.snapshot
+        if previous.voice_origin is not None and (
+            previous.displayed_step_index < 0
+            or previous.steps[previous.displayed_step_index].action_id == VOICE_DRAFT_FOLLOW_UP_ACTION_ID
+        ):
+            self._start_voice_draft_follow_up(record, command, previous)
+            return
         if previous.displayed_step_index < 0:
             return
         parent = previous.steps[previous.displayed_step_index]
@@ -543,6 +550,48 @@ class WorkflowRuntimeModule:
                 command.text.strip(),
                 invocation,
                 controller,
+                history=previous.steps[: previous.displayed_step_index + 1],
+                binding=record.binding,
+            ),
+        )
+
+    def _start_voice_draft_follow_up(
+        self,
+        record: _WorkflowRecord,
+        command: FollowUp,
+        previous: SessionSnapshot,
+    ) -> None:
+        origin = previous.voice_origin
+        if origin is None:
+            return
+        action = voice_draft_follow_up_action()
+        parent_step_id = (
+            previous.steps[previous.displayed_step_index].step_id
+            if previous.displayed_step_index >= 0
+            else None
+        )
+        invocation = ActionInvocation(
+            uuid.uuid4().hex,
+            action.id,
+            action.press_type,
+            InputTarget(
+                "workflow_result",
+                InputDocument(command.text.strip(), "voice_draft", command.session_id, parent_step_id),
+            ),
+            workflow_id=command.session_id,
+            parent_step_id=parent_step_id,
+        )
+        controller = record.controller
+        controller.begin_invocation(invocation, action)
+        self._submit_invocation(
+            command.session_id,
+            invocation.invocation_id,
+            lambda: self._execute_action.execute_voice_draft_follow_up_invocation(
+                action,
+                command.text.strip(),
+                invocation,
+                controller,
+                voice_draft=origin.text,
                 history=previous.steps[: previous.displayed_step_index + 1],
                 binding=record.binding,
             ),

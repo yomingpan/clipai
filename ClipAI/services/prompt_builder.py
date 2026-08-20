@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ClipAI.core.models import ImageContent, LLMMessage, LLMRequest, ResolvedAction, TextContent, WorkflowStep
 from ClipAI.services.output_profiles import OutputProfileCatalog
+from ClipAI.services.voice_draft_follow_up import VOICE_DRAFT_FOLLOW_UP_SYSTEM_PROMPT
 
 
 FOLLOW_UP_HISTORY_LIMIT = 3
@@ -61,6 +62,37 @@ class PromptBuilder:
             messages=tuple(messages),
             model=model,
             temperature=action.temperature if action.temperature is not None else default_temperature,
+        )
+
+    def build_voice_draft_follow_up(
+        self,
+        *,
+        voice_draft: str,
+        history: tuple[WorkflowStep, ...],
+        question: str,
+        model: str,
+        default_temperature: float,
+    ) -> LLMRequest:
+        """Build a bounded conversation rooted in one reviewed Voice Draft."""
+        messages = [
+            LLMMessage(
+                role="system",
+                content="\n\n".join(
+                    part for part in (self._default_system_prompt, VOICE_DRAFT_FOLLOW_UP_SYSTEM_PROMPT) if part
+                ),
+            ),
+            LLMMessage(role="user", content=f"Reviewed voice draft:\n{voice_draft}"),
+        ]
+        for step in history[-FOLLOW_UP_HISTORY_LIMIT:]:
+            messages.extend((
+                LLMMessage(role="user", content=step.input_text),
+                LLMMessage(role="assistant", content=step.result_text),
+            ))
+        messages.append(LLMMessage(role="user", content=question))
+        return LLMRequest(
+            messages=tuple(messages),
+            model=model,
+            temperature=default_temperature,
         )
 
     def _system_prompt(self, action: ResolvedAction) -> str:
