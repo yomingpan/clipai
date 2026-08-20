@@ -530,8 +530,7 @@ class WorkflowRuntimeModule:
                 command.text.strip(),
                 invocation,
                 controller,
-                original_input=previous.original_input,
-                previous_result=parent.result_text,
+                history=previous.steps[: previous.displayed_step_index + 1],
                 binding=record.binding,
             ),
         )

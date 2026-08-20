@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 
-from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences
+from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
 from ClipAI.core.errors import ProviderResponseError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.providers.fake import FakeProvider
@@ -292,13 +292,99 @@ def test_follow_up_keeps_previous_context() -> None:
         "More examples?",
         follow,
         session,
-        original_input=session.snapshot.original_input,
-        previous_result=parent.result_text,
+        history=session.snapshot.steps,
         binding=binding(provider),
     ))
     assert session.snapshot.content == "followed"
     assert [message.role for message in provider.requests[1].messages] == ["system", "user", "assistant", "user"]
     assert provider.requests[1].messages[-1].content == "More examples?"
+
+
+def test_second_follow_up_keeps_original_content_and_first_follow_up_turn() -> None:
+    class RecordingProvider:
+        def __init__(self) -> None:
+            self.requests: list[LLMRequest] = []
+
+        async def execute(self, request: LLMRequest, cancellation: CancellationToken, *, stream):
+            self.requests.append(request)
+            answers = ("Initial answer", "First follow-up answer", "Second follow-up answer")
+            yield LLMCompleted(LLMResult(answers[len(self.requests) - 1], "fake", request.model))
+
+    provider = RecordingProvider()
+    use_case = workflow(FakeClipboard("appetizer"), FakeSelection(""))
+    session = run_invocation(use_case, provider=provider)
+
+    for invocation_id, question in (
+        ("i2", "What does it mean?"),
+        ("i3", "Give me an example."),
+    ):
+        parent = session.snapshot.steps[-1]
+        follow = ActionInvocation(
+            invocation_id,
+            "english",
+            "short",
+            InputTarget("workflow_result"),
+            workflow_id="w1",
+            parent_step_id=parent.step_id,
+        )
+        session.begin_invocation(follow, action())
+        asyncio.run(use_case.execute_follow_up_invocation(
+            action(),
+            question,
+            follow,
+            session,
+            history=session.snapshot.steps,
+            binding=binding(provider),
+        ))
+
+    request = provider.requests[2]
+    assert [message.role for message in request.messages] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert [message.content for message in request.messages[1:]] == [
+        "Learn: appetizer",
+        "Initial answer",
+        "What does it mean?",
+        "First follow-up answer",
+        "Give me an example.",
+    ]
+
+
+def test_follow_up_context_keeps_original_content_and_only_the_latest_three_turns() -> None:
+    def step(index: int) -> WorkflowStep:
+        return WorkflowStep(
+            step_id=f"step-{index}",
+            action_id="english",
+            title="English",
+            input_text="appetizer" if index == 0 else f"question-{index}",
+            result_text=f"answer-{index}",
+            output_profile="",
+        )
+
+    request = PromptBuilder().build_follow_up(
+        action(),
+        history=tuple(step(index) for index in range(5)),
+        question="question-5",
+        model="model",
+        default_temperature=0.2,
+    )
+
+    assert [message.content for message in request.messages[1:]] == [
+        "Learn: appetizer",
+        "answer-0",
+        "question-2",
+        "answer-2",
+        "question-3",
+        "answer-3",
+        "question-4",
+        "answer-4",
+        "question-5",
+    ]
 
 
 def test_prompt_builder_includes_app_and_action_system_prompts() -> None:

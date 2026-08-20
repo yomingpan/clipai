@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from ClipAI.core.models import ImageContent, LLMMessage, LLMRequest, ResolvedAction, TextContent
+from ClipAI.core.models import ImageContent, LLMMessage, LLMRequest, ResolvedAction, TextContent, WorkflowStep
 from ClipAI.services.output_profiles import OutputProfileCatalog
+
+
+FOLLOW_UP_HISTORY_LIMIT = 3
 
 
 class PromptBuilder:
@@ -27,19 +30,35 @@ class PromptBuilder:
         self,
         action: ResolvedAction,
         *,
-        original_input: str,
-        previous_result: str,
+        history: tuple[WorkflowStep, ...],
         question: str,
         model: str,
         default_temperature: float,
     ) -> LLMRequest:
+        if not history:
+            raise ValueError("follow-up requires a completed Workflow step")
+        retained_history = (
+            history[0],
+            *history[max(1, len(history) - FOLLOW_UP_HISTORY_LIMIT):],
+        )
+        messages = [LLMMessage(role="system", content=self._system_prompt(action))]
+        for index, step in enumerate(retained_history):
+            messages.extend(
+                (
+                    LLMMessage(
+                        role="user",
+                        content=(
+                            action.prompt.format(input=step.input_text)
+                            if index == 0
+                            else step.input_text
+                        ),
+                    ),
+                    LLMMessage(role="assistant", content=step.result_text),
+                )
+            )
+        messages.append(LLMMessage(role="user", content=question))
         return LLMRequest(
-            messages=(
-                LLMMessage(role="system", content=self._system_prompt(action)),
-                LLMMessage(role="user", content=action.prompt.format(input=original_input)),
-                LLMMessage(role="assistant", content=previous_result),
-                LLMMessage(role="user", content=question),
-            ),
+            messages=tuple(messages),
             model=model,
             temperature=action.temperature if action.temperature is not None else default_temperature,
         )

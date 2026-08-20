@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TypeVar
 
 from ClipAI.core.errors import CancelledError, ClipAIError
-from ClipAI.core.models import ActionInvocation, InputDocument, LLMCompleted, LLMProviderEvent, LLMRequest, LLMResult, LLMTextDelta, ResolvedAction
+from ClipAI.core.models import ActionInvocation, InputDocument, LLMCompleted, LLMProviderEvent, LLMRequest, LLMResult, LLMTextDelta, ResolvedAction, WorkflowStep
 from ClipAI.core.ports import OperationHandle, OperationTracker
 from ClipAI.core.state import SessionStatus
 from ClipAI.services.input_resolver import InputResolver
@@ -132,8 +132,7 @@ class ActionExecutor:
         invocation: ActionInvocation,
         workflow: WorkflowController,
         *,
-        original_input: str,
-        previous_result: str,
+        history: tuple[WorkflowStep, ...],
         binding: ProviderExecutionBinding,
     ) -> None:
         token = workflow.cancellation
@@ -144,8 +143,7 @@ class ActionExecutor:
                 f"prompt:{invocation.invocation_id}",
                 lambda: self._prompt_builder.build_follow_up(
                     action,
-                    original_input=original_input,
-                    previous_result=previous_result,
+                    history=history,
                     question=question,
                     model=binding.model,
                     default_temperature=self._default_temperature,
