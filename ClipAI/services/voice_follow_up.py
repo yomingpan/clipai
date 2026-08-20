@@ -14,6 +14,7 @@ _FOLLOW_UP_READY_STATUSES = {
     SessionStatus.COMPLETED,
     SessionStatus.FAILED,
     SessionStatus.STOPPED,
+    SessionStatus.VOICE_REVIEW,
 }
 
 

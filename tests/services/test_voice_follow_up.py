@@ -67,6 +67,41 @@ def test_follow_up_finalization_is_an_identity_scoped_one_time_insertion_project
     assert updated.voice_capture_id is None
 
 
+def test_voice_review_follow_up_projects_and_finalizes_into_the_follow_up_field() -> None:
+    target = VoiceFollowUpTarget("workflow-1")
+    snapshot = SessionSnapshot(
+        "workflow-1",
+        4,
+        SessionStatus.VOICE_REVIEW,
+        "voice_input",
+        "Voice Input",
+        "model",
+        content="reviewed voice draft",
+        available_actions=("copy", "paste", "follow_up"),
+    )
+    projection = VoiceProjection(
+        VoiceCapabilityPhase.READY,
+        "zh-TW",
+        VoiceCaptureId("capture-voice-follow-up"),
+        VoiceCapturePhase.LISTENING,
+        workflow_id="workflow-1",
+        capture_destination=VoiceCaptureDestination.FOLLOW_UP,
+    )
+
+    capturing = voice_follow_up.project_capture(snapshot, projection)
+
+    assert capturing is not None
+    finalized = voice_follow_up.finalize(
+        capturing.evolve(voice_capture_phase=VoiceCapturePhase.FINALIZING),
+        VoiceCaptureId("capture-voice-follow-up"),
+        target,
+        "follow-up dictation",
+    )
+    assert finalized is not None
+    assert finalized.voice_follow_up_insertion is not None
+    assert finalized.voice_follow_up_insertion.text == "follow-up dictation"
+
+
 def test_follow_up_projection_rejects_provider_activity_and_wrong_workflow() -> None:
     snapshot = completed_snapshot().evolve(
         active_invocation_id="provider-1",
