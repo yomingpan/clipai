@@ -6,7 +6,7 @@ import inspect
 import textwrap
 from dataclasses import replace
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, FollowUp, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
@@ -85,10 +85,16 @@ class Surface:
         self.follow_up_visible = False
         self.follow_entry = type("Entry", (), {
             "get": lambda _self: "",
-            "bind": lambda _self, *_args, **_kwargs: None,
+            "bindings": {},
+            "bind": lambda entry, event, callback, **_kwargs: entry.bindings.__setitem__(event, callback),
         })()
         self.follow_send_button = type("Button", (), {
-            "configure": lambda _self, **_kwargs: None,
+            "command": None,
+            "configure": lambda button, **kwargs: setattr(
+                button,
+                "command",
+                kwargs.get("command", button.command),
+            ),
         })()
 
     def selected_text(self) -> str | None:
@@ -360,6 +366,67 @@ def test_shortcut_started_voice_follow_up_immediately_opens_the_review_field() -
     assert view.surface.follow_up_visible is True
     assert "follow-up-show:" in events
     assert "follow-up-active:True" in events
+
+
+def test_shortcut_started_voice_follow_up_can_submit_its_reviewed_text() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    previous = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        content="answer",
+        available_actions=("follow_up",),
+    )
+    view.revision = previous.revision
+    view.last_snapshot = previous
+    view.content = previous.content
+    view.flashed_completion_keys.add(previous.content)
+
+    presenter._apply(previous.evolve(
+        voice_capture_id=VoiceCaptureId("capture-1"),
+        voice_capture_phase=VoiceCapturePhase.STARTING,
+    ))
+    view.last_snapshot = previous.evolve()
+    view.surface.follow_entry.get = lambda: "What changed?"
+
+    assert view.surface.follow_send_button.command is not None
+    view.surface.follow_send_button.command()
+
+    assert events[-1] == FollowUp("s1", "What changed?")
+
+
+def test_shortcut_started_voice_follow_up_can_submit_with_enter() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    previous = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        content="answer",
+        available_actions=("follow_up",),
+    )
+    view.revision = previous.revision
+    view.last_snapshot = previous
+    view.content = previous.content
+    view.flashed_completion_keys.add(previous.content)
+
+    presenter._apply(previous.evolve(
+        voice_capture_id=VoiceCaptureId("capture-1"),
+        voice_capture_phase=VoiceCapturePhase.STARTING,
+    ))
+    view.last_snapshot = previous.evolve()
+    view.surface.follow_entry.get = lambda: "What changed?"
+
+    view.surface.follow_entry.bindings["<Return>"](None)
+
+    assert events[-1] == FollowUp("s1", "What changed?")
 
 
 def test_provider_activity_disables_popup_voice_input() -> None:

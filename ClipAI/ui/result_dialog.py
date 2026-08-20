@@ -677,8 +677,7 @@ class ResultDialogPresenter:
             and "follow_up" in snapshot.available_actions
             and not view.surface.follow_up_visible
         ):
-            view.surface.show_follow_up()
-            view.surface.set_follow_up_active(True)
+            self._show_follow_up(snapshot.session_id)
         if insertion is not None and insertion.capture_id not in view.applied_follow_up_capture_ids:
             view.applied_follow_up_capture_ids.add(insertion.capture_id)
             view.surface.insert_follow_up_text(insertion.text)
@@ -817,6 +816,12 @@ class ResultDialogPresenter:
             view.surface.hide_follow_up()
             view.surface.set_follow_up_active(False)
             return
+        self._show_follow_up(session_id)
+
+    def _show_follow_up(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None:
+            return
         view.surface.show_follow_up()
         view.surface.set_follow_up_active(True)
 
@@ -937,8 +942,7 @@ class ResultDialogPresenter:
         if view is None:
             return
         if view.last_snapshot is not None and view.last_snapshot.status is not SessionStatus.VOICE_REVIEW:
-            view.surface.show_follow_up()
-            view.surface.set_follow_up_active(True)
+            self._show_follow_up(workflow_id)
         self._command_sink(StartPopupVoiceCapture(workflow_id, VoiceCaptureId(uuid.uuid4().hex)))
 
     def _register_view(
