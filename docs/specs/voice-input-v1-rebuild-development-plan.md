@@ -42,9 +42,8 @@ not sufficient.
 Voice Input V1 is a Windows cross-application dictation input method. The user
 holds `Ctrl+Alt+W`, speaks, releases the keys, reviews an editable transcript in
 a ClipAI Popup, and explicitly sends the reviewed content back to the original
-external application with the Paste button. Within the editable Voice Draft,
-`Ctrl+V` remains native clipboard insertion for revising the text; `Ctrl+Enter`
-switches to Reading mode, where `Ctrl+V` sends the reviewed content externally.
+external application. Within the Voice Draft, `Ctrl+V` always sends the reviewed
+content externally; `Ctrl+Enter` only switches Editing and Reading presentation.
 
 Voice Input is not an automatic AI Action, not an implicit Follow-up mechanism,
 and not a background recorder. Existing ClipAI Actions remain an explicit,
@@ -73,15 +72,15 @@ without presenting new evidence that makes the plan unsafe or impossible.
 - Gesture: Push-to-Talk only. Press starts; release requests stop and
   finalization.
 - Release never auto-pastes. It enters Review.
-- `Ctrl+V` in the editable Voice Draft performs native clipboard insertion so
-  the user can revise the draft. The resulting edit continues through the
-  existing typed draft-update lifecycle.
+- `Ctrl+V` in either Voice Draft presentation mode sends the reviewed content
+  to the frozen external target. It never inserts clipboard content into the
+  Popup draft.
 - The Paste button explicitly sends the current semantic content to the frozen
   external target. A focused, non-editable completed result may continue to use
   `Ctrl+V` as the same external Paste intent.
 - Voice Review enters Editing mode. `Ctrl+Enter` toggles between Editing and
-  Reading presentation modes: Editing keeps native `Ctrl+V`; Reading makes the
-  draft read-only and routes `Ctrl+V` to the frozen external target.
+  Reading presentation modes; Editing permits direct typing, while `Ctrl+V`
+  always routes to the frozen external target.
 - There is no mouse Start control in V1. Listening offers explicit Stop and
   Cancel controls as safety exits.
 
@@ -135,8 +134,7 @@ without presenting new evidence that makes the plan unsafe or impossible.
 - Action results remain in the same Voice Workflow. Back returns to the editable
   Voice origin. Running a new Action from an earlier position truncates later
   history according to existing linear Workflow rules.
-- `Ctrl+V` edits a Voice origin while Review is in Editing mode. In Reading
-  mode, a Paste button request, or `Ctrl+V` from the read-only draft, sends the
+- A Paste button request or `Ctrl+V` from either Voice Review mode sends the
   currently completed and visible semantic content. Loading, failed, cancelled,
   or interim content is not pasteable.
 - The footer is the persistent source of truth for Editing versus Reading mode,
@@ -820,9 +818,7 @@ their real operation cannot be accepted.
 
 ### 6.5 Paste
 
-1. User selects Paste, or switches Voice Review to Reading mode with
-   `Ctrl+Enter` and presses `Ctrl+V`. Editing-mode `Ctrl+V` remains native draft
-   editing and does not start this flow.
+1. User selects Paste or presses `Ctrl+V` from either Voice Review mode.
 2. Workflow resolves the completed visible semantic content.
 3. Existing Paste owner validates the frozen target and runs dispatch/cleanup.
 4. UI projects pending from the real Paste operation identity.
@@ -970,12 +966,13 @@ Cover projections rather than engine behavior:
 - Interim visual distinction does not change canonical content.
 - Voice Review starts in Editing mode; `Ctrl+Enter` toggles a read-only Reading
   mode and can return to Editing without changing canonical ownership.
-- Editing-mode `Ctrl+V` performs native paste and emits no external Paste intent;
-  Reading-mode `Ctrl+V` emits the identified external Paste intent.
-- The footer always states the mode, current `Ctrl+V` meaning, `Ctrl+Enter`
-  transition, and Reading-mode target without relying on animation.
-- General editable fields retain native `Ctrl+V`; non-editable completed result
-  surfaces may emit the identified external Paste intent.
+- `Ctrl+V` emits the identified external Paste intent from either Voice Review
+  mode and never performs native popup paste.
+- The footer always states the mode, external `Ctrl+V` meaning, `Ctrl+Enter`
+  transition, and target without relying on animation.
+- General editable fields other than Voice Draft retain native `Ctrl+V`;
+  non-editable completed result surfaces may emit the identified external Paste
+  intent.
 - Stop/Cancel/Paste feedback changes only after authoritative state.
 - Non-activating Listening and activating Review.
 - Pin coexistence and collision-aware placement.
@@ -1161,9 +1158,9 @@ feature to preserve.
     cancellation of replaced unpinned Workflows, and late completion isolation.
 
 25. **feat: route Voice Copy and explicit Paste through existing output owners**
-    Preserve native `Ctrl+V` in Editing mode, route Reading-mode `Ctrl+V` and the
-    Paste button through the frozen target and semantic content, and project
-    terminal truth/pin behavior.
+    Route `Ctrl+V` from either Voice Review mode and the Paste button through
+    the frozen target and semantic content, and project terminal truth/pin
+    behavior.
 
 26. **test: add full app-level Voice lifecycle scenarios**  
     Cover first setup, normal dictation, repeat insertion, Action/Back, Paste,

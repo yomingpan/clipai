@@ -24,13 +24,14 @@ python -m pytest -m integration tests/platform/test_voice_webview_host_integrati
    editable Review draft after finalization. Confirm the Review draft receives
    initial keyboard focus. Click an external window and confirm the unpinned
    popup closes according to the normal Popup focus-out policy.
-4. In Editing mode, press `Ctrl+V` and confirm clipboard content is inserted into
-   the draft and nothing is sent to Notepad. Confirm the footer describes Editing
-   mode. Press `Ctrl+Enter`, confirm the draft becomes read-only and the footer
-   describes Reading mode plus the external target. Press `Ctrl+V` and confirm
-   the reviewed text is sent only to the original Notepad window. Press
-   `Ctrl+Enter` again and confirm Editing mode returns. The Paste button must
-   continue to send the reviewed text explicitly from either mode.
+4. In Editing mode, press `Ctrl+V` and confirm the reviewed text is sent only to
+   the original Notepad window; clipboard content must not be inserted into the
+   draft. Confirm the footer describes Editing mode plus the external target.
+   Press `Ctrl+Enter`, confirm the draft becomes read-only and the footer
+   describes Reading mode. Press `Ctrl+V` again and confirm it has the same
+   external Paste intent. Press `Ctrl+Enter` again and confirm Editing mode
+   returns. The Paste button must continue to send the reviewed text explicitly
+   from either mode.
    While editing, move the caret and let a finalized Voice insertion update the
    draft; confirm the caret does not jump to another position.
 5. Repeat with the original window closed before Paste. Confirm the draft stays
