@@ -974,6 +974,9 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-slash>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_follow_up, sid), add="+")
         view.surface.bind_header_double_click(lambda _event, sid=session_id: self._header_double_click(sid))
         view.surface.bind_voice_draft_mode_toggle(toggle_voice_draft_mode)
+        view.surface.bind_voice_draft_paste(
+            lambda event, sid=session_id: self._paste_shortcut(event, sid)
+        )
         view.external_output.focus(PopupShown())
         if focus_on_show:
             self._schedule_initial_focus(session_id, view)

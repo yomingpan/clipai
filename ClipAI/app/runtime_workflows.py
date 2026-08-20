@@ -266,7 +266,10 @@ class WorkflowRuntimeModule:
     def has_foreground_workflow(self) -> bool:
         return self._foreground_id in self._records
 
-    def observe_paste_completion(self, command: PasteOperationCompleted) -> bool:
+    def observe_paste_completion(
+        self,
+        command: PasteOperationCompleted,
+    ) -> Literal["ignored", "released", "closed"]:
         """Apply semantic Foreground Workflow policy from authoritative Paste truth."""
         record = self._records.get(command.workflow_id)
         if (
@@ -276,9 +279,9 @@ class WorkflowRuntimeModule:
             or record.presentation != "visible"
             or record.controller.snapshot.pinned
         ):
-            return False
+            return "ignored"
         self._foreground_id = None
-        return True
+        return "closed" if record.controller.snapshot.voice_origin is not None else "released"
 
     def resolve_shortcut(self, command: ShortcutPressInvoked) -> AppCommand | None:
         return self._shortcut_intents.resolve(command)

@@ -96,6 +96,7 @@ class Surface:
         self.overflow_expanded = False
         self.feedback_available = False
         self.header_double_click_callback = None
+        self.voice_draft_paste_callback = None
         self.focus_result = True
         self.follow_up_visible = False
         self.follow_entry = FollowUpEntry()
@@ -135,6 +136,9 @@ class Surface:
 
     def bind_voice_draft_mode_toggle(self, callback) -> None:
         self.voice_draft_mode_toggle_callback = callback
+
+    def bind_voice_draft_paste(self, callback) -> None:
+        self.voice_draft_paste_callback = callback
 
     def focus_content(self) -> bool:
         return self.focus_result
@@ -965,6 +969,45 @@ def test_ctrl_v_pastes_external_content_from_editable_voice_review() -> None:
     result = presenter._paste_shortcut(
         type("Event", (), {"widget": EditableVoiceDraft()})(),
         "s1",
+    )
+
+    assert result == "break"
+    assert events == ["paste:s1"]
+
+
+def test_voice_draft_intercepts_ctrl_v_before_the_text_widget_can_paste() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay, _callback) -> None:
+            pass
+
+    class EditableVoiceDraft:
+        def winfo_class(self) -> str:
+            return "Text"
+
+        def cget(self, option: str) -> str:
+            assert option == "state"
+            return "normal"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    view.last_snapshot = SessionSnapshot(
+        "s1", 1, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+        content="reviewed text",
+    )
+    presenter._paste = lambda session_id: events.append(f"paste:{session_id}")
+
+    presenter._register_view("s1", view)
+    result = view.surface.voice_draft_paste_callback(
+        type("Event", (), {"state": 0x0004, "widget": EditableVoiceDraft()})()
     )
 
     assert result == "break"

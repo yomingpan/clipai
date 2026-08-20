@@ -1729,6 +1729,10 @@ class BaseResultSurface:
         self.content_text.bind("<Control-Return>", callback, add="+")
         self.content_text.bind("<Control-KP_Enter>", callback, add="+")
 
+    def bind_voice_draft_paste(self, callback: Callable) -> None:
+        """Bind before Tk's Text class handler can perform native paste."""
+        self.content_text.bind("<Control-v>", callback, add="+")
+
     def focus_content(self) -> bool:
         """Focus the content widget and report verified toolkit focus truth."""
         return self.dialog.lifecycle.focus(self.content_text)

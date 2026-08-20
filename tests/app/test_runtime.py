@@ -2138,6 +2138,25 @@ def test_non_dispatched_paste_completion_does_not_release_foreground(outcome) ->
     assert runtime._workflow_module.has_foreground_workflow() is True
 
 
+def test_dispatched_voice_paste_closes_the_unpinned_workflow_before_the_next_shortcut() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(include_voice_input=True)
+    workflow_id = "voice-workflow"
+    runtime._workflow_module.create_voice_workflow(
+        workflow_id,
+        PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1),
+    )
+
+    runtime.enqueue(PasteOperationCompleted(
+        "paste-op",
+        workflow_id,
+        PasteOutcome("dispatched_unconfirmed", "dispatched_unconfirmed", "restored"),
+    ))
+    runtime.drain_commands()
+
+    assert runtime._workflow_module.controller_for(workflow_id) is None
+    assert runtime._workflow_module.has_foreground_workflow() is False
+
+
 def test_completion_for_non_foreground_workflow_does_not_release_current_foreground() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))

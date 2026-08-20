@@ -261,7 +261,10 @@ class AppRuntime:
                 self._personal_styles_module.handle(cast(PersonalStyleRuntimeCommand, command))
         elif isinstance(command, PasteOperationCompleted):
             self._result_output_module.handle(command)
-            if self._workflow_module.observe_paste_completion(command):
+            disposition = self._workflow_module.observe_paste_completion(command)
+            if disposition == "closed":
+                self._route(CloseSession(command.workflow_id))
+            elif disposition == "released":
                 self._user_control.release(ControlSurfaceRef(command.workflow_id, "workflow"))
         elif isinstance(command, _WORKFLOW_COMMANDS):
             self._workflow_module.handle(cast(WorkflowRuntimeCommand, command))
