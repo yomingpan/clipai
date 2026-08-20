@@ -1014,6 +1014,17 @@ def test_voice_draft_intercepts_ctrl_v_before_the_text_widget_can_paste() -> Non
     assert events == ["paste:s1"]
 
 
+def test_voice_follow_up_visibility_is_available_to_shortcut_admission() -> None:
+    presenter, _events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+
+    view.surface.follow_up_visible = True
+
+    assert presenter.voice_follow_up_is_visible("s1") is True
+    view.surface.follow_up_visible = False
+    assert presenter.voice_follow_up_is_visible("s1") is False
+
+
 def test_ctrl_enter_switches_voice_draft_mode_without_changing_ctrl_v_paste_intent() -> None:
     class ShortcutRoot:
         def __init__(self) -> None:

@@ -201,6 +201,12 @@ class WorkflowRuntimeModule:
                     workflow_id=workflow_id,
                     message="請先點選目前的 ClipAI 視窗再使用語音輸入。",
                 )
+            if self._voice_follow_up_is_visible(workflow_id):
+                return VoiceShortcutAdmission(
+                    "follow_up",
+                    workflow_id=workflow_id,
+                    target=VoiceFollowUpTarget(workflow_id),
+                )
             target = self.capture_target_for_voice_review(workflow_id)
             if target is not None:
                 return VoiceShortcutAdmission(
@@ -259,6 +265,10 @@ class WorkflowRuntimeModule:
         if selection is None:
             return None
         return record.controller.freeze_voice_insertion(*selection)
+
+    def _voice_follow_up_is_visible(self, workflow_id: str) -> bool:
+        reader = self._voice_draft_selection_reader
+        return reader is not None and reader.voice_follow_up_is_visible(workflow_id)
 
     def bind_user_control(self, user_control: UserControlCoordinator) -> None:
         self._user_control = user_control

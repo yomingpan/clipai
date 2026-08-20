@@ -1511,6 +1511,36 @@ def test_focused_completed_result_routes_voice_input_to_follow_up() -> None:
     assert admission.target == VoiceFollowUpTarget(workflow_id)
 
 
+def test_open_voice_follow_up_routes_ptt_to_follow_up_instead_of_the_draft() -> None:
+    class VoiceSurface:
+        def voice_draft_selection_range(self, _workflow_id: str) -> tuple[int, int]:
+            return (0, 0)
+
+        def voice_follow_up_is_visible(self, _workflow_id: str) -> bool:
+            return True
+
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(
+        workflow_id,
+        PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1),
+    )
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.VOICE_REVIEW,
+        content="reviewed voice draft",
+        available_actions=("copy", "paste", "follow_up"),
+    )
+    runtime._workflow_module._voice_draft_selection_reader = VoiceSurface()
+
+    admission = runtime._workflow_module.admit_voice_shortcut(
+        ControlSurfaceRef(workflow_id, "workflow"),
+        None,
+    )
+
+    assert admission.kind == "follow_up"
+    assert admission.target == VoiceFollowUpTarget(workflow_id)
+
+
 def test_focused_answering_popup_rejects_a_second_voice_question() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))

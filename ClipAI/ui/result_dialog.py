@@ -159,6 +159,10 @@ class ResultDialogPresenter:
             return None
         return view.surface.selection_range()
 
+    def voice_follow_up_is_visible(self, workflow_id: str) -> bool:
+        view = self._interactive_view(workflow_id)
+        return view is not None and view.surface.follow_up_visible
+
     def render(self, snapshot: SessionSnapshot) -> None:
         self._updates.put(snapshot)
 
