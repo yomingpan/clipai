@@ -1564,7 +1564,12 @@ def test_open_voice_follow_up_routes_ptt_to_follow_up_instead_of_the_draft() -> 
         pytest.param("popup", SessionStatus.VOICE_REVIEW, True, True, ("follow_up",), None, False, "voice_review", id="popup-keeps-voice-review-intent"),
         pytest.param("shortcut", SessionStatus.COMPLETED, True, False, ("follow_up",), None, False, "follow_up", id="shortcut-continues-completed-result"),
         pytest.param("popup", SessionStatus.COMPLETED, True, False, ("follow_up",), None, False, "follow_up", id="popup-continues-completed-result"),
+        pytest.param("shortcut", SessionStatus.FAILED, True, False, ("follow_up",), None, False, "follow_up", id="shortcut-continues-failed-result"),
+        pytest.param("popup", SessionStatus.STOPPED, True, False, ("follow_up",), None, False, "follow_up", id="popup-continues-stopped-result"),
+        pytest.param("shortcut", SessionStatus.COMPLETED, True, False, ("copy",), None, False, "rejected", id="shortcut-rejects-unavailable-follow-up"),
+        pytest.param("popup", SessionStatus.COMPLETED, True, False, ("follow_up",), "provider-1", False, "rejected", id="popup-rejects-active-invocation"),
         pytest.param("shortcut", SessionStatus.REQUESTING_PROVIDER, True, False, ("follow_up",), "provider-1", False, "rejected", id="shortcut-rejects-provider-active"),
+        pytest.param("shortcut", SessionStatus.REQUESTING_PROVIDER, True, True, ("follow_up",), "provider-1", False, "rejected", id="shortcut-open-follow-up-does-not-bypass-provider"),
         pytest.param("popup", SessionStatus.REQUESTING_PROVIDER, True, False, ("follow_up",), "provider-1", False, "rejected", id="popup-rejects-provider-active"),
         pytest.param("shortcut", SessionStatus.VOICE_REVIEW, False, False, ("follow_up",), None, False, "rejected", id="shortcut-requires-focused-visible-workflow"),
         pytest.param("shortcut", SessionStatus.VOICE_REVIEW, False, False, ("follow_up",), None, True, "continue", id="shortcut-continues-active-capture"),
@@ -1594,7 +1599,7 @@ def test_voice_capture_destination_admission_matrix(
         controller = runtime._workflow_module.create_voice_workflow(workflow_id, None)
         steps = (
             (WorkflowStep("step-1", "a", "Action", "input", "answer", "plain_text"),)
-            if status is SessionStatus.COMPLETED
+            if status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
             else ()
         )
         controller._snapshot = controller.snapshot.evolve(

@@ -26,6 +26,10 @@ admission for both global shortcuts and Popup microphone intents. Both triggers
 submit a typed `VoiceCaptureIntent` through one admission interface and receive
 one typed `VoiceCaptureAdmission`.
 
+After trigger-specific Workflow lookup and focus validation, both intents pass
+through the same visible-Workflow destination matrix. Separate shortcut-only
+and Popup-only private admission pipelines are not permitted.
+
 UI reports an immutable `VoiceCaptureSurfaceContext` at explicit intent time.
 It carries the semantic Follow-up request and current Voice Draft selection;
 runtime does not read widget-visibility-named methods. The owner validates this

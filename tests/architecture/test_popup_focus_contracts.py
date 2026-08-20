@@ -58,10 +58,11 @@ def test_voice_admission_does_not_read_widget_visibility_or_split_by_trigger() -
                 violations.append(f"{path}:{node.lineno}: app reads Follow-up widget visibility")
             if (
                 isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name.startswith("admit_voice_")
-                and node.name != "admit_voice_capture"
+                and "voice" in node.name
+                and ("admit" in node.name or "admission" in node.name)
+                and ("shortcut" in node.name or "popup" in node.name)
             ):
-                violations.append(f"{path}:{node.lineno}: Voice admission is split across public methods")
+                violations.append(f"{path}:{node.lineno}: Voice admission is split by trigger")
 
     runtime_tree = ast.parse(
         Path("ClipAI/app/runtime_voice_input.py").read_text(encoding="utf-8"),
