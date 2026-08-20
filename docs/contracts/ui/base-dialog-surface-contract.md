@@ -113,8 +113,9 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - Paste 必須先隱藏 surface、釋放 focus，再送出 typed command；UI 不得直接操作 clipboard 或 keyboard。
 - Paste 的 `pending` 與 terminal acknowledgement 必須以相同 operation ID
   配對；stale acknowledgement 不得改變目前 surface、focus 或 transition。
-- `failed` 恢復並聚焦 surface；`cancelled` 恢復但不搶 focus；未 pinned 的
-  `dispatched_unconfirmed` 保持隱藏並釋放 semantic foreground；pinned 的
+- `failed` 恢復並聚焦 surface；`cancelled` 恢復但不搶 focus；未 pinned 的一般
+  `dispatched_unconfirmed` 保持隱藏並釋放 semantic foreground；未 pinned 的
+  Voice Draft 則在 clipboard cleanup 結束後關閉 Popup 與 Workflow；pinned 的
   `dispatched_unconfirmed` 保持可見但不搶 focus；`cleanup_failed` 恢復並顯示
   警告但不搶 focus。Paste 不得顯示 confirmed success。
 - Result surface 的 focus state 以邊框作為主要提示。Focused surface 的 footer

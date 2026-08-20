@@ -967,7 +967,8 @@ Cover projections rather than engine behavior:
 - Voice Review starts in Editing mode; `Ctrl+Enter` toggles a read-only Reading
   mode and can return to Editing without changing canonical ownership.
 - `Ctrl+V` emits the identified external Paste intent from either Voice Review
-  mode and never performs native popup paste.
+  mode and never performs native popup paste; the Voice Draft widget intercepts
+  it before Tk's native Text paste handler can modify the draft.
 - The footer always states the mode, external `Ctrl+V` meaning, `Ctrl+Enter`
   transition, and target without relying on animation.
 - General editable fields other than Voice Draft retain native `Ctrl+V`;

@@ -31,7 +31,9 @@ python -m pytest -m integration tests/platform/test_voice_webview_host_integrati
    describes Reading mode. Press `Ctrl+V` again and confirm it has the same
    external Paste intent. Press `Ctrl+Enter` again and confirm Editing mode
    returns. The Paste button must continue to send the reviewed text explicitly
-   from either mode.
+   from either mode. After an unpinned dispatch settles, confirm the Popup
+   closes and a new `Ctrl+Alt+W` press starts a fresh Voice Draft without asking
+   the user to close or focus the old Popup.
    While editing, move the caret and let a finalized Voice insertion update the
    draft; confirm the caret does not jump to another position.
 5. Repeat with the original window closed before Paste. Confirm the draft stays

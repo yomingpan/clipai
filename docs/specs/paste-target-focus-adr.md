@@ -15,6 +15,9 @@ focus or the destination of the paste side effect.
   Editing and Reading presentation, but never changes the `Ctrl+V` intent.
   The explicit Paste button remains available in both modes for sending a
   reviewed draft to its external target.
+- After an unpinned Voice Draft is `dispatched_unconfirmed`, close that Voice
+  Workflow through the normal close command. Other unpinned result Workflows
+  retain their existing hidden-but-available behavior.
 - Track the latest non-ClipAI Windows foreground window as an immutable,
   in-memory paste target.
 - Let `PasteTargetCoordinator` own the latest target; the Windows adapter only
@@ -53,26 +56,28 @@ dispatch only, so the UI must ask the user to confirm the target before retrying
 An older operation acknowledgement cannot restore, hide, or focus the current
 Paste transition.
 
-Hiding an unpinned Popup after `dispatched_unconfirmed` does not delete its
-Workflow. `AppRuntime` routes authoritative `PasteOperationCompleted` truth to
-`WorkflowRuntimeModule`, which releases semantic Foreground Workflow so later
-global input is not routed to a hidden surface. The UI acknowledgement controls
-only Popup presentation. Workflow membership and canonical result remain
-available under runtime ownership. Cleanup failure keeps the dispatch fact
-visible because an automatic retry could duplicate content.
+Hiding an unpinned Popup after `dispatched_unconfirmed` does not delete a
+general result Workflow. `AppRuntime` releases semantic Foreground Workflow so
+later global input is not routed to a hidden surface. For a Voice Draft only,
+the same authoritative terminal completion instead routes through the normal
+close command after clipboard cleanup settles. This disposes the Voice Popup so
+the next global Voice shortcut starts a fresh Workflow rather than being
+blocked by a hidden Voice Popup. Cleanup failure keeps the dispatch fact visible
+because an automatic retry could duplicate content.
 
 `PopupExternalOutputTransitions` owns the Popup's local transition table for
 copy, archive, speech, and Paste acknowledgements. Its small interface accepts
 operation begin, acknowledgement, and toolkit focus facts, then returns explicit
 UI actions. It owns stale acknowledgement rejection, Paste pin capture,
 hide/restore/no-activate decisions, whether Paste still owns a withdrawal, and
-focus-check generations. A later explicit Workflow attention request restores
-a Popup that remains withdrawn after an unpinned Paste. Attention received
-before Paste settles is deferred until its ordered terminal acknowledgement so
-it cannot steal the external target before dispatch. Only an observed focus
-entry or an explicit Paste restoration releases that local withdrawal fact,
-and snapshot revisions do not imply visibility. BaseDialog and the presenter
-execute those actions without duplicating their policy.
+focus-check generations. Attention received before Paste settles is deferred
+until its ordered terminal acknowledgement so it cannot steal the external
+target before dispatch. The runtime then closes an unpinned dispatched Voice
+Workflow, while other unpinned Workflows remain hidden and pinned Workflows
+remain available for later attention. Only an observed focus entry or an
+explicit Paste restoration releases that local withdrawal fact, and snapshot
+revisions do not imply visibility. BaseDialog and the presenter execute those
+actions without duplicating their policy.
 
 Voice Draft rendering separately preserves the current insertion caret when an
 authoritative content revision replaces widget text. Toolkit text marks remain
