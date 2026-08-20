@@ -797,9 +797,11 @@ their real operation cannot be accepted.
 ### 6.3 Continue dictation in an existing Voice Draft
 
 1. Active Voice Popup must currently display its editable Voice origin in Review
-   and supply its Workflow identity and valid frozen target. A displayed Action
-   result is not eligible and PTT is rejected rather than interpreted as Voice
-   Follow-up.
+   and supply its Workflow identity and valid frozen target. It continues the
+   Voice Draft unless the user has explicitly opened the Popup Follow-up with
+   `Ctrl+/`; that explicit visible Follow-up intent routes the next PTT capture
+   to the Follow-up field instead. A displayed Action result is not eligible
+   and PTT is rejected rather than interpreted as Voice Follow-up.
 2. Workflow freezes selection/caret and origin revision.
 3. Single-capture admission succeeds or produces visible rejection.
 4. Capture follows the normal lifecycle.

@@ -110,6 +110,10 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
   `Ctrl+V` 在編輯與閱讀模式都一律產生外部 Paste intent，不得原生貼入
   Popup。`Ctrl+Enter` 只切換編輯／閱讀呈現；Paste 按鈕在兩種模式都可明確
   觸發外部貼上。
+- 在 Voice Review 中，使用者以 `Ctrl+/` 明確開啟 Follow-up 後，下一次
+  `Ctrl+Alt+W` 必須以 Follow-up 作為 Voice capture destination；未開啟時才
+  繼續 Voice Draft。Presenter 只讀取並回報 Follow-up 可見狀態，runtime 保留
+  capture admission 的唯一決策權。
 - Paste 必須先隱藏 surface、釋放 focus，再送出 typed command；UI 不得直接操作 clipboard 或 keyboard。
 - Paste 的 `pending` 與 terminal acknowledgement 必須以相同 operation ID
   配對；stale acknowledgement 不得改變目前 surface、focus 或 transition。
