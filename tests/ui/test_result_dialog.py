@@ -940,7 +940,7 @@ def test_ctrl_v_preserves_native_paste_in_editable_popup_fields() -> None:
     assert events == []
 
 
-def test_ctrl_v_preserves_native_paste_in_editable_voice_review() -> None:
+def test_ctrl_v_pastes_external_content_from_editable_voice_review() -> None:
     class EditableVoiceDraft:
         def winfo_class(self) -> str:
             return "Text"
@@ -967,11 +967,11 @@ def test_ctrl_v_preserves_native_paste_in_editable_voice_review() -> None:
         "s1",
     )
 
-    assert result is None
-    assert events == []
+    assert result == "break"
+    assert events == ["paste:s1"]
 
 
-def test_ctrl_enter_switches_voice_draft_to_reading_mode() -> None:
+def test_ctrl_enter_switches_voice_draft_mode_without_changing_ctrl_v_paste_intent() -> None:
     class ShortcutRoot:
         def __init__(self) -> None:
             self.bindings = {}
@@ -1024,8 +1024,8 @@ def test_ctrl_enter_switches_voice_draft_to_reading_mode() -> None:
         type("Event", (), {"state": 0x0004})(),
     ) == "break"
     paste_count = events.count("paste:s1")
-    assert view.dialog.root.bindings["<Control-v>"](paste_event) is None
-    assert events.count("paste:s1") == paste_count
+    assert view.dialog.root.bindings["<Control-v>"](paste_event) == "break"
+    assert events.count("paste:s1") == paste_count + 1
 
 
 def test_voice_draft_snapshot_keeps_the_selected_reading_mode() -> None:

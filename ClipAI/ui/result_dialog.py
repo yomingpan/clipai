@@ -1009,11 +1009,11 @@ class ResultDialogPresenter:
     def _paste_shortcut(self, event, session_id: str) -> str | None:
         if not _has_only_popup_shortcut_modifiers(event):
             return "break"
-        if _accepts_native_paste(getattr(event, "widget", None)):
-            return None
         view = self._views.get(session_id)
         if view is not None and view.last_snapshot is not None and view.last_snapshot.status is SessionStatus.VOICE_REVIEW:
             return self._shortcut(self._paste, session_id)
+        if _accepts_native_paste(getattr(event, "widget", None)):
+            return None
         return self._shortcut(self._paste, session_id)
 
     def _toggle_voice_draft_mode(self, session_id: str) -> None:

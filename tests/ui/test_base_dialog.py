@@ -328,11 +328,11 @@ def test_voice_draft_footer_explains_ctrl_v_for_editing_and_reading_modes() -> N
     surface.set_paste_focus_state(True, target, voice_draft_editing=False)
 
     assert surface.paste_target_label.values == [
-        {"text": "編輯模式｜Ctrl+V 貼入｜Ctrl+Enter 閱讀"},
+        {"text": "編輯模式｜Ctrl+V → Notepad — Untitled｜Ctrl+Enter 閱讀"},
         {"text": "閱讀模式｜Ctrl+V → Notepad — Untitled｜Ctrl+Enter 編輯"},
     ]
     assert tooltips == [
-        ("paste", "編輯模式：Ctrl+V 貼入草稿；Ctrl+Enter 切換閱讀模式"),
+        ("paste", "編輯模式：Ctrl+V 貼上目前內容到 Notepad — Untitled；Ctrl+Enter 切換閱讀模式"),
         ("paste", "閱讀模式：Ctrl+V 貼上目前內容到 Notepad — Untitled；Ctrl+Enter 切換編輯模式"),
     ]
 

@@ -1202,32 +1202,30 @@ class BaseResultSurface:
         self.dialog.set_focus_active(focused)
         if voice_draft_editing is not None:
             mode = "編輯模式" if voice_draft_editing else "閱讀模式"
+            next_mode = "閱讀" if voice_draft_editing else "編輯"
             if not focused:
                 self.paste_target_label.configure(
                     text=f"{mode}｜未聚焦；Ctrl+V 使用原剪貼簿",
                 )
                 self.set_action_tooltip("paste", "Popup 未聚焦；Ctrl+V 會使用原剪貼簿內容")
                 return
-            if voice_draft_editing:
-                self.paste_target_label.configure(
-                    text="編輯模式｜Ctrl+V 貼入｜Ctrl+Enter 閱讀",
-                )
-                self.set_action_tooltip("paste", "編輯模式：Ctrl+V 貼入草稿；Ctrl+Enter 切換閱讀模式")
-                return
             if target is not None:
                 destination = paste_target_display_text(target)
                 self.paste_target_label.configure(
-                    text=f"閱讀模式｜Ctrl+V → {destination}｜Ctrl+Enter 編輯",
+                    text=f"{mode}｜Ctrl+V → {destination}｜Ctrl+Enter {next_mode}",
                 )
                 self.set_action_tooltip(
                     "paste",
-                    f"閱讀模式：Ctrl+V 貼上目前內容到 {destination}；Ctrl+Enter 切換編輯模式",
+                    f"{mode}：Ctrl+V 貼上目前內容到 {destination}；Ctrl+Enter 切換{next_mode}模式",
                 )
                 return
             self.paste_target_label.configure(
-                text="閱讀模式｜Ctrl+V 無外部目標｜Ctrl+Enter 編輯",
+                text=f"{mode}｜Ctrl+V 無外部目標｜Ctrl+Enter {next_mode}",
             )
-            self.set_action_tooltip("paste", "閱讀模式：找不到外部貼上目標；Ctrl+Enter 切換編輯模式")
+            self.set_action_tooltip(
+                "paste",
+                f"{mode}：找不到外部貼上目標；Ctrl+Enter 切換{next_mode}模式",
+            )
             return
         if focused and target is not None:
             destination = paste_target_display_text(target)
