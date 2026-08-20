@@ -1768,3 +1768,6 @@ class BaseResultSurface:
         if self.follow_up_visible:
             self.follow_row.grid_forget()
             self.follow_up_visible = False
+
+    def clear_follow_up_text(self) -> None:
+        self.follow_entry.delete(0, "end")

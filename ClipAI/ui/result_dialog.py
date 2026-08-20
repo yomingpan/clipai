@@ -830,6 +830,7 @@ class ResultDialogPresenter:
                 return
             question = view.surface.follow_entry.get().strip()
             if question:
+                view.surface.clear_follow_up_text()
                 view.surface.hide_follow_up()
                 view.surface.set_follow_up_active(False)
                 self._command_sink(FollowUp(session_id, question))

@@ -74,6 +74,21 @@ class Dialog:
         return self.native_foreground
 
 
+class FollowUpEntry:
+    def __init__(self) -> None:
+        self.text = ""
+        self.bindings = {}
+
+    def get(self) -> str:
+        return self.text
+
+    def delete(self, _start, _end) -> None:
+        self.text = ""
+
+    def bind(self, event, callback, **_kwargs) -> None:
+        self.bindings[event] = callback
+
+
 class Surface:
     def __init__(self, selected: str | None, events: list[str]) -> None:
         self.selected = selected
@@ -83,11 +98,7 @@ class Surface:
         self.header_double_click_callback = None
         self.focus_result = True
         self.follow_up_visible = False
-        self.follow_entry = type("Entry", (), {
-            "get": lambda _self: "",
-            "bindings": {},
-            "bind": lambda entry, event, callback, **_kwargs: entry.bindings.__setitem__(event, callback),
-        })()
+        self.follow_entry = FollowUpEntry()
         self.follow_send_button = type("Button", (), {
             "command": None,
             "configure": lambda button, **kwargs: setattr(
@@ -184,6 +195,10 @@ class Surface:
     def hide_follow_up(self) -> None:
         self.follow_up_visible = False
         self.events.append("follow-up-hide")
+
+    def clear_follow_up_text(self) -> None:
+        self.follow_entry.delete(0, "end")
+        self.events.append("follow-up-cleared")
 
     def set_follow_up_active(self, active: bool) -> None:
         self.events.append(f"follow-up-active:{active}")
@@ -427,6 +442,28 @@ def test_shortcut_started_voice_follow_up_can_submit_with_enter() -> None:
     view.surface.follow_entry.bindings["<Return>"](None)
 
     assert events[-1] == FollowUp("s1", "What changed?")
+
+
+def test_sent_follow_up_clears_the_next_question_input() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.last_snapshot = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        available_actions=("follow_up",),
+    )
+
+    presenter._show_follow_up("s1")
+    view.surface.follow_entry.text = "First question"
+    view.surface.follow_send_button.command()
+    presenter._show_follow_up("s1")
+
+    assert events[-1] == "follow-up-active:True"
+    assert view.surface.follow_entry.text == ""
 
 
 def test_provider_activity_disables_popup_voice_input() -> None:
