@@ -800,8 +800,10 @@ their real operation cannot be accepted.
    and supply its Workflow identity and valid frozen target. It continues the
    Voice Draft unless the user has explicitly opened the Popup Follow-up with
    `Ctrl+/`; that explicit visible Follow-up intent routes the next PTT capture
-   to the Follow-up field instead. A displayed Action result is not eligible
-   and PTT is rejected rather than interpreted as Voice Follow-up.
+   to the Follow-up field instead. Follow-up capture lifecycle and terminal
+   insertion accept the `VOICE_REVIEW` projection while preserving Workflow and
+   capture identity. A displayed Action result is not eligible and PTT is
+   rejected rather than interpreted as Voice Follow-up.
 2. Workflow freezes selection/caret and origin revision.
 3. Single-capture admission succeeds or produces visible rejection.
 4. Capture follows the normal lifecycle.
