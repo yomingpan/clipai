@@ -468,6 +468,23 @@ def test_voice_draft_mode_shortcut_binds_directly_to_the_text_widget() -> None:
     ]
 
 
+def test_back_shortcut_binds_directly_to_the_content_widget() -> None:
+    class ContentText:
+        def __init__(self) -> None:
+            self.bindings = []
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings.append((sequence, callback, add))
+
+    callback = lambda _event: "break"
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = ContentText()
+
+    surface.bind_back_shortcut(callback)
+
+    assert surface.content_text.bindings == [("<Control-z>", callback, "+")]
+
+
 def test_rounded_surface_painter_redraws_tagged_surface_below_widgets() -> None:
     canvas = FakeCanvas()
     painter = RoundedSurfacePainter(

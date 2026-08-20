@@ -6,7 +6,7 @@ import inspect
 import textwrap
 from dataclasses import replace
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, FollowUp, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
@@ -133,6 +133,9 @@ class Surface:
 
     def bind_header_double_click(self, callback) -> None:
         self.header_double_click_callback = callback
+
+    def bind_back_shortcut(self, callback) -> None:
+        self.back_shortcut_callback = callback
 
     def bind_voice_draft_mode_toggle(self, callback) -> None:
         self.voice_draft_mode_toggle_callback = callback
@@ -765,6 +768,38 @@ def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:
 
     assert result == "break"
     assert events == ["follow-up:s1"]
+
+
+def test_ctrl_z_navigates_back_for_active_popup_with_history() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    view.last_snapshot = SessionSnapshot(
+        "s1", 1, SessionStatus.COMPLETED, "rewrite", "Rewrite", "Completed",
+        can_navigate_back=True,
+    )
+
+    presenter._register_view("s1", view)
+
+    class CtrlZEvent:
+        state = 0x0004
+
+    result = view.surface.back_shortcut_callback(CtrlZEvent())
+
+    assert result == "break"
+    assert events == [NavigateWorkflowBack("s1")]
 
 
 def test_failed_initial_focus_attempt_does_not_claim_popup_focus() -> None:

@@ -984,7 +984,7 @@ class BaseResultSurface:
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 0))
         self.overflow_actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
-        self._back_button = self.add_action_slot("back", "←", None, width=24, tooltip="Previous result")
+        self._back_button = self.add_action_slot("back", "←", None, width=24, tooltip="Previous result (Ctrl + Z)")
         self._back_button.pack_forget()
         self.standard_actions = StandardResultActions(self)
         self.voice_input_button = self.add_action_slot(
@@ -1450,6 +1450,9 @@ class BaseResultSurface:
             self._back_button.pack_forget()
         elif not self._back_button.winfo_manager():
             self._back_button.pack(side="left", padx=(0, 5), before=self.standard_actions._buttons["speaker"])
+
+    def bind_back_shortcut(self, callback: Callable[[object], str]) -> None:
+        self.content_text.bind("<Control-z>", callback, add="+")
 
     def set_speaker_active(self, active: bool) -> None:
         self.standard_actions.set_speaker_active(active)

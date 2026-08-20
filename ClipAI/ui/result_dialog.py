@@ -585,7 +585,7 @@ class ResultDialogPresenter:
             )
         if patch.header:
             view.surface.configure_back_action(
-                (lambda sid=snapshot.session_id: self._command_sink(NavigateWorkflowBack(sid)))
+                (lambda sid=snapshot.session_id: self._navigate_back(sid))
                 if snapshot.can_navigate_back
                 else None
             )
@@ -964,6 +964,11 @@ class ResultDialogPresenter:
             self._toggle_voice_draft_mode,
             sid,
         )
+        navigate_back = lambda event, sid=session_id: self._popup_shortcut(
+            event,
+            self._navigate_back,
+            sid,
+        )
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
         dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._focus_in(sid), add="+")
         dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
@@ -973,10 +978,12 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-s>", lambda event, sid=session_id: self._popup_shortcut(event, self._archive, sid), add="+")
         dialog.root.bind("<Control-r>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_feedback, sid), add="+")
         dialog.root.bind("<Control-v>", lambda event, sid=session_id: self._paste_shortcut(event, sid), add="+")
+        dialog.root.bind("<Control-z>", navigate_back, add="+")
         dialog.root.bind("<Control-Return>", toggle_voice_draft_mode, add="+")
         dialog.root.bind("<Control-KP_Enter>", toggle_voice_draft_mode, add="+")
         dialog.root.bind("<Control-slash>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_follow_up, sid), add="+")
         view.surface.bind_header_double_click(lambda _event, sid=session_id: self._header_double_click(sid))
+        view.surface.bind_back_shortcut(navigate_back)
         view.surface.bind_voice_draft_mode_toggle(toggle_voice_draft_mode)
         view.surface.bind_voice_draft_paste(
             lambda event, sid=session_id: self._paste_shortcut(event, sid)
@@ -1034,6 +1041,9 @@ class ResultDialogPresenter:
             self._paste_target,
             voice_draft_editing=view.voice_draft_editing,
         )
+
+    def _navigate_back(self, session_id: str) -> None:
+        self._command_sink(NavigateWorkflowBack(session_id))
 
     def _header_double_click(self, session_id: str) -> str:
         self._toggle_pin(session_id)
