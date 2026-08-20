@@ -4,12 +4,11 @@ import uuid
 import threading
 from collections.abc import Callable
 
-from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
+from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
 from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
 from ClipAI.core.ports import UserNotifier, VoiceInputEngine, VoiceSetupPresenter
-from ClipAI.core.state import SessionStatus
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceDraftTarget, VoiceEngineListening, VoiceEngineSetupFailed, VoiceFollowUpTarget, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceDraftTarget, VoiceEngineListening, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
 from ClipAI.services.voice_input import FinalizeVoiceDraft, FinalizeVoiceFollowUp, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceFollowUp, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
 
@@ -69,10 +68,11 @@ class VoiceInputRuntimeModule:
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
         focused_surface = self._focused_surface_reader()
-        admission = self._workflows.admit_voice_shortcut(
-            focused_surface,
-            self._controller.projection.workflow_id,
-        )
+        admission = self._workflows.admit_voice_capture(VoiceCaptureIntent(
+            "shortcut",
+            focused_surface=focused_surface,
+            active_voice_workflow_id=self._controller.projection.workflow_id,
+        ))
         if admission.kind == "rejected":
             self._notify_shortcut_rejected(admission.message)
             return False
@@ -126,23 +126,12 @@ class VoiceInputRuntimeModule:
         return True
 
     def _start_popup_capture(self, command: StartPopupVoiceCapture) -> VoiceTransition:
-        controller = self._workflows.controller_for(command.workflow_id)
-        if controller is None:
+        admission = self._workflows.admit_voice_capture(
+            VoiceCaptureIntent("popup", workflow_id=command.workflow_id)
+        )
+        if admission.kind not in {"voice_review", "follow_up"} or admission.target is None:
             return VoiceTransition(self._controller.projection, ignored=True)
-        snapshot = controller.snapshot
-        if snapshot.status is SessionStatus.VOICE_REVIEW:
-            target = self._workflows.capture_target_for_voice_review(command.workflow_id)
-            if target is None:
-                return VoiceTransition(self._controller.projection, ignored=True)
-        elif (
-            snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
-            and snapshot.active_invocation_id is None
-            and "follow_up" in snapshot.available_actions
-        ):
-            target = VoiceFollowUpTarget(command.workflow_id)
-        else:
-            return VoiceTransition(self._controller.projection, ignored=True)
-        return self._controller.request_capture(command.capture_id, target)
+        return self._controller.request_capture(command.capture_id, admission.target)
 
     def handle(self, command: OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
         if isinstance(command, OpenVoiceSetup):

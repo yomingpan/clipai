@@ -32,6 +32,7 @@ tests/              # Unit sims 與 integration tests
 - 禁止 global Event Bus。Event Bus 不得用來指揮 action pipeline 或修改 Workflow。
 - 每個 Workflow 只有一個 `WorkflowController`，由它擁有 snapshot、active invocation、cancellation、成功 step history 與 feedback projection。
 - `WorkflowRuntimeModule` 是 Workflow membership、semantic Foreground Workflow、visible/headless lifetime 與 captured provider binding 的唯一 owner。Window focus 只能提出 activation candidate，不得自行決定 Foreground Workflow。
+- `WorkflowRuntimeModule` 也是 global Voice shortcut 與 Popup microphone 共用的 Voice capture destination admission owner。UI 只能在明確 intent 當下回報 typed `VoiceCaptureSurfaceContext`（semantic Follow-up request 與 Voice Draft selection）；runtime 不得讀取 widget visibility，`VoiceInputRuntimeModule` 也不得重複 Workflow status／available-action destination matrix。
 - `ProviderExecutionModule` 是 provider async HTTP task、transport cancellation、settlement、shared connection pool 與 transport shutdown 的唯一 owner。Provider networking 不得占用 `TaskSupervisor`；`TaskSupervisor` 只執行非 provider 的 blocking work。
 - Hotkey callback 只能 enqueue command；worker 不得直接碰 Tkinter。
 - 同一時間最多一個 visible Workflow 擁有主要 Popup surface。PIN 會保留並占用該 surface；新的 visible Action 必須重用既有 pinned Workflow 與同一個 Popup，不得建立第二個 surface，也不得要求使用者先取消 PIN。未 pin Workflow 才可被非 contextual Action 取代；被取代或取消的 invocation 晚到時，必須依 Workflow ID、active invocation ID 與 cancellation token 丟棄。Workflow snapshot revision 只用於拒絕過時的 UI projection，不得代替 operation identity。

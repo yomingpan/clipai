@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
-from ClipAI.app.runtime_workflows import VoiceShortcutAdmission
+from ClipAI.app.runtime_workflows import VoiceCaptureAdmission
 from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -38,21 +38,43 @@ class Workflows:
     def create_voice_workflow(self, workflow_id, target):
         self.created.append((workflow_id, target)); self.controllers[workflow_id] = Workflow()
     def controller_for(self, workflow_id): return self.controllers.get(workflow_id)
-    def capture_target_for_voice_review(self, workflow_id):
+    def _voice_review_target(self, workflow_id):
         return VoiceDraftTarget(workflow_id, 0, PasteTarget("hwnd:1", 1, "Editor", "private", 1), 2, 2)
-    def admit_voice_shortcut(self, focused_surface, _active_voice_workflow_id):
-        if focused_surface is not None and focused_surface.kind == "workflow":
-            return VoiceShortcutAdmission(
+    def admit_voice_capture(self, intent):
+        if intent.trigger == "popup":
+            workflow = self.controllers.get(intent.workflow_id)
+            if workflow is None:
+                return VoiceCaptureAdmission("rejected")
+            snapshot = workflow.snapshot
+            if snapshot.status is SessionStatus.VOICE_REVIEW:
+                return VoiceCaptureAdmission(
+                    "voice_review",
+                    workflow_id=intent.workflow_id,
+                    target=self._voice_review_target(intent.workflow_id),
+                )
+            if (
+                snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
+                and snapshot.active_invocation_id is None
+                and "follow_up" in snapshot.available_actions
+            ):
+                return VoiceCaptureAdmission(
+                    "follow_up",
+                    workflow_id=intent.workflow_id,
+                    target=VoiceFollowUpTarget(intent.workflow_id),
+                )
+            return VoiceCaptureAdmission("rejected", workflow_id=intent.workflow_id)
+        if intent.focused_surface is not None and intent.focused_surface.kind == "workflow":
+            return VoiceCaptureAdmission(
                 "voice_review",
-                workflow_id=focused_surface.surface_id,
-                target=self.capture_target_for_voice_review(focused_surface.surface_id),
+                workflow_id=intent.focused_surface.surface_id,
+                target=self._voice_review_target(intent.focused_surface.surface_id),
             )
-        return VoiceShortcutAdmission("create")
+        return VoiceCaptureAdmission("create")
 
 
 class RejectedWorkflows(Workflows):
-    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
-        return VoiceShortcutAdmission(
+    def admit_voice_capture(self, _intent):
+        return VoiceCaptureAdmission(
             "rejected",
             workflow_id="pinned-workflow",
             message="目前此內容無法使用語音輸入",
@@ -60,8 +82,8 @@ class RejectedWorkflows(Workflows):
 
 
 class ContinuingWorkflows(Workflows):
-    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
-        return VoiceShortcutAdmission("continue", workflow_id="pinned-workflow")
+    def admit_voice_capture(self, _intent):
+        return VoiceCaptureAdmission("continue", workflow_id="pinned-workflow")
 
 
 class FollowUpWorkflows(Workflows):
@@ -78,8 +100,8 @@ class FollowUpWorkflows(Workflows):
             available_actions=("copy", "follow_up"),
         ))
 
-    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
-        return VoiceShortcutAdmission(
+    def admit_voice_capture(self, _intent):
+        return VoiceCaptureAdmission(
             "follow_up",
             workflow_id="result-workflow",
             target=VoiceFollowUpTarget("result-workflow"),

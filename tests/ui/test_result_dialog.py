@@ -9,7 +9,7 @@ from dataclasses import replace
 from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.ui.base_dialog import BaseResultSurface
 from ClipAI.ui.popup_external_output import FocusEntered, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, _voice_waveform_text, workflow_render_patch
@@ -1049,15 +1049,26 @@ def test_voice_draft_intercepts_ctrl_v_before_the_text_widget_can_paste() -> Non
     assert events == ["paste:s1"]
 
 
-def test_voice_follow_up_visibility_is_available_to_shortcut_admission() -> None:
+def test_voice_capture_surface_context_projects_semantic_follow_up_intent() -> None:
     presenter, _events = presenter_with_selection(None)
     view = presenter._views["s1"]
+    view.last_snapshot = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.VOICE_REVIEW,
+        "voice_input",
+        "Voice Input",
+        "model",
+    )
+    view.surface.selection_range = lambda: (2, 4)
 
     view.surface.follow_up_visible = True
 
-    assert presenter.voice_follow_up_is_visible("s1") is True
-    view.surface.follow_up_visible = False
-    assert presenter.voice_follow_up_is_visible("s1") is False
+    assert presenter.voice_capture_surface_context("s1") == VoiceCaptureSurfaceContext(
+        "s1",
+        follow_up_requested=True,
+        selection=(2, 4),
+    )
 
 
 def test_ctrl_enter_switches_voice_draft_mode_without_changing_ctrl_v_paste_intent() -> None:

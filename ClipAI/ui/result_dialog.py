@@ -14,7 +14,7 @@ from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, 
 from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceProjection
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, ForegroundLeftApplication, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
@@ -153,15 +153,20 @@ class ResultDialogPresenter:
             view.surface.selected_text(),
         )
 
-    def voice_draft_selection_range(self, workflow_id: str) -> tuple[int, int] | None:
+    def voice_capture_surface_context(self, workflow_id: str) -> VoiceCaptureSurfaceContext | None:
         view = self._interactive_view(workflow_id)
-        if view is None or view.last_snapshot is None or view.last_snapshot.status is not SessionStatus.VOICE_REVIEW:
+        if view is None or view.last_snapshot is None:
             return None
-        return view.surface.selection_range()
-
-    def voice_follow_up_is_visible(self, workflow_id: str) -> bool:
-        view = self._interactive_view(workflow_id)
-        return view is not None and view.surface.follow_up_visible
+        selection = (
+            view.surface.selection_range()
+            if view.last_snapshot.status is SessionStatus.VOICE_REVIEW
+            else None
+        )
+        return VoiceCaptureSurfaceContext(
+            workflow_id,
+            follow_up_requested=view.surface.follow_up_visible,
+            selection=selection,
+        )
 
     def render(self, snapshot: SessionSnapshot) -> None:
         self._updates.put(snapshot)

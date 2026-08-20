@@ -6,7 +6,7 @@ from typing import Protocol, TypeVar
 
 from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
-from ClipAI.core.voice import VoiceCaptureId, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
+from ClipAI.core.voice import VoiceCaptureId, VoiceCaptureSurfaceContext, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
 
 
 class LLMProvider(Protocol):
@@ -77,10 +77,8 @@ class WorkflowContextReader(Protocol):
     def workflow_context(self, workflow_id: str) -> ActiveWorkflowContext | None: ...
 
 
-class VoiceDraftSelectionReader(Protocol):
-    def voice_draft_selection_range(self, workflow_id: str) -> tuple[int, int] | None: ...
-
-    def voice_follow_up_is_visible(self, workflow_id: str) -> bool: ...
+class VoiceCaptureContextReader(Protocol):
+    def voice_capture_surface_context(self, workflow_id: str) -> VoiceCaptureSurfaceContext | None: ...
 
 
 class ArchiveStore(Protocol):

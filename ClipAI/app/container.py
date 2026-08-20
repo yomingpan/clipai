@@ -245,7 +245,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         enqueue=enqueue,
         provider_configuration=provider_configuration,
         workflow_context_reader=view,
-        voice_draft_selection_reader=view,
+        voice_capture_context_reader=view,
         incident_reporter=incident_reporter,
         operation_tracker=operation_tracker,
         notifier=tray,

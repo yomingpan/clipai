@@ -62,6 +62,15 @@ class VoiceCaptureDestination(str, Enum):
     FOLLOW_UP = "follow_up"
 
 
+@dataclass(frozen=True)
+class VoiceCaptureSurfaceContext:
+    """Semantic editing context reported at explicit Voice capture intent time."""
+
+    workflow_id: str
+    follow_up_requested: bool = False
+    selection: tuple[int, int] | None = None
+
+
 class VoiceTransportFailure(str, Enum):
     PERMISSION_DENIED = "permission_denied"
     PERMISSION_BLOCKED = "permission_blocked"
