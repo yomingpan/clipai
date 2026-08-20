@@ -139,7 +139,6 @@ class FakeExecute:
         self.models = []
         self.bindings = []
         self.follow_ups = []
-        self.voice_draft_follow_ups = []
         self.actions = []
 
     def execute(self, action, controller) -> None:
@@ -156,9 +155,6 @@ class FakeExecute:
 
     async def execute_follow_up_invocation(self, *args, **kwargs) -> None:
         self.follow_ups.append((args, kwargs))
-
-    async def execute_voice_draft_follow_up_invocation(self, *args, **kwargs) -> None:
-        self.voice_draft_follow_ups.append((args, kwargs))
 
 
 class FakeOutputs:
@@ -1647,11 +1643,14 @@ def test_voice_review_follow_up_submission_starts_a_voice_draft_provider_request
     assert invocation_id is not None
     assert invocation_id in supervisor.work
     supervisor.work[invocation_id]()
-    assert len(view.execute_action.voice_draft_follow_ups) == 1
-    args, kwargs = view.execute_action.voice_draft_follow_ups[0]
-    assert args[1] == "What should I do next?"
-    assert kwargs["voice_draft"] == "reviewed voice draft"
-    assert kwargs["history"] == ()
+    assert len(view.execute_action.follow_ups) == 1
+    args, kwargs = view.execute_action.follow_ups[0]
+    continuation = args[0]
+    assert continuation.question == "What should I do next?"
+    assert continuation.action.id == "voice_draft_follow_up"
+    assert continuation.input_source == "voice_draft"
+    assert continuation.parent_step_id is None
+    assert kwargs["binding"] is runtime._workflow_module._records[workflow_id].binding
 
 
 def test_focused_answering_popup_rejects_a_second_voice_question() -> None:

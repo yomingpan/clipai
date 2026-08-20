@@ -487,7 +487,7 @@ class OutputProfile:
 @dataclass(frozen=True)
 class InputDocument:
     text: str
-    source: Literal["selection", "clipboard", "workflow_result", "voice_transcript", "screenshot"]
+    source: Literal["selection", "clipboard", "workflow_result", "voice_draft", "voice_transcript", "screenshot"]
     workflow_id: str | None = None
     step_id: str | None = None
     image: ImageContent | None = None

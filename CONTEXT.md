@@ -20,6 +20,10 @@ _Avoid_: Persistent popup
 Editable canonical text belonging to one Workflow, formed from finalized Voice Input segments and explicit user edits. It exists only for that Workflow's lifetime and excludes interim recognition.
 _Avoid_: Transcript, recording
 
+**Follow-up Continuation**:
+An explicitly submitted question-and-answer extension of an existing Workflow, rooted in either an Action result or that Workflow's canonical Voice Draft.
+_Avoid_: Chat session, new Workflow
+
 **Shortcut Press**:
 One physical shortcut operation that begins when a complete registered binding
 first matches and ends when its non-modifier function key is released or the

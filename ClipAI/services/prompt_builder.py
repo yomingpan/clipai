@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from ClipAI.core.models import ImageContent, LLMMessage, LLMRequest, ResolvedAction, TextContent, WorkflowStep
+from ClipAI.core.models import ImageContent, LLMMessage, LLMRequest, ResolvedAction, TextContent
+from ClipAI.services.follow_up_continuation import FollowUpContinuation
 from ClipAI.services.output_profiles import OutputProfileCatalog
-from ClipAI.services.voice_draft_follow_up import VOICE_DRAFT_FOLLOW_UP_SYSTEM_PROMPT
-
-
-FOLLOW_UP_HISTORY_LIMIT = 3
 
 
 class PromptBuilder:
@@ -29,70 +26,16 @@ class PromptBuilder:
 
     def build_follow_up(
         self,
-        action: ResolvedAction,
+        continuation: FollowUpContinuation,
         *,
-        history: tuple[WorkflowStep, ...],
-        question: str,
         model: str,
         default_temperature: float,
     ) -> LLMRequest:
-        if not history:
-            raise ValueError("follow-up requires a completed Workflow step")
-        retained_history = (
-            history[0],
-            *history[max(1, len(history) - FOLLOW_UP_HISTORY_LIMIT):],
-        )
-        messages = [LLMMessage(role="system", content=self._system_prompt(action))]
-        for index, step in enumerate(retained_history):
-            messages.extend(
-                (
-                    LLMMessage(
-                        role="user",
-                        content=(
-                            action.prompt.format(input=step.input_text)
-                            if index == 0
-                            else step.input_text
-                        ),
-                    ),
-                    LLMMessage(role="assistant", content=step.result_text),
-                )
-            )
-        messages.append(LLMMessage(role="user", content=question))
-        return LLMRequest(
-            messages=tuple(messages),
+        return continuation.build_request(
+            default_system_prompt=self._default_system_prompt,
+            action_system_prompt=lambda: self._system_prompt(continuation.action),
             model=model,
-            temperature=action.temperature if action.temperature is not None else default_temperature,
-        )
-
-    def build_voice_draft_follow_up(
-        self,
-        *,
-        voice_draft: str,
-        history: tuple[WorkflowStep, ...],
-        question: str,
-        model: str,
-        default_temperature: float,
-    ) -> LLMRequest:
-        """Build a bounded conversation rooted in one reviewed Voice Draft."""
-        messages = [
-            LLMMessage(
-                role="system",
-                content="\n\n".join(
-                    part for part in (self._default_system_prompt, VOICE_DRAFT_FOLLOW_UP_SYSTEM_PROMPT) if part
-                ),
-            ),
-            LLMMessage(role="user", content=f"Reviewed voice draft:\n{voice_draft}"),
-        ]
-        for step in history[-FOLLOW_UP_HISTORY_LIMIT:]:
-            messages.extend((
-                LLMMessage(role="user", content=step.input_text),
-                LLMMessage(role="assistant", content=step.result_text),
-            ))
-        messages.append(LLMMessage(role="user", content=question))
-        return LLMRequest(
-            messages=tuple(messages),
-            model=model,
-            temperature=default_temperature,
+            default_temperature=default_temperature,
         )
 
     def _system_prompt(self, action: ResolvedAction) -> str:

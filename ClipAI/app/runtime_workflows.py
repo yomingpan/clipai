@@ -14,6 +14,7 @@ from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
+from ClipAI.services.follow_up_continuation import FollowUpContinuation, VOICE_DRAFT_FOLLOW_UP_ACTION_ID
 from ClipAI.services.input_target_resolver import InputTargetResolver
 from ClipAI.services.personal_styles import PersonalStyleCoordinator
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
@@ -22,7 +23,6 @@ from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.shortcut_intent import ShortcutIntentCoordinator
 from ClipAI.services.shortcut_sequence import ShortcutSequenceCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
-from ClipAI.services.voice_draft_follow_up import VOICE_DRAFT_FOLLOW_UP_ACTION_ID, action as voice_draft_follow_up_action
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
@@ -559,7 +559,12 @@ class WorkflowRuntimeModule:
             previous.displayed_step_index < 0
             or previous.steps[previous.displayed_step_index].action_id == VOICE_DRAFT_FOLLOW_UP_ACTION_ID
         ):
-            self._start_voice_draft_follow_up(record, command, previous)
+            continuation = FollowUpContinuation.for_voice_draft(
+                command.text.strip(),
+                previous.voice_origin.text,
+                history=previous.steps[: previous.displayed_step_index + 1],
+            )
+            self._start_follow_up_continuation(record, continuation)
             return
         if previous.displayed_step_index < 0:
             return
@@ -575,66 +580,40 @@ class WorkflowRuntimeModule:
             except PersonalStyleUnavailableError as error:
                 self._sequence_error(str(error), "Open Personal Styles from the tray menu.")
                 return
-        invocation = ActionInvocation(
-            uuid.uuid4().hex,
-            action.id,
-            action.press_type,
-            InputTarget("workflow_result", InputDocument(command.text.strip(), "workflow_result", command.session_id, parent.step_id)),
-            workflow_id=command.session_id,
-            parent_step_id=parent.step_id,
+        continuation = FollowUpContinuation.for_action(
+            action,
+            command.text.strip(),
+            history=previous.steps[: previous.displayed_step_index + 1],
         )
-        controller.begin_invocation(invocation, action)
-        self._submit_invocation(
-            command.session_id,
-            invocation.invocation_id,
-            lambda: self._execute_action.execute_follow_up_invocation(
-                action,
-                command.text.strip(),
-                invocation,
-                controller,
-                history=previous.steps[: previous.displayed_step_index + 1],
-                binding=record.binding,
-            ),
-        )
+        self._start_follow_up_continuation(record, continuation)
 
-    def _start_voice_draft_follow_up(
+    def _start_follow_up_continuation(
         self,
         record: _WorkflowRecord,
-        command: FollowUp,
-        previous: SessionSnapshot,
+        continuation: FollowUpContinuation,
     ) -> None:
-        origin = previous.voice_origin
-        if origin is None:
-            return
-        action = voice_draft_follow_up_action()
-        parent_step_id = (
-            previous.steps[previous.displayed_step_index].step_id
-            if previous.displayed_step_index >= 0
-            else None
-        )
+        action = continuation.action
+        workflow_id = record.controller.snapshot.session_id
         invocation = ActionInvocation(
             uuid.uuid4().hex,
             action.id,
             action.press_type,
             InputTarget(
                 "workflow_result",
-                InputDocument(command.text.strip(), "voice_draft", command.session_id, parent_step_id),
+                continuation.input_document(workflow_id),
             ),
-            workflow_id=command.session_id,
-            parent_step_id=parent_step_id,
+            workflow_id=workflow_id,
+            parent_step_id=continuation.parent_step_id,
         )
         controller = record.controller
         controller.begin_invocation(invocation, action)
         self._submit_invocation(
-            command.session_id,
+            workflow_id,
             invocation.invocation_id,
-            lambda: self._execute_action.execute_voice_draft_follow_up_invocation(
-                action,
-                command.text.strip(),
+            lambda: self._execute_action.execute_follow_up_invocation(
+                continuation,
                 invocation,
                 controller,
-                voice_draft=origin.text,
-                history=previous.steps[: previous.displayed_step_index + 1],
                 binding=record.binding,
             ),
         )

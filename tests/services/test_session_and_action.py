@@ -9,6 +9,7 @@ from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceOrigin
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.execute_action import ActionExecutor
+from ClipAI.services.follow_up_continuation import FollowUpContinuation
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.provider_binding import ProviderExecutionBinding
@@ -16,7 +17,6 @@ from ClipAI.services.result_processor import ResultProcessor
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
-from ClipAI.services.voice_draft_follow_up import action as voice_draft_follow_up_action
 
 
 class FakeClipboard:
@@ -288,13 +288,16 @@ def test_follow_up_keeps_previous_context() -> None:
         workflow_id="w1",
         parent_step_id=parent.step_id,
     )
-    session.begin_invocation(follow, action())
-    asyncio.run(use_case.execute_follow_up_invocation(
+    continuation = FollowUpContinuation.for_action(
         action(),
         "More examples?",
+        history=session.snapshot.steps,
+    )
+    session.begin_invocation(follow, continuation.action)
+    asyncio.run(use_case.execute_follow_up_invocation(
+        continuation,
         follow,
         session,
-        history=session.snapshot.steps,
         binding=binding(provider),
     ))
     assert session.snapshot.content == "followed"
@@ -321,29 +324,44 @@ def test_voice_draft_follow_up_keeps_the_draft_and_prior_questions() -> None:
         ),
         RecordingPresenter(),
     )
-    action = voice_draft_follow_up_action()
-
-    first = ActionInvocation("voice-1", action.id, action.press_type, InputTarget("workflow_result"), workflow_id="w1")
-    controller.begin_invocation(first, action)
-    asyncio.run(use_case.execute_voice_draft_follow_up_invocation(
-        action,
+    first_continuation = FollowUpContinuation.for_voice_draft(
         "What should I do next?",
-        first,
-        controller,
         voice_draft="reviewed voice draft",
         history=(),
+    )
+    first = ActionInvocation(
+        "voice-1",
+        first_continuation.action.id,
+        first_continuation.action.press_type,
+        InputTarget("workflow_result"),
+        workflow_id="w1",
+    )
+    controller.begin_invocation(first, first_continuation.action)
+    asyncio.run(use_case.execute_follow_up_invocation(
+        first_continuation,
+        first,
+        controller,
         binding=binding(provider),
     ))
 
-    second = ActionInvocation("voice-2", action.id, action.press_type, InputTarget("workflow_result"), workflow_id="w1", parent_step_id="voice-1")
-    controller.begin_invocation(second, action)
-    asyncio.run(use_case.execute_voice_draft_follow_up_invocation(
-        action,
+    second_continuation = FollowUpContinuation.for_voice_draft(
         "What is the first step?",
-        second,
-        controller,
         voice_draft="reviewed voice draft",
         history=controller.snapshot.steps,
+    )
+    second = ActionInvocation(
+        "voice-2",
+        second_continuation.action.id,
+        second_continuation.action.press_type,
+        InputTarget("workflow_result"),
+        workflow_id="w1",
+        parent_step_id="voice-1",
+    )
+    controller.begin_invocation(second, second_continuation.action)
+    asyncio.run(use_case.execute_follow_up_invocation(
+        second_continuation,
+        second,
+        controller,
         binding=binding(provider),
     ))
 
@@ -386,13 +404,16 @@ def test_second_follow_up_keeps_original_content_and_first_follow_up_turn() -> N
             workflow_id="w1",
             parent_step_id=parent.step_id,
         )
-        session.begin_invocation(follow, action())
-        asyncio.run(use_case.execute_follow_up_invocation(
+        continuation = FollowUpContinuation.for_action(
             action(),
             question,
+            history=session.snapshot.steps,
+        )
+        session.begin_invocation(follow, continuation.action)
+        asyncio.run(use_case.execute_follow_up_invocation(
+            continuation,
             follow,
             session,
-            history=session.snapshot.steps,
             binding=binding(provider),
         ))
 
@@ -425,10 +446,13 @@ def test_follow_up_context_keeps_original_content_and_only_the_latest_three_turn
             output_profile="",
         )
 
-    request = PromptBuilder().build_follow_up(
+    continuation = FollowUpContinuation.for_action(
         action(),
         history=tuple(step(index) for index in range(5)),
         question="question-5",
+    )
+    request = PromptBuilder().build_follow_up(
+        continuation,
         model="model",
         default_temperature=0.2,
     )

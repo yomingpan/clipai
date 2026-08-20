@@ -197,7 +197,9 @@ hotkey -> input -> safety/config -> prompt -> provider -> postprocess -> output
 
 `VoiceInputController` 是 microphone capability、capture lifecycle、真實音量取樣與 terminal settlement 的唯一 owner。Popup waveform 只能呈現 typed `VoiceProjection`／Workflow snapshot；不得自行開啟 microphone、製造裝飾性假音量，或從 widget visibility 推測 capture 狀態。Voice Draft 與 Popup follow-up 是明確的 capture destination；follow-up settlement 必須同時符合 Workflow identity 與 capture identity，且只插入文字，不得自動送出 provider request。
 
-Action Follow-up provider context 一律由 `WorkflowController` 已擁有的目前分支 `WorkflowStep` history 重建；UI 與 provider 不得保存另一份對話記憶。Voice Draft Follow-up 則以同一 Workflow 的 canonical `VoiceOrigin` 作固定上下文，並只保留最近三輪 Voice Draft 問答；不得借用任一 Action 的 prompt 或建立第二份草稿。兩種 request 都必須有界，避免遺失原始內容或讓 prompt 無限制成長。
+`FollowUpContinuation` 是 Action result 與 Voice Draft 兩種 Follow-up 共用的 service boundary；它擁有 synthetic Voice Follow-up Action identity、input source、parent step、bounded context 與 request construction policy。`WorkflowRuntimeModule` 只選擇 semantic root 並透過單一 continuation execution seam 排程；`ActionExecutor` 不得為 Voice root 複製第二條 provider lifecycle。
+
+Action Follow-up provider context 一律由 `WorkflowController` 已擁有的目前分支 `WorkflowStep` history 重建；UI 與 provider 不得保存另一份對話記憶。Voice Draft Follow-up 則以同一 Workflow 的 canonical `VoiceOrigin` 作固定上下文，並只保留最近三輪 Voice Draft 問答；不得借用任一 Action 的 prompt 或建立第二份草稿。兩種 root 保留各自的 prompt policy，但必須透過同一個 `FollowUpContinuation` interface 且 request 都必須有界，避免遺失原始內容或讓 prompt 無限制成長。
 
 不得放入：
 
