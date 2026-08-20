@@ -82,7 +82,7 @@ class VoiceInputRuntimeModule:
             if self._setup_presenter is not None:
                 self._setup_presenter.show_voice_setup()
             return True
-        if admission.kind == "voice_review":
+        if admission.kind in {"voice_review", "follow_up"}:
             assert admission.target is not None
             frozen = admission.target
         else:
@@ -94,9 +94,8 @@ class VoiceInputRuntimeModule:
             self._notify_shortcut_rejected("Voice Input is already active.")
             return False
         if admission.kind == "create":
+            assert isinstance(frozen, VoiceDraftTarget)
             self._workflows.create_voice_workflow(frozen.workflow_id, frozen.paste_target)
-        elif admission.kind == "reuse":
-            self._workflows.reuse_voice_workflow(frozen.workflow_id, frozen.paste_target)
         self._start_watchdog(command.press_id)
         self._execute(transition)
         return True

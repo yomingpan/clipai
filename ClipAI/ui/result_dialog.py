@@ -671,6 +671,14 @@ class ResultDialogPresenter:
                 on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions else None,
             )
         insertion = snapshot.voice_follow_up_insertion
+        if (
+            snapshot.voice_capture_id is not None
+            and snapshot.status is not SessionStatus.VOICE_REVIEW
+            and "follow_up" in snapshot.available_actions
+            and not view.surface.follow_up_visible
+        ):
+            view.surface.show_follow_up()
+            view.surface.set_follow_up_active(True)
         if insertion is not None and insertion.capture_id not in view.applied_follow_up_capture_ids:
             view.applied_follow_up_capture_ids.add(insertion.capture_id)
             view.surface.insert_follow_up_text(insertion.text)

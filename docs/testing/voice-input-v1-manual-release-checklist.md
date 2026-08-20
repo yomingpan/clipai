@@ -54,7 +54,7 @@ python -m pytest -m integration tests/platform/test_voice_webview_host_integrati
 | No speech | Review remains available with a retry message and no invented text. |
 | Host crash | Capture ends truthfully; later explicit PTT can rebuild the host; no background restart occurs. |
 | Disable during capture | New captures are rejected immediately; capture and host settle; tray becomes Disabled only after preference save and cleanup settlement. |
-| Pinned and unpinned popups | `Ctrl+Alt+W` reuses the existing Popup and Workflow for a fresh Voice Draft, preserves PIN state, and never creates a second visible surface. |
+| Pinned and unpinned popups | With a completed result Popup focused, `Ctrl+Alt+W` opens that Workflow's existing Follow-up field immediately, inserts finalized speech at its live caret, preserves typed text and PIN state, and never submits automatically or creates a fresh Voice Draft. Voice Review continues its Draft. An answering, Follow-up-unavailable, or unfocused visible Popup rejects with explicit feedback; only no visible Popup starts a fresh Voice Draft. |
 | Frozen or targetless target | When capture starts over an external app, Paste keeps that frozen target. When capture starts without one, the Draft remains usable and Paste captures the latest observed external target at operation start. An unavailable target fails closed. |
 | Languages | `zh-TW` and `en-US` apply to the next capture only and persist only after a successful explicit save. |
 | App shutdown | The host exits and no microphone indicator remains active. |

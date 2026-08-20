@@ -14,7 +14,7 @@ from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession,
 from ClipAI.core.errors import PersonalStyleUnavailableError
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceOrigin
+from ClipAI.core.voice import VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.providers.fake import FakeProvider
@@ -1460,7 +1460,7 @@ def test_pinned_workflow_reuses_the_same_popup_for_a_new_visible_action() -> Non
     assert view.attentions == []
 
 
-def test_pinned_workflow_reuses_the_same_popup_for_a_new_voice_capture() -> None:
+def test_unfocused_pinned_workflow_requires_explicit_focus_for_voice_input() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
@@ -1471,28 +1471,47 @@ def test_pinned_workflow_reuses_the_same_popup_for_a_new_voice_capture() -> None
     invocation_id = pinned.snapshot.active_invocation_id
     assert invocation_id is not None
 
-    reused = runtime._workflow_module.admit_voice_shortcut(None, None)
+    rejected = runtime._workflow_module.admit_voice_shortcut(None, None)
     continued = runtime._workflow_module.admit_voice_shortcut(None, workflow_id)
 
-    assert reused.kind == "reuse"
-    assert reused.workflow_id == workflow_id
+    assert rejected.kind == "rejected"
+    assert rejected.workflow_id == workflow_id
+    assert "點選目前的 ClipAI 視窗" in rejected.message
     assert continued.kind == "continue"
     assert continued.workflow_id == workflow_id
-
-    assert runtime._workflow_module.reuse_voice_workflow(workflow_id, None) is pinned
     assert runtime._workflow_module.controller_for(workflow_id) is pinned
-    assert pinned.snapshot.status is SessionStatus.VOICE_PREPARING
     assert pinned.snapshot.pinned is True
-    assert pinned.snapshot.voice_origin == VoiceOrigin(None)
-    assert invocation_id in _supervisor.cancelled
-    attention = view.attentions[-1]
-    assert attention.workflow_id == workflow_id
-    assert attention.message.startswith("Preparing microphone")
-    assert attention.request_focus is True
-    assert attention.warning is False
+    assert pinned.snapshot.active_invocation_id == invocation_id
+    assert invocation_id not in _supervisor.cancelled
 
 
-def test_focused_result_popup_is_reused_instead_of_rejecting_voice_input() -> None:
+def test_focused_completed_result_routes_voice_input_to_follow_up() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    step = WorkflowStep("step-1", "a", "Action", "input", "answer", "plain_text")
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        content="answer",
+        available_actions=("copy", "follow_up"),
+        steps=(step,),
+        displayed_step_index=0,
+        active_invocation_id=None,
+    )
+
+    admission = runtime._workflow_module.admit_voice_shortcut(
+        ControlSurfaceRef(workflow_id, "workflow"),
+        None,
+    )
+
+    assert admission.kind == "follow_up"
+    assert admission.workflow_id == workflow_id
+    assert admission.target == VoiceFollowUpTarget(workflow_id)
+
+
+def test_focused_answering_popup_rejects_a_second_voice_question() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
@@ -1503,8 +1522,37 @@ def test_focused_result_popup_is_reused_instead_of_rejecting_voice_input() -> No
         None,
     )
 
-    assert admission.kind == "reuse"
+    assert admission.kind == "rejected"
     assert admission.workflow_id == workflow_id
+    assert admission.message == "AI 正在回答，完成後再追問。"
+
+
+def test_focused_result_without_follow_up_does_not_become_a_voice_draft() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    step = WorkflowStep("step-1", "a", "Action", "input", "answer", "plain_text")
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        content="answer",
+        available_actions=("copy",),
+        steps=(step,),
+        displayed_step_index=0,
+        active_invocation_id=None,
+    )
+
+    admission = runtime._workflow_module.admit_voice_shortcut(
+        ControlSurfaceRef(workflow_id, "workflow"),
+        None,
+    )
+
+    assert admission.kind == "rejected"
+    assert admission.workflow_id == workflow_id
+    assert admission.message == "這份內容目前無法使用 Follow-up。"
+    assert controller.snapshot.content == "answer"
+    assert controller.snapshot.status is SessionStatus.COMPLETED
 
 
 def test_failed_active_voice_attention_repeats_the_status_through_the_notifier() -> None:

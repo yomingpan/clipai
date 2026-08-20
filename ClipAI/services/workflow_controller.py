@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 
-from ClipAI.core.models import ActionInvocation, InputDocument, PasteTarget, PresentationDocument, ResolvedAction, WorkflowStep
+from ClipAI.core.models import ActionInvocation, InputDocument, PresentationDocument, ResolvedAction, WorkflowStep
 from ClipAI.core.ports import ResultPresenter
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureDestination, VoiceCaptureId, VoiceDraftTarget, VoiceFollowUpTarget, VoiceProjection
@@ -238,16 +238,6 @@ class WorkflowController:
                 selection_start,
                 selection_end,
             )
-
-    def begin_voice_draft(self, paste_target: PasteTarget | None) -> SessionSnapshot:
-        """Replace the displayed content with a fresh draft in this Workflow."""
-        with self._lock:
-            self._active_token.cancel()
-            self._active_token = CancellationToken()
-            self._snapshot = voice_draft.begin_draft(self._snapshot, paste_target)
-            snapshot = self._snapshot
-        self._presenter.render(snapshot)
-        return snapshot
 
     def project_voice_capture(self, projection: VoiceProjection) -> SessionSnapshot | None:
         """Project controller-owned capture lifecycle without making it canonical draft state."""

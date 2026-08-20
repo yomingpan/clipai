@@ -11,7 +11,7 @@ from ClipAI.core.errors import PersonalStyleUnavailableError
 from ClipAI.core.models import ActionInvocation, ControlSurfaceRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceDraftSelectionReader, WorkflowAttentionPresenter, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceDraftTarget, VoiceOrigin
+from ClipAI.core.voice import VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.input_target_resolver import InputTargetResolver
@@ -74,9 +74,9 @@ class _WorkflowRecord:
 class VoiceShortcutAdmission:
     """The sole runtime decision about where a Voice shortcut may operate."""
 
-    kind: Literal["create", "reuse", "voice_review", "continue", "rejected"]
+    kind: Literal["create", "voice_review", "follow_up", "continue", "rejected"]
     workflow_id: str | None = None
-    target: VoiceDraftTarget | None = None
+    target: VoiceDraftTarget | VoiceFollowUpTarget | None = None
     message: str = ""
 
 
@@ -172,32 +172,6 @@ class WorkflowRuntimeModule:
         self._foreground_id = workflow_id
         return controller
 
-    def reuse_voice_workflow(
-        self,
-        workflow_id: str,
-        target: PasteTarget | None,
-    ) -> WorkflowController | None:
-        """Start a fresh Voice Draft in the Workflow already using the Popup."""
-        record = self._records.get(workflow_id)
-        if record is None or record.presentation != "visible":
-            return None
-        controller = record.controller
-        invocation_id = controller.snapshot.active_invocation_id
-        if invocation_id is not None:
-            controller.cancel_active()
-            self._provider_execution.cancel(invocation_id)
-        if self._speech_coordinator is not None:
-            self._speech_coordinator.cancel_workflow(workflow_id)
-        controller.begin_voice_draft(target)
-        self._foreground_id = workflow_id
-        self._request_attention(
-            workflow_id,
-            "Preparing microphone…",
-            duration_ms=1500,
-            warning=False,
-        )
-        return controller
-
     def admit_voice_shortcut(
         self,
         focused_surface: ControlSurfaceRef | None,
@@ -206,7 +180,7 @@ class WorkflowRuntimeModule:
         """Route Voice input without allowing callers to bypass popup ownership."""
         visible = self._visible_record()
         if visible is not None:
-            workflow_id, _record = visible
+            workflow_id, record = visible
             if active_voice_workflow_id == workflow_id:
                 self._request_attention(
                     workflow_id,
@@ -215,20 +189,52 @@ class WorkflowRuntimeModule:
                     warning=False,
                 )
                 return VoiceShortcutAdmission("continue", workflow_id=workflow_id)
-            if focused_surface is not None and focused_surface.kind != "workflow":
+            if focused_surface is None:
                 return VoiceShortcutAdmission(
                     "rejected",
-                    message="Close the active ClipAI window, then try again.",
+                    workflow_id=workflow_id,
+                    message="請先點選目前的 ClipAI 視窗再使用語音輸入，或關閉視窗後開始新的語音輸入。",
                 )
-            if focused_surface is not None and focused_surface.surface_id == workflow_id:
-                target = self.capture_target_for_voice_review(workflow_id)
-                if target is not None:
-                    return VoiceShortcutAdmission(
-                        "voice_review",
-                        workflow_id=workflow_id,
-                        target=target,
-                    )
-            return VoiceShortcutAdmission("reuse", workflow_id=workflow_id)
+            if focused_surface.kind != "workflow" or focused_surface.surface_id != workflow_id:
+                return VoiceShortcutAdmission(
+                    "rejected",
+                    workflow_id=workflow_id,
+                    message="請先點選目前的 ClipAI 視窗再使用語音輸入。",
+                )
+            target = self.capture_target_for_voice_review(workflow_id)
+            if target is not None:
+                return VoiceShortcutAdmission(
+                    "voice_review",
+                    workflow_id=workflow_id,
+                    target=target,
+                )
+            snapshot = record.controller.snapshot
+            if snapshot.active_invocation_id is not None or snapshot.status in {
+                SessionStatus.READING_INPUT,
+                SessionStatus.PREPARING_REQUEST,
+                SessionStatus.REQUESTING_PROVIDER,
+                SessionStatus.PROCESSING_RESULT,
+            }:
+                return VoiceShortcutAdmission(
+                    "rejected",
+                    workflow_id=workflow_id,
+                    message="AI 正在回答，完成後再追問。",
+                )
+            if (
+                snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
+                and snapshot.displayed_step_index >= 0
+                and "follow_up" in snapshot.available_actions
+            ):
+                return VoiceShortcutAdmission(
+                    "follow_up",
+                    workflow_id=workflow_id,
+                    target=VoiceFollowUpTarget(workflow_id),
+                )
+            return VoiceShortcutAdmission(
+                "rejected",
+                workflow_id=workflow_id,
+                message="這份內容目前無法使用 Follow-up。",
+            )
         if focused_surface is not None:
             if focused_surface.kind != "workflow":
                 return VoiceShortcutAdmission(

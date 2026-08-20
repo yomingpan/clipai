@@ -266,7 +266,9 @@ Do not build or retain any of the following in this plan:
 - User-customizable Voice shortcut.
 - Click-to-start or toggle recording.
 - Automatic paste on release.
-- Implicit Voice Follow-up based on a visible result Popup.
+- Implicit Voice Follow-up based only on Popup visibility. The later single-
+  Popup ADR permits explicit `Ctrl+Alt+W` Follow-up only when that result Popup
+  has confirmed focus.
 - Multiple simultaneous captures or multiple microphone leases.
 - Tabs, workflow switchers, background task managers, or a new Popup window
   management system.

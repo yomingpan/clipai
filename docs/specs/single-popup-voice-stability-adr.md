@@ -15,10 +15,13 @@ permission setup and be observed as an external paste target.
   PIN state, cancels the superseded provider invocation and speech owned by the
   replaced content, and keeps the Workflow's captured provider binding.
 - `Ctrl+Alt+W` never creates a second Popup while a visible Workflow already
-  owns the surface. An active Voice capture continues; otherwise the existing
-  Workflow and Popup are reused for a fresh Voice Draft, preserving PIN state.
-  Reuse also requests Popup attention so a surface left withdrawn after an
-  unpinned Paste is restored before the user is asked to interact with it.
+  owns the surface. An active Voice capture continues. When that Popup has
+  confirmed focus, Voice Review receives another Draft insertion and a
+  completed result receives a Follow-up insertion at the live caret; settled
+  speech is never submitted automatically. Provider-active or Follow-up-
+  unavailable results reject the shortcut with explicit feedback. A visible
+  but unfocused Popup must be focused or closed before the shortcut can start.
+  Only the absence of a visible Popup creates a fresh Voice Draft.
 - Voice capture does not require an external editable window to be focused.
   When no target can be captured, the Voice Draft starts without one and Paste
   resolves the latest observed external target only when the explicit Paste

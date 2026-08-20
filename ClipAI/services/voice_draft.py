@@ -2,47 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from ClipAI.core.models import PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCapturePhase, VoiceDraftInsertion, VoiceDraftTarget, VoiceOrigin, VoiceProjection
-
-
-def begin_draft(
-    snapshot: SessionSnapshot,
-    paste_target: PasteTarget | None,
-) -> SessionSnapshot:
-    """Reuse one Workflow surface for a fresh canonical Voice Draft."""
-    return snapshot.evolve(
-        status=SessionStatus.VOICE_PREPARING,
-        action_id="voice_input",
-        title="Voice Input",
-        source_preview="Voice Input draft",
-        status_text="Preparing microphone…",
-        content="",
-        error="",
-        available_actions=(),
-        original_input="",
-        speaking=False,
-        displayed_step_index=-1,
-        active_invocation_id=None,
-        can_navigate_back=False,
-        presentation=None,
-        action_feedback_contract=None,
-        input_source="voice_transcript",
-        feedback_state="idle",
-        feedback_step_id="",
-        feedback_operation_id="",
-        feedback_message="",
-        show_guidance_hint=False,
-        result_completeness="none",
-        voice_origin=VoiceOrigin(paste_target),
-        voice_capture_id=None,
-        voice_capture_phase=None,
-        voice_audio_level=0.0,
-        voice_silence_detected=False,
-        voice_status_text="",
-        voice_follow_up_insertion=None,
-    )
+from ClipAI.core.voice import VoiceCapturePhase, VoiceDraftInsertion, VoiceDraftTarget, VoiceProjection
 
 
 def freeze_insertion(

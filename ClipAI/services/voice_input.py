@@ -276,7 +276,7 @@ class VoiceInputController:
         self._message = "Preparing microphone…"
         return self._transition(StartVoiceCapture(capture_id, self._language))
 
-    def request_capture_for_press(self, press_id: ShortcutPressId, target: VoiceDraftTarget) -> VoiceTransition:
+    def request_capture_for_press(self, press_id: ShortcutPressId, target: VoiceCaptureTarget) -> VoiceTransition:
         """Accept a physical PTT press without leaking press ownership to runtime."""
         return self.request_capture(VoiceCaptureId(f"voice-press-{press_id}"), target, press_id=press_id)
 

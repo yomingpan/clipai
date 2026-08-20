@@ -5,7 +5,7 @@ from ClipAI.app.runtime_workflows import VoiceShortcutAdmission
 from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceSetupId
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
 
 
@@ -64,17 +64,26 @@ class ContinuingWorkflows(Workflows):
         return VoiceShortcutAdmission("continue", workflow_id="pinned-workflow")
 
 
-class ReusingWorkflows(Workflows):
+class FollowUpWorkflows(Workflows):
     def __init__(self) -> None:
         super().__init__()
-        self.reused = []
-        self.controllers["pinned-workflow"] = Workflow()
+        self.controllers["result-workflow"] = Workflow(SessionSnapshot(
+            "result-workflow",
+            4,
+            SessionStatus.COMPLETED,
+            "summarize",
+            "Summarize",
+            "model",
+            content="answer",
+            available_actions=("copy", "follow_up"),
+        ))
 
     def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
-        return VoiceShortcutAdmission("reuse", workflow_id="pinned-workflow")
-
-    def reuse_voice_workflow(self, workflow_id, target):
-        self.reused.append((workflow_id, target))
+        return VoiceShortcutAdmission(
+            "follow_up",
+            workflow_id="result-workflow",
+            target=VoiceFollowUpTarget("result-workflow"),
+        )
 
 
 class Setup:
@@ -181,8 +190,8 @@ def test_active_pinned_voice_shortcut_is_consumed_without_creating_a_second_capt
     assert engine.calls == []
 
 
-def test_inactive_pinned_workflow_is_reused_for_a_new_voice_capture() -> None:
-    engine, workflows = Engine(), ReusingWorkflows()
+def test_ptt_over_a_completed_result_finalizes_into_its_follow_up() -> None:
+    engine, workflows = Engine(), FollowUpWorkflows()
     runtime = VoiceInputRuntimeModule(
         controller=VoiceInputController(enabled=True),
         engine=engine,
@@ -190,10 +199,14 @@ def test_inactive_pinned_workflow_is_reused_for_a_new_voice_capture() -> None:
         paste_target_reader=lambda: None,
     )
 
-    assert runtime.handle_shortcut_started(ShortcutPressStarted(32, "voice_input")) is True
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(33, "voice_input")) is True
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment("voice-press-33", 0, "What changed?")))
+    runtime.handle_shortcut_ended(ShortcutPressEnded(33, "voice_input", "released"))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded("voice-press-33")))
+
+    workflow = workflows.controllers["result-workflow"]
     assert workflows.created == []
-    assert workflows.reused == [("pinned-workflow", None)]
-    assert engine.calls == [("start", "voice-press-32", "zh-TW", 0)]
+    assert workflow.follow_up_applied[0][2] == "What changed?"
 
 
 def test_disable_waits_for_persisted_preference_after_engine_shutdown() -> None:

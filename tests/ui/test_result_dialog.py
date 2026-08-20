@@ -334,6 +334,34 @@ def test_active_voice_follow_up_uses_same_control_to_stop() -> None:
     assert events[-1] == StopVoiceCapture(capture_id)
 
 
+def test_shortcut_started_voice_follow_up_immediately_opens_the_review_field() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    previous = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        content="answer",
+        available_actions=("follow_up",),
+    )
+    view.revision = previous.revision
+    view.last_snapshot = previous
+    view.content = previous.content
+    view.flashed_completion_keys.add(previous.content)
+
+    presenter._apply(previous.evolve(
+        voice_capture_id=VoiceCaptureId("capture-1"),
+        voice_capture_phase=VoiceCapturePhase.STARTING,
+    ))
+
+    assert view.surface.follow_up_visible is True
+    assert "follow-up-show:" in events
+    assert "follow-up-active:True" in events
+
+
 def test_provider_activity_disables_popup_voice_input() -> None:
     presenter, _events = presenter_with_selection(None)
     snapshot = SessionSnapshot(
