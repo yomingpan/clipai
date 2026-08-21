@@ -245,6 +245,14 @@ class RuntimeComponent(Stoppable, Protocol):
     def start(self) -> None: ...
 
 
+class ApplicationInstanceLease(Protocol):
+    def close(self) -> None: ...
+
+
+class ApplicationInstanceGate(Protocol):
+    def acquire(self) -> ApplicationInstanceLease | None: ...
+
+
 class ForegroundWindowMonitor(RuntimeComponent, Protocol):
     pass
 

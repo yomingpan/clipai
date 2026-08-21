@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 from ClipAI.core.voice import VoiceEngineAudioLevel, VoiceEngineEnded, VoiceEngineFailed, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupFailed, VoiceEngineSetupReady, VoiceTransportFailure
 from ClipAI.platform.browser_speech import CAPTURE_START_TIMEOUT_SECONDS, CAPTURE_STOP_TIMEOUT_SECONDS, BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event
 
 
 class BrokenInput:
+    def __init__(self) -> None:
+        self.closed = False
+
     def write(self, _value) -> None:
         raise BrokenPipeError()
 
     def flush(self) -> None:
         raise AssertionError("flush must not run after a broken write")
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class BrokenProcess:
@@ -19,19 +26,25 @@ class BrokenProcess:
         self.stdin = BrokenInput()
         self.stdout = None
         self.terminated = 0
+        self.waits: list[float] = []
 
     def poll(self): return None
     def terminate(self) -> None: self.terminated += 1
+    def wait(self, timeout: float) -> int:
+        self.waits.append(timeout)
+        return 0
 
 
 class RecordingInput:
     def __init__(self) -> None:
         self.writes: list[str] = []
+        self.closed = False
 
     def write(self, value: str) -> None:
         self.writes.append(value)
 
     def flush(self) -> None: pass
+    def close(self) -> None: self.closed = True
 
 
 class LiveProcess:
@@ -39,9 +52,13 @@ class LiveProcess:
         self.stdin = RecordingInput()
         self.stdout = None
         self.terminated = 0
+        self.waits: list[float] = []
 
     def poll(self): return None
     def terminate(self) -> None: self.terminated += 1
+    def wait(self, timeout: float) -> int:
+        self.waits.append(timeout)
+        return 0
 
 
 class ManualTimer:
@@ -51,6 +68,52 @@ class ManualTimer:
 
     def cancel(self) -> None:
         self.cancelled = True
+
+
+class ClosableStream:
+    def __init__(self) -> None:
+        self.closed = False
+        self.writes: list[str] = []
+
+    def write(self, value: str) -> None:
+        self.writes.append(value)
+
+    def flush(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class StubbornProcess:
+    def __init__(self) -> None:
+        self.stdin = ClosableStream()
+        self.stdout = ClosableStream()
+        self.waits: list[float] = []
+        self.terminated = 0
+        self.killed = 0
+
+    def wait(self, timeout: float) -> int:
+        self.waits.append(timeout)
+        if len(self.waits) < 3:
+            raise subprocess.TimeoutExpired("voice-host", timeout)
+        return 0
+
+    def terminate(self) -> None:
+        self.terminated += 1
+
+    def kill(self) -> None:
+        self.killed += 1
+
+
+class RacedExitProcess(StubbornProcess):
+    def wait(self, timeout: float) -> int:
+        self.waits.append(timeout)
+        raise subprocess.TimeoutExpired("voice-host", timeout)
+
+    def terminate(self) -> None:
+        self.terminated += 1
+        raise OSError("process already exited")
 
 
 def test_protocol_decoder_requires_the_current_version_and_operation_identity() -> None:
@@ -100,6 +163,8 @@ def test_capture_write_failure_settles_once_and_discards_the_broken_host() -> No
 
     assert received == [VoiceEngineFailed("capture-1", VoiceTransportFailure.PROCESS_CRASHED)]
     assert process.terminated == 1
+    assert process.waits == [2]
+    assert process.stdin.closed is True
     assert engine._process is None
 
 
@@ -201,3 +266,41 @@ def test_transport_passes_the_composed_webview_profile_to_the_host() -> None:
     engine.start_capture("capture-1", "zh-TW")
 
     assert created[0][-2:] == ["--profile-root", "C:\\Users\\test\\AppData\\Local"]
+
+
+def test_shutdown_waits_for_forced_host_exit_and_closes_transport() -> None:
+    process = StubbornProcess()
+    stopped: list[int] = []
+    engine = BrowserSpeechWebView2Engine(
+        lambda _event: None,
+        on_process_stopped=stopped.append,
+    )
+    process.pid = 42
+    engine._process = process
+
+    engine.shutdown()
+
+    assert process.terminated == 1
+    assert process.killed == 1
+    assert process.waits == [2, 2, 2]
+    assert process.stdin.closed is True
+    assert process.stdout.closed is True
+    assert stopped == [42]
+
+
+def test_shutdown_keeps_runtime_cleanup_safe_when_process_exit_races() -> None:
+    process = RacedExitProcess()
+    process.pid = 43
+    stopped: list[int] = []
+    engine = BrowserSpeechWebView2Engine(
+        lambda _event: None,
+        on_process_stopped=stopped.append,
+    )
+    engine._process = process
+
+    engine.shutdown()
+
+    assert process.terminated == 1
+    assert process.stdin.closed is True
+    assert process.stdout.closed is True
+    assert stopped == [43]

@@ -231,6 +231,10 @@ def main(*, test_page: Path | None = None, profile_root: Path | None = None) -> 
                 permission_command=permission_command,
             ):
                 return
+        try:
+            window.destroy()
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
 
     def on_loaded() -> None:
         try:
