@@ -5,10 +5,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TypeVar
 
 from ClipAI.core.errors import CancelledError, ClipAIError
-from ClipAI.core.models import ActionInvocation, InputDocument, LLMCompleted, LLMProviderEvent, LLMRequest, LLMResult, LLMTextDelta, ResolvedAction
+from ClipAI.core.models import ActionInvocation, LLMCompleted, LLMProviderEvent, LLMRequest, LLMResult, LLMTextDelta, ResolvedAction
 from ClipAI.core.ports import OperationHandle, OperationTracker
 from ClipAI.core.state import SessionStatus
 from ClipAI.services.input_resolver import InputResolver
+from ClipAI.services.follow_up_continuation import FollowUpContinuation
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.result_processor import ResultProcessor
@@ -127,26 +128,29 @@ class ActionExecutor:
 
     async def execute_follow_up_invocation(
         self,
-        action: ResolvedAction,
-        question: str,
+        continuation: FollowUpContinuation,
         invocation: ActionInvocation,
         workflow: WorkflowController,
         *,
-        original_input: str,
-        previous_result: str,
         binding: ProviderExecutionBinding,
     ) -> None:
+        action = continuation.action
         token = workflow.cancellation
         try:
             if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id, binding):
                 return
+            document = continuation.input_document(workflow.snapshot.session_id)
+            if workflow.update(
+                invocation.invocation_id,
+                SessionStatus.PREPARING_REQUEST,
+                status_text=f"Preparing {action.name}...",
+                input_source=document.source,
+            ) is None:
+                return
             request = await self._run_blocking(
                 f"prompt:{invocation.invocation_id}",
                 lambda: self._prompt_builder.build_follow_up(
-                    action,
-                    original_input=original_input,
-                    previous_result=previous_result,
-                    question=question,
+                    continuation,
                     model=binding.model,
                     default_temperature=self._default_temperature,
                 ),
@@ -169,7 +173,6 @@ class ActionExecutor:
                 lambda: self._result_processor.process(result.text, action.output_profile),
             )
             show_guidance_hint = self._consume_guidance_hint(action, invocation)
-            document = InputDocument(question, "workflow_result", workflow.snapshot.session_id, invocation.parent_step_id)
             await self._result_router.route(
                 invocation.result_route,
                 processed,

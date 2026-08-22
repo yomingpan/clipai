@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
-from ClipAI.app.runtime_workflows import VoiceShortcutAdmission
-from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived
+from ClipAI.app.runtime_workflows import VoiceCaptureAdmission
+from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceSetupId
+from ClipAI.core.state import SessionSnapshot, SessionStatus
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
 
 
@@ -20,10 +21,16 @@ class Engine:
 
 
 class Workflow:
-    def __init__(self) -> None: self.applied = []
+    def __init__(self, snapshot=None) -> None:
+        self.applied = []
+        self.follow_up_applied = []
+        self.projections = []
+        self.snapshot = snapshot or SessionSnapshot("workflow-1", 0, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model")
     def apply_voice_finalization(self, target, text) -> None: self.applied.append((target, text))
-    def project_voice_capture(self, _projection) -> None: pass
+    def apply_voice_follow_up_finalization(self, capture_id, target, text) -> None: self.follow_up_applied.append((capture_id, target, text))
+    def project_voice_capture(self, projection) -> None: self.projections.append(projection)
     def restore_voice_review(self, _target, _message) -> None: pass
+    def restore_voice_follow_up(self, _capture_id, _target, _message) -> None: pass
 
 
 class Workflows:
@@ -31,21 +38,43 @@ class Workflows:
     def create_voice_workflow(self, workflow_id, target):
         self.created.append((workflow_id, target)); self.controllers[workflow_id] = Workflow()
     def controller_for(self, workflow_id): return self.controllers.get(workflow_id)
-    def capture_target_for_voice_review(self, workflow_id):
+    def _voice_review_target(self, workflow_id):
         return VoiceDraftTarget(workflow_id, 0, PasteTarget("hwnd:1", 1, "Editor", "private", 1), 2, 2)
-    def admit_voice_shortcut(self, focused_surface, _active_voice_workflow_id):
-        if focused_surface is not None and focused_surface.kind == "workflow":
-            return VoiceShortcutAdmission(
+    def admit_voice_capture(self, intent):
+        if intent.trigger == "popup":
+            workflow = self.controllers.get(intent.workflow_id)
+            if workflow is None:
+                return VoiceCaptureAdmission("rejected")
+            snapshot = workflow.snapshot
+            if snapshot.status is SessionStatus.VOICE_REVIEW:
+                return VoiceCaptureAdmission(
+                    "voice_review",
+                    workflow_id=intent.workflow_id,
+                    target=self._voice_review_target(intent.workflow_id),
+                )
+            if (
+                snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
+                and snapshot.active_invocation_id is None
+                and "follow_up" in snapshot.available_actions
+            ):
+                return VoiceCaptureAdmission(
+                    "follow_up",
+                    workflow_id=intent.workflow_id,
+                    target=VoiceFollowUpTarget(intent.workflow_id),
+                )
+            return VoiceCaptureAdmission("rejected", workflow_id=intent.workflow_id)
+        if intent.focused_surface is not None and intent.focused_surface.kind == "workflow":
+            return VoiceCaptureAdmission(
                 "voice_review",
-                workflow_id=focused_surface.surface_id,
-                target=self.capture_target_for_voice_review(focused_surface.surface_id),
+                workflow_id=intent.focused_surface.surface_id,
+                target=self._voice_review_target(intent.focused_surface.surface_id),
             )
-        return VoiceShortcutAdmission("create")
+        return VoiceCaptureAdmission("create")
 
 
 class RejectedWorkflows(Workflows):
-    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
-        return VoiceShortcutAdmission(
+    def admit_voice_capture(self, _intent):
+        return VoiceCaptureAdmission(
             "rejected",
             workflow_id="pinned-workflow",
             message="目前此內容無法使用語音輸入",
@@ -53,21 +82,30 @@ class RejectedWorkflows(Workflows):
 
 
 class ContinuingWorkflows(Workflows):
-    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
-        return VoiceShortcutAdmission("continue", workflow_id="pinned-workflow")
+    def admit_voice_capture(self, _intent):
+        return VoiceCaptureAdmission("continue", workflow_id="pinned-workflow")
 
 
-class ReusingWorkflows(Workflows):
+class FollowUpWorkflows(Workflows):
     def __init__(self) -> None:
         super().__init__()
-        self.reused = []
-        self.controllers["pinned-workflow"] = Workflow()
+        self.controllers["result-workflow"] = Workflow(SessionSnapshot(
+            "result-workflow",
+            4,
+            SessionStatus.COMPLETED,
+            "summarize",
+            "Summarize",
+            "model",
+            content="answer",
+            available_actions=("copy", "follow_up"),
+        ))
 
-    def admit_voice_shortcut(self, _focused_surface, _active_voice_workflow_id):
-        return VoiceShortcutAdmission("reuse", workflow_id="pinned-workflow")
-
-    def reuse_voice_workflow(self, workflow_id, target):
-        self.reused.append((workflow_id, target))
+    def admit_voice_capture(self, _intent):
+        return VoiceCaptureAdmission(
+            "follow_up",
+            workflow_id="result-workflow",
+            target=VoiceFollowUpTarget("result-workflow"),
+        )
 
 
 class Setup:
@@ -174,8 +212,8 @@ def test_active_pinned_voice_shortcut_is_consumed_without_creating_a_second_capt
     assert engine.calls == []
 
 
-def test_inactive_pinned_workflow_is_reused_for_a_new_voice_capture() -> None:
-    engine, workflows = Engine(), ReusingWorkflows()
+def test_ptt_over_a_completed_result_finalizes_into_its_follow_up() -> None:
+    engine, workflows = Engine(), FollowUpWorkflows()
     runtime = VoiceInputRuntimeModule(
         controller=VoiceInputController(enabled=True),
         engine=engine,
@@ -183,10 +221,14 @@ def test_inactive_pinned_workflow_is_reused_for_a_new_voice_capture() -> None:
         paste_target_reader=lambda: None,
     )
 
-    assert runtime.handle_shortcut_started(ShortcutPressStarted(32, "voice_input")) is True
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(33, "voice_input")) is True
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment("voice-press-33", 0, "What changed?")))
+    runtime.handle_shortcut_ended(ShortcutPressEnded(33, "voice_input", "released"))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded("voice-press-33")))
+
+    workflow = workflows.controllers["result-workflow"]
     assert workflows.created == []
-    assert workflows.reused == [("pinned-workflow", None)]
-    assert engine.calls == [("start", "voice-press-32", "zh-TW", 0)]
+    assert workflow.follow_up_applied[0][2] == "What changed?"
 
 
 def test_disable_waits_for_persisted_preference_after_engine_shutdown() -> None:
@@ -361,3 +403,96 @@ def test_ptt_release_cancels_watchdog_before_a_late_callback_can_cancel_again() 
     scheduled[0].callback()
     assert runtime.handle(dispatched.pop()) is False
     assert engine.calls == [("start", "voice-press-10", "zh-TW", 0), ("stop", "voice-press-10")]
+
+
+def test_popup_voice_capture_reuses_completed_workflow_and_finalizes_into_follow_up() -> None:
+    engine, workflows = Engine(), Workflows()
+    workflow = Workflow(SessionSnapshot(
+        "workflow-1",
+        4,
+        SessionStatus.COMPLETED,
+        "summarize",
+        "Summarize",
+        "model",
+        content="answer",
+        available_actions=("copy", "follow_up"),
+    ))
+    workflows.controllers["workflow-1"] = workflow
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+    )
+
+    assert runtime.handle(StartPopupVoiceCapture("workflow-1", "capture-1")) is True
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment("capture-1", 0, "What changed?")))
+    runtime.handle(StopVoiceCapture("capture-1"))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded("capture-1")))
+
+    assert workflows.created == []
+    assert engine.calls == [
+        ("start", "capture-1", "zh-TW", 0),
+        ("stop", "capture-1"),
+    ]
+    assert workflow.follow_up_applied[0][0] == "capture-1"
+    assert workflow.follow_up_applied[0][2] == "What changed?"
+
+
+def test_popup_voice_capture_is_rejected_while_provider_is_active() -> None:
+    engine, workflows = Engine(), Workflows()
+    workflows.controllers["workflow-1"] = Workflow(SessionSnapshot(
+        "workflow-1",
+        4,
+        SessionStatus.REQUESTING_PROVIDER,
+        "summarize",
+        "Summarize",
+        "model",
+        active_invocation_id="provider-1",
+    ))
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+    )
+
+    assert runtime.handle(StartPopupVoiceCapture("workflow-1", "capture-1")) is False
+    assert engine.calls == []
+
+
+def test_listening_schedules_non_terminal_two_second_silence_hint() -> None:
+    engine, workflows, dispatched, scheduled = Engine(), Workflows(), [], []
+    workflow = Workflow(SessionSnapshot(
+        "workflow-1",
+        4,
+        SessionStatus.COMPLETED,
+        "summarize",
+        "Summarize",
+        "model",
+        available_actions=("follow_up",),
+    ))
+    workflows.controllers["workflow-1"] = workflow
+
+    def schedule(delay, callback):
+        watchdog = Watchdog(callback)
+        scheduled.append((delay, watchdog))
+        return watchdog
+
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        dispatch=dispatched.append,
+        watchdog_schedule=schedule,
+    )
+    runtime.handle(StartPopupVoiceCapture("workflow-1", "capture-1"))
+
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("capture-1")))
+
+    assert scheduled[0][0] == 2.0
+    scheduled[0][1].callback()
+    assert dispatched == [VoiceSilenceWatchdogExpired("capture-1")]
+    assert runtime.handle(dispatched.pop()) is True
+    assert workflow.projections[-1].silence_detected is True

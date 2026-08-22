@@ -88,6 +88,7 @@ class TrayController:
         on_reload_configuration: Callable[[], None] | None = None,
         on_open_provider_settings: Callable[[], None] | None = None,
         on_open_shortcut_guide: Callable[[], None] | None = None,
+        on_open_personal_styles: Callable[[], None] | None = None,
         on_refresh_models: Callable[[], None] | None = None,
         guidance_preferences: GuidancePreferences | None = None,
         on_set_first_use_hints: Callable[[bool], None] | None = None,
@@ -110,6 +111,7 @@ class TrayController:
         self._on_reload_configuration = on_reload_configuration
         self._on_open_provider_settings = on_open_provider_settings
         self._on_open_shortcut_guide = on_open_shortcut_guide
+        self._on_open_personal_styles = on_open_personal_styles
         self._on_refresh_models = on_refresh_models
         self._guidance_preferences = guidance_preferences
         self._on_set_first_use_hints = on_set_first_use_hints
@@ -143,6 +145,8 @@ class TrayController:
             menu_items.append(pystray.MenuItem("Settings and Models...", lambda _icon, _item: self._on_open_provider_settings()))
         if self._on_open_shortcut_guide is not None:
             menu_items.append(pystray.MenuItem(SHORTCUT_GUIDE_MENU_LABEL, lambda _icon, _item: self._on_open_shortcut_guide()))
+        if self._on_open_personal_styles is not None:
+            menu_items.append(pystray.MenuItem("Personal Styles...", lambda _icon, _item: self._on_open_personal_styles()))
         speech_speed_menu = self._build_speech_speed_menu(pystray)
         if speech_speed_menu is not None:
             menu_items.append(speech_speed_menu)

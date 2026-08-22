@@ -11,6 +11,7 @@ from typing import Any
 from ClipAI.core.voice import (
     VoiceCaptureId,
     VoiceEngineEnded,
+    VoiceEngineAudioLevel,
     VoiceEngineEvent,
     VoiceEngineFailed,
     VoiceEngineFinalSegment,
@@ -120,12 +121,9 @@ class BrowserSpeechWebView2Engine:
             self._write(process, {"version": VOICE_PROTOCOL_VERSION, "command": "shutdown"})
             process.wait(timeout=2)
         except (BrokenPipeError, OSError, subprocess.TimeoutExpired):
-            process.terminate()
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.kill()
+            self._terminate_process(process)
         finally:
+            self._close_transport(process)
             self._notify_process_stopped(process)
 
     def _ensure_process(self) -> None:
@@ -162,6 +160,37 @@ class BrowserSpeechWebView2Engine:
             raise BrokenPipeError("Browser Speech host stdin is unavailable")
         process.stdin.write(json.dumps(payload, ensure_ascii=True) + "\n")
         process.stdin.flush()
+
+    @staticmethod
+    def _close_transport(process: Any) -> None:
+        for stream_name in ("stdin", "stdout"):
+            stream = getattr(process, stream_name, None)
+            close = getattr(stream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _terminate_process(process: Any) -> None:
+        try:
+            process.terminate()
+        except OSError:
+            return
+        try:
+            process.wait(timeout=2)
+            return
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        try:
+            process.kill()
+        except OSError:
+            return
+        try:
+            process.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
     def _read_events(self, process: Any) -> None:
         if process.stdout is not None:
@@ -295,11 +324,9 @@ class BrowserSpeechWebView2Engine:
     def _discard_broken_process(self) -> None:
         process, self._process = self._process, None
         if process is not None and process.poll() is None:
-            try:
-                process.terminate()
-            except OSError:
-                pass
+            self._terminate_process(process)
         if process is not None:
+            self._close_transport(process)
             self._notify_process_stopped(process)
 
     def _notify_process_stopped(self, process: Any) -> None:
@@ -323,7 +350,7 @@ def _decode_event(line: str) -> VoiceEngineEvent | None:
     if not isinstance(payload, dict) or payload.get("version") != VOICE_PROTOCOL_VERSION:
         return None
     kind = payload.get("kind")
-    if kind not in {"setup_ready", "setup_blocked", "setup_failed", "listening", "interim", "final", "ended", "failed"}:
+    if kind not in {"setup_ready", "setup_blocked", "setup_failed", "listening", "interim", "audio_level", "final", "ended", "failed"}:
         return None
     if kind == "setup_ready":
         setup_id = str(payload.get("setup_id") or "")
@@ -342,6 +369,12 @@ def _decode_event(line: str) -> VoiceEngineEvent | None:
         return VoiceEngineListening(capture_id)
     if kind == "interim":
         return VoiceEngineInterim(capture_id, str(payload.get("text") or ""))
+    if kind == "audio_level":
+        try:
+            level = float(payload["level"])
+            return VoiceEngineAudioLevel(capture_id, level) if 0.0 <= level <= 1.0 else None
+        except (KeyError, TypeError, ValueError):
+            return None
     if kind == "final":
         try:
             sequence = int(payload["sequence"])

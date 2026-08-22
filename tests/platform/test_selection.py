@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ClipAI.core.errors import InputError
 from ClipAI.core.models import ImageContent
 from ClipAI.platform.selection import SystemSelectionCaptureAdapter
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
@@ -170,6 +171,19 @@ def test_selection_capture_failure_falls_back_safely() -> None:
         timeout_sec=0.01,
         poll_sec=0,
     )
+    assert selection.read_text() == ""
+    assert clipboard.value == "original"
+
+
+def test_selection_capture_snapshot_failure_falls_back_safely() -> None:
+    clipboard = Clipboard("original")
+
+    def fail_snapshot() -> ClipboardSnapshot:
+        raise InputError("Clipboard format 49804 could not be rendered for preservation.")
+
+    clipboard.snapshot = fail_snapshot  # type: ignore[method-assign]
+    selection = reader(clipboard, timeout_sec=0.01, poll_sec=0)
+
     assert selection.read_text() == ""
     assert clipboard.value == "original"
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 if TYPE_CHECKING:
     from ClipAI.core.models import PasteTarget
@@ -57,6 +57,20 @@ class VoiceCapturePhase(str, Enum):
     TERMINAL = "terminal"
 
 
+class VoiceCaptureDestination(str, Enum):
+    VOICE_DRAFT = "voice_draft"
+    FOLLOW_UP = "follow_up"
+
+
+@dataclass(frozen=True)
+class VoiceCaptureSurfaceContext:
+    """Semantic editing context reported at explicit Voice capture intent time."""
+
+    workflow_id: str
+    follow_up_requested: bool = False
+    selection: tuple[int, int] | None = None
+
+
 class VoiceTransportFailure(str, Enum):
     PERMISSION_DENIED = "permission_denied"
     PERMISSION_BLOCKED = "permission_blocked"
@@ -98,6 +112,16 @@ class VoiceEngineInterim:
 
 
 @dataclass(frozen=True)
+class VoiceEngineAudioLevel:
+    capture_id: VoiceCaptureId
+    level: float
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.level <= 1.0:
+            raise ValueError("Voice Input audio level must be between zero and one")
+
+
+@dataclass(frozen=True)
 class VoiceEngineFinalSegment:
     capture_id: VoiceCaptureId
     sequence: int
@@ -126,6 +150,7 @@ VoiceEngineEvent = (
     | VoiceEngineSetupFailed
     | VoiceEngineListening
     | VoiceEngineInterim
+    | VoiceEngineAudioLevel
     | VoiceEngineFinalSegment
     | VoiceEngineEnded
     | VoiceEngineFailed
@@ -148,6 +173,16 @@ class VoiceDraftTarget:
 
 
 @dataclass(frozen=True)
+class VoiceFollowUpTarget:
+    """A Popup follow-up draft that receives settled speech at its live caret."""
+
+    workflow_id: str
+
+
+VoiceCaptureTarget: TypeAlias = VoiceDraftTarget | VoiceFollowUpTarget
+
+
+@dataclass(frozen=True)
 class VoiceDraftInsertion:
     """The revision-bound semantic range produced by one finalized capture."""
 
@@ -158,6 +193,16 @@ class VoiceDraftInsertion:
     def __post_init__(self) -> None:
         if self.projection_revision < 0 or self.start < 0 or self.end < self.start:
             raise ValueError("Voice Input insertion range is invalid")
+
+
+@dataclass(frozen=True)
+class VoiceFollowUpInsertion:
+    capture_id: VoiceCaptureId
+    text: str
+
+    def __post_init__(self) -> None:
+        if not self.text.strip():
+            raise ValueError("Voice follow-up insertion must contain text")
 
 
 @dataclass(frozen=True)
@@ -187,3 +232,6 @@ class VoiceProjection:
     interim_text: str = ""
     message: str = ""
     workflow_id: str | None = None
+    audio_level: float = 0.0
+    silence_detected: bool = False
+    capture_destination: VoiceCaptureDestination | None = None

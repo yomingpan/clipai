@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Literal, Mapping, Protocol
 
 import customtkinter as ctk
+from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PresentationDocument
 from ClipAI.core.ports import NativeWindowSurface
@@ -17,6 +18,19 @@ DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
 SOURCE_PREVIEW_MAX_CHARS = 36
 DISPLAY_BREAK_TAG = "display_break_hint"
+
+
+def _resample_window_dpi_scaling(window: tk.Misc) -> None:
+    """Refresh CustomTkinter's per-window scale after initial placement."""
+    previous_scaling = ScalingTracker.window_dpi_scaling_dict[window]
+    ScalingTracker.window_dpi_scaling_dict[window] = (
+        ScalingTracker.get_window_dpi_scaling(window)
+    )
+    try:
+        ScalingTracker.update_scaling_callbacks_for_window(window)
+    except Exception:
+        ScalingTracker.window_dpi_scaling_dict[window] = previous_scaling
+        raise
 
 
 @dataclass(frozen=True)
@@ -410,6 +424,7 @@ class BaseDialog:
 
         try:
             self.root = ctk.CTkToplevel(master) if master is not None else ctk.CTk()
+            self.root.withdraw()
             self.root.title(title)
             self.root.geometry(f"{width}x{height}")
             self.root.minsize(minimum_width or min(width, 320), minimum_height or min(height, 180))
@@ -427,6 +442,9 @@ class BaseDialog:
                 self.root.geometry(f"{width}x{height}+{x}+{y}")
             else:
                 self._position_window(width, height, position)
+            self.root.update_idletasks()
+            _resample_window_dpi_scaling(self.root)
+            self.root.deiconify()
 
             self.canvas = tk.Canvas(
                 self.root,
@@ -966,9 +984,18 @@ class BaseResultSurface:
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 0))
         self.overflow_actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
-        self._back_button = self.add_action_slot("back", "←", None, width=24, tooltip="Previous result")
+        self._back_button = self.add_action_slot("back", "←", None, width=24, tooltip="Previous result (Ctrl + Z)")
         self._back_button.pack_forget()
         self.standard_actions = StandardResultActions(self)
+        self.voice_input_button = self.add_action_slot(
+            "voice_input",
+            "▁▁▁▁  語音",
+            None,
+            width=76,
+            tooltip="Voice Input is unavailable",
+            icon=False,
+        )
+        self.voice_input_button.configure(state="disabled", fg_color="#4A4A4A")
         self._overflow_button = self.add_action_slot("overflow", "▶", self.toggle_overflow, width=24, tooltip="More actions")
         self._overflow_button.pack_configure(side="right", padx=(12, 0))
         self.action_status_label = ctk.CTkLabel(self.actions, text="", text_color="#8A8A8A", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]))
@@ -1175,32 +1202,30 @@ class BaseResultSurface:
         self.dialog.set_focus_active(focused)
         if voice_draft_editing is not None:
             mode = "編輯模式" if voice_draft_editing else "閱讀模式"
+            next_mode = "閱讀" if voice_draft_editing else "編輯"
             if not focused:
                 self.paste_target_label.configure(
                     text=f"{mode}｜未聚焦；Ctrl+V 使用原剪貼簿",
                 )
                 self.set_action_tooltip("paste", "Popup 未聚焦；Ctrl+V 會使用原剪貼簿內容")
                 return
-            if voice_draft_editing:
-                self.paste_target_label.configure(
-                    text="編輯模式｜Ctrl+V 貼入｜Ctrl+Enter 閱讀",
-                )
-                self.set_action_tooltip("paste", "編輯模式：Ctrl+V 貼入草稿；Ctrl+Enter 切換閱讀模式")
-                return
             if target is not None:
                 destination = paste_target_display_text(target)
                 self.paste_target_label.configure(
-                    text=f"閱讀模式｜Ctrl+V → {destination}｜Ctrl+Enter 編輯",
+                    text=f"{mode}｜Ctrl+V → {destination}｜Ctrl+Enter {next_mode}",
                 )
                 self.set_action_tooltip(
                     "paste",
-                    f"閱讀模式：Ctrl+V 貼上目前內容到 {destination}；Ctrl+Enter 切換編輯模式",
+                    f"{mode}：Ctrl+V 貼上目前內容到 {destination}；Ctrl+Enter 切換{next_mode}模式",
                 )
                 return
             self.paste_target_label.configure(
-                text="閱讀模式｜Ctrl+V 無外部目標｜Ctrl+Enter 編輯",
+                text=f"{mode}｜Ctrl+V 無外部目標｜Ctrl+Enter {next_mode}",
             )
-            self.set_action_tooltip("paste", "閱讀模式：找不到外部貼上目標；Ctrl+Enter 切換編輯模式")
+            self.set_action_tooltip(
+                "paste",
+                f"{mode}：找不到外部貼上目標；Ctrl+Enter 切換{next_mode}模式",
+            )
             return
         if focused and target is not None:
             destination = paste_target_display_text(target)
@@ -1392,12 +1417,42 @@ class BaseResultSurface:
             on_follow_up=on_follow_up,
         )
 
+    def configure_voice_action(
+        self,
+        *,
+        text: str,
+        command: Callable[[], None] | None,
+        enabled: bool,
+        tooltip: str,
+        active: bool = False,
+    ) -> None:
+        self.voice_input_button.configure(
+            text=text,
+            command=command,
+            state="normal" if enabled else "disabled",
+            fg_color="#244B44" if active else ACTION_COLOR if enabled else "#4A4A4A",
+            hover_color="#31665C" if active else ACTION_HOVER_COLOR,
+        )
+        self.set_action_tooltip("voice_input", tooltip)
+
+    def insert_follow_up_text(self, text: str) -> None:
+        if not text:
+            return
+        self.show_follow_up()
+        self.follow_entry.insert("insert", text)
+
+    def set_follow_up_send_enabled(self, enabled: bool) -> None:
+        self.follow_send_button.configure(state="normal" if enabled else "disabled")
+
     def configure_back_action(self, command: Callable[[], None] | None) -> None:
         self._back_button.configure(command=command, state="normal" if command is not None else "disabled")
         if command is None:
             self._back_button.pack_forget()
         elif not self._back_button.winfo_manager():
             self._back_button.pack(side="left", padx=(0, 5), before=self.standard_actions._buttons["speaker"])
+
+    def bind_back_shortcut(self, callback: Callable[[object], str]) -> None:
+        self.content_text.bind("<Control-z>", callback, add="+")
 
     def set_speaker_active(self, active: bool) -> None:
         self.standard_actions.set_speaker_active(active)
@@ -1428,6 +1483,7 @@ class BaseResultSurface:
         tooltip: str | None = None,
         text_color: str = CONTENT_COLOR,
         overflow: bool = False,
+        icon: bool = True,
     ) -> ctk.CTkButton:
         button = ctk.CTkButton(
             self.overflow_actions if overflow else self.actions,
@@ -1438,7 +1494,10 @@ class BaseResultSurface:
             fg_color=ACTION_COLOR,
             hover_color=ACTION_HOVER_COLOR,
             text_color=text_color,
-            font=ctk.CTkFont(family=ACTION_ICON_FONT_FAMILY, size=10),
+            font=ctk.CTkFont(
+                family=ACTION_ICON_FONT_FAMILY if icon else TC_FONT_FAMILY,
+                size=10,
+            ),
             command=command,
         )
         button.pack(side="left", padx=(0, 5))
@@ -1673,6 +1732,10 @@ class BaseResultSurface:
         self.content_text.bind("<Control-Return>", callback, add="+")
         self.content_text.bind("<Control-KP_Enter>", callback, add="+")
 
+    def bind_voice_draft_paste(self, callback: Callable) -> None:
+        """Bind before Tk's Text class handler can perform native paste."""
+        self.content_text.bind("<Control-v>", callback, add="+")
+
     def focus_content(self) -> bool:
         """Focus the content widget and report verified toolkit focus truth."""
         return self.dialog.lifecycle.focus(self.content_text)
@@ -1710,3 +1773,6 @@ class BaseResultSurface:
         if self.follow_up_visible:
             self.follow_row.grid_forget()
             self.follow_up_visible = False
+
+    def clear_follow_up_text(self) -> None:
+        self.follow_entry.delete(0, "end")

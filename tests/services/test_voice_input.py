@@ -8,12 +8,14 @@ from ClipAI.core.voice import (
     VoiceDisableId,
     VoiceLanguageChangeId,
     VoiceDraftTarget,
+    VoiceEngineAudioLevel,
     VoiceEngineEnded,
     VoiceEngineFinalSegment,
     VoiceEngineFailed,
     VoiceEngineInterim,
     VoiceEngineListening,
     VoiceEngineSetupReady,
+    VoiceFollowUpTarget,
     VoiceLanguage,
     VoiceSetupId,
     VoiceTransportFailure,
@@ -21,11 +23,13 @@ from ClipAI.core.voice import (
 from ClipAI.services.voice_input import (
     CancelVoiceCapture,
     FinalizeVoiceDraft,
+    FinalizeVoiceFollowUp,
     PersistVoiceEnabled,
     PersistVoiceDisabled,
     PersistVoiceLanguage,
     PrepareVoiceSetup,
     RestoreVoiceReview,
+    RestoreVoiceFollowUp,
     StartVoiceCapture,
     ShutdownVoiceEngine,
     StopVoiceCapture,
@@ -87,6 +91,31 @@ def test_capture_admission_is_single_flight_and_listening_waits_for_engine_ack()
     assert starting.effects == (StartVoiceCapture(capture, "zh-TW"),)
     assert controller.request_capture(VoiceCaptureId("capture-2"), target()).ignored is True
     assert controller.observe_engine(VoiceEngineListening(capture)).projection.capture_phase.value == "listening"
+
+
+def test_audio_level_projects_real_signal_and_clears_a_silence_hint() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+    controller.observe_engine(VoiceEngineListening(capture))
+
+    silent = controller.note_silence_timeout(capture)
+    heard = controller.observe_engine(VoiceEngineAudioLevel(capture, 0.35))
+
+    assert silent.projection.silence_detected is True
+    assert silent.projection.message == "No sound detected."
+    assert heard.projection.audio_level == 0.35
+    assert heard.projection.silence_detected is False
+    assert heard.projection.message == "Listening…"
+
+
+def test_silence_timeout_is_ignored_after_real_signal() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, target())
+    controller.observe_engine(VoiceEngineAudioLevel(capture, 0.1))
+
+    assert controller.note_silence_timeout(capture).ignored is True
 
 
 def test_capture_permission_failure_requires_explicit_setup_repair() -> None:
@@ -179,6 +208,35 @@ def test_terminal_applies_ordered_final_segments_once() -> None:
 
     assert terminal.effects == (FinalizeVoiceDraft(capture, frozen_target, "hello world"),)
     assert controller.observe_engine(VoiceEngineEnded(capture)).ignored is True
+
+
+def test_follow_up_capture_settles_to_its_typed_destination() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-follow-up")
+    target = VoiceFollowUpTarget("workflow-1")
+    controller.request_capture(capture, target)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "What changed?"))
+    controller.request_stop(capture)
+
+    terminal = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert terminal.effects == (
+        FinalizeVoiceFollowUp(capture, target, "What changed?"),
+    )
+
+
+def test_empty_follow_up_capture_restores_result_without_creating_a_voice_draft() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-follow-up")
+    target = VoiceFollowUpTarget("workflow-1")
+    controller.request_capture(capture, target)
+    controller.request_stop(capture)
+
+    terminal = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert terminal.effects == (
+        RestoreVoiceFollowUp(capture, target, "No speech was recognized. Try again."),
+    )
 
 
 def test_natural_end_before_release_restarts_only_the_same_capture() -> None:

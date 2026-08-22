@@ -4,9 +4,9 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
-from ClipAI.core.voice import VoiceCaptureId, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
+from ClipAI.core.voice import VoiceCaptureId, VoiceCaptureSurfaceContext, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
 
 
 class LLMProvider(Protocol):
@@ -77,8 +77,8 @@ class WorkflowContextReader(Protocol):
     def workflow_context(self, workflow_id: str) -> ActiveWorkflowContext | None: ...
 
 
-class VoiceDraftSelectionReader(Protocol):
-    def voice_draft_selection_range(self, workflow_id: str) -> tuple[int, int] | None: ...
+class VoiceCaptureContextReader(Protocol):
+    def voice_capture_surface_context(self, workflow_id: str) -> VoiceCaptureSurfaceContext | None: ...
 
 
 class ArchiveStore(Protocol):
@@ -93,6 +93,16 @@ class UserPreferencesStore(Protocol):
     def load(self) -> UserPreferences: ...
 
     def save(self, preferences: UserPreferences) -> None: ...
+
+
+class PersonalStyleStore(Protocol):
+    def load(self) -> PersonalStyleCollection: ...
+
+    def save(self, collection: PersonalStyleCollection) -> None: ...
+
+
+class PersonalStyleFileReader(Protocol):
+    def read_text(self, path: str) -> str: ...
 
 
 class SpeechOutput(Protocol):
@@ -129,6 +139,14 @@ class ProviderSettingsPresenter(Protocol):
     def set_provider_settings(self, state: ProviderSettingsState) -> None: ...
 
     def close_provider_settings(self) -> None: ...
+
+
+class PersonalStylePresenter(Protocol):
+    def show_personal_styles(self, state: PersonalStyleState) -> None: ...
+
+    def set_personal_styles(self, state: PersonalStyleState) -> None: ...
+
+    def close_personal_styles(self) -> None: ...
 
 
 class GuidancePreferencesPresenter(Protocol):
@@ -225,6 +243,14 @@ class ShortcutInput(Stoppable, Protocol):
 
 class RuntimeComponent(Stoppable, Protocol):
     def start(self) -> None: ...
+
+
+class ApplicationInstanceLease(Protocol):
+    def close(self) -> None: ...
+
+
+class ApplicationInstanceGate(Protocol):
+    def acquire(self) -> ApplicationInstanceLease | None: ...
 
 
 class ForegroundWindowMonitor(RuntimeComponent, Protocol):

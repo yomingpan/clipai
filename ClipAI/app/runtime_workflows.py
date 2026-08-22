@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, PasteOperationCompleted, ShortcutPressInvoked, StartAction, TogglePin, WorkflowAttentionCompleted
-from ClipAI.core.models import ActionInvocation, ControlSurfaceRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, WorkflowAttention
-from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceDraftSelectionReader, WorkflowAttentionPresenter, WorkflowContextReader
+from ClipAI.core.errors import PersonalStyleUnavailableError
+from ClipAI.core.models import ActionInvocation, ControlSurfaceRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, WorkflowAttention
+from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceCaptureContextReader, WorkflowAttentionPresenter, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceDraftTarget, VoiceOrigin
+from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
+from ClipAI.services.follow_up_continuation import FollowUpContinuation, VOICE_DRAFT_FOLLOW_UP_ACTION_ID
 from ClipAI.services.input_target_resolver import InputTargetResolver
+from ClipAI.services.personal_styles import PersonalStyleCoordinator
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.provider_binding import ProviderExecutionBinding
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -65,15 +68,26 @@ class _WorkflowRecord:
     controller: WorkflowController
     binding: ProviderExecutionBinding
     presentation: WorkflowPresentation
+    personal_style: PersonalStyleProfile | None = None
 
 
 @dataclass(frozen=True)
-class VoiceShortcutAdmission:
-    """The sole runtime decision about where a Voice shortcut may operate."""
+class VoiceCaptureIntent:
+    """One explicit request for runtime-owned Voice destination admission."""
 
-    kind: Literal["create", "reuse", "voice_review", "continue", "rejected"]
+    trigger: Literal["shortcut", "popup"]
     workflow_id: str | None = None
-    target: VoiceDraftTarget | None = None
+    focused_surface: ControlSurfaceRef | None = None
+    active_voice_workflow_id: str | None = None
+
+
+@dataclass(frozen=True)
+class VoiceCaptureAdmission:
+    """The sole runtime decision about where a Voice capture may operate."""
+
+    kind: Literal["create", "voice_review", "follow_up", "continue", "rejected"]
+    workflow_id: str | None = None
+    target: VoiceDraftTarget | VoiceFollowUpTarget | None = None
     message: str = ""
 
 
@@ -100,7 +114,7 @@ class WorkflowRuntimeModule:
         enqueue: Callable[[object], None],
         provider_configuration: ProviderConfigurationCoordinator,
         workflow_context_reader: WorkflowContextReader,
-        voice_draft_selection_reader: VoiceDraftSelectionReader | None = None,
+        voice_capture_context_reader: VoiceCaptureContextReader | None = None,
         incident_reporter: IncidentReporter,
         operation_tracker: OperationTracker | None = None,
         notifier: UserNotifier | None = None,
@@ -109,6 +123,7 @@ class WorkflowRuntimeModule:
         shortcut_intents: ShortcutIntentCoordinator | None = None,
         user_control: UserControlCoordinator | None = None,
         attention_presenter: WorkflowAttentionPresenter | None = None,
+        personal_styles: PersonalStyleCoordinator | None = None,
     ) -> None:
         self._actions = actions
         self._execute_action = execute_action
@@ -117,7 +132,7 @@ class WorkflowRuntimeModule:
         self._enqueue = enqueue
         self._provider_configuration = provider_configuration
         self._workflow_context_reader = workflow_context_reader
-        self._voice_draft_selection_reader = voice_draft_selection_reader
+        self._voice_capture_context_reader = voice_capture_context_reader
         self._incident_reporter = incident_reporter
         self._operation_tracker = operation_tracker
         self._notifier = notifier
@@ -126,6 +141,7 @@ class WorkflowRuntimeModule:
         self._records: dict[str, _WorkflowRecord] = {}
         self._user_control = user_control
         self._attention_presenter = attention_presenter
+        self._personal_styles = personal_styles
         self._pending_attention: dict[str, tuple[str, str]] = {}
         self._interruption_leases: dict[str, InterruptibleOperationLease] = {}
         self._foreground_id: str | None = None
@@ -167,87 +183,127 @@ class WorkflowRuntimeModule:
         self._foreground_id = workflow_id
         return controller
 
-    def reuse_voice_workflow(
+    def admit_voice_capture(self, intent: VoiceCaptureIntent) -> VoiceCaptureAdmission:
+        """Choose one semantic destination without leaking the policy to either trigger."""
+        if intent.trigger == "popup":
+            workflow_id = intent.workflow_id
+            if workflow_id is None:
+                return VoiceCaptureAdmission("rejected")
+            record = self._records.get(workflow_id)
+            if record is None or record.presentation != "visible":
+                return VoiceCaptureAdmission("rejected", workflow_id=workflow_id)
+            return self._voice_capture_admission_for_visible(intent, workflow_id, record)
+        visible = self._visible_record()
+        if visible is not None:
+            workflow_id, record = visible
+            return self._voice_capture_admission_for_visible(intent, workflow_id, record)
+        if intent.focused_surface is not None:
+            if intent.focused_surface.kind != "workflow":
+                return VoiceCaptureAdmission(
+                    "rejected",
+                    message="Close the active ClipAI window, then try again.",
+                )
+            target = self._voice_review_target(intent.focused_surface.surface_id)
+            if target is not None:
+                return VoiceCaptureAdmission(
+                    "voice_review",
+                    workflow_id=intent.focused_surface.surface_id,
+                    target=target,
+                )
+        return VoiceCaptureAdmission("create")
+
+    def _voice_capture_admission_for_visible(
+        self,
+        intent: VoiceCaptureIntent,
+        workflow_id: str,
+        record: _WorkflowRecord,
+    ) -> VoiceCaptureAdmission:
+        shortcut = intent.trigger == "shortcut"
+        if shortcut and intent.active_voice_workflow_id == workflow_id:
+            self._request_attention(
+                workflow_id,
+                "語音輸入進行中",
+                duration_ms=1500,
+                warning=False,
+            )
+            return VoiceCaptureAdmission("continue", workflow_id=workflow_id)
+        focused_surface = intent.focused_surface
+        if shortcut and focused_surface is None:
+            return VoiceCaptureAdmission(
+                "rejected",
+                workflow_id=workflow_id,
+                message="請先點選目前的 ClipAI 視窗再使用語音輸入，或關閉視窗後開始新的語音輸入。",
+            )
+        if shortcut:
+            assert focused_surface is not None
+            if focused_surface.kind != "workflow" or focused_surface.surface_id != workflow_id:
+                return VoiceCaptureAdmission(
+                    "rejected",
+                    workflow_id=workflow_id,
+                    message="請先點選目前的 ClipAI 視窗再使用語音輸入。",
+                )
+
+        snapshot = record.controller.snapshot
+        provider_active = snapshot.active_invocation_id is not None or snapshot.status in {
+            SessionStatus.READING_INPUT,
+            SessionStatus.PREPARING_REQUEST,
+            SessionStatus.REQUESTING_PROVIDER,
+            SessionStatus.PROCESSING_RESULT,
+        }
+        if provider_active:
+            return VoiceCaptureAdmission(
+                "rejected",
+                workflow_id=workflow_id,
+                message="AI 正在回答，完成後再追問。" if shortcut else "",
+            )
+        context = self._voice_capture_surface_context(workflow_id)
+        if shortcut and context is not None and context.follow_up_requested:
+            return VoiceCaptureAdmission(
+                "follow_up",
+                workflow_id=workflow_id,
+                target=VoiceFollowUpTarget(workflow_id),
+            )
+        if snapshot.status is SessionStatus.VOICE_REVIEW:
+            target = self._voice_review_target(workflow_id, context)
+            if target is not None:
+                return VoiceCaptureAdmission("voice_review", workflow_id=workflow_id, target=target)
+            return VoiceCaptureAdmission("rejected", workflow_id=workflow_id)
+        if (
+            snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
+            and snapshot.displayed_step_index >= 0
+            and "follow_up" in snapshot.available_actions
+        ):
+            return VoiceCaptureAdmission(
+                "follow_up",
+                workflow_id=workflow_id,
+                target=VoiceFollowUpTarget(workflow_id),
+            )
+        return VoiceCaptureAdmission(
+            "rejected",
+            workflow_id=workflow_id,
+            message="這份內容目前無法使用 Follow-up。" if shortcut else "",
+        )
+
+    def _voice_review_target(
         self,
         workflow_id: str,
-        target: PasteTarget | None,
-    ) -> WorkflowController | None:
-        """Start a fresh Voice Draft in the Workflow already using the Popup."""
+        context: VoiceCaptureSurfaceContext | None = None,
+    ) -> VoiceDraftTarget | None:
         record = self._records.get(workflow_id)
         if record is None or record.presentation != "visible":
             return None
-        controller = record.controller
-        invocation_id = controller.snapshot.active_invocation_id
-        if invocation_id is not None:
-            controller.cancel_active()
-            self._provider_execution.cancel(invocation_id)
-        if self._speech_coordinator is not None:
-            self._speech_coordinator.cancel_workflow(workflow_id)
-        controller.begin_voice_draft(target)
-        self._foreground_id = workflow_id
-        self._request_attention(
-            workflow_id,
-            "Preparing microphone…",
-            duration_ms=1500,
-            warning=False,
-        )
-        return controller
-
-    def admit_voice_shortcut(
-        self,
-        focused_surface: ControlSurfaceRef | None,
-        active_voice_workflow_id: str | None,
-    ) -> VoiceShortcutAdmission:
-        """Route Voice input without allowing callers to bypass popup ownership."""
-        visible = self._visible_record()
-        if visible is not None:
-            workflow_id, _record = visible
-            if active_voice_workflow_id == workflow_id:
-                self._request_attention(
-                    workflow_id,
-                    "語音輸入進行中",
-                    duration_ms=1500,
-                    warning=False,
-                )
-                return VoiceShortcutAdmission("continue", workflow_id=workflow_id)
-            if focused_surface is not None and focused_surface.kind != "workflow":
-                return VoiceShortcutAdmission(
-                    "rejected",
-                    message="Close the active ClipAI window, then try again.",
-                )
-            if focused_surface is not None and focused_surface.surface_id == workflow_id:
-                target = self.capture_target_for_voice_review(workflow_id)
-                if target is not None:
-                    return VoiceShortcutAdmission(
-                        "voice_review",
-                        workflow_id=workflow_id,
-                        target=target,
-                    )
-            return VoiceShortcutAdmission("reuse", workflow_id=workflow_id)
-        if focused_surface is not None:
-            if focused_surface.kind != "workflow":
-                return VoiceShortcutAdmission(
-                    "rejected",
-                    message="Close the active ClipAI window, then try again.",
-                )
-            target = self.capture_target_for_voice_review(focused_surface.surface_id)
-            if target is not None:
-                return VoiceShortcutAdmission(
-                    "voice_review",
-                    workflow_id=focused_surface.surface_id,
-                    target=target,
-                )
-        return VoiceShortcutAdmission("create")
-
-    def capture_target_for_voice_review(self, workflow_id: str) -> VoiceDraftTarget | None:
-        record = self._records.get(workflow_id)
-        reader = self._voice_draft_selection_reader
-        if record is None or record.presentation != "visible" or reader is None:
-            return None
-        selection = reader.voice_draft_selection_range(workflow_id)
+        context = context or self._voice_capture_surface_context(workflow_id)
+        selection = context.selection if context is not None else None
         if selection is None:
             return None
         return record.controller.freeze_voice_insertion(*selection)
+
+    def _voice_capture_surface_context(self, workflow_id: str) -> VoiceCaptureSurfaceContext | None:
+        reader = self._voice_capture_context_reader
+        if reader is None:
+            return None
+        context = reader.voice_capture_surface_context(workflow_id)
+        return context if context is not None and context.workflow_id == workflow_id else None
 
     def bind_user_control(self, user_control: UserControlCoordinator) -> None:
         self._user_control = user_control
@@ -255,7 +311,10 @@ class WorkflowRuntimeModule:
     def has_foreground_workflow(self) -> bool:
         return self._foreground_id in self._records
 
-    def observe_paste_completion(self, command: PasteOperationCompleted) -> bool:
+    def observe_paste_completion(
+        self,
+        command: PasteOperationCompleted,
+    ) -> Literal["ignored", "released", "closed"]:
         """Apply semantic Foreground Workflow policy from authoritative Paste truth."""
         record = self._records.get(command.workflow_id)
         if (
@@ -265,9 +324,9 @@ class WorkflowRuntimeModule:
             or record.presentation != "visible"
             or record.controller.snapshot.pinned
         ):
-            return False
+            return "ignored"
         self._foreground_id = None
-        return True
+        return "closed" if record.controller.snapshot.voice_origin is not None else "released"
 
     def resolve_shortcut(self, command: ShortcutPressInvoked) -> AppCommand | None:
         return self._shortcut_intents.resolve(command)
@@ -362,6 +421,12 @@ class WorkflowRuntimeModule:
 
     def _start_action(self, command: StartAction) -> None:
         action = self._actions.resolve(command.action_id, command.press_type)
+        if self._personal_styles is not None:
+            try:
+                action = self._personal_styles.bind(action)
+            except PersonalStyleUnavailableError as error:
+                self._sequence_error(str(error), "Open Personal Styles from the tray menu.")
+                return
         if command.result_route == "speech":
             self._start_headless_action(action, command)
             return
@@ -396,7 +461,21 @@ class WorkflowRuntimeModule:
                     controller,
                     self._provider_configuration.active_binding,
                     "visible",
+                    personal_style=action.personal_style,
                 )
+        if action.personal_style_mode is not None and self._personal_styles is not None:
+            if record.personal_style is not None:
+                if (
+                    action.personal_style is None
+                    or action.personal_style.profile_id != record.personal_style.profile_id
+                ):
+                    action = self._personal_styles.bind_to(
+                        self._actions.resolve(command.action_id, command.press_type),
+                        record.personal_style,
+                    )
+            elif action.personal_style is not None:
+                record = replace(record, personal_style=action.personal_style)
+                self._records[workflow_id] = record
         active_id = controller.snapshot.active_invocation_id
         if active_id is not None:
             controller.cancel_active()
@@ -441,6 +520,7 @@ class WorkflowRuntimeModule:
             controller,
             self._provider_configuration.active_binding,
             "headless",
+            personal_style=action.personal_style,
         )
 
         async def execute() -> None:
@@ -467,29 +547,65 @@ class WorkflowRuntimeModule:
             return
         controller = record.controller
         previous = controller.snapshot
+        if previous.voice_origin is not None and (
+            previous.displayed_step_index < 0
+            or previous.steps[previous.displayed_step_index].action_id == VOICE_DRAFT_FOLLOW_UP_ACTION_ID
+        ):
+            continuation = FollowUpContinuation.for_voice_draft(
+                command.text.strip(),
+                previous.voice_origin.text,
+                history=previous.steps[: previous.displayed_step_index + 1],
+            )
+            self._start_follow_up_continuation(record, continuation)
+            return
         if previous.displayed_step_index < 0:
             return
         parent = previous.steps[previous.displayed_step_index]
         action = self._actions.resolve(parent.action_id, parent.press_type)
+        if self._personal_styles is not None:
+            try:
+                action = (
+                    self._personal_styles.bind_to(action, record.personal_style)
+                    if record.personal_style is not None
+                    else self._personal_styles.bind(action)
+                )
+            except PersonalStyleUnavailableError as error:
+                self._sequence_error(str(error), "Open Personal Styles from the tray menu.")
+                return
+        continuation = FollowUpContinuation.for_action(
+            action,
+            command.text.strip(),
+            history=previous.steps[: previous.displayed_step_index + 1],
+        )
+        self._start_follow_up_continuation(record, continuation)
+
+    def _start_follow_up_continuation(
+        self,
+        record: _WorkflowRecord,
+        continuation: FollowUpContinuation,
+    ) -> None:
+        action = continuation.action
+        workflow_id = record.controller.snapshot.session_id
         invocation = ActionInvocation(
             uuid.uuid4().hex,
             action.id,
             action.press_type,
-            InputTarget("workflow_result", InputDocument(command.text.strip(), "workflow_result", command.session_id, parent.step_id)),
-            workflow_id=command.session_id,
-            parent_step_id=parent.step_id,
+            InputTarget(
+                "workflow_result",
+                continuation.input_document(workflow_id),
+            ),
+            workflow_id=workflow_id,
+            parent_step_id=continuation.parent_step_id,
         )
+        controller = record.controller
         controller.begin_invocation(invocation, action)
         self._submit_invocation(
-            command.session_id,
+            workflow_id,
             invocation.invocation_id,
             lambda: self._execute_action.execute_follow_up_invocation(
-                action,
-                command.text.strip(),
+                continuation,
                 invocation,
                 controller,
-                original_input=previous.original_input,
-                previous_result=parent.result_text,
                 binding=record.binding,
             ),
         )
@@ -577,12 +693,14 @@ class WorkflowRuntimeModule:
         controller: WorkflowController,
         binding: ProviderExecutionBinding,
         presentation: WorkflowPresentation,
+        *,
+        personal_style: PersonalStyleProfile | None = None,
     ) -> _WorkflowRecord:
         if workflow_id in self._records:
             raise RuntimeError(f"workflow identity is already registered: {workflow_id}")
         if presentation == "visible" and self._visible_record() is not None:
             raise RuntimeError("only one visible Workflow may own the popup")
-        record = _WorkflowRecord(controller, binding, presentation)
+        record = _WorkflowRecord(controller, binding, presentation, personal_style)
         self._records[workflow_id] = record
         return record
 

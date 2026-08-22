@@ -106,23 +106,28 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - `follow_up`：開啟追問輸入。視覺上應使用 pen icon。
 - `pin`：固定 surface，避免 focus out 時自動關閉。Pin 必須保留為 base slot。
 - `speaker`、`copy`、`paste` 採 selection-first；沒有非空 semantic selection 時才使用 displayed step 的 canonical content。
-- Voice Review 進入時預設為「編輯模式」；`Ctrl+V` 保留原生貼入，讓使用者
-  修改草稿。`Ctrl+Enter` 切換到唯讀的「閱讀模式」，此時 `Ctrl+V` 產生
-  外部 Paste intent；再次按 `Ctrl+Enter` 可回到編輯模式。Paste 按鈕在兩種
-  模式都可明確觸發外部貼上。
+- Voice Review 進入時預設為「編輯模式」；使用者仍可直接鍵入修改草稿。
+  `Ctrl+V` 在編輯與閱讀模式都一律產生外部 Paste intent，不得原生貼入
+  Popup。`Ctrl+Enter` 只切換編輯／閱讀呈現；Paste 按鈕在兩種模式都可明確
+  觸發外部貼上。
+- 在 Voice Review 中，使用者以 `Ctrl+/` 明確開啟 Follow-up 後，下一次
+  `Ctrl+Alt+W` 必須以 Follow-up 作為 Voice capture destination；未開啟時才
+  繼續 Voice Draft。Presenter 只讀取並回報 Follow-up 可見狀態，runtime 保留
+  capture admission 的唯一決策權。
 - Paste 必須先隱藏 surface、釋放 focus，再送出 typed command；UI 不得直接操作 clipboard 或 keyboard。
 - Paste 的 `pending` 與 terminal acknowledgement 必須以相同 operation ID
   配對；stale acknowledgement 不得改變目前 surface、focus 或 transition。
-- `failed` 恢復並聚焦 surface；`cancelled` 恢復但不搶 focus；未 pinned 的
-  `dispatched_unconfirmed` 保持隱藏並釋放 semantic foreground；pinned 的
+- `failed` 恢復並聚焦 surface；`cancelled` 恢復但不搶 focus；未 pinned 的一般
+  `dispatched_unconfirmed` 保持隱藏並釋放 semantic foreground；未 pinned 的
+  Voice Draft 則在 clipboard cleanup 結束後關閉 Popup 與 Workflow；pinned 的
   `dispatched_unconfirmed` 保持可見但不搶 focus；`cleanup_failed` 恢復並顯示
   警告但不搶 focus。Paste 不得顯示 confirmed success。
 - Result surface 的 focus state 以邊框作為主要提示。Focused surface 的 footer
   只顯示最近的外部 paste target，不重複標示「已聚焦」；pinned 且 unfocused 時必須說明
   `Ctrl+V` 會由目前外部視窗使用原剪貼簿內容。
 - Focus、Voice Draft 模式與 paste target 提示固定置於 popup footer 左下角；
-  Voice Review 必須同步說明目前 `Ctrl+V` 的作用與 `Ctrl+Enter` 將切換到的
-  模式。model 置於同列
+  Voice Review 必須同步說明 `Ctrl+V` 一律外部貼上，以及 `Ctrl+Enter` 將切換
+  的呈現模式。model 置於同列
   右下角；兩者必須使用相同字級與顏色，不得占用 header 或 result content
   的閱讀空間，也不得以警示色搶走內容注意力。
 - Windows paste target、toolkit focus 與 semantic Foreground Workflow 是三種

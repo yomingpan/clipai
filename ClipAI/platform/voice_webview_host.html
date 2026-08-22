@@ -6,6 +6,35 @@
   let capture = null;
   const emit = payload => window.pywebview.api.emit(payload);
   const stopTracks = stream => { if (stream) stream.getTracks().forEach(track => track.stop()); };
+  const stopMeter = item => {
+    if (item.meterTimer) clearInterval(item.meterTimer);
+    item.meterTimer = null;
+    if (item.audioSource) item.audioSource.disconnect();
+    item.audioSource = null;
+    if (item.audioContext) item.audioContext.close();
+    item.audioContext = null;
+  };
+  const startMeter = item => {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const context = item.audioContext = new AudioContext();
+    const analyser = item.analyser = context.createAnalyser();
+    analyser.fftSize = 256;
+    item.audioSource = context.createMediaStreamSource(item.stream);
+    item.audioSource.connect(analyser);
+    const samples = new Uint8Array(analyser.fftSize);
+    item.meterTimer = setInterval(() => {
+      if (item.finished) return;
+      analyser.getByteTimeDomainData(samples);
+      let energy = 0;
+      for (const sample of samples) {
+        const normalized = (sample - 128) / 128;
+        energy += normalized * normalized;
+      }
+      const level = Math.min(1, Math.sqrt(energy / samples.length) * 4);
+      emit({kind: "audio_level", capture_id: item.id, level});
+    }, 100);
+  };
   const microphoneFailure = error => {
     const name = error && error.name;
     if (name === "NotAllowedError" || name === "SecurityError") {
@@ -19,6 +48,7 @@
   const finish = async (item, failure = "", detail = "") => {
     if (!item || item.finished) return;
     item.finished = true;
+    stopMeter(item);
     stopTracks(item.stream);
     window.pywebview.api.hide();
     if (failure) emit({kind: "failed", capture_id: item.id, failure, ...(detail ? {detail} : {})});
@@ -41,11 +71,12 @@
   };
   const start = async command => {
     if (capture) return;
-    const item = {id: command.capture_id, stream: null, recognition: null, stopped: false, finished: false, sequence: command.sequence_start || 0};
+    const item = {id: command.capture_id, stream: null, recognition: null, stopped: false, finished: false, sequence: command.sequence_start || 0, audioContext: null, audioSource: null, analyser: null, meterTimer: null};
     capture = item;
     try {
       item.stream = await navigator.mediaDevices.getUserMedia({audio: true});
       if (item.stopped) return finish(item);
+      startMeter(item);
       const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!Recognition) return finish(item, "unavailable");
       const recognition = item.recognition = new Recognition();

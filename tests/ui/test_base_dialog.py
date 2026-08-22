@@ -6,9 +6,13 @@ import tkinter as tk
 
 import customtkinter as ctk
 import pytest
+from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
+
+import ClipAI.ui.base_dialog as base_dialog_module
 
 from ClipAI.core.models import PasteTarget
 from ClipAI.ui.base_dialog import (
+    ACTION_ICON_FONT_FAMILY,
     ACTION_COLOR,
     ACTION_HOVER_COLOR,
     CONTENT_COLOR,
@@ -324,11 +328,11 @@ def test_voice_draft_footer_explains_ctrl_v_for_editing_and_reading_modes() -> N
     surface.set_paste_focus_state(True, target, voice_draft_editing=False)
 
     assert surface.paste_target_label.values == [
-        {"text": "編輯模式｜Ctrl+V 貼入｜Ctrl+Enter 閱讀"},
+        {"text": "編輯模式｜Ctrl+V → Notepad — Untitled｜Ctrl+Enter 閱讀"},
         {"text": "閱讀模式｜Ctrl+V → Notepad — Untitled｜Ctrl+Enter 編輯"},
     ]
     assert tooltips == [
-        ("paste", "編輯模式：Ctrl+V 貼入草稿；Ctrl+Enter 切換閱讀模式"),
+        ("paste", "編輯模式：Ctrl+V 貼上目前內容到 Notepad — Untitled；Ctrl+Enter 切換閱讀模式"),
         ("paste", "閱讀模式：Ctrl+V 貼上目前內容到 Notepad — Untitled；Ctrl+Enter 切換編輯模式"),
     ]
 
@@ -464,6 +468,23 @@ def test_voice_draft_mode_shortcut_binds_directly_to_the_text_widget() -> None:
     ]
 
 
+def test_back_shortcut_binds_directly_to_the_content_widget() -> None:
+    class ContentText:
+        def __init__(self) -> None:
+            self.bindings = []
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings.append((sequence, callback, add))
+
+    callback = lambda _event: "break"
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = ContentText()
+
+    surface.bind_back_shortcut(callback)
+
+    assert surface.content_text.bindings == [("<Control-z>", callback, "+")]
+
+
 def test_rounded_surface_painter_redraws_tagged_surface_below_widgets() -> None:
     canvas = FakeCanvas()
     painter = RoundedSurfacePainter(
@@ -551,6 +572,69 @@ def test_dialog_never_precalculates_physical_widget_dimensions() -> None:
     source = inspect.getsource(BaseDialog)
     assert "_get_window_scaling" not in source
     assert 'bind("<Configure>", self._on_canvas_configure' in source
+
+
+def test_dialog_initial_show_positions_and_resamples_while_withdrawn() -> None:
+    source = inspect.getsource(BaseDialog.__init__)
+
+    created = source.index("self.root =")
+    withdrawn = source.index("self.root.withdraw()")
+    positioned = source.index("self._position_window")
+    laid_out = source.index("self.root.update_idletasks()")
+    resampled = source.index("_resample_window_dpi_scaling(self.root)")
+    shown = source.index("self.root.deiconify()")
+
+    assert created < withdrawn < positioned < laid_out < resampled < shown
+    assert "self.root.update()" not in source
+
+
+def test_window_dpi_resample_updates_cache_before_widget_callbacks(monkeypatch) -> None:
+    window = object()
+    monkeypatch.setitem(ScalingTracker.window_dpi_scaling_dict, window, 1.5)
+    observed_cache = []
+    monkeypatch.setattr(
+        ScalingTracker,
+        "get_window_dpi_scaling",
+        classmethod(lambda _cls, candidate: 1.0 if candidate is window else 1.5),
+    )
+    monkeypatch.setattr(
+        ScalingTracker,
+        "update_scaling_callbacks_for_window",
+        classmethod(
+            lambda cls, candidate: observed_cache.append(
+                cls.window_dpi_scaling_dict[candidate]
+            )
+        ),
+    )
+
+    base_dialog_module._resample_window_dpi_scaling(window)
+
+    assert ScalingTracker.window_dpi_scaling_dict[window] == 1.0
+    assert observed_cache == [1.0]
+
+
+def test_window_dpi_resample_rolls_back_cache_when_callback_fails(monkeypatch) -> None:
+    window = object()
+    monkeypatch.setitem(ScalingTracker.window_dpi_scaling_dict, window, 1.5)
+    monkeypatch.setattr(
+        ScalingTracker,
+        "get_window_dpi_scaling",
+        classmethod(lambda _cls, _window: 1.0),
+    )
+
+    def fail_callbacks(_cls, _window) -> None:
+        raise RuntimeError("widget scaling failed")
+
+    monkeypatch.setattr(
+        ScalingTracker,
+        "update_scaling_callbacks_for_window",
+        classmethod(fail_callbacks),
+    )
+
+    with pytest.raises(RuntimeError, match="widget scaling failed"):
+        base_dialog_module._resample_window_dpi_scaling(window)
+
+    assert ScalingTracker.window_dpi_scaling_dict[window] == 1.5
 
 
 def test_dialog_resize_only_requests_logical_window_geometry() -> None:
@@ -776,6 +860,29 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         "Archive accepted (Ctrl+S)",
         "Close follow-up (Ctrl+/)",
     ]
+
+
+def test_action_slot_selects_text_font_only_for_word_labels(monkeypatch) -> None:
+    class Button:
+        def __init__(self, _master, **options) -> None:
+            self.options = options
+
+        def pack(self, **_options) -> None:
+            pass
+
+    monkeypatch.setattr(ctk, "CTkButton", Button)
+    monkeypatch.setattr(ctk, "CTkFont", lambda **options: options)
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.actions = object()
+    surface.overflow_actions = object()
+    surface._action_buttons = {}
+    surface._action_tooltips = {}
+
+    icon = surface.add_action_slot("copy", COPY_ICON, None, width=24)
+    word = surface.add_action_slot("voice_stop", "Stop", None, width=46, icon=False)
+
+    assert icon.options["font"]["family"] == ACTION_ICON_FONT_FAMILY
+    assert word.options["font"]["family"] == TC_FONT_FAMILY
 
 
 def test_primary_and_overflow_action_placement_is_stable() -> None:

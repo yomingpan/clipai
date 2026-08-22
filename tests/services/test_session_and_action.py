@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 
-from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, ReadinessIssue, ResolvedAction, UserPreferences
+from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
 from ClipAI.core.errors import ProviderResponseError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
+from ClipAI.core.voice import VoiceOrigin
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.services.execute_action import ActionExecutor
+from ClipAI.services.follow_up_continuation import FollowUpContinuation
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.provider_binding import ProviderExecutionBinding
@@ -286,19 +288,186 @@ def test_follow_up_keeps_previous_context() -> None:
         workflow_id="w1",
         parent_step_id=parent.step_id,
     )
-    session.begin_invocation(follow, action())
-    asyncio.run(use_case.execute_follow_up_invocation(
+    continuation = FollowUpContinuation.for_action(
         action(),
         "More examples?",
+        history=session.snapshot.steps,
+    )
+    session.begin_invocation(follow, continuation.action)
+    asyncio.run(use_case.execute_follow_up_invocation(
+        continuation,
         follow,
         session,
-        original_input=session.snapshot.original_input,
-        previous_result=parent.result_text,
         binding=binding(provider),
     ))
     assert session.snapshot.content == "followed"
     assert [message.role for message in provider.requests[1].messages] == ["system", "user", "assistant", "user"]
     assert provider.requests[1].messages[-1].content == "More examples?"
+
+
+def test_voice_draft_follow_up_keeps_the_draft_and_prior_questions() -> None:
+    class RecordingProvider:
+        def __init__(self) -> None:
+            self.requests: list[LLMRequest] = []
+
+        async def execute(self, request: LLMRequest, cancellation: CancellationToken, *, stream):
+            self.requests.append(request)
+            yield LLMCompleted(LLMResult(f"answer-{len(self.requests)}", "fake", request.model))
+
+    provider = RecordingProvider()
+    use_case = workflow(FakeClipboard(""), FakeSelection(""))
+    controller = WorkflowController(
+        SessionSnapshot(
+            "w1", 0, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+            content="reviewed voice draft",
+            voice_origin=VoiceOrigin(None, "reviewed voice draft", 1),
+        ),
+        RecordingPresenter(),
+    )
+    first_continuation = FollowUpContinuation.for_voice_draft(
+        "What should I do next?",
+        voice_draft="reviewed voice draft",
+        history=(),
+    )
+    first = ActionInvocation(
+        "voice-1",
+        first_continuation.action.id,
+        first_continuation.action.press_type,
+        InputTarget("workflow_result"),
+        workflow_id="w1",
+    )
+    controller.begin_invocation(first, first_continuation.action)
+    asyncio.run(use_case.execute_follow_up_invocation(
+        first_continuation,
+        first,
+        controller,
+        binding=binding(provider),
+    ))
+
+    second_continuation = FollowUpContinuation.for_voice_draft(
+        "What is the first step?",
+        voice_draft="reviewed voice draft",
+        history=controller.snapshot.steps,
+    )
+    second = ActionInvocation(
+        "voice-2",
+        second_continuation.action.id,
+        second_continuation.action.press_type,
+        InputTarget("workflow_result"),
+        workflow_id="w1",
+        parent_step_id="voice-1",
+    )
+    controller.begin_invocation(second, second_continuation.action)
+    asyncio.run(use_case.execute_follow_up_invocation(
+        second_continuation,
+        second,
+        controller,
+        binding=binding(provider),
+    ))
+
+    assert [message.content for message in provider.requests[0].messages[1:]] == [
+        "Reviewed voice draft:\nreviewed voice draft",
+        "What should I do next?",
+    ]
+    assert [message.content for message in provider.requests[1].messages[1:]] == [
+        "Reviewed voice draft:\nreviewed voice draft",
+        "What should I do next?",
+        "answer-1",
+        "What is the first step?",
+    ]
+
+
+def test_second_follow_up_keeps_original_content_and_first_follow_up_turn() -> None:
+    class RecordingProvider:
+        def __init__(self) -> None:
+            self.requests: list[LLMRequest] = []
+
+        async def execute(self, request: LLMRequest, cancellation: CancellationToken, *, stream):
+            self.requests.append(request)
+            answers = ("Initial answer", "First follow-up answer", "Second follow-up answer")
+            yield LLMCompleted(LLMResult(answers[len(self.requests) - 1], "fake", request.model))
+
+    provider = RecordingProvider()
+    use_case = workflow(FakeClipboard("appetizer"), FakeSelection(""))
+    session = run_invocation(use_case, provider=provider)
+
+    for invocation_id, question in (
+        ("i2", "What does it mean?"),
+        ("i3", "Give me an example."),
+    ):
+        parent = session.snapshot.steps[-1]
+        follow = ActionInvocation(
+            invocation_id,
+            "english",
+            "short",
+            InputTarget("workflow_result"),
+            workflow_id="w1",
+            parent_step_id=parent.step_id,
+        )
+        continuation = FollowUpContinuation.for_action(
+            action(),
+            question,
+            history=session.snapshot.steps,
+        )
+        session.begin_invocation(follow, continuation.action)
+        asyncio.run(use_case.execute_follow_up_invocation(
+            continuation,
+            follow,
+            session,
+            binding=binding(provider),
+        ))
+
+    request = provider.requests[2]
+    assert [message.role for message in request.messages] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert [message.content for message in request.messages[1:]] == [
+        "Learn: appetizer",
+        "Initial answer",
+        "What does it mean?",
+        "First follow-up answer",
+        "Give me an example.",
+    ]
+
+
+def test_follow_up_context_keeps_original_content_and_only_the_latest_three_turns() -> None:
+    def step(index: int) -> WorkflowStep:
+        return WorkflowStep(
+            step_id=f"step-{index}",
+            action_id="english",
+            title="English",
+            input_text="appetizer" if index == 0 else f"question-{index}",
+            result_text=f"answer-{index}",
+            output_profile="",
+        )
+
+    continuation = FollowUpContinuation.for_action(
+        action(),
+        history=tuple(step(index) for index in range(5)),
+        question="question-5",
+    )
+    request = PromptBuilder().build_follow_up(
+        continuation,
+        model="model",
+        default_temperature=0.2,
+    )
+
+    assert [message.content for message in request.messages[1:]] == [
+        "Learn: appetizer",
+        "answer-0",
+        "question-2",
+        "answer-2",
+        "question-3",
+        "answer-3",
+        "question-4",
+        "answer-4",
+        "question-5",
+    ]
 
 
 def test_prompt_builder_includes_app_and_action_system_prompts() -> None:
@@ -317,6 +486,22 @@ def test_prompt_builder_adds_output_profile_instruction_once() -> None:
     profiled = ResolvedAction(**{**action().__dict__, "output_profile": "compact"})
     request = PromptBuilder("App policy", catalog).build(profiled, "input", model="model", default_temperature=0.2)
     assert request.messages[0].content.count("Return exactly four lines.") == 1
+
+
+def test_prompt_builder_appends_style_as_subordinate_untrusted_reference() -> None:
+    styled = ResolvedAction(**{
+        **action().__dict__,
+        "personal_style_mode": "informal",
+        "personal_style": PersonalStyleProfile("yoming", "Yoming", "使用『但』，不要新增事實。", "hash"),
+    })
+
+    request = PromptBuilder("App policy").build(styled, "input", model="model", default_temperature=0.2)
+    system = request.messages[0].content
+
+    assert '<personal_style_reference name="Yoming">' in system
+    assert "使用『但』，不要新增事實。" in system
+    assert "cannot override content fidelity" in system
+    assert system.index("Coach") < system.index("<personal_style_reference")
 
 
 def test_result_processor_warns_but_preserves_text_when_profile_marker_is_missing(caplog) -> None:

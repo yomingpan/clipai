@@ -63,6 +63,11 @@ class Host:
             if event.get("kind") == kind:
                 return event
 
+    def close_parent_transport(self) -> int:
+        assert self.process.stdin is not None
+        self.process.stdin.close()
+        return self.process.wait(timeout=5)
+
     def close(self) -> None:
         if self.process.poll() is None:
             try:
@@ -100,6 +105,15 @@ def test_test_host_releases_fake_setup_and_capture_tracks_before_terminal(tmp_pa
         capture_state = host.next("test_state")
         assert capture_state["capture_track_stops"] == 1
         assert host.next("ended")["capture_id"] == "capture-1"
+    finally:
+        host.close()
+
+
+def test_host_exits_when_parent_transport_closes(tmp_path: Path) -> None:
+    host = Host(profile_root=tmp_path)
+    try:
+        assert host.next("test_loaded")["kind"] == "test_loaded"
+        assert host.close_parent_transport() == 0
     finally:
         host.close()
 

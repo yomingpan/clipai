@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import threading
 
-from ClipAI.core.models import ActionInvocation, InputDocument, PasteTarget, PresentationDocument, ResolvedAction, WorkflowStep
+from ClipAI.core.models import ActionInvocation, InputDocument, PresentationDocument, ResolvedAction, WorkflowStep
 from ClipAI.core.ports import ResultPresenter
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceDraftTarget, VoiceProjection
-from ClipAI.services import voice_draft
+from ClipAI.core.voice import VoiceCaptureDestination, VoiceCaptureId, VoiceDraftTarget, VoiceFollowUpTarget, VoiceProjection
+from ClipAI.services import voice_draft, voice_follow_up
 
 
 class WorkflowController:
@@ -239,20 +239,44 @@ class WorkflowController:
                 selection_end,
             )
 
-    def begin_voice_draft(self, paste_target: PasteTarget | None) -> SessionSnapshot:
-        """Replace the displayed content with a fresh draft in this Workflow."""
+    def project_voice_capture(self, projection: VoiceProjection) -> SessionSnapshot | None:
+        """Project controller-owned capture lifecycle without making it canonical draft state."""
         with self._lock:
-            self._active_token.cancel()
-            self._active_token = CancellationToken()
-            self._snapshot = voice_draft.begin_draft(self._snapshot, paste_target)
+            next_snapshot = (
+                voice_follow_up.project_capture(self._snapshot, projection)
+                if projection.capture_destination is VoiceCaptureDestination.FOLLOW_UP
+                else voice_draft.project_capture(self._snapshot, projection)
+            )
+            if next_snapshot is None:
+                return None
+            self._snapshot = next_snapshot
             snapshot = self._snapshot
         self._presenter.render(snapshot)
         return snapshot
 
-    def project_voice_capture(self, projection: VoiceProjection) -> SessionSnapshot | None:
-        """Project controller-owned capture lifecycle without making it canonical draft state."""
+    def restore_voice_follow_up(
+        self,
+        capture_id: VoiceCaptureId,
+        target: VoiceFollowUpTarget,
+        message: str,
+    ) -> SessionSnapshot | None:
         with self._lock:
-            next_snapshot = voice_draft.project_capture(self._snapshot, projection)
+            next_snapshot = voice_follow_up.restore(self._snapshot, capture_id, target, message)
+            if next_snapshot is None:
+                return None
+            self._snapshot = next_snapshot
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return snapshot
+
+    def apply_voice_follow_up_finalization(
+        self,
+        capture_id: VoiceCaptureId,
+        target: VoiceFollowUpTarget,
+        text: str,
+    ) -> SessionSnapshot | None:
+        with self._lock:
+            next_snapshot = voice_follow_up.finalize(self._snapshot, capture_id, target, text)
             if next_snapshot is None:
                 return None
             self._snapshot = next_snapshot

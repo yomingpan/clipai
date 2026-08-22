@@ -1,14 +1,36 @@
 from __future__ import annotations
 
 import queue
+import ast
+import inspect
+import textwrap
 from dataclasses import replace
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, PasteResult, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceDraftInsertion, VoiceOrigin
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
+from ClipAI.ui.base_dialog import BaseResultSurface
 from ClipAI.ui.popup_external_output import FocusEntered, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown
-from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, workflow_render_patch
+from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, _voice_waveform_text, workflow_render_patch
+
+
+def test_voice_waveform_uses_a_compact_fixed_text_slot() -> None:
+    tree = ast.parse(textwrap.dedent(inspect.getsource(BaseResultSurface._build)))
+    icon_modes = {
+        call.args[0].value: next(
+            keyword.value.value for keyword in call.keywords if keyword.arg == "icon"
+        )
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "add_action_slot"
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+        and call.args[0].value == "voice_input"
+    }
+
+    assert icon_modes == {"voice_input": False}
 
 
 class Root:
@@ -52,6 +74,21 @@ class Dialog:
         return self.native_foreground
 
 
+class FollowUpEntry:
+    def __init__(self) -> None:
+        self.text = ""
+        self.bindings = {}
+
+    def get(self) -> str:
+        return self.text
+
+    def delete(self, _start, _end) -> None:
+        self.text = ""
+
+    def bind(self, event, callback, **_kwargs) -> None:
+        self.bindings[event] = callback
+
+
 class Surface:
     def __init__(self, selected: str | None, events: list[str]) -> None:
         self.selected = selected
@@ -59,7 +96,18 @@ class Surface:
         self.overflow_expanded = False
         self.feedback_available = False
         self.header_double_click_callback = None
+        self.voice_draft_paste_callback = None
         self.focus_result = True
+        self.follow_up_visible = False
+        self.follow_entry = FollowUpEntry()
+        self.follow_send_button = type("Button", (), {
+            "command": None,
+            "configure": lambda button, **kwargs: setattr(
+                button,
+                "command",
+                kwargs.get("command", button.command),
+            ),
+        })()
 
     def selected_text(self) -> str | None:
         return self.selected
@@ -86,8 +134,14 @@ class Surface:
     def bind_header_double_click(self, callback) -> None:
         self.header_double_click_callback = callback
 
+    def bind_back_shortcut(self, callback) -> None:
+        self.back_shortcut_callback = callback
+
     def bind_voice_draft_mode_toggle(self, callback) -> None:
         self.voice_draft_mode_toggle_callback = callback
+
+    def bind_voice_draft_paste(self, callback) -> None:
+        self.voice_draft_paste_callback = callback
 
     def focus_content(self) -> bool:
         return self.focus_result
@@ -131,6 +185,31 @@ class Surface:
         if caret_offset is not None:
             self.events.append(f"voice-caret:{caret_offset}")
 
+    def configure_voice_action(self, **kwargs) -> None:
+        self.voice_action = kwargs
+        self.events.append(("voice-action", kwargs))
+
+    def insert_follow_up_text(self, text: str) -> None:
+        self.events.append(f"follow-up-insert:{text}")
+
+    def set_follow_up_send_enabled(self, enabled: bool) -> None:
+        self.events.append(f"follow-up-send:{enabled}")
+
+    def show_follow_up(self, initial_text: str = "") -> None:
+        self.follow_up_visible = True
+        self.events.append(f"follow-up-show:{initial_text}")
+
+    def hide_follow_up(self) -> None:
+        self.follow_up_visible = False
+        self.events.append("follow-up-hide")
+
+    def clear_follow_up_text(self) -> None:
+        self.follow_entry.delete(0, "end")
+        self.events.append("follow-up-cleared")
+
+    def set_follow_up_active(self, active: bool) -> None:
+        self.events.append(f"follow-up-active:{active}")
+
 
 def presenter_with_selection(selected: str | None):
     events: list[str] = []
@@ -146,6 +225,10 @@ def presenter_with_selection(selected: str | None):
     presenter._shortcut_guide_focus_hold_active = False
     presenter._shortcut_guide_focus_return = None
     presenter._focus_transition_diagnostics = False
+    presenter._voice_projection = VoiceProjection(
+        VoiceCapabilityPhase.READY,
+        VoiceLanguage("zh-TW"),
+    )
     return presenter, events
 
 
@@ -223,6 +306,236 @@ def test_latest_snapshot_mailbox_coalesces_each_workflow_to_highest_revision() -
     assert drained["one"].status == SessionStatus.COMPLETED
     assert drained["two"].status == SessionStatus.FAILED
     assert mailbox.drain() == ()
+
+
+def test_waveform_text_reflects_real_levels_and_silence() -> None:
+    assert _voice_waveform_text([0.0, 0.25, 0.5, 1.0]) == "▁▂▄▇  聆聽"
+    assert _voice_waveform_text([1.0], silence_detected=True) == "▁▁▁▁  無聲"
+
+
+def test_completed_popup_offers_voice_follow_up_and_emits_typed_start() -> None:
+    presenter, events = presenter_with_selection(None)
+    snapshot = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        available_actions=("follow_up",),
+    )
+
+    presenter._configure_voice_control(snapshot, presenter._views["s1"])
+    action = presenter._views["s1"].surface.voice_action
+
+    assert action["enabled"] is True
+    assert action["active"] is False
+    action["command"]()
+    assert isinstance(events[-1], StartPopupVoiceCapture)
+    assert events[-1].workflow_id == "s1"
+    assert isinstance(events[-1].capture_id, VoiceCaptureId)
+
+
+def test_active_voice_follow_up_uses_same_control_to_stop() -> None:
+    presenter, events = presenter_with_selection(None)
+    capture_id = VoiceCaptureId("capture-1")
+    snapshot = SessionSnapshot(
+        "s1",
+        2,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        available_actions=("follow_up",),
+        voice_capture_id=capture_id,
+        voice_capture_phase=VoiceCapturePhase.LISTENING,
+        voice_audio_level=0.8,
+    )
+
+    presenter._configure_voice_control(snapshot, presenter._views["s1"])
+    action = presenter._views["s1"].surface.voice_action
+
+    assert action["active"] is True
+    assert "聆聽" in action["text"]
+    assert "follow-up-send:False" in events
+    action["command"]()
+    assert events[-1] == StopVoiceCapture(capture_id)
+
+
+def test_shortcut_started_voice_follow_up_immediately_opens_the_review_field() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    previous = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        content="answer",
+        available_actions=("follow_up",),
+    )
+    view.revision = previous.revision
+    view.last_snapshot = previous
+    view.content = previous.content
+    view.flashed_completion_keys.add(previous.content)
+
+    presenter._apply(previous.evolve(
+        voice_capture_id=VoiceCaptureId("capture-1"),
+        voice_capture_phase=VoiceCapturePhase.STARTING,
+    ))
+
+    assert view.surface.follow_up_visible is True
+    assert "follow-up-show:" in events
+    assert "follow-up-active:True" in events
+
+
+def test_shortcut_started_voice_follow_up_can_submit_its_reviewed_text() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    previous = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        content="answer",
+        available_actions=("follow_up",),
+    )
+    view.revision = previous.revision
+    view.last_snapshot = previous
+    view.content = previous.content
+    view.flashed_completion_keys.add(previous.content)
+
+    presenter._apply(previous.evolve(
+        voice_capture_id=VoiceCaptureId("capture-1"),
+        voice_capture_phase=VoiceCapturePhase.STARTING,
+    ))
+    view.last_snapshot = previous.evolve()
+    view.surface.follow_entry.get = lambda: "What changed?"
+
+    assert view.surface.follow_send_button.command is not None
+    view.surface.follow_send_button.command()
+
+    assert events[-1] == FollowUp("s1", "What changed?")
+
+
+def test_shortcut_started_voice_follow_up_can_submit_with_enter() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    previous = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        content="answer",
+        available_actions=("follow_up",),
+    )
+    view.revision = previous.revision
+    view.last_snapshot = previous
+    view.content = previous.content
+    view.flashed_completion_keys.add(previous.content)
+
+    presenter._apply(previous.evolve(
+        voice_capture_id=VoiceCaptureId("capture-1"),
+        voice_capture_phase=VoiceCapturePhase.STARTING,
+    ))
+    view.last_snapshot = previous.evolve()
+    view.surface.follow_entry.get = lambda: "What changed?"
+
+    view.surface.follow_entry.bindings["<Return>"](None)
+
+    assert events[-1] == FollowUp("s1", "What changed?")
+
+
+def test_sent_follow_up_clears_the_next_question_input() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.last_snapshot = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        available_actions=("follow_up",),
+    )
+
+    presenter._show_follow_up("s1")
+    view.surface.follow_entry.text = "First question"
+    view.surface.follow_send_button.command()
+    presenter._show_follow_up("s1")
+
+    assert events[-1] == "follow-up-active:True"
+    assert view.surface.follow_entry.text == ""
+
+
+def test_provider_activity_disables_popup_voice_input() -> None:
+    presenter, _events = presenter_with_selection(None)
+    snapshot = SessionSnapshot(
+        "s1",
+        2,
+        SessionStatus.REQUESTING_PROVIDER,
+        "a",
+        "A",
+        "m",
+        active_invocation_id="invocation-1",
+    )
+
+    presenter._configure_voice_control(snapshot, presenter._views["s1"])
+    action = presenter._views["s1"].surface.voice_action
+
+    assert action["enabled"] is False
+    assert "answer finishes" in action["tooltip"]
+
+
+def test_follow_up_voice_insertion_is_applied_once_at_the_live_caret() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    previous = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        content="answer",
+        available_actions=("follow_up",),
+    )
+    view.revision = previous.revision
+    view.last_snapshot = previous
+    view.content = previous.content
+    view.flashed_completion_keys.add(previous.content)
+    insertion = VoiceFollowUpInsertion(VoiceCaptureId("capture-1"), "追加問題")
+
+    presenter._apply(previous.evolve(voice_follow_up_insertion=insertion))
+    presenter._apply(replace(previous, revision=3, voice_follow_up_insertion=insertion))
+
+    assert events.count("follow-up-insert:追加問題") == 1
+
+
+def test_follow_up_cannot_hide_or_submit_while_voice_capture_is_active() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.last_snapshot = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        voice_capture_id=VoiceCaptureId("capture-1"),
+        voice_capture_phase=VoiceCapturePhase.LISTENING,
+    )
+    view.surface.follow_up_visible = True
+
+    presenter._toggle_follow_up("s1")
+
+    assert view.surface.follow_up_visible is True
+    assert "message:請先停止語音輸入:1500" in events
 
 
 def test_speaking_and_pin_updates_do_not_patch_unchanged_content() -> None:
@@ -457,6 +770,38 @@ def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:
     assert events == ["follow-up:s1"]
 
 
+def test_ctrl_z_navigates_back_for_active_popup_with_history() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    view.last_snapshot = SessionSnapshot(
+        "s1", 1, SessionStatus.COMPLETED, "rewrite", "Rewrite", "Completed",
+        can_navigate_back=True,
+    )
+
+    presenter._register_view("s1", view)
+
+    class CtrlZEvent:
+        state = 0x0004
+
+    result = view.surface.back_shortcut_callback(CtrlZEvent())
+
+    assert result == "break"
+    assert events == [NavigateWorkflowBack("s1")]
+
+
 def test_failed_initial_focus_attempt_does_not_claim_popup_focus() -> None:
     class ShortcutRoot:
         def __init__(self) -> None:
@@ -531,7 +876,6 @@ def test_voice_capture_popup_establishes_initial_focus_immediately() -> None:
     view.surface.pin_button = Button()
     view.surface.configure_back_action = lambda _callback: None
     presenter._create_view = lambda _session_id: view
-    presenter._configure_voice_capture_controls = lambda _snapshot, _view: None
     requested_initial_focus = []
     presenter._register_view = lambda _session_id, _view, *, focus_on_show=True: requested_initial_focus.append(focus_on_show)
 
@@ -569,8 +913,6 @@ def test_empty_voice_review_surfaces_the_capture_failure_message() -> None:
     view.surface.close_button = Button()
     view.surface.pin_button = Button()
     view.dialog.flash = lambda _state: None
-    presenter._configure_voice_capture_controls = lambda _snapshot, _view: None
-
     target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
     presenter._apply(SessionSnapshot(
         "s1",
@@ -637,7 +979,7 @@ def test_ctrl_v_preserves_native_paste_in_editable_popup_fields() -> None:
     assert events == []
 
 
-def test_ctrl_v_preserves_native_paste_in_editable_voice_review() -> None:
+def test_ctrl_v_pastes_external_content_from_editable_voice_review() -> None:
     class EditableVoiceDraft:
         def winfo_class(self) -> str:
             return "Text"
@@ -664,11 +1006,72 @@ def test_ctrl_v_preserves_native_paste_in_editable_voice_review() -> None:
         "s1",
     )
 
-    assert result is None
-    assert events == []
+    assert result == "break"
+    assert events == ["paste:s1"]
 
 
-def test_ctrl_enter_switches_voice_draft_to_reading_mode() -> None:
+def test_voice_draft_intercepts_ctrl_v_before_the_text_widget_can_paste() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay, _callback) -> None:
+            pass
+
+    class EditableVoiceDraft:
+        def winfo_class(self) -> str:
+            return "Text"
+
+        def cget(self, option: str) -> str:
+            assert option == "state"
+            return "normal"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    view.last_snapshot = SessionSnapshot(
+        "s1", 1, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+        content="reviewed text",
+    )
+    presenter._paste = lambda session_id: events.append(f"paste:{session_id}")
+
+    presenter._register_view("s1", view)
+    result = view.surface.voice_draft_paste_callback(
+        type("Event", (), {"state": 0x0004, "widget": EditableVoiceDraft()})()
+    )
+
+    assert result == "break"
+    assert events == ["paste:s1"]
+
+
+def test_voice_capture_surface_context_projects_semantic_follow_up_intent() -> None:
+    presenter, _events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.last_snapshot = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.VOICE_REVIEW,
+        "voice_input",
+        "Voice Input",
+        "model",
+    )
+    view.surface.selection_range = lambda: (2, 4)
+
+    view.surface.follow_up_visible = True
+
+    assert presenter.voice_capture_surface_context("s1") == VoiceCaptureSurfaceContext(
+        "s1",
+        follow_up_requested=True,
+        selection=(2, 4),
+    )
+
+
+def test_ctrl_enter_switches_voice_draft_mode_without_changing_ctrl_v_paste_intent() -> None:
     class ShortcutRoot:
         def __init__(self) -> None:
             self.bindings = {}
@@ -721,8 +1124,8 @@ def test_ctrl_enter_switches_voice_draft_to_reading_mode() -> None:
         type("Event", (), {"state": 0x0004})(),
     ) == "break"
     paste_count = events.count("paste:s1")
-    assert view.dialog.root.bindings["<Control-v>"](paste_event) is None
-    assert events.count("paste:s1") == paste_count
+    assert view.dialog.root.bindings["<Control-v>"](paste_event) == "break"
+    assert events.count("paste:s1") == paste_count + 1
 
 
 def test_voice_draft_snapshot_keeps_the_selected_reading_mode() -> None:
@@ -751,7 +1154,9 @@ def test_voice_draft_snapshot_keeps_the_selected_reading_mode() -> None:
 
     presenter._apply(current)
 
-    assert events[-2:] == ["voice-content:updated draft", "voice-editor:False"]
+    assert "voice-content:updated draft" in events
+    assert "voice-editor:False" in events
+    assert events.index("voice-content:updated draft") < events.index("voice-editor:False")
     assert view.voice_draft_editing is False
 
 

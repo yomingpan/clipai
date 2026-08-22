@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import io
+import sys
 import threading
+from types import SimpleNamespace
 from pathlib import Path
 
 from ClipAI.platform.voice_webview_host import (
@@ -8,6 +11,7 @@ from ClipAI.platform.voice_webview_host import (
     _dispatch_host_command,
     allow_microphone_permission,
     is_explicit_voice_microphone_request,
+    main,
     realise_voice_host_invisibly,
     voice_webview_profile_dir,
 )
@@ -239,3 +243,30 @@ def test_prepare_and_start_fail_terminally_when_invisible_realisation_fails() ->
         assert api.events[0]["failure"] == "initialization_failed"
         if command["command"] == "start":
             assert api.events[-1] == {"kind": "ended", "capture_id": "capture-1"}
+
+
+def test_voice_host_exits_when_its_parent_transport_closes(monkeypatch, tmp_path: Path) -> None:
+    destroyed = threading.Event()
+
+    class LoadedEvent:
+        def __iadd__(self, _callback):
+            return self
+
+    class Window:
+        def __init__(self) -> None:
+            self.events = SimpleNamespace(loaded=LoadedEvent())
+
+        def destroy(self) -> None:
+            destroyed.set()
+
+    window = Window()
+    fake_webview = SimpleNamespace(
+        create_window=lambda *_args, **_kwargs: window,
+        start=lambda **_kwargs: destroyed.wait(0.25),
+    )
+    monkeypatch.setitem(sys.modules, "webview", fake_webview)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+    main(test_page=tmp_path / "voice.html", profile_root=tmp_path)
+
+    assert destroyed.is_set()

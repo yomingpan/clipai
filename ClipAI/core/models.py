@@ -16,6 +16,7 @@ ImageSource = Literal["clipboard"]
 InputMode = Literal["clipboard", "clipboard_image", "selection_or_clipboard"]
 OutputMode = Literal["popup"]
 ExternalFallback = Literal["selection_or_clipboard", "clipboard"]
+PersonalStyleMode = Literal["formal", "informal"]
 ResultRoute = Literal["popup", "speech"]
 SpeechSpeed = Literal["slow", "normal", "fast", "super_fast"]
 VoiceLanguagePreference = Literal["zh-TW", "en-US"]
@@ -41,7 +42,7 @@ PasteCompletionState = Literal["failed", "cancelled", "dispatched_unconfirmed", 
 ResultCompleteness = Literal["none", "partial", "complete"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
-ControlSurfaceKind = Literal["workflow", "provider_settings", "shortcut_guide"]
+ControlSurfaceKind = Literal["workflow", "provider_settings", "shortcut_guide", "personal_styles"]
 InterruptibleOperationKind = Literal[
     "workflow",
     "speech",
@@ -166,6 +167,36 @@ class ProviderSettingsInput:
     api_key: str = field(default="", repr=False)
     connection_name: str = ""
     connection_base_url: str = field(default="", repr=False)
+
+
+@dataclass(frozen=True)
+class PersonalStyleProfile:
+    profile_id: str
+    name: str
+    guide: str = field(repr=False)
+    content_hash: str = ""
+
+
+@dataclass(frozen=True)
+class PersonalStyleCollection:
+    profiles: tuple[PersonalStyleProfile, ...] = ()
+    selected_profile_id: str = ""
+
+
+@dataclass(frozen=True)
+class PersonalStyleOption:
+    profile_id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class PersonalStyleState:
+    profiles: tuple[PersonalStyleOption, ...] = ()
+    selected_profile_id: str = ""
+    operation_state: SettingsOperationState = "idle"
+    operation_kind: Literal["import", "select"] | None = None
+    operation_id: str = ""
+    message: str = ""
 
 
 @dataclass(frozen=True)
@@ -323,6 +354,7 @@ class ActionDefinition:
     output_profile: str = "plain_text"
     external_fallback: ExternalFallback = "selection_or_clipboard"
     feedback_contract: ActionFeedbackContract | None = None
+    personal_style_mode: PersonalStyleMode | None = None
 
 
 @dataclass(frozen=True)
@@ -381,6 +413,8 @@ class ResolvedAction:
     feedback_contract: ActionFeedbackContract | None = None
     version_id: str = ""
     stream: bool = False
+    personal_style_mode: PersonalStyleMode | None = None
+    personal_style: PersonalStyleProfile | None = None
 
 
 @dataclass(frozen=True)
@@ -453,7 +487,7 @@ class OutputProfile:
 @dataclass(frozen=True)
 class InputDocument:
     text: str
-    source: Literal["selection", "clipboard", "workflow_result", "voice_transcript", "screenshot"]
+    source: Literal["selection", "clipboard", "workflow_result", "voice_draft", "voice_transcript", "screenshot"]
     workflow_id: str | None = None
     step_id: str | None = None
     image: ImageContent | None = None

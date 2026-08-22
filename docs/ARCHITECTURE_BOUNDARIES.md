@@ -32,6 +32,7 @@ tests/              # Unit sims 與 integration tests
 - 禁止 global Event Bus。Event Bus 不得用來指揮 action pipeline 或修改 Workflow。
 - 每個 Workflow 只有一個 `WorkflowController`，由它擁有 snapshot、active invocation、cancellation、成功 step history 與 feedback projection。
 - `WorkflowRuntimeModule` 是 Workflow membership、semantic Foreground Workflow、visible/headless lifetime 與 captured provider binding 的唯一 owner。Window focus 只能提出 activation candidate，不得自行決定 Foreground Workflow。
+- `WorkflowRuntimeModule` 也是 global Voice shortcut 與 Popup microphone 共用的 Voice capture destination admission owner。UI 只能在明確 intent 當下回報 typed `VoiceCaptureSurfaceContext`（semantic Follow-up request 與 Voice Draft selection）；runtime 不得讀取 widget visibility，`VoiceInputRuntimeModule` 也不得重複 Workflow status／available-action destination matrix。
 - `ProviderExecutionModule` 是 provider async HTTP task、transport cancellation、settlement、shared connection pool 與 transport shutdown 的唯一 owner。Provider networking 不得占用 `TaskSupervisor`；`TaskSupervisor` 只執行非 provider 的 blocking work。
 - Hotkey callback 只能 enqueue command；worker 不得直接碰 Tkinter。
 - 同一時間最多一個 visible Workflow 擁有主要 Popup surface。PIN 會保留並占用該 surface；新的 visible Action 必須重用既有 pinned Workflow 與同一個 Popup，不得建立第二個 surface，也不得要求使用者先取消 PIN。未 pin Workflow 才可被非 contextual Action 取代；被取代或取消的 invocation 晚到時，必須依 Workflow ID、active invocation ID 與 cancellation token 丟棄。Workflow snapshot revision 只用於拒絕過時的 UI projection，不得代替 operation identity。
@@ -40,6 +41,7 @@ tests/              # Unit sims 與 integration tests
 - 所有 LLM/TTS operation 狀態由單一 `OperationLifecycleCoordinator` 管理；tray 不擁有 success/error timer。
 - Tray menu 只能 enqueue typed command，不得直接匯出檔案、讀 config 或執行 diagnostics。
 - Provider/model 選擇、設定驗證、reload 與 model catalog refresh 由單一 `ProviderConfigurationCoordinator` 擁有狀態與 operation identity；`AppRuntime` 只 dispatch、supervise worker 與投影狀態。
+- Personal Style profiles、active profile identity 與 import/select lifecycle 由單一 `PersonalStyleCoordinator` 擁有。Workflow 在 provider invocation 前綁定 profile snapshot；UI 與 filesystem adapter 不得形成第二套 selection owner。完整規則見 `docs/contracts/services/personal-style-contract.md`。
 - 所有 provider configuration mutation 共用一個 operation gate。設定儲存或 catalog refresh 進行中，不得由 tray 或其他入口同時寫入 provider 設定。
 - Provider environment mapping、credential resolution、concrete provider 建構與 `.env` persistence 屬於 app composition adapter；services 只依賴 typed backend contract。
 
@@ -191,7 +193,13 @@ Services 負責把能力串起來，例如：
 hotkey -> input -> safety/config -> prompt -> provider -> postprocess -> output
 ```
 
-`WorkflowController` 仍是 Workflow snapshot、history、render 與 lock scope 的唯一 owner。`services/voice_draft.py` 只封裝無狀態、無副作用的 Voice Draft transition：它不得儲存 snapshot、持有 lock、呼叫 presenter，或形成第二套 Workflow state owner。
+`WorkflowController` 仍是 Workflow snapshot、history、render 與 lock scope 的唯一 owner。`services/voice_draft.py` 與 `services/voice_follow_up.py` 只封裝無狀態、無副作用的 Voice transition：它們不得儲存 snapshot、持有 lock、呼叫 presenter，或形成第二套 Workflow state owner。
+
+`VoiceInputController` 是 microphone capability、capture lifecycle、真實音量取樣與 terminal settlement 的唯一 owner。Popup waveform 只能呈現 typed `VoiceProjection`／Workflow snapshot；不得自行開啟 microphone、製造裝飾性假音量，或從 widget visibility 推測 capture 狀態。Voice Draft 與 Popup follow-up 是明確的 capture destination；follow-up settlement 必須同時符合 Workflow identity 與 capture identity，且只插入文字，不得自動送出 provider request。
+
+`FollowUpContinuation` 是 Action result 與 Voice Draft 兩種 Follow-up 共用的 service boundary；它擁有 synthetic Voice Follow-up Action identity、input source、parent step、bounded context 與 request construction policy。`WorkflowRuntimeModule` 只選擇 semantic root 並透過單一 continuation execution seam 排程；`ActionExecutor` 不得為 Voice root 複製第二條 provider lifecycle。
+
+Action Follow-up provider context 一律由 `WorkflowController` 已擁有的目前分支 `WorkflowStep` history 重建；UI 與 provider 不得保存另一份對話記憶。Voice Draft Follow-up 則以同一 Workflow 的 canonical `VoiceOrigin` 作固定上下文，並只保留最近三輪 Voice Draft 問答；不得借用任一 Action 的 prompt 或建立第二份草稿。兩種 root 保留各自的 prompt policy，但必須透過同一個 `FollowUpContinuation` interface 且 request 都必須有界，避免遺失原始內容或讓 prompt 無限制成長。
 
 不得放入：
 

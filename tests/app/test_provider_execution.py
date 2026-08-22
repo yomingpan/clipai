@@ -75,3 +75,53 @@ def test_shutdown_closes_shared_async_lifecycle() -> None:
     assert lifecycle.started.wait(1)
     module.shutdown()
     assert lifecycle.closed.is_set()
+
+
+def test_shutdown_is_bounded_when_async_lifecycle_close_stalls() -> None:
+    class Lifecycle:
+        def __init__(self) -> None:
+            self.started = threading.Event()
+            self.close_started = threading.Event()
+
+        async def start(self) -> None:
+            self.started.set()
+
+        async def close(self) -> None:
+            self.close_started.set()
+            await asyncio.Event().wait()
+
+    lifecycle = Lifecycle()
+    module = ProviderExecutionModule(lifecycle)
+    assert lifecycle.started.wait(1)
+
+    module.shutdown()
+
+    assert lifecycle.close_started.is_set()
+
+
+def test_shutdown_settles_provider_task_cleanup_before_closing_transport() -> None:
+    events: list[str] = []
+    started = threading.Event()
+
+    class Lifecycle:
+        async def start(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            events.append("transport-closed")
+
+    async def work() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0.05)
+            events.append("task-cleaned")
+
+    module = ProviderExecutionModule(Lifecycle())
+    module.start("provider-1", work, lambda _result: None, lambda _error: None, lambda: None)
+    assert started.wait(1)
+
+    module.shutdown()
+
+    assert events == ["task-cleaned", "transport-closed"]

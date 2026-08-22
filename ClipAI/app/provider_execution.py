@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
+import logging
 import threading
 from typing import Any, Protocol, TypeVar
 
 
 T = TypeVar("T")
+logger = logging.getLogger(__name__)
 
 
 class AsyncLifecycle(Protocol):
@@ -80,9 +82,16 @@ class ProviderExecutionModule:
                 future.result(timeout=0.25)
             except BaseException:
                 pass
+        self._settle_provider_tasks()
         close = asyncio.run_coroutine_threadsafe(self._close_lifecycle(), self._loop)
         try:
             close.result(timeout=1)
+        except TimeoutError:
+            logger.warning("[clipai] Provider transport shutdown exceeded 1 second; cancelling close.")
+            close.cancel()
+            self._drain_loop_cancellation()
+        except Exception as error:
+            logger.warning("[clipai] Provider transport shutdown failed: %s", type(error).__name__)
         finally:
             self._loop.call_soon_threadsafe(self._loop.stop)
             self._thread.join(timeout=1)
@@ -98,6 +107,38 @@ class ProviderExecutionModule:
     async def _close_lifecycle(self) -> None:
         if self._lifecycle is not None:
             await self._lifecycle.close()
+
+    def _settle_provider_tasks(self) -> None:
+        settlement = asyncio.run_coroutine_threadsafe(self._cancel_remaining_tasks(), self._loop)
+        try:
+            settlement.result(timeout=1)
+        except TimeoutError:
+            logger.warning("[clipai] Provider task cleanup exceeded 1 second; continuing shutdown.")
+            settlement.cancel()
+            self._drain_loop_cancellation()
+        except Exception as error:
+            logger.warning("[clipai] Provider task cleanup failed: %s", type(error).__name__)
+
+    @staticmethod
+    async def _cancel_remaining_tasks() -> None:
+        current = asyncio.current_task()
+        pending = tuple(
+            task
+            for task in asyncio.all_tasks()
+            if task is not current and not task.done()
+        )
+        for task in pending:
+            if task.cancelling() == 0:
+                task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    def _drain_loop_cancellation(self) -> None:
+        barrier = asyncio.run_coroutine_threadsafe(asyncio.sleep(0), self._loop)
+        try:
+            barrier.result(timeout=0.25)
+        except Exception:
+            pass
 
     def _settle(self, operation_id: str, future: Future[Any]) -> None:
         with self._lock:

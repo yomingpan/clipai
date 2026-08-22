@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import pytest
 
 from ClipAI.app.runtime import AppRuntime
@@ -8,11 +9,12 @@ from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
-from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
+from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
+from ClipAI.core.errors import PersonalStyleUnavailableError
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceOrigin
+from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.providers.fake import FakeProvider
@@ -137,6 +139,7 @@ class FakeExecute:
         self.models = []
         self.bindings = []
         self.follow_ups = []
+        self.actions = []
 
     def execute(self, action, controller) -> None:
         pass
@@ -145,6 +148,7 @@ class FakeExecute:
         pass
 
     async def execute_invocation(self, action, invocation, controller, *, binding) -> None:
+        self.actions.append(action)
         self.invocations.append(invocation)
         self.models.append(binding.model)
         self.bindings.append(binding)
@@ -452,6 +456,25 @@ class Notifier:
         self.messages.append((title, message))
 
 
+class MissingPersonalStyles:
+    def bind(self, action):
+        if action.personal_style_mode is None:
+            return action
+        raise PersonalStyleUnavailableError("尚未選擇個人風格。")
+
+
+class SwitchingPersonalStyles:
+    def __init__(self) -> None:
+        self.active = PersonalStyleProfile("first", "First", "first voice", "hash-first")
+
+    def bind(self, action):
+        return self.bind_to(action, self.active)
+
+    @staticmethod
+    def bind_to(action, profile):
+        return replace(action, personal_style=profile, version_id=f"{action.version_id}:{profile.profile_id}")
+
+
 class SpeechJob:
     operation_id = "tts:clipboard:unique"
     workflow_id = "global"
@@ -540,8 +563,15 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False):
-    action = ActionDefinition("a", "Action", "system", "{input}", {})
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, personal_styles=None):
+    action = ActionDefinition(
+        "a",
+        "Action",
+        "system",
+        "{input}",
+        {},
+        personal_style_mode="informal" if personal_styles is not None else None,
+    )
     shorten = ActionDefinition(
         "shorten",
         "Shorten",
@@ -609,6 +639,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         notifier=notifier,
         speech_coordinator=speech_coordinator,
         attention_presenter=view,
+        personal_styles=personal_styles,
     )
     output_module = ResultOutputRuntimeModule(
         output_actions=outputs,
@@ -672,6 +703,54 @@ def workflow(view: FakeView, workflow_id: str):
     controller = view.workflow_controller(workflow_id)
     assert controller is not None
     return controller
+
+
+def test_missing_personal_style_stops_before_workflow_and_provider_execution() -> None:
+    notifier = Notifier()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(
+        notifier=notifier,
+        personal_styles=MissingPersonalStyles(),
+    )
+
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+
+    assert view.execute_action.invocations == []
+    assert view.snapshots == []
+    assert supervisor.work == {}
+    assert notifier.messages == [
+        ("ClipAI", "尚未選擇個人風格。 Open Personal Styles from the tray menu."),
+    ]
+
+
+def test_contextual_personal_style_actions_keep_the_workflow_profile_snapshot() -> None:
+    styles = SwitchingPersonalStyles()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(personal_styles=styles)
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    first_invocation = controller.snapshot.active_invocation_id
+    assert first_invocation is not None
+    supervisor.work[first_invocation]()
+    step = WorkflowStep("step-1", "a", "Action", "input", "result", "plain_text")
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        content=step.result_text,
+        steps=(step,),
+        displayed_step_index=0,
+        active_invocation_id=None,
+    )
+    view.context = ActiveWorkflowContext(workflow_id, step.step_id, step.result_text)
+    styles.active = PersonalStyleProfile("second", "Second", "second voice", "hash-second")
+
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    second_invocation = controller.snapshot.active_invocation_id
+    assert second_invocation is not None
+    supervisor.work[second_invocation]()
+
+    assert [item.personal_style.profile_id for item in view.execute_action.actions] == ["first", "first"]
 
 
 def test_output_submit_failure_settles_pending_and_releases_interruption_lease() -> None:
@@ -1381,7 +1460,7 @@ def test_pinned_workflow_reuses_the_same_popup_for_a_new_visible_action() -> Non
     assert view.attentions == []
 
 
-def test_pinned_workflow_reuses_the_same_popup_for_a_new_voice_capture() -> None:
+def test_unfocused_pinned_workflow_requires_explicit_focus_for_voice_input() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
@@ -1392,40 +1471,235 @@ def test_pinned_workflow_reuses_the_same_popup_for_a_new_voice_capture() -> None
     invocation_id = pinned.snapshot.active_invocation_id
     assert invocation_id is not None
 
-    reused = runtime._workflow_module.admit_voice_shortcut(None, None)
-    continued = runtime._workflow_module.admit_voice_shortcut(None, workflow_id)
+    rejected = runtime._workflow_module.admit_voice_capture(VoiceCaptureIntent("shortcut"))
+    continued = runtime._workflow_module.admit_voice_capture(
+        VoiceCaptureIntent("shortcut", active_voice_workflow_id=workflow_id)
+    )
 
-    assert reused.kind == "reuse"
-    assert reused.workflow_id == workflow_id
+    assert rejected.kind == "rejected"
+    assert rejected.workflow_id == workflow_id
+    assert "點選目前的 ClipAI 視窗" in rejected.message
     assert continued.kind == "continue"
     assert continued.workflow_id == workflow_id
-
-    assert runtime._workflow_module.reuse_voice_workflow(workflow_id, None) is pinned
     assert runtime._workflow_module.controller_for(workflow_id) is pinned
-    assert pinned.snapshot.status is SessionStatus.VOICE_PREPARING
     assert pinned.snapshot.pinned is True
-    assert pinned.snapshot.voice_origin == VoiceOrigin(None)
-    assert invocation_id in _supervisor.cancelled
-    attention = view.attentions[-1]
-    assert attention.workflow_id == workflow_id
-    assert attention.message.startswith("Preparing microphone")
-    assert attention.request_focus is True
-    assert attention.warning is False
+    assert pinned.snapshot.active_invocation_id == invocation_id
+    assert invocation_id not in _supervisor.cancelled
 
 
-def test_focused_result_popup_is_reused_instead_of_rejecting_voice_input() -> None:
+def test_focused_completed_result_routes_voice_input_to_follow_up() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    step = WorkflowStep("step-1", "a", "Action", "input", "answer", "plain_text")
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        content="answer",
+        available_actions=("copy", "follow_up"),
+        steps=(step,),
+        displayed_step_index=0,
+        active_invocation_id=None,
+    )
+
+    admission = runtime._workflow_module.admit_voice_capture(VoiceCaptureIntent(
+        "shortcut",
+        focused_surface=ControlSurfaceRef(workflow_id, "workflow"),
+    ))
+
+    assert admission.kind == "follow_up"
+    assert admission.workflow_id == workflow_id
+    assert admission.target == VoiceFollowUpTarget(workflow_id)
+
+
+def test_open_voice_follow_up_routes_ptt_to_follow_up_instead_of_the_draft() -> None:
+    class VoiceSurface:
+        def voice_capture_surface_context(self, workflow_id: str) -> VoiceCaptureSurfaceContext:
+            return VoiceCaptureSurfaceContext(workflow_id, follow_up_requested=True, selection=(0, 0))
+
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(
+        workflow_id,
+        PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1),
+    )
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.VOICE_REVIEW,
+        content="reviewed voice draft",
+        available_actions=("copy", "paste", "follow_up"),
+    )
+    runtime._workflow_module._voice_capture_context_reader = VoiceSurface()
+
+    shortcut_admission = runtime._workflow_module.admit_voice_capture(VoiceCaptureIntent(
+        "shortcut",
+        focused_surface=ControlSurfaceRef(workflow_id, "workflow"),
+    ))
+    popup_admission = runtime._workflow_module.admit_voice_capture(
+        VoiceCaptureIntent("popup", workflow_id=workflow_id)
+    )
+
+    assert shortcut_admission.kind == "follow_up"
+    assert shortcut_admission.target == VoiceFollowUpTarget(workflow_id)
+    assert popup_admission.kind == "voice_review"
+    assert popup_admission.target is not None
+
+
+@pytest.mark.parametrize(
+    (
+        "trigger",
+        "status",
+        "focused",
+        "follow_up_requested",
+        "available_actions",
+        "active_invocation_id",
+        "active_capture",
+        "expected_kind",
+    ),
+    (
+        pytest.param("shortcut", None, False, False, (), None, False, "create", id="shortcut-creates-without-visible-workflow"),
+        pytest.param("popup", None, False, False, (), None, False, "rejected", id="popup-requires-existing-workflow"),
+        pytest.param("shortcut", SessionStatus.VOICE_REVIEW, True, False, ("follow_up",), None, False, "voice_review", id="shortcut-continues-voice-review"),
+        pytest.param("shortcut", SessionStatus.VOICE_REVIEW, True, True, ("follow_up",), None, False, "follow_up", id="shortcut-honors-follow-up-intent"),
+        pytest.param("popup", SessionStatus.VOICE_REVIEW, True, True, ("follow_up",), None, False, "voice_review", id="popup-keeps-voice-review-intent"),
+        pytest.param("shortcut", SessionStatus.COMPLETED, True, False, ("follow_up",), None, False, "follow_up", id="shortcut-continues-completed-result"),
+        pytest.param("popup", SessionStatus.COMPLETED, True, False, ("follow_up",), None, False, "follow_up", id="popup-continues-completed-result"),
+        pytest.param("shortcut", SessionStatus.FAILED, True, False, ("follow_up",), None, False, "follow_up", id="shortcut-continues-failed-result"),
+        pytest.param("popup", SessionStatus.STOPPED, True, False, ("follow_up",), None, False, "follow_up", id="popup-continues-stopped-result"),
+        pytest.param("shortcut", SessionStatus.COMPLETED, True, False, ("copy",), None, False, "rejected", id="shortcut-rejects-unavailable-follow-up"),
+        pytest.param("popup", SessionStatus.COMPLETED, True, False, ("follow_up",), "provider-1", False, "rejected", id="popup-rejects-active-invocation"),
+        pytest.param("shortcut", SessionStatus.REQUESTING_PROVIDER, True, False, ("follow_up",), "provider-1", False, "rejected", id="shortcut-rejects-provider-active"),
+        pytest.param("shortcut", SessionStatus.REQUESTING_PROVIDER, True, True, ("follow_up",), "provider-1", False, "rejected", id="shortcut-open-follow-up-does-not-bypass-provider"),
+        pytest.param("popup", SessionStatus.REQUESTING_PROVIDER, True, False, ("follow_up",), "provider-1", False, "rejected", id="popup-rejects-provider-active"),
+        pytest.param("shortcut", SessionStatus.VOICE_REVIEW, False, False, ("follow_up",), None, False, "rejected", id="shortcut-requires-focused-visible-workflow"),
+        pytest.param("shortcut", SessionStatus.VOICE_REVIEW, False, False, ("follow_up",), None, True, "continue", id="shortcut-continues-active-capture"),
+    ),
+)
+def test_voice_capture_destination_admission_matrix(
+    trigger,
+    status,
+    focused,
+    follow_up_requested,
+    available_actions,
+    active_invocation_id,
+    active_capture,
+    expected_kind,
+) -> None:
+    class VoiceSurface:
+        def voice_capture_surface_context(self, workflow_id: str) -> VoiceCaptureSurfaceContext:
+            return VoiceCaptureSurfaceContext(
+                workflow_id,
+                follow_up_requested=follow_up_requested,
+                selection=(0, 0),
+            )
+
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    if status is not None:
+        controller = runtime._workflow_module.create_voice_workflow(workflow_id, None)
+        steps = (
+            (WorkflowStep("step-1", "a", "Action", "input", "answer", "plain_text"),)
+            if status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
+            else ()
+        )
+        controller._snapshot = controller.snapshot.evolve(
+            status=status,
+            content="reviewed voice draft",
+            available_actions=available_actions,
+            active_invocation_id=active_invocation_id,
+            steps=steps,
+            displayed_step_index=0 if steps else -1,
+        )
+    runtime._workflow_module._voice_capture_context_reader = VoiceSurface()
+    intent = VoiceCaptureIntent(
+        trigger,
+        workflow_id=workflow_id if trigger == "popup" else None,
+        focused_surface=(ControlSurfaceRef(workflow_id, "workflow") if focused else None),
+        active_voice_workflow_id=(workflow_id if active_capture else None),
+    )
+
+    admission = runtime._workflow_module.admit_voice_capture(intent)
+
+    assert admission.kind == expected_kind
+
+
+def test_voice_review_follow_up_submission_starts_a_voice_draft_provider_request() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime(include_voice_input=True)
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(
+        workflow_id,
+        PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1),
+    )
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.VOICE_REVIEW,
+        content="reviewed voice draft",
+        available_actions=("copy", "paste", "follow_up"),
+        voice_origin=VoiceOrigin(
+            PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1),
+            "reviewed voice draft",
+            1,
+        ),
+    )
+
+    runtime.enqueue(FollowUp(workflow_id, "What should I do next?"))
+    runtime.drain_commands()
+
+    invocation_id = controller.snapshot.active_invocation_id
+    assert invocation_id is not None
+    assert invocation_id in supervisor.work
+    supervisor.work[invocation_id]()
+    assert len(view.execute_action.follow_ups) == 1
+    args, kwargs = view.execute_action.follow_ups[0]
+    continuation = args[0]
+    assert continuation.question == "What should I do next?"
+    assert continuation.action.id == "voice_draft_follow_up"
+    assert continuation.input_source == "voice_draft"
+    assert continuation.parent_step_id is None
+    assert kwargs["binding"] is runtime._workflow_module._records[workflow_id].binding
+
+
+def test_focused_answering_popup_rejects_a_second_voice_question() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
     workflow_id = view.snapshots[-1].session_id
 
-    admission = runtime._workflow_module.admit_voice_shortcut(
-        ControlSurfaceRef(workflow_id, "workflow"),
-        None,
+    admission = runtime._workflow_module.admit_voice_capture(VoiceCaptureIntent(
+        "shortcut",
+        focused_surface=ControlSurfaceRef(workflow_id, "workflow"),
+    ))
+
+    assert admission.kind == "rejected"
+    assert admission.workflow_id == workflow_id
+    assert admission.message == "AI 正在回答，完成後再追問。"
+
+
+def test_focused_result_without_follow_up_does_not_become_a_voice_draft() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    step = WorkflowStep("step-1", "a", "Action", "input", "answer", "plain_text")
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        content="answer",
+        available_actions=("copy",),
+        steps=(step,),
+        displayed_step_index=0,
+        active_invocation_id=None,
     )
 
-    assert admission.kind == "reuse"
+    admission = runtime._workflow_module.admit_voice_capture(VoiceCaptureIntent(
+        "shortcut",
+        focused_surface=ControlSurfaceRef(workflow_id, "workflow"),
+    ))
+
+    assert admission.kind == "rejected"
     assert admission.workflow_id == workflow_id
+    assert admission.message == "這份內容目前無法使用 Follow-up。"
+    assert controller.snapshot.content == "answer"
+    assert controller.snapshot.status is SessionStatus.COMPLETED
 
 
 def test_failed_active_voice_attention_repeats_the_status_through_the_notifier() -> None:
@@ -1434,7 +1708,9 @@ def test_failed_active_voice_attention_repeats_the_status_through_the_notifier()
     runtime.enqueue(StartAction("a", "short"))
     runtime.drain_commands()
     workflow_id = view.snapshots[-1].session_id
-    admission = runtime._workflow_module.admit_voice_shortcut(None, workflow_id)
+    admission = runtime._workflow_module.admit_voice_capture(
+        VoiceCaptureIntent("shortcut", active_voice_workflow_id=workflow_id)
+    )
     assert admission.kind == "continue"
     attention = view.attentions[-1]
 
@@ -2009,6 +2285,25 @@ def test_non_dispatched_paste_completion_does_not_release_foreground(outcome) ->
     runtime.drain_commands()
 
     assert runtime._workflow_module.has_foreground_workflow() is True
+
+
+def test_dispatched_voice_paste_closes_the_unpinned_workflow_before_the_next_shortcut() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(include_voice_input=True)
+    workflow_id = "voice-workflow"
+    runtime._workflow_module.create_voice_workflow(
+        workflow_id,
+        PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1),
+    )
+
+    runtime.enqueue(PasteOperationCompleted(
+        "paste-op",
+        workflow_id,
+        PasteOutcome("dispatched_unconfirmed", "dispatched_unconfirmed", "restored"),
+    ))
+    runtime.drain_commands()
+
+    assert runtime._workflow_module.controller_for(workflow_id) is None
+    assert runtime._workflow_module.has_foreground_workflow() is False
 
 
 def test_completion_for_non_foreground_workflow_does_not_release_current_foreground() -> None:

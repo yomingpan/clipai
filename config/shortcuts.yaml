@@ -123,3 +123,18 @@ shortcuts:
     hotkey: ctrl+alt+c
     command: start_action
     action_id: command_copilot
+
+  - id: personal_style_informal
+    hotkey: ctrl+alt+i
+    command: start_action
+    action_id: personal_style_informal
+
+  - id: personal_style_oral
+    hotkey: ctrl+alt+o
+    command: start_action
+    action_id: personal_style_oral
+
+  - id: personal_style_presentation
+    hotkey: ctrl+alt+p
+    command: start_action
+    action_id: personal_style_presentation

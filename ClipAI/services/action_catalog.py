@@ -36,6 +36,7 @@ class ActionCatalog:
             external_fallback=action.external_fallback,
             feedback_contract=(variant.feedback_contract if variant and variant.feedback_contract is not None else action.feedback_contract),
             stream=self._default_stream if action.stream is None else action.stream,
+            personal_style_mode=action.personal_style_mode,
         )
         version_payload = {
             "id": resolved.id,
@@ -53,6 +54,7 @@ class ActionCatalog:
                 "reasons": [(reason.id, reason.label) for reason in resolved.feedback_contract.reasons],
             },
             "stream": resolved.stream,
+            "personal_style_mode": resolved.personal_style_mode,
         }
         version_id = hashlib.sha256(json.dumps(version_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
         return replace(resolved, version_id=version_id)
