@@ -290,6 +290,7 @@ Recipe 回饋與使用引導應測：
 - Popup waveform 只呈現 engine 回報的 normalized audio level；未收到音量時保持靜止，不以 timer 製造假波形。至少覆蓋 idle、listening、silence hint、finalizing、capability unavailable 與 provider active disabled 狀態。
 - Popup follow-up capture 的 terminal result 只在 Workflow identity 與 capture identity 都相符時插入目前游標；不得自動送出，舊 capture 的 completion／failure 不得清除或覆蓋較新的 capture。
 - Action result 與 Voice Draft Follow-up 必須以同一個 `FollowUpContinuation` interface 做 table-driven contract test，涵蓋 Action identity、input source、parent step、captured provider model 與 bounded history；architecture test 必須阻止 Voice-only executor／prompt-builder pipeline 回流。Action root 必須保留初始 Action 的輸入／回答與最近三輪 follow-up 問答；第二輪不得遺失初始內容，超過上限時只裁掉最舊的 follow-up turn。Voice Review 中明確送出的 Follow-up 則必須立即排程 provider request，以 canonical Voice Draft 為固定上下文，並保留最近三輪 Voice Draft 問答；不得無聲略過或套用既有 Action 的 prompt。
+- 「問這段」必須驗證 selection 優先、clipboard text fallback、圖片排除、source snapshot 不變、過長不截斷、空問題不送出、語音只插入不送出、首次提交恰好一個 provider invocation，以及回答後沿用同一 contextual source 與最近三輪問答。聚焦 result Popup 再按 `Ctrl+Alt+R` 只開啟既有 composer，不得擷取新來源或建立新 Workflow。
 - visible 與 headless Workflow 使用相同 identity／registration 規則；headless Workflow 不得成為 Foreground Workflow，也不得被強制成全域 singleton。
 - close/cancel 釋放 Workflow membership；visible completion 保留 membership 供 follow-up，headless completion 立即釋放。
 - Workflow 在建立時 capture provider/model binding；後續 configuration change 不得改變既有 Workflow 的 binding。

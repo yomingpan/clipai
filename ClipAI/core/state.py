@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 import threading
 from typing import TYPE_CHECKING
@@ -16,6 +16,7 @@ class SessionStatus(str, Enum):
     PREPARING_REQUEST = "preparing_request"
     REQUESTING_PROVIDER = "requesting_provider"
     PROCESSING_RESULT = "processing_result"
+    CONTEXT_QUESTION = "context_question"
     VOICE_PREPARING = "voice_preparing"
     VOICE_LISTENING = "voice_listening"
     VOICE_FINALIZING = "voice_finalizing"
@@ -37,11 +38,12 @@ TERMINAL_STATUSES = {
 
 ALLOWED_TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
     SessionStatus.CREATED: {SessionStatus.READING_INPUT, SessionStatus.VOICE_PREPARING, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.READING_INPUT: {SessionStatus.PREPARING_REQUEST, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.READING_INPUT: {SessionStatus.PREPARING_REQUEST, SessionStatus.CONTEXT_QUESTION, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.PREPARING_REQUEST: {SessionStatus.REQUESTING_PROVIDER, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.REQUESTING_PROVIDER: {SessionStatus.PROCESSING_RESULT, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.PROCESSING_RESULT: {SessionStatus.COMPLETED, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.COMPLETED: {SessionStatus.PREPARING_REQUEST, SessionStatus.VOICE_PREPARING, SessionStatus.CLOSED},
+    SessionStatus.CONTEXT_QUESTION: {SessionStatus.PREPARING_REQUEST, SessionStatus.VOICE_PREPARING, SessionStatus.CLOSED},
     SessionStatus.VOICE_PREPARING: {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING, SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
     SessionStatus.VOICE_LISTENING: {SessionStatus.VOICE_FINALIZING, SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
     SessionStatus.VOICE_FINALIZING: {SessionStatus.VOICE_REVIEW, SessionStatus.CLOSED},
@@ -101,6 +103,10 @@ class SessionSnapshot:
     voice_silence_detected: bool = False
     voice_status_text: str = ""
     voice_follow_up_insertion: VoiceFollowUpInsertion | None = None
+    contextual_source_capture_id: str | None = None
+    contextual_source_text: str = field(default="", repr=False)
+    contextual_source_kind: str = ""
+    question_composer_revision: int = 0
 
     def evolve(self, **changes: object) -> SessionSnapshot:
         return replace(self, revision=self.revision + 1, **changes)

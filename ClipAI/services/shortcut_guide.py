@@ -54,6 +54,16 @@ class ShortcutGuideCatalog:
                 "Hold to dictate; release to review before pasting.",
             )
 
+        if definition.command == "open_contextual_question":
+            return ShortcutGuideItem(
+                definition.id,
+                hotkey,
+                display_hotkey(hotkey),
+                parse_hotkey_tokens(hotkey),
+                "問這段",
+                "讀取目前選取文字；沒有選取時使用剪貼簿，接著輸入或說出問題。",
+            )
+
         assert definition.action_id is not None
         action = self._actions.get(definition.action_id)
         short = self._actions.resolve(definition.action_id, "short")

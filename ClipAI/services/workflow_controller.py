@@ -9,6 +9,9 @@ from ClipAI.core.voice import VoiceCaptureDestination, VoiceCaptureId, VoiceDraf
 from ClipAI.services import voice_draft, voice_follow_up
 
 
+CONTEXTUAL_SOURCE_MAX_CHARS = 40_000
+
+
 class WorkflowController:
     """Single owner for one popup workflow and its linear successful-step history."""
 
@@ -17,6 +20,7 @@ class WorkflowController:
         self._presenter = presenter
         self._lock = threading.RLock()
         self._active_token = CancellationToken()
+        self._context_capture_token = CancellationToken()
         self._feedback_step_ids: set[str] = set()
         self._feedback_operations: dict[str, str] = {}
         self._presenter.render(initial)
@@ -30,6 +34,119 @@ class WorkflowController:
     def cancellation(self) -> CancellationToken:
         with self._lock:
             return self._active_token
+
+    def begin_contextual_source_capture(self, capture_id: str) -> CancellationToken:
+        with self._lock:
+            self._context_capture_token.cancel()
+            self._context_capture_token = CancellationToken()
+            self._snapshot = self._snapshot.evolve(
+                status=SessionStatus.READING_INPUT,
+                action_id="contextual_question",
+                title="問這段",
+                status_text="正在讀取選取內容…",
+                content="",
+                error="",
+                available_actions=(),
+                original_input="",
+                input_source="selection or clipboard",
+                contextual_source_capture_id=capture_id,
+                contextual_source_text="",
+                contextual_source_kind="",
+                result_completeness="none",
+            )
+            snapshot = self._snapshot
+            token = self._context_capture_token
+        self._presenter.render(snapshot)
+        return token
+
+    def complete_contextual_source_capture(
+        self,
+        capture_id: str,
+        document: InputDocument,
+    ) -> SessionSnapshot | None:
+        with self._lock:
+            if (
+                self._snapshot.contextual_source_capture_id != capture_id
+                or self._context_capture_token.is_cancelled
+                or document.source not in {"selection", "clipboard"}
+            ):
+                return None
+            if len(document.text) > CONTEXTUAL_SOURCE_MAX_CHARS:
+                raise ValueError(
+                    f"這段內容太長（{len(document.text):,} 個字元）。請縮小選取範圍後再試一次。"
+                )
+            self._snapshot = self._snapshot.evolve(
+                status=SessionStatus.CONTEXT_QUESTION,
+                status_text="想知道什麼？",
+                source_preview=_source_preview(document),
+                available_actions=("follow_up",),
+                original_input=document.text,
+                input_source=document.source,
+                contextual_source_capture_id=None,
+                contextual_source_text=document.text,
+                contextual_source_kind=document.source,
+                question_composer_revision=self._snapshot.question_composer_revision + 1,
+            )
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return snapshot
+
+    def fail_contextual_source_capture(
+        self,
+        capture_id: str,
+        message: str,
+    ) -> SessionSnapshot | None:
+        with self._lock:
+            if self._snapshot.contextual_source_capture_id != capture_id:
+                return None
+            self._context_capture_token.cancel()
+            self._snapshot = self._snapshot.evolve(
+                status=SessionStatus.FAILED,
+                status_text="讀取失敗",
+                error=message,
+                contextual_source_capture_id=None,
+                available_actions=(),
+            )
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return snapshot
+
+    def request_question_composer(self) -> SessionSnapshot | None:
+        with self._lock:
+            if (
+                self._snapshot.active_invocation_id is not None
+                or self._snapshot.status not in {
+                    SessionStatus.CONTEXT_QUESTION,
+                    SessionStatus.COMPLETED,
+                    SessionStatus.FAILED,
+                    SessionStatus.STOPPED,
+                    SessionStatus.VOICE_REVIEW,
+                }
+                or "follow_up" not in self._snapshot.available_actions
+            ):
+                return None
+            self._snapshot = self._snapshot.evolve(
+                question_composer_revision=self._snapshot.question_composer_revision + 1,
+            )
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return snapshot
+
+    def stop_contextual_source_capture(self) -> str | None:
+        with self._lock:
+            capture_id = self._snapshot.contextual_source_capture_id
+            if capture_id is None:
+                return None
+            self._context_capture_token.cancel()
+            self._snapshot = self._snapshot.evolve(
+                status=SessionStatus.STOPPED,
+                status_text="已停止",
+                contextual_source_capture_id=None,
+                available_actions=(),
+            )
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return capture_id
 
     def begin_invocation(self, invocation: ActionInvocation, action: ResolvedAction) -> CancellationToken:
         with self._lock:
@@ -124,12 +241,22 @@ class WorkflowController:
                 model=model,
             )
             steps = (*kept, step)
+            source_preview = _source_preview(document)
+            if (
+                action.id == "contextual_question"
+                and self._snapshot.contextual_source_text
+                and self._snapshot.contextual_source_kind in {"selection", "clipboard"}
+            ):
+                source_preview = _source_preview(InputDocument(
+                    self._snapshot.contextual_source_text,
+                    self._snapshot.contextual_source_kind,
+                ))
             self._snapshot = self._snapshot.evolve(
                 status=SessionStatus.COMPLETED,
                 status_text="Completed",
                 content=result_text,
                 original_input=document.text,
-                source_preview=_source_preview(document),
+                source_preview=source_preview,
                 available_actions=available_actions,
                 steps=steps,
                 displayed_step_index=len(steps) - 1,
@@ -171,6 +298,7 @@ class WorkflowController:
     def cancel_active(self) -> None:
         with self._lock:
             self._active_token.cancel()
+            self._context_capture_token.cancel()
             if self._snapshot.active_invocation_id is None:
                 return
             self._snapshot = self._snapshot.evolve(active_invocation_id=None)

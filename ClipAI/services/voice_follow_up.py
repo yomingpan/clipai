@@ -11,6 +11,7 @@ from ClipAI.core.voice import (
 
 
 _FOLLOW_UP_READY_STATUSES = {
+    SessionStatus.CONTEXT_QUESTION,
     SessionStatus.COMPLETED,
     SessionStatus.FAILED,
     SessionStatus.STOPPED,

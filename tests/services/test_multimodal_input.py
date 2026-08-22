@@ -52,6 +52,16 @@ def test_clipboard_image_wins_over_clipboard_text_without_selection():
     assert document.text == ""
 
 
+def test_text_only_resolution_skips_clipboard_image_and_uses_clipboard_text():
+    image = ImageContent(b"png", "image/png")
+    selection = Selection()
+    selection.read_text = lambda _cancellation=None: ""
+
+    document = InputResolver(Clipboard(image=image, text="clipboard text"), selection).resolve_text()
+
+    assert document == type(document)("clipboard text", "clipboard")
+
+
 def test_clipboard_image_mode_requires_and_marks_a_screenshot():
     image = ImageContent(b"png", "image/png")
 

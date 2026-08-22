@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
 from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, FeedbackReason, InputDocument, InputTarget, ResolvedAction
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.services.workflow_controller import WorkflowController
+from ClipAI.services.workflow_controller import CONTEXTUAL_SOURCE_MAX_CHARS, WorkflowController
 
 
 class Presenter:
@@ -24,6 +26,58 @@ def invocation(invocation_id: str, parent: str | None = None) -> ActionInvocatio
 
 def controller() -> WorkflowController:
     return WorkflowController(SessionSnapshot("w1", 0, SessionStatus.CREATED, "a", "A", "model"), Presenter())
+
+
+def test_contextual_source_capture_enters_question_state_with_fixed_snapshot() -> None:
+    workflow = controller()
+    token = workflow.begin_contextual_source_capture("capture-1")
+
+    snapshot = workflow.complete_contextual_source_capture(
+        "capture-1",
+        InputDocument("fixed source", "selection"),
+    )
+
+    assert token.is_cancelled is False
+    assert snapshot is not None
+    assert snapshot.status is SessionStatus.CONTEXT_QUESTION
+    assert snapshot.contextual_source_text == "fixed source"
+    assert snapshot.contextual_source_kind == "selection"
+    assert snapshot.source_preview == "Selection: fixed source"
+    assert snapshot.question_composer_revision == 1
+
+
+def test_contextual_source_capture_rejects_stale_and_oversized_results() -> None:
+    workflow = controller()
+    workflow.begin_contextual_source_capture("capture-1")
+    workflow.begin_contextual_source_capture("capture-2")
+
+    assert workflow.complete_contextual_source_capture(
+        "capture-1", InputDocument("stale", "selection")
+    ) is None
+    with pytest.raises(ValueError, match="太長"):
+        workflow.complete_contextual_source_capture(
+            "capture-2",
+            InputDocument("x" * (CONTEXTUAL_SOURCE_MAX_CHARS + 1), "clipboard"),
+        )
+
+
+def test_question_composer_request_is_rejected_during_provider_activity() -> None:
+    workflow = controller()
+    workflow.begin_contextual_source_capture("capture-1")
+    workflow.complete_contextual_source_capture(
+        "capture-1",
+        InputDocument("fixed source", "selection"),
+    )
+    active = ActionInvocation(
+        "provider-1",
+        "contextual_question",
+        "short",
+        InputTarget("workflow_result", InputDocument("question", "selection")),
+        workflow_id="w1",
+    )
+    workflow.begin_invocation(active, action("contextual_question"))
+
+    assert workflow.request_question_composer() is None
 
 
 def complete_step(workflow: WorkflowController, invocation_id: str, parent: str | None = None, result: str | None = None) -> None:

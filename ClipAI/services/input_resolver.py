@@ -28,3 +28,14 @@ class InputResolver:
         if not clipboard_text:
             raise InputError("No text found. Select or copy text, then trigger ClipAI again.")
         return InputDocument(text=clipboard_text, source="clipboard")
+
+    def resolve_text(self, cancellation: CancellationToken | None = None) -> InputDocument:
+        """Resolve text only: explicit selection first, then clipboard text."""
+        if self._selection is not None:
+            selected = self._selection.read_text(cancellation).strip()
+            if selected:
+                return InputDocument(text=selected, source="selection")
+        clipboard_text = self._clipboard.read_text().strip()
+        if not clipboard_text:
+            raise InputError("找不到文字。請先反白一段內容，或將文字複製到剪貼簿後再試一次。")
+        return InputDocument(text=clipboard_text, source="clipboard")

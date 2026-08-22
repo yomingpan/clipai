@@ -10,7 +10,7 @@ import uuid
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
 from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -624,6 +624,9 @@ class ResultDialogPresenter:
                 if not snapshot.content and snapshot.status_text:
                     view.dialog.flash("warning")
                     view.surface.show_action_message(snapshot.status_text, 4000)
+        elif snapshot.status is SessionStatus.CONTEXT_QUESTION:
+            if content_changed:
+                view.surface.set_content_chunks([])
         elif snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
             if content_changed:
@@ -677,8 +680,16 @@ class ResultDialogPresenter:
                 on_copy=(lambda sid=snapshot.session_id: self._copy(sid)) if "copy" in snapshot.available_actions else None,
                 on_paste=(lambda sid=snapshot.session_id: self._paste(sid)) if "paste" in snapshot.available_actions else None,
                 on_archive=(lambda sid=snapshot.session_id: self._archive(sid)) if "archive" in snapshot.available_actions else None,
-                on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions else None,
+                on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions and snapshot.status is not SessionStatus.CONTEXT_QUESTION else None,
             )
+        if (
+            snapshot.question_composer_revision
+            and (
+                previous is None
+                or snapshot.question_composer_revision != previous.question_composer_revision
+            )
+        ):
+            self._show_follow_up(snapshot.session_id)
         insertion = snapshot.voice_follow_up_insertion
         if (
             snapshot.voice_capture_id is not None
@@ -842,10 +853,34 @@ class ResultDialogPresenter:
                 view.surface.clear_follow_up_text()
                 view.surface.hide_follow_up()
                 view.surface.set_follow_up_active(False)
-                self._command_sink(FollowUp(session_id, question))
+                if (
+                    view.last_snapshot is not None
+                    and view.last_snapshot.status is SessionStatus.CONTEXT_QUESTION
+                ):
+                    self._command_sink(SubmitContextualQuestion(session_id, question))
+                else:
+                    self._command_sink(FollowUp(session_id, question))
 
         view.surface.follow_send_button.configure(command=send)
         view.surface.follow_entry.bind("<Return>", lambda _event: send(), add="+")
+        view.surface.follow_entry.bind(
+            "<KeyRelease>",
+            lambda _event, sid=session_id: self._refresh_follow_up_send(sid),
+            add="+",
+        )
+        self._refresh_follow_up_send(session_id)
+
+    def _refresh_follow_up_send(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None:
+            return
+        capture_active = (
+            view.last_snapshot is not None
+            and view.last_snapshot.voice_capture_id is not None
+        )
+        view.surface.set_follow_up_send_enabled(
+            not capture_active and bool(view.surface.follow_entry.get().strip())
+        )
 
     def _create_view(self, session_id: str) -> _SessionView:
         metrics = self._display_metrics.current() if self._display_metrics is not None else None
@@ -921,7 +956,7 @@ class ResultDialogPresenter:
         view.voice_level_history.clear()
         projection = global_projection
         capability = projection.capability if projection is not None else VoiceCapabilityPhase.SETUP_REQUIRED
-        ready_status = snapshot.status is SessionStatus.VOICE_REVIEW or (
+        ready_status = snapshot.status in {SessionStatus.VOICE_REVIEW, SessionStatus.CONTEXT_QUESTION} or (
             snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
             and snapshot.active_invocation_id is None
             and "follow_up" in snapshot.available_actions
@@ -945,7 +980,10 @@ class ResultDialogPresenter:
             tooltip=tooltip,
             active=False,
         )
-        view.surface.set_follow_up_send_enabled(True)
+        view.surface.set_follow_up_send_enabled(
+            snapshot.voice_capture_id is None
+            and bool(view.surface.follow_entry.get().strip())
+        )
 
     def _start_popup_voice(self, workflow_id: str) -> None:
         view = self._interactive_view(workflow_id)

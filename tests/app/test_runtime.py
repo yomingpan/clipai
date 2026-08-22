@@ -10,8 +10,8 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
-from ClipAI.core.errors import PersonalStyleUnavailableError
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
+from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceFollowUpTarget, VoiceOrigin
@@ -155,6 +155,14 @@ class FakeExecute:
 
     async def execute_follow_up_invocation(self, *args, **kwargs) -> None:
         self.follow_ups.append((args, kwargs))
+
+
+class ContextResolver:
+    def __init__(self) -> None:
+        self.document = InputDocument("fixed selected source", "selection")
+
+    def resolve_text(self, _cancellation=None):
+        return self.document
 
 
 class FakeOutputs:
@@ -610,6 +618,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         discover_provider_models,
     )
     shortcut_definitions = [
+        ShortcutDefinition("contextual_question", "ctrl+alt+r", "open_contextual_question"),
         ShortcutDefinition("a", "ctrl+alt+8", "start_action", "a"),
         ShortcutDefinition("speech", "ctrl+alt+q", "speak_selection_or_clipboard"),
         ShortcutDefinition("shorten", "ctrl+alt+x", "start_action", "shorten"),
@@ -640,6 +649,8 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         speech_coordinator=speech_coordinator,
         attention_presenter=view,
         personal_styles=personal_styles,
+        input_resolver=ContextResolver(),
+        supervisor=supervisor,
     )
     output_module = ResultOutputRuntimeModule(
         output_actions=outputs,
@@ -703,6 +714,127 @@ def workflow(view: FakeView, workflow_id: str):
     controller = view.workflow_controller(workflow_id)
     assert controller is not None
     return controller
+
+
+def test_contextual_question_captures_source_before_first_provider_request() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+
+    runtime.enqueue(OpenContextualQuestion())
+    runtime.drain_commands()
+    controller = workflow(view, view.snapshots[-1].session_id)
+    capture_id = controller.snapshot.contextual_source_capture_id
+
+    assert capture_id is not None
+    assert view.execute_action.follow_ups == []
+    supervisor.work[f"context-source:{capture_id}"]()
+    runtime.drain_commands()
+
+    assert controller.snapshot.status is SessionStatus.CONTEXT_QUESTION
+    assert controller.snapshot.contextual_source_text == "fixed selected source"
+    assert controller.snapshot.source_preview == "Selection: fixed selected source"
+    assert view.execute_action.follow_ups == []
+
+
+def test_contextual_question_first_submit_uses_fixed_source_then_follow_up_history() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(OpenContextualQuestion())
+    runtime.drain_commands()
+    controller = workflow(view, view.snapshots[-1].session_id)
+    capture_id = controller.snapshot.contextual_source_capture_id
+    assert capture_id is not None
+    supervisor.work[f"context-source:{capture_id}"]()
+    runtime.drain_commands()
+    workflow_id = controller.snapshot.session_id
+
+    runtime.enqueue(SubmitContextualQuestion(workflow_id, "What does this mean?"))
+    runtime.drain_commands()
+    first_invocation_id = controller.snapshot.active_invocation_id
+    assert first_invocation_id is not None
+    assert len([key for key in supervisor.work if not key.startswith("context-source:")]) == 1
+    supervisor.work[first_invocation_id]()
+    first_continuation = view.execute_action.follow_ups[-1][0][0]
+    assert first_continuation.question == "What does this mean?"
+
+    first_invocation = view.execute_action.follow_ups[-1][0][1]
+    controller.complete(
+        first_invocation,
+        first_continuation.action,
+        first_continuation.input_document(workflow_id),
+        "First answer",
+        ("follow_up",),
+    )
+    assert controller.snapshot.source_preview == "Selection: fixed selected source"
+    runtime.enqueue(FollowUp(workflow_id, "And why?"))
+    runtime.drain_commands()
+    second_invocation_id = controller.snapshot.active_invocation_id
+    assert second_invocation_id is not None
+    supervisor.work[second_invocation_id]()
+    second_continuation = view.execute_action.follow_ups[-1][0][0]
+    request = second_continuation.build_request(
+        default_system_prompt="",
+        action_system_prompt=lambda: "",
+        model="model",
+        default_temperature=0.2,
+    )
+
+    assert [message.content for message in request.messages[1:]] == [
+        "<source_context>\nfixed selected source\n</source_context>",
+        "What does this mean?",
+        "First answer",
+        "And why?",
+    ]
+
+
+def test_contextual_question_failure_closes_draft_and_reports_clear_error() -> None:
+    notifier = Notifier()
+    runtime, view, supervisor, _outputs, _listener = make_runtime(notifier=notifier)
+
+    def missing(_cancellation=None):
+        raise InputError("找不到文字。")
+
+    runtime._workflow_module._input_resolver.resolve_text = missing
+    runtime.enqueue(OpenContextualQuestion())
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    capture_id = controller.snapshot.contextual_source_capture_id
+    assert capture_id is not None
+    supervisor.work[f"context-source:{capture_id}"]()
+    runtime.drain_commands()
+
+    assert runtime._workflow_module.controller_for(workflow_id) is None
+    assert notifier.messages[-1][0] == "ClipAI"
+    assert "找不到文字" in notifier.messages[-1][1]
+
+
+def test_contextual_shortcut_on_focused_result_opens_existing_composer_only() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    controller = workflow(view, view.snapshots[-1].session_id)
+    invocation_id = controller.snapshot.active_invocation_id
+    assert invocation_id is not None
+    supervisor.work[invocation_id]()
+    invocation = view.execute_action.invocations[-1]
+    controller.complete(
+        invocation,
+        view.actions.resolve("a", "short"),
+        InputDocument("source", "selection"),
+        "answer",
+        ("follow_up",),
+    )
+    workflow_id = controller.snapshot.session_id
+    runtime.enqueue(ActivateWorkflow(workflow_id))
+    runtime.drain_commands()
+    before_revision = controller.snapshot.question_composer_revision
+    before_capture_tasks = {key for key in supervisor.work if key.startswith("context-source:")}
+
+    runtime.enqueue(OpenContextualQuestion())
+    runtime.drain_commands()
+
+    assert controller.snapshot.question_composer_revision == before_revision + 1
+    assert {key for key in supervisor.work if key.startswith("context-source:")} == before_capture_tasks
+    assert controller.snapshot.active_invocation_id is None
 
 
 def test_missing_personal_style_stops_before_workflow_and_provider_execution() -> None:
@@ -1562,6 +1694,8 @@ def test_open_voice_follow_up_routes_ptt_to_follow_up_instead_of_the_draft() -> 
         pytest.param("shortcut", SessionStatus.VOICE_REVIEW, True, False, ("follow_up",), None, False, "voice_review", id="shortcut-continues-voice-review"),
         pytest.param("shortcut", SessionStatus.VOICE_REVIEW, True, True, ("follow_up",), None, False, "follow_up", id="shortcut-honors-follow-up-intent"),
         pytest.param("popup", SessionStatus.VOICE_REVIEW, True, True, ("follow_up",), None, False, "voice_review", id="popup-keeps-voice-review-intent"),
+        pytest.param("shortcut", SessionStatus.CONTEXT_QUESTION, True, True, ("follow_up",), None, False, "follow_up", id="shortcut-dictates-contextual-question"),
+        pytest.param("popup", SessionStatus.CONTEXT_QUESTION, True, False, ("follow_up",), None, False, "follow_up", id="popup-dictates-contextual-question"),
         pytest.param("shortcut", SessionStatus.COMPLETED, True, False, ("follow_up",), None, False, "follow_up", id="shortcut-continues-completed-result"),
         pytest.param("popup", SessionStatus.COMPLETED, True, False, ("follow_up",), None, False, "follow_up", id="popup-continues-completed-result"),
         pytest.param("shortcut", SessionStatus.FAILED, True, False, ("follow_up",), None, False, "follow_up", id="shortcut-continues-failed-result"),

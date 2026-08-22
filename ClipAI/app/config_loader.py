@@ -307,7 +307,7 @@ def load_shortcut_catalog(path: str | Path, *, actions: ActionCatalog) -> Shortc
         _reject_unknown(data, {"id", "hotkey", "command", "action_id"}, shortcut_path)
         shortcut_id = _string(data.get("id"), f"{shortcut_path}.id")
         hotkey = _string(data.get("hotkey"), f"{shortcut_path}.hotkey").lower()
-        command = cast(ShortcutCommandKind, _choice(data.get("command"), f"{shortcut_path}.command", {"start_action", "speak_selection_or_clipboard", "push_to_talk"}, "start_action"))
+        command = cast(ShortcutCommandKind, _choice(data.get("command"), f"{shortcut_path}.command", {"start_action", "open_contextual_question", "speak_selection_or_clipboard", "push_to_talk"}, "start_action"))
         action_id = _string(data.get("action_id"), f"{shortcut_path}.action_id", default="") or None
         if shortcut_id in ids:
             raise ConfigError(f"duplicate shortcut id: {shortcut_id}")

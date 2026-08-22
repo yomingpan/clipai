@@ -6,15 +6,17 @@ from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, FollowUp, NavigateWorkflowBack, PasteOperationCompleted, ShortcutPressInvoked, StartAction, TogglePin, WorkflowAttentionCompleted
-from ClipAI.core.errors import PersonalStyleUnavailableError
+from ClipAI.app.task_supervisor import TaskSupervisor
+from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted
+from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActionInvocation, ControlSurfaceRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceCaptureContextReader, WorkflowAttentionPresenter, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
-from ClipAI.services.follow_up_continuation import FollowUpContinuation, VOICE_DRAFT_FOLLOW_UP_ACTION_ID
+from ClipAI.services.follow_up_continuation import CONTEXTUAL_QUESTION_ACTION_ID, FollowUpContinuation, VOICE_DRAFT_FOLLOW_UP_ACTION_ID
+from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.input_target_resolver import InputTargetResolver
 from ClipAI.services.personal_styles import PersonalStyleCoordinator
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
@@ -50,6 +52,10 @@ class WorkflowSnapshotReady:
 
 WorkflowRuntimeCommand: TypeAlias = (
     StartAction
+    | OpenContextualQuestion
+    | SubmitContextualQuestion
+    | ContextualSourceCaptured
+    | ContextualSourceCaptureFailed
     | CloseSession
     | CancelSession
     | TogglePin
@@ -124,6 +130,8 @@ class WorkflowRuntimeModule:
         user_control: UserControlCoordinator | None = None,
         attention_presenter: WorkflowAttentionPresenter | None = None,
         personal_styles: PersonalStyleCoordinator | None = None,
+        input_resolver: InputResolver | None = None,
+        supervisor: TaskSupervisor | None = None,
     ) -> None:
         self._actions = actions
         self._execute_action = execute_action
@@ -142,6 +150,8 @@ class WorkflowRuntimeModule:
         self._user_control = user_control
         self._attention_presenter = attention_presenter
         self._personal_styles = personal_styles
+        self._input_resolver = input_resolver
+        self._supervisor = supervisor
         self._pending_attention: dict[str, tuple[str, str]] = {}
         self._interruption_leases: dict[str, InterruptibleOperationLease] = {}
         self._foreground_id: str | None = None
@@ -269,8 +279,8 @@ class WorkflowRuntimeModule:
                 return VoiceCaptureAdmission("voice_review", workflow_id=workflow_id, target=target)
             return VoiceCaptureAdmission("rejected", workflow_id=workflow_id)
         if (
-            snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
-            and snapshot.displayed_step_index >= 0
+            snapshot.status in {SessionStatus.CONTEXT_QUESTION, SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
+            and (snapshot.status is SessionStatus.CONTEXT_QUESTION or snapshot.displayed_step_index >= 0)
             and "follow_up" in snapshot.available_actions
         ):
             return VoiceCaptureAdmission(
@@ -344,6 +354,9 @@ class WorkflowRuntimeModule:
         self._shortcut_intents.cancel()
         task_ids: list[str] = []
         for workflow_id, record in tuple(self._records.items()):
+            capture_id = record.controller.stop_contextual_source_capture()
+            if capture_id is not None and self._supervisor is not None:
+                self._supervisor.cancel(f"context-source:{capture_id}")
             active_id = record.controller.snapshot.active_invocation_id
             if record.presentation == "headless":
                 if active_id is not None:
@@ -381,6 +394,14 @@ class WorkflowRuntimeModule:
     def handle(self, command: WorkflowRuntimeCommand) -> None:
         if isinstance(command, StartAction):
             self._start_action(command)
+        elif isinstance(command, OpenContextualQuestion):
+            self._open_contextual_question()
+        elif isinstance(command, SubmitContextualQuestion):
+            self._submit_contextual_question(command)
+        elif isinstance(command, ContextualSourceCaptured):
+            self._complete_contextual_source(command)
+        elif isinstance(command, ContextualSourceCaptureFailed):
+            self._fail_contextual_source(command)
         elif isinstance(command, CloseSession):
             self._close(command.session_id)
         elif isinstance(command, CancelSession):
@@ -547,6 +568,20 @@ class WorkflowRuntimeModule:
             return
         controller = record.controller
         previous = controller.snapshot
+        if (
+            previous.displayed_step_index >= 0
+            and previous.steps[previous.displayed_step_index].action_id == CONTEXTUAL_QUESTION_ACTION_ID
+            and previous.contextual_source_text
+            and previous.contextual_source_kind in {"selection", "clipboard"}
+        ):
+            continuation = FollowUpContinuation.for_contextual_question(
+                command.text.strip(),
+                previous.contextual_source_text,
+                previous.contextual_source_kind,
+                history=previous.steps[: previous.displayed_step_index + 1],
+            )
+            self._start_follow_up_continuation(record, continuation)
+            return
         if previous.voice_origin is not None and (
             previous.displayed_step_index < 0
             or previous.steps[previous.displayed_step_index].action_id == VOICE_DRAFT_FOLLOW_UP_ACTION_ID
@@ -609,6 +644,144 @@ class WorkflowRuntimeModule:
                 binding=record.binding,
             ),
         )
+
+    def _open_contextual_question(self) -> None:
+        visible = self._visible_record()
+        if visible is not None:
+            workflow_id, record = visible
+            focused = (
+                self._user_control is not None
+                and self._user_control.focused_surface == ControlSurfaceRef(workflow_id, "workflow")
+            )
+            if focused:
+                if record.controller.request_question_composer() is not None:
+                    self._foreground_id = workflow_id
+                    self._request_attention(
+                        workflow_id,
+                        "想知道什麼？",
+                        duration_ms=1200,
+                        warning=False,
+                    )
+                else:
+                    self._sequence_error("目前內容還不能提問。", "請等這次處理完成後再試一次。")
+                return
+            if record.controller.snapshot.pinned:
+                self._sequence_error("目前視窗已固定。", "請先點選該視窗，再按 Ctrl+Alt+R 開啟問題欄。")
+                return
+        if self._input_resolver is None or self._supervisor is None:
+            self._sequence_error("無法啟動「問這段」。", "請重新啟動 ClipAI 後再試一次。")
+            return
+        if not self._replace_unpinned_visible_workflow():
+            self._sequence_error("目前視窗已固定。", "請在該視窗中直接使用問題輸入欄。")
+            return
+
+        workflow_id = uuid.uuid4().hex
+        capture_id = uuid.uuid4().hex
+        controller = WorkflowController(
+            SessionSnapshot(
+                workflow_id,
+                0,
+                SessionStatus.CREATED,
+                CONTEXTUAL_QUESTION_ACTION_ID,
+                "問這段",
+                self._provider_configuration.active_binding.model,
+                status_text="準備讀取內容…",
+            ),
+            _RuntimeWorkflowPresenter(self._enqueue, "visible"),
+        )
+        self._register(
+            workflow_id,
+            controller,
+            self._provider_configuration.active_binding,
+            "visible",
+        )
+        self._foreground_id = workflow_id
+        token = controller.begin_contextual_source_capture(capture_id)
+        resolver = self._input_resolver
+
+        def capture() -> None:
+            try:
+                document = resolver.resolve_text(token)
+            except InputError as error:
+                self._enqueue(ContextualSourceCaptureFailed(workflow_id, capture_id, str(error)))
+            except BaseException:
+                self._enqueue(ContextualSourceCaptureFailed(
+                    workflow_id,
+                    capture_id,
+                    "無法讀取反白或剪貼簿內容。",
+                ))
+            else:
+                self._enqueue(ContextualSourceCaptured(workflow_id, capture_id, document))
+
+        try:
+            self._supervisor.submit(
+                f"context-source:{capture_id}",
+                capture,
+                lambda _error: self._enqueue(ContextualSourceCaptureFailed(
+                    workflow_id,
+                    capture_id,
+                    "無法讀取反白或剪貼簿內容。",
+                )),
+                task_class="interactive",
+                cancellation_hook=token.cancel,
+            )
+        except BaseException:
+            self._enqueue(ContextualSourceCaptureFailed(
+                workflow_id,
+                capture_id,
+                "無法開始讀取反白或剪貼簿內容。",
+            ))
+
+    def _complete_contextual_source(self, command: ContextualSourceCaptured) -> None:
+        record = self._records.get(command.workflow_id)
+        if record is None or record.presentation != "visible":
+            return
+        try:
+            completed = record.controller.complete_contextual_source_capture(
+                command.capture_id,
+                command.document,
+            )
+        except ValueError as error:
+            self._fail_contextual_source(ContextualSourceCaptureFailed(
+                command.workflow_id,
+                command.capture_id,
+                str(error),
+            ))
+            return
+        if completed is not None:
+            self._foreground_id = command.workflow_id
+
+    def _fail_contextual_source(self, command: ContextualSourceCaptureFailed) -> None:
+        record = self._records.get(command.workflow_id)
+        if record is None or record.presentation != "visible":
+            return
+        if record.controller.fail_contextual_source_capture(command.capture_id, command.message) is None:
+            return
+        suggestion = (
+            "請重新選取較小範圍的文字後再試一次。"
+            if "太長" in command.message
+            else "請先反白文字，或把文字複製到剪貼簿後再試一次。"
+        )
+        self._sequence_error(command.message, suggestion)
+        self._end(command.workflow_id, "close")
+
+    def _submit_contextual_question(self, command: SubmitContextualQuestion) -> None:
+        record = self._records.get(command.workflow_id)
+        if record is None or record.presentation != "visible" or not command.question.strip():
+            return
+        snapshot = record.controller.snapshot
+        if (
+            snapshot.status is not SessionStatus.CONTEXT_QUESTION
+            or not snapshot.contextual_source_text
+            or snapshot.contextual_source_kind not in {"selection", "clipboard"}
+        ):
+            return
+        continuation = FollowUpContinuation.for_contextual_question(
+            command.question.strip(),
+            snapshot.contextual_source_text,
+            snapshot.contextual_source_kind,
+        )
+        self._start_follow_up_continuation(record, continuation)
 
     def _cancel(self, session_id: str) -> None:
         self._end(session_id, "cancel")
@@ -767,12 +940,15 @@ class WorkflowRuntimeModule:
         if self._foreground_id == workflow_id:
             self._foreground_id = None
         active_id = record.controller.snapshot.active_invocation_id
+        capture_id = record.controller.snapshot.contextual_source_capture_id
         if disposition == "cancel":
             record.controller.cancel()
         elif disposition == "close":
             record.controller.close()
         if active_id is not None and cancel_task:
             self._provider_execution.cancel(active_id)
+        if capture_id is not None and self._supervisor is not None:
+            self._supervisor.cancel(f"context-source:{capture_id}")
 
     def _sequence_waiting(self) -> None:
         if self._operation_tracker is not None:

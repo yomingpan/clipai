@@ -6,7 +6,7 @@ import inspect
 import textwrap
 from dataclasses import replace
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
@@ -111,6 +111,9 @@ class Surface:
 
     def selected_text(self) -> str | None:
         return self.selected
+
+    def set_content_chunks(self, chunks) -> None:
+        self.events.append(("content", chunks))
 
     def set_standard_action_enabled(self, slot_id: str, enabled: bool) -> None:
         self.events.append(f"{slot_id}:{enabled}")
@@ -336,6 +339,36 @@ def test_completed_popup_offers_voice_follow_up_and_emits_typed_start() -> None:
     assert isinstance(events[-1].capture_id, VoiceCaptureId)
 
 
+def test_contextual_question_opens_standard_composer_and_emits_initial_submit() -> None:
+    presenter, events = presenter_with_selection(None)
+    snapshot = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.CONTEXT_QUESTION,
+        "contextual_question",
+        "問這段",
+        "m",
+        source_preview="Selection: fixed source",
+        available_actions=("follow_up",),
+        contextual_source_text="fixed source",
+        contextual_source_kind="selection",
+        question_composer_revision=1,
+    )
+    view = presenter._views["s1"]
+    view.last_snapshot = replace(snapshot, revision=0, question_composer_revision=0)
+    view.revision = 0
+
+    presenter._apply(snapshot)
+    view.surface.follow_entry.text = "這句話代表什麼？"
+    view.surface.follow_entry.bindings["<KeyRelease>"](None)
+    view.surface.follow_send_button.command()
+
+    assert "follow-up-show:" in events
+    assert "follow-up-send:False" in events
+    assert "follow-up-send:True" in events
+    assert events[-1] == SubmitContextualQuestion("s1", "這句話代表什麼？")
+
+
 def test_active_voice_follow_up_uses_same_control_to_stop() -> None:
     presenter, events = presenter_with_selection(None)
     capture_id = VoiceCaptureId("capture-1")
@@ -469,7 +502,8 @@ def test_sent_follow_up_clears_the_next_question_input() -> None:
     view.surface.follow_send_button.command()
     presenter._show_follow_up("s1")
 
-    assert events[-1] == "follow-up-active:True"
+    assert "follow-up-active:True" in events
+    assert events[-1] == "follow-up-send:False"
     assert view.surface.follow_entry.text == ""
 
 

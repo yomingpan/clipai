@@ -26,7 +26,12 @@ FeedbackOutcome = Literal["helpful", "needs_adjustment", "not_applicable"]
 FeedbackOperationState = Literal["idle", "pending", "succeeded", "failed"]
 PresentationBlockKind = Literal["paragraph", "heading", "unordered_item", "ordered_item", "spacer"]
 InlineStyle = Literal["plain", "bold", "italic"]
-ShortcutCommandKind = Literal["start_action", "speak_selection_or_clipboard", "push_to_talk"]
+ShortcutCommandKind = Literal[
+    "start_action",
+    "open_contextual_question",
+    "speak_selection_or_clipboard",
+    "push_to_talk",
+]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal[
     "pending",
