@@ -78,7 +78,7 @@ from ClipAI.core.voice import VoiceDisableId, VoiceLanguage, VoiceLanguageChange
 
 
 def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
-    return any(issue.code == "provider.missing_api_key" for issue in bundle_issues)
+    return any(issue.feature == "llm" for issue in bundle_issues)
 
 
 def build_runtime(bundle: ConfigBundle) -> AppRuntime:

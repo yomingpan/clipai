@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import replace
 
 from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
-from ClipAI.core.errors import ProviderResponseError
+from ClipAI.core.errors import ProviderResponseError, ProviderUnavailableError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceOrigin
 from ClipAI.providers.fake import FakeProvider
@@ -98,8 +98,8 @@ def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, 
     )
 
 
-def binding(provider=None, readiness_issues=()) -> ProviderExecutionBinding:
-    return ProviderExecutionBinding(provider or FakeProvider("result"), "fake", "model", readiness_issues)
+def binding(provider=None, readiness_issues=(), provider_id="fake") -> ProviderExecutionBinding:
+    return ProviderExecutionBinding(provider or FakeProvider("result"), provider_id, "model", readiness_issues)
 
 
 def run_invocation(
@@ -107,6 +107,7 @@ def run_invocation(
     *,
     invocation_id: str = "i1",
     provider=None,
+    provider_id="fake",
     readiness_issues=(),
     resolved_action: ResolvedAction | None = None,
 ) -> WorkflowController:
@@ -122,7 +123,7 @@ def run_invocation(
         resolved,
         invocation,
         controller,
-        binding=binding(provider, readiness_issues),
+        binding=binding(provider, readiness_issues, provider_id),
     ))
     return controller
 
@@ -238,6 +239,22 @@ def test_llm_reports_provider_error_without_false_success() -> None:
     ), provider=provider)
     assert operations.events == [("start", "llm:i1", "llm"), ("error", "llm:i1")]
     assert session.snapshot.status == SessionStatus.FAILED
+
+
+def test_unavailable_custom_provider_explains_that_it_must_be_started() -> None:
+    class UnavailableProvider:
+        async def execute(self, request, cancellation, *, stream):
+            raise ProviderUnavailableError("AI service connection failed")
+            yield
+
+    session = run_invocation(
+        workflow(FakeClipboard("clipboard"), FakeSelection("selected")),
+        provider=UnavailableProvider(),
+        provider_id="gateway",
+    )
+
+    assert session.snapshot.status == SessionStatus.FAILED
+    assert session.snapshot.error == "Custom provider is unavailable. Start it, then try again."
 
 
 def test_missing_provider_key_fails_before_input_or_provider_call() -> None:
