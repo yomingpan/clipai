@@ -125,3 +125,58 @@ def test_shutdown_settles_provider_task_cleanup_before_closing_transport() -> No
     module.shutdown()
 
     assert events == ["task-cleaned", "transport-closed"]
+
+
+def test_shutdown_does_not_interrupt_cleanup_after_explicit_cancellation() -> None:
+    events: list[str] = []
+    started = threading.Event()
+
+    class Lifecycle:
+        async def start(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            events.append("transport-closed")
+
+    async def work() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0.05)
+            events.append("task-cleaned")
+
+    module = ProviderExecutionModule(Lifecycle())
+    module.start("provider-1", work, lambda _result: None, lambda _error: None, lambda: None)
+    assert started.wait(1)
+
+    assert module.cancel("provider-1") is True
+    module.shutdown()
+
+    assert events == ["task-cleaned", "transport-closed"]
+
+
+def test_task_cleanup_supports_python_310_task_interface(monkeypatch) -> None:
+    class Python310Task:
+        def __init__(self) -> None:
+            self.cancelled = False
+
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+        async def _wait(self) -> None:
+            return None
+
+        def __await__(self):
+            return self._wait().__await__()
+
+    task = Python310Task()
+    monkeypatch.setattr(asyncio, "current_task", lambda: object())
+    monkeypatch.setattr(asyncio, "all_tasks", lambda: {task})
+
+    asyncio.run(ProviderExecutionModule._cancel_remaining_tasks())
+
+    assert task.cancelled is True
