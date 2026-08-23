@@ -1162,6 +1162,7 @@ class BaseResultSurface:
         self.follow_row.grid_columnconfigure(0, weight=1)
         self.follow_entry = ctk.CTkEntry(
             self.follow_row,
+            placeholder_text="想知道什麼？",
             height=30,
             corner_radius=9,
             border_width=1,
@@ -1180,6 +1181,7 @@ class BaseResultSurface:
             fg_color=ACTION_COLOR,
             hover_color=ACTION_HOVER_COLOR,
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
+            state="disabled",
         )
         self.follow_send_button.grid(row=0, column=1, sticky="e")
 

@@ -78,7 +78,7 @@ from ClipAI.core.voice import VoiceDisableId, VoiceLanguage, VoiceLanguageChange
 
 
 def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
-    return any(issue.code == "provider.missing_api_key" for issue in bundle_issues)
+    return any(issue.feature == "llm" for issue in bundle_issues)
 
 
 def build_runtime(bundle: ConfigBundle) -> AppRuntime:
@@ -203,8 +203,9 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
     paste_targets = PasteTargetCoordinator(view)
     supervisor = TaskSupervisor(bundle.runtime.maintenance_workers)
+    input_resolver = InputResolver(clipboard, selection_reader)
     execute_action = ActionExecutor(
-        input_resolver=InputResolver(clipboard, selection_reader),
+        input_resolver=input_resolver,
         prompt_builder=PromptBuilder(bundle.app.system_prompt, bundle.output_profiles),
         result_processor=ResultProcessor(bundle.output_profiles),
         default_temperature=bundle.app.temperature,
@@ -253,6 +254,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         user_control=user_control,
         attention_presenter=view,
         personal_styles=personal_styles,
+        input_resolver=input_resolver,
+        supervisor=supervisor,
     )
     result_output_module = ResultOutputRuntimeModule(
         output_actions=output_actions,

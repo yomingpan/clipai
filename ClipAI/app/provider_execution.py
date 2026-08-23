@@ -24,6 +24,8 @@ class ProviderExecutionModule:
         self._loop = asyncio.new_event_loop()
         self._lifecycle = lifecycle
         self._tasks: dict[str, Future[Any]] = {}
+        self._loop_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._cancellation_requested: set[asyncio.Task[Any]] = set()
         self._lock = threading.RLock()
         self._ready = threading.Event()
         self._closed = False
@@ -47,18 +49,29 @@ class ProviderExecutionModule:
                 raise RuntimeError(f"provider operation is already active: {operation_id}")
 
             async def run() -> None:
+                task = asyncio.current_task()
+                if task is not None:
+                    with self._lock:
+                        self._loop_tasks[operation_id] = task
                 try:
-                    result = await work()
-                except asyncio.CancelledError:
-                    if not self._is_closed():
-                        on_cancelled()
-                    raise
-                except BaseException as error:
-                    if not self._is_closed():
-                        on_error(error)
-                else:
-                    if not self._is_closed():
-                        on_result(result)
+                    try:
+                        result = await work()
+                    except asyncio.CancelledError:
+                        if not self._is_closed():
+                            on_cancelled()
+                        raise
+                    except BaseException as error:
+                        if not self._is_closed():
+                            on_error(error)
+                    else:
+                        if not self._is_closed():
+                            on_result(result)
+                finally:
+                    if task is not None:
+                        with self._lock:
+                            if self._loop_tasks.get(operation_id) is task:
+                                self._loop_tasks.pop(operation_id, None)
+                            self._cancellation_requested.discard(task)
 
             future = asyncio.run_coroutine_threadsafe(run(), self._loop)
             self._tasks[operation_id] = future
@@ -67,22 +80,23 @@ class ProviderExecutionModule:
     def cancel(self, operation_id: str) -> bool:
         with self._lock:
             future = self._tasks.get(operation_id)
-        return bool(future is not None and future.cancel())
+            task = self._loop_tasks.get(operation_id)
+            if future is None:
+                return False
+            if task is not None:
+                self._cancellation_requested.add(task)
+            cancelled = bool(future.cancel())
+            if not cancelled and task is not None:
+                self._cancellation_requested.discard(task)
+            return cancelled
 
     def shutdown(self) -> None:
         with self._lock:
             if self._closed:
                 return
             self._closed = True
-            futures = tuple(self._tasks.values())
-        for future in futures:
-            future.cancel()
-        for future in futures:
-            try:
-                future.result(timeout=0.25)
-            except BaseException:
-                pass
-        self._settle_provider_tasks()
+            already_cancelling = frozenset(self._cancellation_requested)
+        self._settle_provider_tasks(already_cancelling)
         close = asyncio.run_coroutine_threadsafe(self._close_lifecycle(), self._loop)
         try:
             close.result(timeout=1)
@@ -108,8 +122,10 @@ class ProviderExecutionModule:
         if self._lifecycle is not None:
             await self._lifecycle.close()
 
-    def _settle_provider_tasks(self) -> None:
-        settlement = asyncio.run_coroutine_threadsafe(self._cancel_remaining_tasks(), self._loop)
+    def _settle_provider_tasks(self, already_cancelling: frozenset[asyncio.Task[Any]]) -> None:
+        settlement = asyncio.run_coroutine_threadsafe(
+            self._cancel_remaining_tasks(already_cancelling), self._loop
+        )
         try:
             settlement.result(timeout=1)
         except TimeoutError:
@@ -120,7 +136,9 @@ class ProviderExecutionModule:
             logger.warning("[clipai] Provider task cleanup failed: %s", type(error).__name__)
 
     @staticmethod
-    async def _cancel_remaining_tasks() -> None:
+    async def _cancel_remaining_tasks(
+        already_cancelling: frozenset[asyncio.Task[Any]] = frozenset(),
+    ) -> None:
         current = asyncio.current_task()
         pending = tuple(
             task
@@ -128,7 +146,7 @@ class ProviderExecutionModule:
             if task is not current and not task.done()
         )
         for task in pending:
-            if task.cancelling() == 0:
+            if task not in already_cancelling:
                 task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)

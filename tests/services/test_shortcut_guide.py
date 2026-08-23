@@ -54,7 +54,7 @@ def test_real_config_projects_every_shortcut_and_declared_long_variant() -> None
         modifier_mode=bundle.app.modifier_mode,
     ).items()
 
-    assert len(items) == 28
+    assert len(items) == 29
     assert [item.shortcut_id for item in items] == [definition.id for definition in bundle.shortcuts.definitions()]
     assert {item.shortcut_id for item in items if item.long_title} == {
         "translate_to_english",
@@ -64,6 +64,9 @@ def test_real_config_projects_every_shortcut_and_declared_long_variant() -> None
         "shorten_content",
         "extract_screenshot_text",
     }
+    question = next(item for item in items if item.shortcut_id == "contextual_question")
+    assert question.title == "問這段"
+    assert question.display_hotkey == "Ctrl + Alt + R"
 
 
 def test_guide_tracks_progress_and_verifies_short_press_for_this_open_only() -> None:

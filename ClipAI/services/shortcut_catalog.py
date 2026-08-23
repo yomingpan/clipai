@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.commands import AppCommand, SpeakSelectionOrClipboard, StartAction
+from ClipAI.core.commands import AppCommand, OpenContextualQuestion, SpeakSelectionOrClipboard, StartAction
 from ClipAI.core.models import PressType, ShortcutDefinition
 
 
@@ -23,6 +23,8 @@ class ShortcutCatalog:
             return StartAction(shortcut.action_id, press_type)
         if shortcut.command == "speak_selection_or_clipboard":
             return SpeakSelectionOrClipboard()
+        if shortcut.command == "open_contextual_question":
+            return OpenContextualQuestion()
         raise ValueError("push-to-talk shortcuts are dispatched from their physical press lifecycle")
 
     def is_push_to_talk(self, shortcut_id: str) -> bool:

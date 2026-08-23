@@ -175,8 +175,6 @@ def build_provider_snapshot(
     gateway_ready = bool(gateway_base_url and gateway_model)
     if gateway_ready:
         gateway_base_url = normalize_gateway_base_url(gateway_base_url)
-    elif active == "gateway":
-        raise ConfigError("CLIPAI_GATEWAY_BASE_URL and CLIPAI_GATEWAY_MODEL are required when CLIPAI_PROVIDER=gateway")
     gateway_settings = GatewaySettings(
         gateway_name or "Custom Gateway",
         gateway_base_url,
@@ -185,7 +183,11 @@ def build_provider_snapshot(
         available_models=(gateway_model,) if gateway_model else (),
     )
     gateway_issues = () if gateway_ready else (
-        ReadinessIssue("provider.gateway_not_configured", "Configure the custom gateway before selecting it.", "llm"),
+        ReadinessIssue(
+            "provider.gateway_not_configured",
+            "Configure the Custom provider URL and model before using it.",
+            "llm",
+        ),
     )
     bindings.append(ProviderExecutionBinding(
         OpenAICompatibleGatewayProvider(

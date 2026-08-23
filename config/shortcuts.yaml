@@ -5,6 +5,10 @@ shortcuts:
     hotkey: ctrl+alt+w
     command: push_to_talk
 
+  - id: contextual_question
+    hotkey: ctrl+alt+r
+    command: open_contextual_question
+
   - id: translate_to_traditional_chinese
     hotkey: ctrl+alt+1
     command: start_action

@@ -51,6 +51,15 @@ def test_runtime_dispatches_both_roots_through_one_continuation_seam() -> None:
     assert called_attributes.count("execute_follow_up_invocation") == 1
     assert "execute_voice_draft_follow_up_invocation" not in called_attributes
     assert "_start_voice_draft_follow_up" not in called_attributes
+    assert "execute_contextual_question_invocation" not in called_attributes
+
+
+def test_contextual_question_is_not_a_configured_action_or_second_pipeline() -> None:
+    actions = (ROOT / "config" / "actions.yaml").read_text(encoding="utf-8")
+    runtime = (ROOT / "ClipAI" / "app" / "runtime_workflows.py").read_text(encoding="utf-8")
+
+    assert "id: contextual_question" not in actions
+    assert runtime.count("execute_follow_up_invocation") == 1
 
 
 def test_legacy_voice_only_follow_up_policy_module_is_removed() -> None:

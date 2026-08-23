@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TypeVar
 
-from ClipAI.core.errors import CancelledError, ClipAIError
+from ClipAI.core.errors import CancelledError, ClipAIError, ProviderUnavailableError
 from ClipAI.core.models import ActionInvocation, LLMCompleted, LLMProviderEvent, LLMRequest, LLMResult, LLMTextDelta, ResolvedAction
 from ClipAI.core.ports import OperationHandle, OperationTracker
 from ClipAI.core.state import SessionStatus
@@ -124,7 +124,7 @@ class ActionExecutor:
         except CancelledError:
             return
         except ClipAIError as exc:
-            workflow.fail(invocation.invocation_id, str(exc))
+            workflow.fail(invocation.invocation_id, _provider_error_message(exc, binding.provider_id))
 
     async def execute_follow_up_invocation(
         self,
@@ -193,7 +193,7 @@ class ActionExecutor:
         except CancelledError:
             return
         except ClipAIError as exc:
-            workflow.fail(invocation.invocation_id, str(exc))
+            workflow.fail(invocation.invocation_id, _provider_error_message(exc, binding.provider_id))
 
     def _consume_guidance_hint(self, action: ResolvedAction, invocation: ActionInvocation) -> bool:
         return bool(
@@ -263,6 +263,12 @@ class ActionExecutor:
             return False
         workflow.fail(invocation_id, issue.message)
         return True
+
+
+def _provider_error_message(error: ClipAIError, provider_id: str) -> str:
+    if isinstance(error, ProviderUnavailableError) and provider_id == "gateway":
+        return "Custom provider is unavailable. Start it, then try again."
+    return str(error)
 
 
 async def coalesce_provider_events(

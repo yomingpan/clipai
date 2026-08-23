@@ -6,6 +6,7 @@ import pytest
 
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.container import _build_provider, _build_provider_snapshot, _needs_provider_setup, _resolve_active_credential, _resolve_active_model
+from ClipAI.app.provider_configuration import build_provider_snapshot
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gemini import GeminiProvider
@@ -117,8 +118,35 @@ def test_provider_snapshot_builds_keyless_local_gateway() -> None:
     assert binding.readiness_issues == ()
 
 
+def test_configured_custom_provider_does_not_connect_during_startup() -> None:
+    class NoNetworkTransport:
+        def __getattr__(self, name):
+            raise AssertionError(f"startup must not access transport.{name}")
+
+    snapshot = build_provider_snapshot(
+        load_config_bundle(),
+        {
+            "CLIPAI_PROVIDER": "gateway",
+            "CLIPAI_GATEWAY_BASE_URL": "http://localhost:8000",
+            "CLIPAI_GATEWAY_MODEL": "local-model",
+        },
+        NoNetworkTransport(),
+    )
+
+    assert snapshot.active_provider == "gateway"
+    assert snapshot.bindings[-1].readiness_issues == ()
+
+
 def test_missing_provider_key_is_a_first_run_settings_condition() -> None:
     snapshot = _build_provider_snapshot(load_config_bundle(), {"CLIPAI_PROVIDER": "gemini"})
     binding = next(item for item in snapshot.bindings if item.provider_id == snapshot.active_provider)
 
+    assert _needs_provider_setup(binding.readiness_issues)
+
+
+def test_unconfigured_custom_provider_is_a_nonfatal_first_run_settings_condition() -> None:
+    snapshot = _build_provider_snapshot(load_config_bundle(), {"CLIPAI_PROVIDER": "gateway"})
+    binding = next(item for item in snapshot.bindings if item.provider_id == snapshot.active_provider)
+
+    assert binding.readiness_issues[0].code == "provider.gateway_not_configured"
     assert _needs_provider_setup(binding.readiness_issues)
