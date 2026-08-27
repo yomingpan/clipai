@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ClipAI.core.models import OutputOperationResult, UserFacingError
-from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, ForegroundLeftApplication, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
+from ClipAI.ui.popup_external_output import FocusConfirmationObserved, FocusEntered, FocusPopup, ForegroundLeftApplication, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleFocusConfirmationCheck, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 
 
 def ready_transitions() -> PopupExternalOutputTransitions:
@@ -286,14 +286,87 @@ def test_unconfirmed_focus_cannot_open_initial_gate_or_replace_confirmed_focus()
     transitions.focus(PopupRegistered())
     transitions.focus(PopupShown())
 
-    assert transitions.focus(FocusEntered(native_foreground=False, toolkit_focused=True)) == (
-        SetFocusProjection(False),
-    )
+    unconfirmed = transitions.focus(FocusEntered(
+        native_foreground=False,
+        toolkit_focused=True,
+    ))
+    assert unconfirmed[0] == SetFocusProjection(False)
+    assert isinstance(unconfirmed[1], ScheduleFocusConfirmationCheck)
     assert transitions.focus(OutsideFocusCheckRequested()) == ()
 
     transitions.focus(FocusEntered(native_foreground=True, toolkit_focused=True))
     assert transitions.focus(FocusEntered(native_foreground=False, toolkit_focused=True)) == ()
     assert transitions.focused_inside is True
+
+
+def test_delayed_native_foreground_confirms_toolkit_focus_on_scheduled_observation() -> None:
+    transitions = PopupExternalOutputTransitions()
+    transitions.focus(PopupRegistered())
+    transitions.focus(PopupShown())
+
+    actions = transitions.focus(FocusEntered(
+        native_foreground=False,
+        toolkit_focused=True,
+    ))
+
+    assert actions[0] == SetFocusProjection(False)
+    scheduled = actions[1]
+    assert isinstance(scheduled, ScheduleFocusConfirmationCheck)
+
+    assert transitions.focus(FocusConfirmationObserved(
+        scheduled.generation,
+        scheduled.attempt,
+        native_foreground=True,
+        toolkit_focused=True,
+    )) == (SetFocusProjection(True),)
+    assert transitions.focused_inside is True
+
+
+def test_focus_confirmation_retries_are_bounded_while_toolkit_focus_remains() -> None:
+    transitions = PopupExternalOutputTransitions()
+    transitions.focus(PopupRegistered())
+    transitions.focus(PopupShown())
+    scheduled = transitions.focus(FocusEntered(
+        native_foreground=False,
+        toolkit_focused=True,
+    ))[1]
+    assert isinstance(scheduled, ScheduleFocusConfirmationCheck)
+
+    for expected_attempt in (2, 3, 4):
+        actions = transitions.focus(FocusConfirmationObserved(
+            scheduled.generation,
+            scheduled.attempt,
+            native_foreground=False,
+            toolkit_focused=True,
+        ))
+        assert actions == (ScheduleFocusConfirmationCheck(
+            scheduled.generation,
+            expected_attempt,
+        ),)
+        scheduled = actions[0]
+
+    assert transitions.focus(FocusConfirmationObserved(
+        scheduled.generation,
+        scheduled.attempt,
+        native_foreground=False,
+        toolkit_focused=True,
+    )) == ()
+    assert transitions.focused_inside is False
+
+
+def test_pending_focus_confirmation_is_owned_for_owned_dialog_handoff() -> None:
+    transitions = PopupExternalOutputTransitions()
+    transitions.focus(PopupRegistered())
+    transitions.focus(PopupShown())
+
+    transitions.focus(FocusEntered(
+        native_foreground=False,
+        toolkit_focused=True,
+    ))
+
+    assert transitions.owns_focus is True
+    assert transitions.focus(OwnedDialogOpened()) == (SetFocusProjection(False),)
+    assert transitions.owns_focus is False
 
 
 def test_foreground_left_application_closes_unpinned_popup_and_respects_guards() -> None:

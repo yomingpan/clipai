@@ -31,6 +31,15 @@ returns a boolean and callers handle failure. A
 `logging.diagnostics.focus_transitions` switch records native evidence,
 toolkit evidence, and the projected value together.
 
+When toolkit focus arrives before Windows foreground ownership, the existing
+transition owner keeps the Popup projected as unfocused and issues a
+generation-bound confirmation action. The presenter re-reads both facts every
+25 ms for at most four attempts. A confirmed observation opens the focus gate;
+a stale generation, lost toolkit focus, Paste, owned dialog, or exhausted retry
+budget cannot do so. An explicit pointer press inside an unconfirmed Popup asks
+the existing `DialogLifecycle` to activate the native window and then uses the
+same confirmation path; it does not set the border directly.
+
 ## Measurements
 
 Before the change, the Q3 AST loop found seven evidence-free
@@ -47,6 +56,10 @@ command tick; manual Windows scenarios are specified in the release checklist.
   they did not verify.
 - Depending on `<FocusOut>` or outside clicks misses documented Windows task
   switching paths.
+- Treating a delay as implicit success would replace native evidence with a
+  timer and recreate the original false-positive state.
+- Unbounded foreground polling would leave hidden lifecycle work after the
+  user's focus intent has ended.
 - Letting widgets construct `SetFocusProjection` creates a second transition
   owner and bypasses Paste/owned-dialog guards.
 
@@ -57,3 +70,5 @@ command tick; manual Windows scenarios are specified in the release checklist.
   bus.
 - Paste and owned-dialog focus handoffs remain explicit exceptions in one owner.
 - Diagnostics can compare all three values without changing product policy.
+- Delayed Windows activation can settle without requiring an outside click,
+  while confirmation remains bounded and cancellable by generation.
