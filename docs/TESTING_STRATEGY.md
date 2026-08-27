@@ -63,8 +63,10 @@ Voice Draft 的細部規則以 `services/voice_draft.py` 的 pure interface 為�
 預設執行：
 
 ```powershell
-python -m pytest
+python scripts/run_unit_tests.py
 ```
+
+測試啟動器會在開始收集測試前建立可寫的、隔離的 pytest 暫存與快取目錄。它優先使用 `CLIPAI_TEST_TEMP_ROOT`；未設定時先嘗試系統暫存目錄，再嘗試工作樹內被 `.gitignore` 排除的 `.clipai-test-artifacts/`。兩者都不可寫時，它會以明確的測試環境錯誤停止，而不是讓每個使用 `tmp_path` 的 case 各自報錯。
 
 GitHub Windows CI 必須在 Python 3.10、3.11、3.12、3.13 執行 constrained clean install、compile、unit tests 與 architecture tests。排程工作另測未鎖定依賴，但不得影響正式安裝 constraints。
 
@@ -88,7 +90,7 @@ GitHub Windows CI 必須在 Python 3.10、3.11、3.12、3.13 執行 constrained 
 手動執行：
 
 ```powershell
-python -m pytest -m integration
+python scripts/run_unit_tests.py -- -m integration
 ```
 
 ## Tests Folder 結構

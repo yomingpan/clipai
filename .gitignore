@@ -11,3 +11,4 @@ diagnostics/
 data/
 .agents/
 .codex-test-tmp/
+.clipai-test-artifacts/
