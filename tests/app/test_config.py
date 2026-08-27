@@ -223,6 +223,62 @@ def test_ctrl_alt_u_resolves_capture_and_express_as_distinct_learning_intents() 
     assert "按 Ctrl+/ 回答" in express_profile.instruction
 
 
+def test_ctrl_alt_l_resolves_read_and_practice_as_distinct_friction_intents() -> None:
+    bundle = load_config_bundle()
+
+    shortcut = bundle.shortcuts.definition("reading_friction")
+    explain = bundle.actions.resolve(shortcut.action_id, "short")
+    practice = bundle.actions.resolve(shortcut.action_id, "long")
+
+    assert shortcut.hotkey == "ctrl+alt+l"
+    assert shortcut.action_id == "reading_friction"
+    assert explain.input_mode == "selection_or_clipboard"
+    assert explain.external_fallback == "selection_or_clipboard"
+
+    assert explain.name == "讀懂這段"
+    assert explain.stream is False
+    assert explain.output_profile == "reading_friction_explain"
+    assert "single most likely immediate obstacle" in explain.system_prompt
+    assert "word meaning, collocation or meaningful phrase, syntax, or pronunciation" in explain.system_prompt
+    assert "Never split a collocation" in explain.system_prompt
+    assert "recompose the complete selection" in explain.system_prompt
+    assert "Do not add a More Help invitation" in explain.system_prompt
+    assert "return to the source text" in explain.prompt
+
+    assert practice.name == "練習這段"
+    assert practice.stream is False
+    assert practice.output_profile == "reading_friction_practice"
+    assert "single most likely immediate obstacle" in practice.system_prompt
+    assert "near-transfer sentence" in practice.prompt
+    assert "same underlying reading relationship" in practice.prompt
+    assert "Do not evaluate mastery" in practice.system_prompt
+
+    assert explain.feedback_contract is not None
+    assert practice.feedback_contract is not None
+    assert explain.feedback_contract.ai_help_label == "指出所選英文中最可能造成阻塞的一個關係，提供剛好足以回到原文的理解支援"
+    assert explain.feedback_contract.ai_does_not_label == "不替你決定整篇哪裡重要，也不替你完成理解或判斷內容是否可信"
+    assert practice.feedback_contract.ai_help_label == "保留你先讀的空間，提供一個未標記的近遷移句，並把單一提示留給真正卡住的時候"
+    assert practice.feedback_contract.ai_does_not_label == "不預先揭露提示、不評分或宣稱你已學會，也不建立學習檔案"
+    assert explain.feedback_contract != practice.feedback_contract
+
+    explain_profile = bundle.output_profiles.get(explain.output_profile)
+    practice_profile = bundle.output_profiles.get(practice.output_profile)
+    assert explain_profile.presentation == "markdown_sections"
+    assert explain_profile.required_markers == ("整句就是：",)
+    assert "at most one bold span" in explain_profile.instruction
+    assert "Do not add headings" in explain_profile.instruction
+    assert practice_profile.presentation == "markdown_sections"
+    assert practice_profile.required_markers == ("## 換一句", "[[SCROLL_BREAK]]", "卡住時再看：")
+    assert "Keep the selected source completely unmarked" in practice_profile.instruction
+    assert "unseen near-transfer sentence" in practice_profile.instruction
+    assert "Do not show an answer" in practice_profile.instruction
+    assert "exactly one minimal hint" in practice_profile.instruction
+    assert "Do not add a More Help button" in practice_profile.instruction
+    assert "按喇叭按鈕" in practice_profile.instruction
+    assert "Never autoplay audio" in practice_profile.instruction
+    assert practice_profile.instruction.index("Then use the single heading `## 換一句`") < practice_profile.instruction.index("Put `[[SCROLL_BREAK]]`")
+
+
 def test_long_press_ctrl_alt_2_translates_to_japanese() -> None:
     bundle = load_config_bundle()
 
@@ -480,7 +536,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 26
+    assert len(start_actions) == 27
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "voice_input": "ctrl+alt+w",
         "contextual_question": "ctrl+alt+r",
@@ -493,6 +549,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "explain_like_friend": "ctrl+alt+6",
         "article_structure": "ctrl+alt+7",
         "english_companion": "ctrl+alt+8",
+        "reading_friction": "ctrl+alt+l",
         "expression_retrieval": "ctrl+alt+u",
         "reflective_question": "ctrl+alt+9",
         "critical_thinking": "ctrl+alt+0",

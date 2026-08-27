@@ -6,7 +6,7 @@ import inspect
 import textwrap
 from dataclasses import replace
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
@@ -259,24 +259,24 @@ def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:
     assert "archive:pulse:1000" in events
 
 
-def test_late_output_operation_evicts_dead_view_without_touching_surface() -> None:
+def test_late_output_operation_closes_workflow_for_dead_view() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._views["s1"].dialog.alive = False
 
     presenter._apply_output_operation(OutputOperationResult("late", "s1", "archive", "pending"))
 
-    assert events == []
+    assert events == [CloseSession("s1")]
     assert presenter._views == {}
 
 
-def test_late_completed_snapshot_evicts_dead_view_without_touching_surface() -> None:
+def test_late_completed_snapshot_closes_workflow_for_dead_view() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._views["s1"].dialog.alive = False
     snapshot = SessionSnapshot("s1", 1, SessionStatus.COMPLETED, "a", "A", "model", content="late")
 
     presenter._apply(snapshot)
 
-    assert events == []
+    assert events == [CloseSession("s1")]
     assert presenter._views == {}
 
 
@@ -869,6 +869,57 @@ def test_failed_initial_focus_attempt_does_not_claim_popup_focus() -> None:
     assert view.external_output.focused_inside is False
 
 
+def test_clicking_toolkit_focused_popup_requests_native_focus_and_confirms_it() -> None:
+    class FocusRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+        def focus_get(self):
+            return self
+
+        def winfo_toplevel(self):
+            return self
+
+    class Lifecycle:
+        def __init__(self, dialog, events) -> None:
+            self.dialog = dialog
+            self.events = events
+            self.callbacks = []
+
+        def focus(self) -> bool:
+            self.events.append("native-focus-requested")
+            self.dialog.native_foreground = True
+            return True
+
+        def schedule(self, delay_ms, callback) -> str:
+            self.callbacks.append((delay_ms, callback))
+            return f"scheduled-{len(self.callbacks)}"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.external_output = PopupExternalOutputTransitions()
+    view.dialog.root = FocusRoot()
+    view.dialog.native_foreground = False
+    view.dialog.lifecycle = Lifecycle(view.dialog, events)
+
+    presenter._register_view("s1", view, focus_on_show=False)
+    view.dialog.root.bindings["<FocusIn>"](None)
+    assert view.surface.focused is False
+
+    view.dialog.root.bindings["<ButtonPress>"](None)
+
+    assert "native-focus-requested" in events
+    assert [delay_ms for delay_ms, _callback in view.dialog.lifecycle.callbacks] == [25, 25]
+    for _delay_ms, callback in tuple(view.dialog.lifecycle.callbacks):
+        callback()
+    assert view.surface.focused is True
+    assert events.count(ControlSurfaceActivated(ControlSurfaceRef("s1", "workflow"))) == 1
+    assert ActivateWorkflow("s1") in events
+
+
 def test_first_outside_pointer_press_closes_popup_when_native_focus_failed() -> None:
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
@@ -888,6 +939,30 @@ def test_pointer_press_inside_popup_does_not_close_it() -> None:
     presenter._handle_pointer_press(10, 10)
 
     assert not any(isinstance(event, CloseSession) for event in events)
+
+
+def test_dead_popup_emits_close_intent_before_view_is_evicted() -> None:
+    presenter, events = presenter_with_selection(None)
+    presenter._views["s1"].dialog.alive = False
+
+    presenter._handle_pointer_press(100, 100)
+
+    assert events == [CloseSession("s1")]
+    assert presenter._views == {}
+
+
+def test_ui_tick_closes_dead_popup_without_waiting_for_another_ui_event() -> None:
+    presenter, events = presenter_with_selection(None)
+    presenter._views["s1"].dialog.alive = False
+    presenter._pointer_press_reader = None
+    presenter._output_updates = queue.Queue()
+    presenter._updates = LatestSnapshotMailbox()
+    presenter._attention_updates = queue.Queue()
+
+    presenter._drain_updates()
+
+    assert events == [CloseSession("s1")]
+    assert presenter._views == {}
 
 
 def test_voice_capture_popup_establishes_initial_focus_immediately() -> None:

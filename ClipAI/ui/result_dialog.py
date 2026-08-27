@@ -16,7 +16,7 @@ from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, Pointer
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
-from ClipAI.ui.popup_external_output import FocusEntered, FocusPopup, ForegroundLeftApplication, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
+from ClipAI.ui.popup_external_output import FocusConfirmationObserved, FocusEntered, FocusPopup, ForegroundLeftApplication, InsidePointerPressed, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleFocusConfirmationCheck, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.personal_styles import PersonalStylesDialog
@@ -304,7 +304,7 @@ class ResultDialogPresenter:
         if view is None:
             return
         if not view.dialog.is_alive():
-            self._evict_view(result.workflow_id, view)
+            self._close_dead_view(result.workflow_id, view)
             return
         self._apply_transition_actions(
             result.workflow_id,
@@ -352,6 +352,8 @@ class ResultDialogPresenter:
                     ))
             elif isinstance(action, ScheduleOutsideFocusCheck):
                 self._schedule_outside_focus_check(workflow_id, view, action)
+            elif isinstance(action, ScheduleFocusConfirmationCheck):
+                self._schedule_focus_confirmation_check(workflow_id, view, action)
             elif isinstance(action, ReportControlSurfaceReleased):
                 self._command_sink(ControlSurfaceReleased(ControlSurfaceRef(workflow_id, "workflow")))
             elif isinstance(action, RequestPopupClose):
@@ -398,6 +400,42 @@ class ResultDialogPresenter:
             )
 
         self._root.after(action.delay_ms, check)
+
+    def _schedule_focus_confirmation_check(
+        self,
+        workflow_id: str,
+        scheduled_view: _SessionView,
+        action: ScheduleFocusConfirmationCheck,
+    ) -> None:
+        def check() -> None:
+            view = self._views.get(workflow_id)
+            if view is not scheduled_view or not view.dialog.is_alive():
+                return
+            native_foreground, toolkit_focused = self._focus_evidence(view)
+            if self._focus_transition_diagnostics:
+                _LOGGER.info(
+                    "focus confirmation workflow_id=%s generation=%s attempt=%s native_foreground=%s toolkit_focused=%s",
+                    workflow_id,
+                    action.generation,
+                    action.attempt,
+                    native_foreground,
+                    toolkit_focused,
+                )
+            was_focused = view.external_output.focused_inside
+            self._apply_transition_actions(
+                workflow_id,
+                view,
+                view.external_output.focus(FocusConfirmationObserved(
+                    action.generation,
+                    action.attempt,
+                    native_foreground=native_foreground,
+                    toolkit_focused=toolkit_focused,
+                )),
+            )
+            if not was_focused and view.external_output.focused_inside:
+                self._report_confirmed_focus(workflow_id)
+
+        scheduled_view.dialog.lifecycle.schedule(action.delay_ms, check)
 
     def run(self, command_pump: Callable[[], None]) -> None:
         def tick() -> None:
@@ -457,6 +495,9 @@ class ResultDialogPresenter:
 
     def _drain_updates(self) -> None:
         for workflow_id, view in tuple(self._views.items()):
+            if not view.dialog.is_alive():
+                self._close_dead_view(workflow_id, view)
+                continue
             if view.external_output.focused_inside and not view.dialog.native_owns_foreground():
                 self._apply_transition_actions(
                     workflow_id,
@@ -508,7 +549,7 @@ class ResultDialogPresenter:
     def _handle_pointer_press(self, x: int, y: int) -> None:
         for workflow_id, view in tuple(self._views.items()):
             if not view.dialog.is_alive():
-                self._evict_view(workflow_id, view)
+                self._close_dead_view(workflow_id, view)
                 continue
             if not view.dialog.is_visible():
                 continue
@@ -536,7 +577,7 @@ class ResultDialogPresenter:
     def _apply(self, snapshot: SessionSnapshot) -> None:
         view = self._views.get(snapshot.session_id)
         if view is not None and not view.dialog.is_alive():
-            self._evict_view(snapshot.session_id, view)
+            self._close_dead_view(snapshot.session_id, view)
             return
         if view is not None and snapshot.revision <= view.revision:
             return
@@ -728,6 +769,12 @@ class ResultDialogPresenter:
     def _evict_view(self, session_id: str, view: _SessionView) -> None:
         if self._views.get(session_id) is view:
             self._views.pop(session_id, None)
+
+    def _close_dead_view(self, session_id: str, view: _SessionView) -> None:
+        if self._views.get(session_id) is not view:
+            return
+        self._request_close(session_id)
+        self._evict_view(session_id, view)
 
     def _request_close(self, session_id: str) -> None:
         view = self._views.get(session_id)
@@ -1014,7 +1061,7 @@ class ResultDialogPresenter:
         )
         dialog.root.bind("<FocusOut>", lambda _event, sid=session_id: self._close_if_outside(sid), add="+")
         dialog.root.bind("<FocusIn>", lambda _event, sid=session_id: self._focus_in(sid), add="+")
-        dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._activate(sid), add="+")
+        dialog.root.bind("<ButtonPress>", lambda _event, sid=session_id: self._pointer_pressed_inside(sid), add="+")
         dialog.root.bind("<Control-q>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_speech, sid), add="+")
         dialog.root.bind("<Control-e>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_pin, sid), add="+")
         dialog.root.bind("<Control-c>", lambda event, sid=session_id: self._popup_shortcut(event, self._copy, sid), add="+")
@@ -1107,6 +1154,20 @@ class ResultDialogPresenter:
         )
         if not (native_foreground and toolkit_focused):
             return
+        self._report_confirmed_focus(session_id)
+
+    def _pointer_pressed_inside(self, session_id: str) -> None:
+        view = self._views.get(session_id)
+        if view is None:
+            return
+        self._apply_transition_actions(
+            session_id,
+            view,
+            view.external_output.focus(InsidePointerPressed()),
+        )
+        self._activate(session_id)
+
+    def _report_confirmed_focus(self, session_id: str) -> None:
         self._command_sink(ControlSurfaceActivated(ControlSurfaceRef(session_id, "workflow")))
         self._activate(session_id)
 

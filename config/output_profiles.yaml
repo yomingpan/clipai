@@ -12,6 +12,29 @@ profiles:
       After the example, add a separate `語感：` line when a spoken/written or formal/informal distinction is useful. If the target is mainly written or formal, mention that gently and give its closest everyday spoken alternative. Add `同義：` with 1-3 useful close alternatives when helpful; for a mainly written or formal target, include and mark conversational alternatives with `（口語常用）`. End with `記憶：` and one concrete, short mnemonic or association.
       Keep the entire answer compact. Do not use Markdown headings or extra sections.
 
+  - id: reading_friction_explain
+    presentation: markdown_sections
+    required_markers:
+      - "整句就是："
+    instruction: |
+      Start directly with the selected English. Preserve every word and its order; add at most one bold span around one meaningful unit only when that cue makes the obstacle easier to see. Never split a collocation, fixed expression, or syntactic unit merely to shorten the bold span.
+      Follow with one or two short, natural Traditional Chinese sentences that explain only the missing meaning or relationship. Avoid grammar terminology unless the term itself is the shortest useful explanation.
+      End with one recomposed Traditional Chinese reading of the complete selection beginning with the exact marker `整句就是：`.
+      Do not add headings, lists, labels, examples, synonyms, exercises, a More Help invitation, or more than one primary visual cue. Never format English as inline code or with backticks.
+
+  - id: reading_friction_practice
+    presentation: markdown_sections
+    required_markers:
+      - "## 換一句"
+      - "[[SCROLL_BREAK]]"
+      - "卡住時再看："
+    instruction: |
+      Start directly with the complete selected English. Keep the selected source completely unmarked: preserve every word and its order, and do not use bold, slashes, colors, labels, or decomposition. On the next line, give one short Traditional Chinese invitation to read it once silently or aloud without translating or submitting an answer.
+      Then use the single heading `## 換一句`. Give exactly one unseen near-transfer sentence that differs on the surface while exercising the same reading capability. Keep this sentence completely unmarked and follow it with one short Traditional Chinese reading task. Do not show an answer, translation, analysis, correctness judgment, or score.
+      If natural pronunciation support is genuinely useful, add the optional sentence `想聽自然讀法，可以只選取英文句子後按喇叭按鈕。` before the scroll break. Never autoplay audio.
+      Put `[[SCROLL_BREAK]]` alone on a line after the transfer task. After the break, begin with the exact text `卡住時再看：` and give exactly one minimal hint: either one bold meaningful unit or one short relationship statement. The hint must be just sufficient to repair the likely mistaken reading, must preserve linguistic bonds, and must not provide a full translation. End with one short invitation to reread the original and transfer sentences.
+      Do not add other headings, steps, or answers. Do not add a More Help button or invitation, scores, streaks, learner-profile language, or multiple visual cues. Never format English as inline code or with backticks.
+
   - id: english_improvement
     presentation: markdown_sections
     required_markers:

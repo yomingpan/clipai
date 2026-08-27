@@ -8,6 +8,7 @@ from ClipAI.core.models import OutputActionKind, OutputOperationResult
 
 PopupVisibility = Literal["hidden", "visible_activate", "visible_no_activate"]
 OutputActionSlot = Literal["speaker", "copy", "paste", "archive"]
+_FOCUS_CONFIRMATION_MAX_ATTEMPTS = 4
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,13 @@ class FocusPopup:
 class ScheduleOutsideFocusCheck:
     generation: int
     delay_ms: int = 100
+
+
+@dataclass(frozen=True)
+class ScheduleFocusConfirmationCheck:
+    generation: int
+    attempt: int = 1
+    delay_ms: int = 25
 
 
 @dataclass(frozen=True)
@@ -65,6 +73,7 @@ PopupTransitionAction: TypeAlias = (
     SetPopupVisibility
     | SetFocusProjection
     | FocusPopup
+    | ScheduleFocusConfirmationCheck
     | ScheduleOutsideFocusCheck
     | ReportControlSurfaceReleased
     | RequestPopupClose
@@ -86,6 +95,18 @@ class PopupShown:
 
 @dataclass(frozen=True)
 class FocusEntered:
+    native_foreground: bool
+    toolkit_focused: bool
+
+    @property
+    def confirmed(self) -> bool:
+        return self.native_foreground and self.toolkit_focused
+
+
+@dataclass(frozen=True)
+class FocusConfirmationObserved:
+    generation: int
+    attempt: int
     native_foreground: bool
     toolkit_focused: bool
 
@@ -117,6 +138,11 @@ class OutsidePointerPressed:
 
 
 @dataclass(frozen=True)
+class InsidePointerPressed:
+    pass
+
+
+@dataclass(frozen=True)
 class OwnedDialogOpened:
     pass
 
@@ -130,10 +156,12 @@ PopupFocusFact: TypeAlias = (
     PopupRegistered
     | PopupShown
     | FocusEntered
+    | FocusConfirmationObserved
     | ForegroundLeftApplication
     | OutsideFocusCheckRequested
     | OutsideFocusObserved
     | OutsidePointerPressed
+    | InsidePointerPressed
     | OwnedDialogOpened
     | OwnedDialogClosed
 )
@@ -168,6 +196,8 @@ class PopupExternalOutputTransitions:
         self._outside_check_pending = False
         self._focused_inside = False
         self._focus_generation = 0
+        self._focus_confirmation_pending = False
+        self._focus_confirmation_attempt = 0
         self._owned_dialog_active = False
 
     @property
@@ -176,7 +206,11 @@ class PopupExternalOutputTransitions:
 
     @property
     def owns_focus(self) -> bool:
-        return self._focused_inside or self._outside_check_pending
+        return (
+            self._focused_inside
+            or self._outside_check_pending
+            or self._focus_confirmation_pending
+        )
 
     def begin(
         self,
@@ -237,7 +271,35 @@ class PopupExternalOutputTransitions:
                 if self._focused_inside:
                     return ()
                 self._mark_unfocused()
-                return (SetFocusProjection(False),)
+                actions: list[PopupTransitionAction] = [SetFocusProjection(False)]
+                if fact.toolkit_focused and self._visible and not self._owned_dialog_active and "paste" not in self._operations:
+                    actions.append(self._begin_focus_confirmation())
+                return tuple(actions)
+            if "paste" not in self._operations:
+                self._withdrawn_for_paste = False
+            self._mark_focused()
+            return (SetFocusProjection(True),)
+        if isinstance(fact, FocusConfirmationObserved):
+            if (
+                not self._focus_confirmation_pending
+                or fact.generation != self._focus_generation
+                or fact.attempt != self._focus_confirmation_attempt
+            ):
+                return ()
+            if not fact.confirmed:
+                if (
+                    not fact.toolkit_focused
+                    or fact.attempt >= _FOCUS_CONFIRMATION_MAX_ATTEMPTS
+                    or self._owned_dialog_active
+                    or "paste" in self._operations
+                ):
+                    self._focus_confirmation_pending = False
+                    return ()
+                self._focus_confirmation_attempt += 1
+                return (ScheduleFocusConfirmationCheck(
+                    self._focus_generation,
+                    self._focus_confirmation_attempt,
+                ),)
             if "paste" not in self._operations:
                 self._withdrawn_for_paste = False
             self._mark_focused()
@@ -287,6 +349,16 @@ class PopupExternalOutputTransitions:
             if not fact.pinned:
                 actions.append(RequestPopupClose())
             return tuple(actions)
+        if isinstance(fact, InsidePointerPressed):
+            if (
+                self._focused_inside
+                or not self._visible
+                or self._owned_dialog_active
+                or "paste" in self._operations
+            ):
+                return ()
+            self._mark_unfocused()
+            return (FocusPopup(), self._begin_focus_confirmation())
         if isinstance(fact, OwnedDialogOpened):
             self._owned_dialog_active = True
             self._mark_unfocused()
@@ -357,12 +429,22 @@ class PopupExternalOutputTransitions:
         self._initial_focus_established = True
         self._focused_inside = True
         self._outside_check_pending = False
+        self._focus_confirmation_pending = False
         self._focus_generation += 1
 
     def _mark_unfocused(self) -> None:
         self._focused_inside = False
         self._outside_check_pending = False
+        self._focus_confirmation_pending = False
         self._focus_generation += 1
+
+    def _begin_focus_confirmation(self) -> ScheduleFocusConfirmationCheck:
+        self._focus_confirmation_pending = True
+        self._focus_confirmation_attempt = 1
+        return ScheduleFocusConfirmationCheck(
+            self._focus_generation,
+            self._focus_confirmation_attempt,
+        )
 
     def _finish_paste(
         self,

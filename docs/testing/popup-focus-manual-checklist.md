@@ -6,8 +6,13 @@ contains native foreground, toolkit focus, and projection values.
 
 - Open a Popup normally: both evidence axes become true and projection becomes
   focused within one 25 ms UI tick.
+- Move focus away, then click the Popup once while Windows foreground ownership
+  is delayed: the log may first show toolkit focus without native foreground,
+  but a generation-bound confirmation must make the projection focused within
+  four 25 ms attempts without requiring an outside click.
 - Force Windows to reject activation while Tk emits `<FocusIn>`: projection
-  stays unfocused and the initial-focus gate remains closed.
+  stays unfocused after the bounded confirmation attempts and the initial-focus
+  gate remains closed.
 - Alt+Tab to another application: the Popup releases focus; an unpinned Popup
   closes and a pinned Popup remains visible but unfocused.
 - Click another application's taskbar button: expect the same result without

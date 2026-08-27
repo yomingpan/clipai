@@ -22,8 +22,8 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -c constraints/windows.txt -e ".[dev]"
       - run: python -m compileall ClipAI scripts tests
-      - run: python -m pytest
-      - run: python -m pytest tests/architecture
+      - run: python scripts/run_unit_tests.py
+      - run: python scripts/run_unit_tests.py -- tests/architecture
 
   unconstrained-dependencies:
     if: github.event_name == 'schedule'
@@ -36,4 +36,4 @@ jobs:
           python-version: "3.10"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[dev]"
-      - run: python -m pytest
+      - run: python scripts/run_unit_tests.py

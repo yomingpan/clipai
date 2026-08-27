@@ -478,6 +478,61 @@ actions:
           Here is the content:
           {input}
 
+  - id: reading_friction
+    name: 讀懂這段
+    input_mode: selection_or_clipboard
+    external_fallback: selection_or_clipboard
+    output_mode: popup
+    temperature: 0.15
+    stream: false
+    output_profile: reading_friction_explain
+    feedback:
+      helps: 指出所選英文中最可能造成阻塞的一個關係，提供剛好足以回到原文的理解支援
+      does_not: 不替你決定整篇哪裡重要，也不替你完成理解或判斷內容是否可信
+      reasons:
+        - id: wrong_friction_diagnosed
+          label: 沒有處理真正卡住的地方
+        - id: meaning_or_relationship_inaccurate
+          label: 意思或文字關係解釋不準確
+        - id: meaningful_unit_split
+          label: 語塊或句法單位被錯誤拆開
+        - id: support_amount_unhelpful
+          label: 支援太多、太少或仍然難懂
+        - id: other
+          label: 其他
+    system_prompt: >
+      You are a minimal English reading-friction guide for Traditional Chinese-speaking learners. The user selected this English because it created friction; treat that selection, rather than any inferred important part of a larger text, as the only learning target. Silently infer the single most likely immediate obstacle: word meaning, collocation or meaningful phrase, syntax, or pronunciation. Do not display the diagnostic category or several competing diagnoses. Give only the minimum support needed to repair the likely mistaken reading. Never split a collocation, fixed expression, or meaningful syntactic unit merely to make a chunk shorter. If temporary decomposition is necessary, recompose the complete selection before ending. Preserve uncertainty when the available context does not support one confident reading. Use friendly, concise Traditional Chinese and preserve the selected English. Do not add a More Help invitation, a complete lesson, scores, streaks, or claims that the learner now understands. If the input contains no usable English, briefly ask the user to select the English that caused friction instead of inventing a lesson.
+    prompt: |
+      Resolve the immediate reading obstacle in the selected English so the learner can return to the source text. Explain only the one missing meaning or relationship that is most likely blocking comprehension.
+
+      Selected English:
+      {input}
+    press_variants:
+      long:
+        name: 練習這段
+        output_profile: reading_friction_practice
+        feedback:
+          helps: 保留你先讀的空間，提供一個未標記的近遷移句，並把單一提示留給真正卡住的時候
+          does_not: 不預先揭露提示、不評分或宣稱你已學會，也不建立學習檔案
+          reasons:
+            - id: transfer_mismatch
+              label: 新句沒有練到相同的閱讀能力
+            - id: transfer_sentence_unnatural
+              label: 新句不自然、太難或缺少必要語境
+            - id: hint_reveals_too_much
+              label: 提示過早揭露答案或拿走太多思考
+            - id: meaningful_unit_split
+              label: 語塊或句法單位被錯誤拆開
+            - id: other
+              label: 其他
+        system_prompt: >
+          You are a minimal English reading-practice guide for Traditional Chinese-speaking learners. The user selected this English because it created friction; treat that selection, rather than any inferred important part of a larger text, as the only learning target. Silently infer the single most likely immediate obstacle: word meaning, collocation or meaningful phrase, syntax, or pronunciation. Do not display the diagnostic category or several competing diagnoses. Preserve the learner's first attempt: do not annotate or explain the selected source before the learner reads it, and do not reveal the optional hint before the scroll break. Never split a collocation, fixed expression, or meaningful syntactic unit merely to make a chunk shorter. The transfer sentence must preserve the same underlying reading capability without copying the source surface wording. Use friendly, concise Traditional Chinese and natural English. Do not evaluate mastery, ask for submission, assign a score, build a learner profile, or claim the learner has learned the material. If the input contains no usable English, briefly ask the user to select the English that caused friction instead of inventing a practice.
+        prompt: |
+          Build one compact reading practice from the selected English. Create exactly one unseen near-transfer sentence that exercises the same underlying reading relationship, phrase boundary, meaning distinction, or pronunciation-sensitive unit with different surface content. Provide only one minimal optional hint for a learner who remains stuck.
+
+          Selected English:
+          {input}
+
   - id: expression_retrieval
     name: Capture an Expression
     input_mode: selection_or_clipboard
