@@ -54,6 +54,11 @@ shortcuts:
     command: start_action
     action_id: english_companion
 
+  - id: reading_friction
+    hotkey: ctrl+alt+l
+    command: start_action
+    action_id: reading_friction
+
   - id: expression_retrieval
     hotkey: ctrl+alt+u
     command: start_action

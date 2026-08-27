@@ -10,6 +10,8 @@ _UNORDERED = re.compile(r"^([-+*])\s+(.+)$")
 _ORDERED = re.compile(r"^(\d+)[.)]\s+(.+)$")
 _INLINE = re.compile(r"(\*\*[^*\n]+\*\*|__[^_\n]+__|(?<!\*)\*[^*\n]+\*(?!\*)|(?<!_)_[^_\n]+_(?!_))")
 _SCROLL_FOR_ANSWER = "[[SCROLL_FOR_ANSWER]]"
+_SCROLL_BREAK = "[[SCROLL_BREAK]]"
+_SCROLL_MARKERS = frozenset({_SCROLL_FOR_ANSWER, _SCROLL_BREAK})
 _SCROLL_GAP_LINES = 8
 
 
@@ -52,7 +54,7 @@ class MarkdownPresentationParser:
                 else:
                     paragraph.append(line.strip())
                 continue
-            if line.strip() == _SCROLL_FOR_ANSWER:
+            if line.strip() in _SCROLL_MARKERS:
                 flush_list_item()
                 flush_paragraph()
                 blocks.append(PresentationBlock(
@@ -89,7 +91,7 @@ class MarkdownPresentationParser:
         if not blocks and text:
             blocks.append(PresentationBlock("paragraph", (InlineSpan(text),)))
         fallback_text = "\n".join(
-            line for line in text.splitlines() if line.strip() != _SCROLL_FOR_ANSWER
+            line for line in text.splitlines() if line.strip() not in _SCROLL_MARKERS
         )
         return PresentationDocument(tuple(blocks), fallback_text)
 

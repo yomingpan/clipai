@@ -74,3 +74,21 @@ def test_retrieval_marker_becomes_scroll_gap_without_leaking_into_canonical_text
     assert "".join(span.text for span in spacer.spans) == "\n" * 8
     assert "[[SCROLL_FOR_ANSWER]]" not in document.fallback_text
     assert "答案：I’m still putting sentences together." in document.fallback_text
+
+
+def test_generic_scroll_break_hides_optional_support_below_the_fold() -> None:
+    source = (
+        "## 換一句\n\n"
+        "The editor clarified which changes readers should notice.\n\n"
+        "[[SCROLL_BREAK]]\n\n"
+        "卡住時再看：把 **which changes readers should notice** 當成一整塊。"
+    )
+
+    document = MarkdownPresentationParser().parse(source)
+
+    assert [block.kind for block in document.blocks] == [
+        "heading", "paragraph", "spacer", "paragraph"
+    ]
+    assert "".join(span.text for span in document.blocks[2].spans) == "\n" * 8
+    assert "[[SCROLL_BREAK]]" not in document.fallback_text
+    assert "卡住時再看" in document.fallback_text
