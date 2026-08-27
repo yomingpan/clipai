@@ -304,7 +304,7 @@ class ResultDialogPresenter:
         if view is None:
             return
         if not view.dialog.is_alive():
-            self._evict_view(result.workflow_id, view)
+            self._close_dead_view(result.workflow_id, view)
             return
         self._apply_transition_actions(
             result.workflow_id,
@@ -457,6 +457,9 @@ class ResultDialogPresenter:
 
     def _drain_updates(self) -> None:
         for workflow_id, view in tuple(self._views.items()):
+            if not view.dialog.is_alive():
+                self._close_dead_view(workflow_id, view)
+                continue
             if view.external_output.focused_inside and not view.dialog.native_owns_foreground():
                 self._apply_transition_actions(
                     workflow_id,
@@ -508,7 +511,7 @@ class ResultDialogPresenter:
     def _handle_pointer_press(self, x: int, y: int) -> None:
         for workflow_id, view in tuple(self._views.items()):
             if not view.dialog.is_alive():
-                self._evict_view(workflow_id, view)
+                self._close_dead_view(workflow_id, view)
                 continue
             if not view.dialog.is_visible():
                 continue
@@ -536,7 +539,7 @@ class ResultDialogPresenter:
     def _apply(self, snapshot: SessionSnapshot) -> None:
         view = self._views.get(snapshot.session_id)
         if view is not None and not view.dialog.is_alive():
-            self._evict_view(snapshot.session_id, view)
+            self._close_dead_view(snapshot.session_id, view)
             return
         if view is not None and snapshot.revision <= view.revision:
             return
@@ -728,6 +731,12 @@ class ResultDialogPresenter:
     def _evict_view(self, session_id: str, view: _SessionView) -> None:
         if self._views.get(session_id) is view:
             self._views.pop(session_id, None)
+
+    def _close_dead_view(self, session_id: str, view: _SessionView) -> None:
+        if self._views.get(session_id) is not view:
+            return
+        self._request_close(session_id)
+        self._evict_view(session_id, view)
 
     def _request_close(self, session_id: str) -> None:
         view = self._views.get(session_id)

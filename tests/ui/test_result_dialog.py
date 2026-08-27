@@ -259,24 +259,24 @@ def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:
     assert "archive:pulse:1000" in events
 
 
-def test_late_output_operation_evicts_dead_view_without_touching_surface() -> None:
+def test_late_output_operation_closes_workflow_for_dead_view() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._views["s1"].dialog.alive = False
 
     presenter._apply_output_operation(OutputOperationResult("late", "s1", "archive", "pending"))
 
-    assert events == []
+    assert events == [CloseSession("s1")]
     assert presenter._views == {}
 
 
-def test_late_completed_snapshot_evicts_dead_view_without_touching_surface() -> None:
+def test_late_completed_snapshot_closes_workflow_for_dead_view() -> None:
     presenter, events = presenter_with_selection("selected")
     presenter._views["s1"].dialog.alive = False
     snapshot = SessionSnapshot("s1", 1, SessionStatus.COMPLETED, "a", "A", "model", content="late")
 
     presenter._apply(snapshot)
 
-    assert events == []
+    assert events == [CloseSession("s1")]
     assert presenter._views == {}
 
 
@@ -888,6 +888,30 @@ def test_pointer_press_inside_popup_does_not_close_it() -> None:
     presenter._handle_pointer_press(10, 10)
 
     assert not any(isinstance(event, CloseSession) for event in events)
+
+
+def test_dead_popup_emits_close_intent_before_view_is_evicted() -> None:
+    presenter, events = presenter_with_selection(None)
+    presenter._views["s1"].dialog.alive = False
+
+    presenter._handle_pointer_press(100, 100)
+
+    assert events == [CloseSession("s1")]
+    assert presenter._views == {}
+
+
+def test_ui_tick_closes_dead_popup_without_waiting_for_another_ui_event() -> None:
+    presenter, events = presenter_with_selection(None)
+    presenter._views["s1"].dialog.alive = False
+    presenter._pointer_press_reader = None
+    presenter._output_updates = queue.Queue()
+    presenter._updates = LatestSnapshotMailbox()
+    presenter._attention_updates = queue.Queue()
+
+    presenter._drain_updates()
+
+    assert events == [CloseSession("s1")]
+    assert presenter._views == {}
 
 
 def test_voice_capture_popup_establishes_initial_focus_immediately() -> None:
