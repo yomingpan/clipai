@@ -42,6 +42,7 @@ from ClipAI.ui.base_dialog import (
     SurfaceStateColors,
     BaseDialog,
     BaseResultSurface,
+    _Tooltip,
     _PresentationTextbox,
     apply_widget_font_scaling,
     rgb_to_hex,
@@ -1343,6 +1344,137 @@ def test_tooltip_layer_is_transient_and_above_popup() -> None:
         ("attributes", "-topmost", True),
         ("lift", owner),
     ]
+
+
+def test_tooltip_renders_for_native_tk_widget_using_widget_scaling(monkeypatch) -> None:
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback):
+            return "job"
+
+        def cancel(self, _job):
+            pass
+
+    class Widget:
+        def bind(self, *_args, **_kwargs) -> None:
+            pass
+
+        def winfo_rootx(self) -> int:
+            return 100
+
+        def winfo_rooty(self) -> int:
+            return 200
+
+        def winfo_width(self) -> int:
+            return 82
+
+        def winfo_height(self) -> int:
+            return 22
+
+        def winfo_toplevel(self):
+            return "popup"
+
+    class Window:
+        def __init__(self, _widget) -> None:
+            self.children: list[Label] = []
+            self.destroyed = False
+
+        def wm_overrideredirect(self, _enabled: bool) -> None:
+            pass
+
+        def wm_geometry(self, geometry: str) -> None:
+            self.geometry = geometry
+
+        def winfo_children(self):
+            return self.children
+
+        def destroy(self) -> None:
+            self.destroyed = True
+
+    class Label:
+        def __init__(self, parent, **options) -> None:
+            self.options = options
+            parent.children.append(self)
+
+        def pack(self) -> None:
+            self.packed = True
+
+        def configure(self, **options) -> None:
+            self.options.update(options)
+
+    monkeypatch.setattr("ClipAI.ui.base_dialog.tk.Toplevel", Window)
+    monkeypatch.setattr("ClipAI.ui.base_dialog.tk.Label", Label)
+    monkeypatch.setattr(
+        "ClipAI.ui.base_dialog.ScalingTracker.get_widget_scaling",
+        lambda _widget: 1.5,
+    )
+
+    tooltip = _Tooltip(Widget(), "Voice Input is unavailable", Lifecycle())
+    tooltip._show()
+
+    assert tooltip._window is not None
+    assert tooltip._window.geometry == "+141+230"
+    assert len(tooltip._window.children) == 1
+    assert tooltip._window.children[0].options["text"] == "Voice Input is unavailable"
+    assert tooltip._window.children[0].options["font"] == (TC_FONT_FAMILY, -18)
+
+
+def test_tooltip_destroys_unrendered_window_on_label_failure(monkeypatch) -> None:
+    windows = []
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback):
+            return "job"
+
+        def cancel(self, _job):
+            pass
+
+    class Widget:
+        def bind(self, *_args, **_kwargs) -> None:
+            pass
+
+        def winfo_rootx(self) -> int:
+            return 100
+
+        def winfo_rooty(self) -> int:
+            return 200
+
+        def winfo_width(self) -> int:
+            return 82
+
+        def winfo_height(self) -> int:
+            return 22
+
+        def winfo_toplevel(self):
+            return "popup"
+
+    class Window:
+        def __init__(self, _widget) -> None:
+            self.destroyed = False
+            windows.append(self)
+
+        def wm_overrideredirect(self, _enabled: bool) -> None:
+            pass
+
+        def wm_geometry(self, _geometry: str) -> None:
+            pass
+
+        def destroy(self) -> None:
+            self.destroyed = True
+
+    class Label:
+        def __init__(self, _parent, **_options) -> None:
+            raise RuntimeError("label setup failed")
+
+    monkeypatch.setattr("ClipAI.ui.base_dialog.tk.Toplevel", Window)
+    monkeypatch.setattr("ClipAI.ui.base_dialog.tk.Label", Label)
+
+    tooltip = _Tooltip(Widget(), "Voice Input is unavailable", Lifecycle())
+
+    with pytest.raises(RuntimeError, match="label setup failed"):
+        tooltip._show()
+
+    assert tooltip._window is None
+    assert windows[0].destroyed is True
 
 
 def test_standard_result_action_idle_style_is_uniform() -> None:

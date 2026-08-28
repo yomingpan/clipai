@@ -953,21 +953,39 @@ class _Tooltip:
             return
         x = self.widget.winfo_rootx() + self.widget.winfo_width() // 2
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + 8
-        self._window = tk.Toplevel(self.widget)
-        self._window.wm_overrideredirect(True)
-        configure_tooltip_layer(self._window, self.widget.winfo_toplevel())
-        self._window.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(
-            self._window,
-            text=self.text,
-            bg="#0F172A",
-            fg="#FFFFFF",
-            padx=8,
-            pady=4,
-            font=apply_widget_font_scaling(self.widget, (TC_FONT_FAMILY, POPUP_FONT_SIZES["tooltip"])),
-            justify="left",
-        )
-        label.pack()
+        window = tk.Toplevel(self.widget)
+        try:
+            window.wm_overrideredirect(True)
+            configure_tooltip_layer(window, self.widget.winfo_toplevel())
+            window.wm_geometry(f"+{x}+{y}")
+            label = tk.Label(
+                window,
+                text=self.text,
+                bg="#0F172A",
+                fg="#FFFFFF",
+                padx=8,
+                pady=4,
+                font=self._font(),
+                justify="left",
+            )
+            label.pack()
+        except Exception:
+            window.destroy()
+            raise
+        self._window = window
+
+    def _font(self) -> tuple:
+        apply_scaling = getattr(self.widget, "_apply_font_scaling", None)
+        if callable(apply_scaling):
+            return apply_widget_font_scaling(
+                self.widget,
+                (TC_FONT_FAMILY, POPUP_FONT_SIZES["tooltip"]),
+            )
+        try:
+            scaling = max(0.1, float(ScalingTracker.get_widget_scaling(self.widget)))
+        except Exception:
+            scaling = 1.0
+        return (TC_FONT_FAMILY, -max(1, round(POPUP_FONT_SIZES["tooltip"] * scaling)))
 
     def set_text(self, text: str) -> None:
         self.text = text
