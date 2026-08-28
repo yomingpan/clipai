@@ -49,6 +49,7 @@ from ClipAI.ui.base_dialog import (
     configure_display_break_typography,
     configure_hanging_indent,
     configure_tooltip_layer,
+    compact_action_message,
     insert_display_text,
     paste_target_display_text,
     _CanonicalSelectionSegment,
@@ -862,22 +863,36 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
     ]
 
 
-def test_action_message_uses_its_own_row_and_stale_timeout_cannot_clear_newer_feedback() -> None:
+def test_compact_action_message_preserves_known_feedback_meaning_in_a_short_slot() -> None:
+    assert compact_action_message("No speech was recognized. Try again.") == "No speech"
+    assert compact_action_message("請先停止語音輸入") == "先停止語音"
+    assert compact_action_message("A longer generic message") == "A longer g…"
+    assert compact_action_message("這是一段沒有對應表的長文字") == "這是一段沒…"
+
+
+def test_action_message_uses_short_label_and_keeps_full_text_in_tooltip() -> None:
     class Label:
         def __init__(self) -> None:
             self.options = {"text": ""}
-            self.grid_options = None
-            self.removed = False
+            self.pack_options = None
+            self.forgotten = False
 
         def configure(self, **options) -> None:
             self.options.update(options)
 
-        def grid(self, **options) -> None:
-            self.grid_options = options
-            self.removed = False
+        def pack(self, **options) -> None:
+            self.pack_options = options
+            self.forgotten = False
 
-        def grid_remove(self) -> None:
-            self.removed = True
+        def pack_forget(self) -> None:
+            self.forgotten = True
+
+    class Tooltip:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def set_text(self, text: str) -> None:
+            self.text = text
 
     class Lifecycle:
         def __init__(self) -> None:
@@ -894,9 +909,11 @@ def test_action_message_uses_its_own_row_and_stale_timeout_cannot_clear_newer_fe
 
     lifecycle = Lifecycle()
     label = Label()
+    tooltip = Tooltip()
     surface = BaseResultSurface.__new__(BaseResultSurface)
     surface.dialog = type("Dialog", (), {"lifecycle": lifecycle})()
     surface.action_status_label = label
+    surface._action_status_tooltip = tooltip
     surface._action_message_job = None
     surface._action_message_revision = 0
 
@@ -906,21 +923,18 @@ def test_action_message_uses_its_own_row_and_stale_timeout_cannot_clear_newer_fe
     second_callback = lifecycle.scheduled[-1][2]
 
     assert lifecycle.cancelled == ["job-1"]
-    assert label.options["text"] == "ⓘ  請先停止語音輸入"
-    assert label.grid_options == {
-        "row": 0,
-        "column": 0,
-        "sticky": "ew",
-        "pady": (2, 0),
-    }
+    assert label.options["text"] == "先停止語音"
+    assert label.pack_options == {"side": "right", "padx": (4, 0)}
+    assert tooltip.text == "請先停止語音輸入"
 
     first_callback()
-    assert label.options["text"] == "ⓘ  請先停止語音輸入"
-    assert label.removed is False
+    assert label.options["text"] == "先停止語音"
+    assert label.forgotten is False
 
     second_callback()
     assert label.options["text"] == ""
-    assert label.removed is True
+    assert label.forgotten is True
+    assert tooltip.text == ""
     assert surface._action_message_job is None
 
 

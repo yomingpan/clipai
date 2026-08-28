@@ -80,6 +80,25 @@ def ellipsize_source_preview(text: str, limit: int = SOURCE_PREVIEW_MAX_CHARS) -
     return f"{compact[: limit - 3].rstrip()}..."
 
 
+_COMPACT_ACTION_MESSAGES: Mapping[str, str] = {
+    "No speech was recognized. Try again.": "No speech",
+    "Voice Input cancelled.": "Cancelled",
+    "此 Recipe 尚未啟用回饋": "尚無回饋",
+    "請先停止語音輸入": "先停止語音",
+    "已記錄回饋": "已記錄",
+}
+
+
+def compact_action_message(text: str) -> str:
+    """Keep transient action feedback inside its reserved one-line slot."""
+    compact = " ".join(text.split())
+    mapped = _COMPACT_ACTION_MESSAGES.get(compact)
+    if mapped is not None:
+        return mapped
+    limit = 5 if any(ord(char) >= 0x2E80 for char in compact) else 10
+    return compact if len(compact) <= limit else f"{compact[:limit].rstrip()}…"
+
+
 def paste_target_display_text(target: PasteTarget) -> str:
     title = " ".join(target.window_title.split())
     if len(title) > 36:
@@ -1217,15 +1236,7 @@ class BaseResultSurface:
 
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 0))
-        self.action_auxiliary = tk.Frame(
-            self.root,
-            bg=SURFACE_BG,
-            bd=0,
-            highlightthickness=0,
-        )
-        self.action_auxiliary.grid(row=2, column=0, sticky="ew", padx=12)
-        self.action_auxiliary.grid_columnconfigure(0, weight=1)
-        self.overflow_actions = ctk.CTkFrame(self.action_auxiliary, fg_color=SURFACE_BG)
+        self.overflow_actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self._back_button = self.add_action_slot("back", "←", None, width=24, tooltip="Previous result (Ctrl + Z)")
         self._back_button.pack_forget()
         self.standard_actions = StandardResultActions(self)
@@ -1251,17 +1262,21 @@ class BaseResultSurface:
         )
         self.voice_input_button.pack(side="left", padx=(0, 5))
         self.action_status_label = ctk.CTkLabel(
-            self.action_auxiliary,
+            self.actions,
             text="",
-            height=18,
+            width=68,
+            height=22,
             anchor="w",
-            justify="left",
-            wraplength=max(1, self.dialog.width - 36),
             text_color="#A9BACB",
             font=ctk.CTkFont(
                 family=TC_FONT_FAMILY,
                 size=POPUP_FONT_SIZES["auxiliary"],
             ),
+        )
+        self._action_status_tooltip = _Tooltip(
+            self.action_status_label,
+            "",
+            self.dialog.lifecycle,
         )
 
         self.source_label = ctk.CTkLabel(
@@ -1745,8 +1760,9 @@ class BaseResultSurface:
             self._action_message_job = None
         self._action_message_revision += 1
         revision = self._action_message_revision
-        self.action_status_label.configure(text=f"ⓘ  {text}")
-        self.action_status_label.grid(row=0, column=0, sticky="ew", pady=(2, 0))
+        self.action_status_label.configure(text=compact_action_message(text))
+        self._action_status_tooltip.set_text(text)
+        self.action_status_label.pack(side="right", padx=(4, 0))
         self._action_message_job = self.dialog.lifecycle.schedule(
             duration_ms,
             lambda expected=revision: self._hide_action_message(expected),
@@ -1756,8 +1772,9 @@ class BaseResultSurface:
         if expected_revision != self._action_message_revision:
             return
         self._action_message_job = None
-        self.action_status_label.grid_remove()
+        self.action_status_label.pack_forget()
         self.action_status_label.configure(text="")
+        self._action_status_tooltip.set_text("")
 
     def add_action_slot(
         self,
@@ -1797,7 +1814,7 @@ class BaseResultSurface:
     def toggle_overflow(self) -> bool:
         self.overflow_expanded = not self.overflow_expanded
         if self.overflow_expanded:
-            self.overflow_actions.grid(row=1, column=0, sticky="w", pady=(2, 2))
+            self.overflow_actions.grid(row=2, column=0, sticky="w", padx=12, pady=(2, 2))
         else:
             self.overflow_actions.grid_forget()
         self._overflow_button.configure(text="▼" if self.overflow_expanded else "▶")

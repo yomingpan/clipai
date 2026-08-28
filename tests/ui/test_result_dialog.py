@@ -21,8 +21,8 @@ def test_voice_waveform_uses_canvas_and_packs_after_right_anchors() -> None:
 
     assert creation < overflow < waveform
     assert 'self._action_tooltips["voice_input"] = _Tooltip' in source
-    assert "self.action_status_label = ctk.CTkLabel(\n            self.action_auxiliary" in source
-    assert 'self.action_status_label.pack(side="right"' not in source
+    assert "self.action_status_label = ctk.CTkLabel(\n            self.actions" in source
+    assert "width=68" in source
 
 
 def test_voice_waveform_animation_uses_only_the_dialog_lifecycle() -> None:
