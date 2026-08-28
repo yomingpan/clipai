@@ -6,7 +6,7 @@ import logging
 from typing import Callable, Protocol
 
 from ClipAI.core.commands import WorkflowAttentionCompleted
-from ClipAI.core.models import OutputActionKind, OutputOperationResult, PasteTarget
+from ClipAI.core.models import OutputActionKind, OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.ui.popup_external_output import (
     FocusPopup,
     PopupExternalOutputTransitions,
@@ -118,6 +118,15 @@ class PopupControl:
 
     def settle_output(self, result: OutputOperationResult) -> None:
         self._apply(self._transitions.acknowledge(result))
+
+    def present_attention(self, attention: WorkflowAttention) -> None:
+        self._apply(self._transitions.attention(
+            attention.attention_id,
+            attention.message,
+            duration_ms=attention.duration_ms,
+            request_focus=attention.request_focus,
+            warning=attention.warning,
+        ))
 
     def _apply(self, actions: tuple[object, ...]) -> None:
         for action in actions:

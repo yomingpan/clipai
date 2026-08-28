@@ -532,17 +532,7 @@ class ResultDialogPresenter:
                 False,
             ))
             return
-        self._apply_transition_actions(
-            attention.workflow_id,
-            view,
-            view.external_output.attention(
-                attention.attention_id,
-                attention.message,
-                duration_ms=attention.duration_ms,
-                request_focus=attention.request_focus,
-                warning=attention.warning,
-            ),
-        )
+        self._popup_control(attention.workflow_id, view).present_attention(attention)
 
     def _handle_pointer_press(self, x: int, y: int) -> None:
         for workflow_id, view in tuple(self._views.items()):

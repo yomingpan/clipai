@@ -1,15 +1,29 @@
 from __future__ import annotations
 
-from ClipAI.core.models import OutputOperationResult, PasteTarget
+from ClipAI.core.commands import WorkflowAttentionCompleted
+from ClipAI.core.models import OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.ui.popup_control import PopupControl, PopupProjectionContext
 
 
 class Dialog:
     def __init__(self, events: list[object] | None = None) -> None:
         self.events = events if events is not None else []
+        self.lifecycle = Lifecycle(self.events)
 
     def apply_external_output_visibility(self, visibility: str) -> bool:
         self.events.append(("visibility", visibility))
+        return True
+
+    def flash(self, mode: str = "default") -> None:
+        self.events.append(("flash", mode))
+
+
+class Lifecycle:
+    def __init__(self, events: list[object]) -> None:
+        self.events = events
+
+    def focus(self) -> bool:
+        self.events.append(("focus-request",))
         return True
 
 
@@ -100,4 +114,34 @@ def test_paste_admission_and_visibility_are_owned_by_popup_control() -> None:
         ("visibility", "visible_no_activate"),
         ("pulse", "paste", 1000),
         ("message", "Paste status", 2500),
+    ]
+
+
+def test_attention_actuation_is_observed_through_popup_control_interface() -> None:
+    events: list[object] = []
+    dialog = Dialog(events)
+    surface = Surface()
+    surface.events = events
+    control = PopupControl(
+        "w1",
+        dialog,
+        surface,
+        command_sink=events.append,
+        request_close=lambda: None,
+    )
+
+    control.present_attention(WorkflowAttention(
+        "attention-1",
+        "w1",
+        "Voice Input is unavailable",
+        duration_ms=1500,
+        request_focus=True,
+        warning=True,
+    ))
+
+    assert events == [
+        ("focus-request",),
+        WorkflowAttentionCompleted("attention-1", "w1", True),
+        ("message", "Voice Input is unavailable", 1500),
+        ("flash", "warning"),
     ]
