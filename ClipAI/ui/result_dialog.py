@@ -26,23 +26,24 @@ from ClipAI.ui.voice_setup import VoiceSetupDialog
 # Windows Tk maps Num Lock to Mod1 (0x0008), while physical Alt uses
 # the separate 0x00020000 state bit. Lock states must not disable Ctrl shortcuts.
 _POPUP_SHORTCUT_ALLOWED_MODIFIERS = 0x0002 | 0x0004 | 0x0008 | 0x0010
-_VOICE_LEVEL_GLYPHS = "▁▂▃▄▅▆▇"
 
 
-def _voice_waveform_text(levels: list[float], *, silence_detected: bool = False) -> str:
+def _voice_status_word(
+    phase: VoiceCapturePhase | None,
+    *,
+    silence_detected: bool,
+) -> str:
+    if phase in {
+        VoiceCapturePhase.STOP_REQUESTED,
+        VoiceCapturePhase.FINALIZING,
+        VoiceCapturePhase.CANCEL_REQUESTED,
+    }:
+        return "整理"
+    if phase is None:
+        return "語音"
     if silence_detected:
-        return "▁▁▁▁  無聲"
-    padded = ([0.0] * 4 + levels)[-4:]
-    bars = "".join(
-        _VOICE_LEVEL_GLYPHS[
-            min(
-                len(_VOICE_LEVEL_GLYPHS) - 1,
-                int(max(0.0, min(1.0, level)) * len(_VOICE_LEVEL_GLYPHS)),
-            )
-        ]
-        for level in padded
-    )
-    return f"{bars}  聆聽"
+        return "無聲"
+    return "聆聽"
 
 
 @dataclass
@@ -62,7 +63,6 @@ class _SessionView:
     voice_draft_revision: int = 0
     applied_voice_insertion_revision: int | None = None
     voice_draft_editing: bool = True
-    voice_level_history: list[float] = field(default_factory=list)
     applied_follow_up_capture_ids: set[str] = field(default_factory=set)
 
 
@@ -834,30 +834,28 @@ class ResultDialogPresenter:
         ):
             capture_id = global_projection.capture_id
             phase = global_projection.capture_phase
-            level = global_projection.audio_level
             silence_detected = global_projection.silence_detected
 
         if capture_id is not None and phase is not None:
-            view.voice_level_history.append(level)
-            del view.voice_level_history[:-4]
             finalizing = phase in {
                 VoiceCapturePhase.STOP_REQUESTED,
                 VoiceCapturePhase.FINALIZING,
                 VoiceCapturePhase.CANCEL_REQUESTED,
             }
             view.surface.configure_voice_action(
-                text=(
-                    "▇▅▃▁  整理"
-                    if finalizing
-                    else _voice_waveform_text(
-                        view.voice_level_history,
-                        silence_detected=silence_detected,
-                    )
+                word=_voice_status_word(
+                    phase,
+                    silence_detected=silence_detected,
                 ),
+                level=level,
+                listening=not finalizing,
+                silence=silence_detected,
                 command=(lambda cid=capture_id: self._command_sink(StopVoiceCapture(cid))) if not finalizing else None,
                 enabled=not finalizing,
                 tooltip=(
-                    "No sound detected; click to stop Voice Input"
+                    "Finalizing Voice Input"
+                    if finalizing
+                    else "No sound detected; click to stop Voice Input"
                     if silence_detected
                     else "Click to stop Voice Input"
                 ),
@@ -866,7 +864,6 @@ class ResultDialogPresenter:
             view.surface.set_follow_up_send_enabled(False)
             return
 
-        view.voice_level_history.clear()
         projection = global_projection
         capability = projection.capability if projection is not None else VoiceCapabilityPhase.SETUP_REQUIRED
         ready_status = snapshot.status in {SessionStatus.VOICE_REVIEW, SessionStatus.CONTEXT_QUESTION} or (
@@ -887,7 +884,10 @@ class ResultDialogPresenter:
         else:
             tooltip = "Click to start Voice Input (Ctrl+Alt+W); audio is not saved"
         view.surface.configure_voice_action(
-            text="▁▁▁▁  語音",
+            word=_voice_status_word(None, silence_detected=False),
+            level=snapshot.voice_audio_level,
+            listening=False,
+            silence=False,
             command=(lambda sid=snapshot.session_id: self._start_popup_voice(sid)) if enabled else None,
             enabled=enabled,
             tooltip=tooltip,
