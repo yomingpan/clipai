@@ -920,6 +920,48 @@ def test_clicking_toolkit_focused_popup_requests_native_focus_and_confirms_it() 
     assert ActivateWorkflow("s1") in events
 
 
+def test_confirmed_focus_reports_control_surface_and_workflow_activation_once() -> None:
+    class FocusedRoot:
+        def focus_get(self):
+            return self
+
+        def winfo_toplevel(self):
+            return self
+
+    presenter, events = presenter_with_selection(None)
+    presenter._views["s1"].dialog.root = FocusedRoot()
+
+    presenter._focus_in("s1")
+
+    assert events.count(ControlSurfaceActivated(ControlSurfaceRef("s1", "workflow"))) == 1
+    assert events.count(ActivateWorkflow("s1")) == 1
+
+
+def test_inside_pointer_requests_workflow_activation_before_focus_is_confirmed() -> None:
+    class Lifecycle:
+        def __init__(self) -> None:
+            self.callbacks = []
+
+        def focus(self) -> bool:
+            return True
+
+        def schedule(self, delay_ms, callback) -> str:
+            self.callbacks.append((delay_ms, callback))
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.external_output = PopupExternalOutputTransitions()
+    view.external_output.focus(PopupRegistered())
+    view.external_output.focus(PopupShown())
+    view.dialog.lifecycle = Lifecycle()
+
+    presenter._pointer_pressed_inside("s1")
+
+    assert events == [ActivateWorkflow("s1")]
+    assert [delay_ms for delay_ms, _callback in view.dialog.lifecycle.callbacks] == [25]
+
+
 def test_first_outside_pointer_press_closes_popup_when_native_focus_failed() -> None:
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
