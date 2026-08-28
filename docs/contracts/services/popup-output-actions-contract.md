@@ -35,8 +35,9 @@ Popup visibility 與 Workflow lifetime 分離。未 pinned Popup 收到 `dispatc
 
 Popup focus 必須同時有 native foreground 與 toolkit focus 證據；單獨的
 `<FocusIn>` 不是 confirmed focus。Alt+Tab、taskbar switch 或外部程式搶走
-foreground 以 `ForegroundLeftApplication` 進入同一 transition owner。Paste 與
-owned dialog 是刻意讓出 foreground 的 guard，不得被解讀為 outside close。
+foreground 由 `PopupControl` 的 foreground observation 進入同一 actuation
+owner。Paste 與 owned dialog 是刻意讓出 foreground 的 guard，不得被解讀為
+outside close。
 
 Speech preprocessing 屬於 service，移除 Markdown heading、emphasis、list marker、code fence 與 URL 噪音，但不得修改 popup、copy 或 paste 的原文。
 

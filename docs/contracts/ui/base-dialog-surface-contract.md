@@ -136,9 +136,9 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
 - 可互動 Popup 初次顯示時必須先完成 layout、提升視窗並將焦點放到 content；
   Voice Listening／Finalizing 保持 non-activating，直到進入 Voice Review 才提出
   初始焦點請求。只有 toolkit 確認焦點位於該 Popup 內，Presenter 才能回報
-  `FocusEntered`；焦點呼叫失敗不得被投影成 focused state。
-- Toolkit focus 已進入 Popup、但 native foreground 尚未成立時，既有 Popup
-  transition owner 必須維持 unfocused projection，並以 generation-bound、有限次
+  confirmed activation；焦點呼叫失敗不得被投影成 focused state。
+- Toolkit focus 已進入 Popup、但 native foreground 尚未成立時，`PopupControl`
+  必須維持 unfocused projection，並以 generation-bound、有限次
   的重新採樣等待兩軸確認。Popup 內的明確 pointer press 可透過既有
   `DialogLifecycle` 請求 native activation，但不得直接宣告 focused；Paste、owned
   dialog、toolkit focus loss、stale generation 或 retry budget 用盡都必須終止確認。

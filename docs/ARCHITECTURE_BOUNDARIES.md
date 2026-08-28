@@ -364,14 +364,16 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
 - `TaskSupervisor` owns only non-provider blocking work and isolates interactive, media, and maintenance capacity.
 - One container-scoped `ClipboardTransactionCoordinator` owns selection and paste clipboard transactions.
 - Workflow snapshots enter the UI through a per-Workflow latest-revision mailbox. Ordered output-operation acknowledgements remain separate and are never coalesced.
-- `PopupExternalOutputTransitions` is the single UI-internal owner of Popup
+- `PopupControl` is the single per-Workflow UI owner of Popup actuation. It owns
   output-operation identity, stale acknowledgement rejection, Paste visibility,
-  captured pin policy, and toolkit focus generations. It returns explicit UI
-  actions; widgets and presenters only execute those actions.
+  captured pin policy, focus evidence and generations, attention presentation,
+  command reporting, and scheduled cleanup. Its transition table is private;
+  presenters route semantic lifecycle events and retain only view membership,
+  dead-view detection, canonical content, and snapshot rendering.
 - Popup focus is confirmed only when mandatory `FocusEntered` evidence reports
   both native foreground ownership and toolkit focus. `ForegroundLeftApplication`
-  handles Alt+Tab/taskbar/external foreground loss through the same transition
-  owner; active Paste and owned dialogs suppress that intentional handoff.
+  handles Alt+Tab/taskbar/external foreground loss through the same control;
+  active Paste and owned dialogs suppress that intentional handoff.
 - `OutputOperationCoordinator` owns output-operation active records, tracker
   handles, interruption leases, and terminal acknowledgement. `settle()` is the
   only terminal path; runtime may not keep a parallel lease registry or repeat

@@ -8,7 +8,7 @@ from typing import Callable, Protocol
 
 from ClipAI.core.commands import ActivateWorkflow, ControlSurfaceActivated, ControlSurfaceReleased, WorkflowAttentionCompleted
 from ClipAI.core.models import ControlSurfaceRef, OutputActionKind, OutputOperationResult, PasteTarget, WorkflowAttention
-from ClipAI.ui.popup_external_output import (
+from ClipAI.ui._popup_control_state import (
     FocusConfirmationObserved as _FocusConfirmationObserved,
     FocusEntered as _FocusEntered,
     FocusPopup,
@@ -21,7 +21,7 @@ from ClipAI.ui.popup_external_output import (
     OwnedDialogOpened as _OwnedDialogOpened,
     PopupRegistered as _PopupRegistered,
     PopupShown as _PopupShown,
-    PopupExternalOutputTransitions,
+    _PopupControlState,
     PulseOutputAction,
     ReportControlSurfaceReleased,
     RequestPopupClose,
@@ -148,7 +148,6 @@ class PopupControl:
         identity_factory: Callable[[], str] = _new_operation_id,
         projection_context: PopupProjectionContext | None = None,
         diagnostics: bool = False,
-        _transition_state: PopupExternalOutputTransitions | None = None,
     ) -> None:
         self._workflow_id = workflow_id
         self._dialog = dialog
@@ -158,7 +157,8 @@ class PopupControl:
         self._identity_factory = identity_factory
         self._projection_context = projection_context or PopupProjectionContext(None, None)
         self._diagnostics = diagnostics
-        self._transitions = _transition_state or PopupExternalOutputTransitions()
+        self._transitions = _PopupControlState()
+        self._disposed = False
 
     @property
     def focused_inside(self) -> bool:
@@ -169,6 +169,8 @@ class PopupControl:
         return self._transitions.owns_focus
 
     def update_projection_context(self, context: PopupProjectionContext) -> None:
+        if self._disposed:
+            return
         self._projection_context = context
         self._surface.set_paste_focus_state(
             self.focused_inside,
@@ -190,6 +192,8 @@ class PopupControl:
             | PopupOwnedDialogClosed
         ),
     ) -> None:
+        if self._disposed:
+            return
         if isinstance(event, PopupControlRegistered):
             self._apply_focus(_PopupRegistered())
             return
@@ -231,6 +235,8 @@ class PopupControl:
         *,
         pinned: bool = False,
     ) -> str | None:
+        if self._disposed:
+            return None
         operation_id = self._identity_factory()
         transition = self._transitions.begin(kind, operation_id, pinned=pinned)
         if not transition.accepted:
@@ -239,9 +245,13 @@ class PopupControl:
         return operation_id
 
     def settle_output(self, result: OutputOperationResult) -> None:
+        if self._disposed:
+            return
         self._apply(self._transitions.acknowledge(result))
 
     def present_attention(self, attention: WorkflowAttention) -> None:
+        if self._disposed:
+            return
         self._apply(self._transitions.attention(
             attention.attention_id,
             attention.message,
@@ -249,6 +259,9 @@ class PopupControl:
             request_focus=attention.request_focus,
             warning=attention.warning,
         ))
+
+    def dispose(self) -> None:
+        self._disposed = True
 
     def _apply(self, actions: tuple[object, ...]) -> None:
         for action in actions:
@@ -324,7 +337,7 @@ class PopupControl:
 
     def _schedule_focus_confirmation(self, action: ScheduleFocusConfirmationCheck) -> None:
         def confirm() -> None:
-            if not self._dialog.is_alive():
+            if self._disposed or not self._dialog.is_alive():
                 return
             native_foreground, toolkit_focused = self._focus_evidence()
             if self._diagnostics:
@@ -347,7 +360,7 @@ class PopupControl:
 
     def _schedule_outside_focus_check(self, action: ScheduleOutsideFocusCheck) -> None:
         def observe() -> None:
-            if not self._dialog.is_alive():
+            if self._disposed or not self._dialog.is_alive():
                 return
             self._apply_focus(_OutsideFocusObserved(
                 action.generation,

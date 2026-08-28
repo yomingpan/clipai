@@ -325,3 +325,79 @@ def test_foreground_poll_and_owned_dialog_handoff_use_popup_control_guards() -> 
         ("focus-request",),
         ("focus", True, None, None),
     ]
+
+
+def test_dispose_suppresses_late_scheduled_focus_side_effects() -> None:
+    events: list[object] = []
+    dialog = Dialog(events)
+    dialog.native_foreground = False
+    surface = Surface()
+    surface.events = events
+    control = PopupControl(
+        "w1",
+        dialog,
+        surface,
+        command_sink=events.append,
+        request_close=lambda: events.append(("close",)),
+    )
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+    control.observe_focus(ToolkitFocusEntered())
+    _delay_ms, confirmation = dialog.lifecycle.callbacks[-1]
+    events.clear()
+
+    control.dispose()
+    dialog.native_foreground = True
+    confirmation()
+    control.observe_focus(PopupOutsidePointerPressed())
+    control.present_attention(WorkflowAttention("late", "w1", "late"))
+
+    assert events == []
+
+
+def test_focus_confirmation_retries_are_bounded_to_four_observations() -> None:
+    dialog = Dialog()
+    dialog.native_foreground = False
+    control = PopupControl(
+        "w1",
+        dialog,
+        Surface(),
+        command_sink=lambda _command: None,
+        request_close=lambda: None,
+    )
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+
+    control.observe_focus(ToolkitFocusEntered())
+    for index in range(4):
+        _delay_ms, confirmation = dialog.lifecycle.callbacks[index]
+        confirmation()
+
+    assert [delay for delay, _callback in dialog.lifecycle.callbacks] == [25, 25, 25, 25]
+    assert control.focused_inside is False
+
+
+def test_new_confirmed_focus_invalidates_stale_outside_observation() -> None:
+    events: list[object] = []
+    dialog = Dialog(events)
+    surface = Surface()
+    control = PopupControl(
+        "w1",
+        dialog,
+        surface,
+        command_sink=events.append,
+        request_close=lambda: events.append(("close",)),
+    )
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+    control.observe_focus(ToolkitFocusEntered())
+    control.observe_focus(PopupOutsideFocusRequested())
+    _delay_ms, stale_observation = dialog.lifecycle.callbacks[-1]
+
+    control.observe_focus(ToolkitFocusEntered())
+    dialog.toolkit_focused = False
+    stale_observation()
+
+    assert control.focused_inside is True
+    assert not any(isinstance(event, ControlSurfaceReleased) for event in events)
+    assert ("close",) not in events

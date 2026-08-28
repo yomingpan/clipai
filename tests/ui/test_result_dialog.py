@@ -11,7 +11,7 @@ from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, Feedba
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.ui.base_dialog import BaseResultSurface
-from ClipAI.ui.popup_external_output import FocusEntered, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown
+from ClipAI.ui.popup_control import PopupControlRegistered, PopupControlShown, PopupOwnedDialogOpened, ToolkitFocusEntered
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, _voice_waveform_text, workflow_render_patch
 
 
@@ -42,6 +42,12 @@ class Root:
 
     def deiconify(self) -> None:
         self.events.append("deiconify")
+
+    def focus_get(self):
+        return self
+
+    def winfo_toplevel(self):
+        return self
 
 
 class Dialog:
@@ -217,11 +223,7 @@ class Surface:
 def presenter_with_selection(selected: str | None):
     events: list[str] = []
     presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
-    external_output = PopupExternalOutputTransitions()
-    external_output.focus(PopupRegistered())
-    external_output.focus(PopupShown())
-    external_output.focus(FocusEntered(native_foreground=True, toolkit_focused=True))
-    presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events), external_output=external_output)}
+    presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events))}
     presenter._command_sink = lambda command: events.append(command)
     presenter._paste_target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
     presenter._paste_target_updates = queue.Queue()
@@ -232,6 +234,11 @@ def presenter_with_selection(selected: str | None):
         VoiceCapabilityPhase.READY,
         VoiceLanguage("zh-TW"),
     )
+    control = presenter._popup_control("s1", presenter._views["s1"])
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+    control.observe_focus(ToolkitFocusEntered())
+    events.clear()
     return presenter, events
 
 
@@ -861,7 +868,7 @@ def test_failed_initial_focus_attempt_does_not_claim_popup_focus() -> None:
 
     presenter, _events = presenter_with_selection(None)
     view = presenter._views["s1"]
-    view.external_output = PopupExternalOutputTransitions()
+    view.popup_control = None
     view.dialog.root = ShortcutRoot()
     view.dialog.lifecycle = Lifecycle()
     view.surface.focus_result = False
@@ -870,7 +877,7 @@ def test_failed_initial_focus_attempt_does_not_claim_popup_focus() -> None:
     presenter._register_view("s1", view)
     view.dialog.lifecycle.callbacks[0]()
 
-    assert view.external_output.focused_inside is False
+    assert presenter._popup_control("s1", view).focused_inside is False
 
 
 def test_clicking_toolkit_focused_popup_requests_native_focus_and_confirms_it() -> None:
@@ -904,7 +911,7 @@ def test_clicking_toolkit_focused_popup_requests_native_focus_and_confirms_it() 
 
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
-    view.external_output = PopupExternalOutputTransitions()
+    view.popup_control = None
     view.dialog.root = FocusRoot()
     view.dialog.native_foreground = False
     view.dialog.lifecycle = Lifecycle(view.dialog, events)
@@ -955,9 +962,10 @@ def test_inside_pointer_requests_workflow_activation_before_focus_is_confirmed()
 
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
-    view.external_output = PopupExternalOutputTransitions()
-    view.external_output.focus(PopupRegistered())
-    view.external_output.focus(PopupShown())
+    view.popup_control = None
+    control = presenter._popup_control("s1", view)
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
     view.dialog.lifecycle = Lifecycle()
 
     presenter._pointer_pressed_inside("s1")
@@ -969,9 +977,10 @@ def test_inside_pointer_requests_workflow_activation_before_focus_is_confirmed()
 def test_first_outside_pointer_press_closes_popup_when_native_focus_failed() -> None:
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
-    view.external_output = PopupExternalOutputTransitions()
-    view.external_output.focus(PopupRegistered())
-    view.external_output.focus(PopupShown())
+    view.popup_control = None
+    control = presenter._popup_control("s1", view)
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
 
     presenter._handle_pointer_press(100, 100)
 
@@ -1109,7 +1118,7 @@ def test_ctrl_v_pastes_only_for_active_popup() -> None:
     assert events == ["paste:s1"]
 
     events.clear()
-    view.external_output.focus(OwnedDialogOpened())
+    presenter._popup_control("s1", view).observe_focus(PopupOwnedDialogOpened())
     result = view.dialog.root.bindings["<Control-v>"](None)
 
     assert result == "break"
@@ -1383,7 +1392,7 @@ def test_ctrl_e_toggles_pin_for_active_popup() -> None:
     assert events == ["pin:toggled", TogglePin("s1")]
 
     events.clear()
-    view.external_output.focus(OwnedDialogOpened())
+    presenter._popup_control("s1", view).observe_focus(PopupOwnedDialogOpened())
     result = view.dialog.root.bindings["<Control-e>"](CtrlWithNumLockEvent())
 
     assert result == "break"
@@ -1518,7 +1527,7 @@ def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
 
     assert events[:3] == ["guide:show", "guide:close", "focus"]
     assert isinstance(events[3], CopyResult)
-    assert view.external_output.focused_inside is True
+    assert presenter._popup_control("s1", view).focused_inside is True
     assert view.surface.focused is True
 
 
@@ -1540,7 +1549,7 @@ def test_shortcut_guide_does_not_restore_a_popup_that_started_closing() -> None:
     presenter.close_shortcut_guide()
 
     assert events == ["guide:close"]
-    assert view.external_output.focused_inside is False
+    assert presenter._popup_control("s1", view).focused_inside is False
 
 
 def test_shortcut_guide_without_an_original_popup_does_not_force_focus() -> None:

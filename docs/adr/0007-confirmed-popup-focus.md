@@ -19,21 +19,22 @@ focus could remain projected after native ownership was lost.
 projects unfocused before initial focus is established and cannot replace an
 already confirmed focus.
 
-`ForegroundLeftApplication(pinned)` is an independent fact handled by
-`PopupExternalOutputTransitions`, the existing transition owner. It releases
-the control surface and closes an unpinned Popup. Active Paste and owned dialogs
-suppress it because those flows intentionally yield foreground.
+Native foreground loss is handled by `PopupControl`, the per-Workflow Popup
+actuation owner. It releases the control surface and closes an unpinned Popup.
+Active Paste and owned dialogs suppress it because those flows intentionally
+yield foreground.
 
-The presenter observes toolkit focus with `focus_get`, native ownership through
-`NativeWindowSurface`, and polls native ownership on the existing 25 ms UI tick
-only while a Popup is confirmed focused. `apply_external_output_visibility()`
+`PopupControl` samples toolkit focus with `focus_get` and native ownership
+through the dialog's `NativeWindowSurface` boundary. The presenter sends a
+semantic foreground-poll event on the existing 25 ms UI tick only while the
+view is alive. `apply_external_output_visibility()`
 returns a boolean and callers handle failure. A
 `logging.diagnostics.focus_transitions` switch records native evidence,
 toolkit evidence, and the projected value together.
 
 When toolkit focus arrives before Windows foreground ownership, the existing
-transition owner keeps the Popup projected as unfocused and issues a
-generation-bound confirmation action. The presenter re-reads both facts every
+control keeps the Popup projected as unfocused and schedules a generation-bound
+confirmation through `DialogLifecycle`. The control re-reads both facts every
 25 ms for at most four attempts. A confirmed observation opens the focus gate;
 a stale generation, lost toolkit focus, Paste, owned dialog, or exhausted retry
 budget cannot do so. An explicit pointer press inside an unconfirmed Popup asks
@@ -72,3 +73,6 @@ command tick; manual Windows scenarios are specified in the release checklist.
 - Diagnostics can compare all three values without changing product policy.
 - Delayed Windows activation can settle without requiring an outside click,
   while confirmation remains bounded and cancellable by generation.
+- ADR-0011 deepens the owner from a transition table exposed to the presenter
+  into the `PopupControl` actuation interface; this ADR's evidence rules remain
+  authoritative.
