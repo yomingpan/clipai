@@ -1133,6 +1133,8 @@ class BaseResultSurface:
         self._feedback_success_job: str | None = None
         self._feedback_pending_payload: tuple[FeedbackOutcome, str, str, bool] | None = None
         self._guidance_job: str | None = None
+        self._action_message_job: str | None = None
+        self._action_message_revision = 0
         self._rendered_pinned_state: bool | None = None
         self._build()
 
@@ -1215,7 +1217,15 @@ class BaseResultSurface:
 
         self.actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.actions.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 0))
-        self.overflow_actions = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
+        self.action_auxiliary = tk.Frame(
+            self.root,
+            bg=SURFACE_BG,
+            bd=0,
+            highlightthickness=0,
+        )
+        self.action_auxiliary.grid(row=2, column=0, sticky="ew", padx=12)
+        self.action_auxiliary.grid_columnconfigure(0, weight=1)
+        self.overflow_actions = ctk.CTkFrame(self.action_auxiliary, fg_color=SURFACE_BG)
         self._back_button = self.add_action_slot("back", "←", None, width=24, tooltip="Previous result (Ctrl + Z)")
         self._back_button.pack_forget()
         self.standard_actions = StandardResultActions(self)
@@ -1239,9 +1249,20 @@ class BaseResultSurface:
             side="right",
             padx=(12, 0),
         )
-        self.action_status_label = ctk.CTkLabel(self.actions, text="", text_color="#8A8A8A", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]))
-        self.action_status_label.pack(side="right", padx=(8, 0))
         self.voice_input_button.pack(side="left", padx=(0, 5))
+        self.action_status_label = ctk.CTkLabel(
+            self.action_auxiliary,
+            text="",
+            height=18,
+            anchor="w",
+            justify="left",
+            wraplength=max(1, self.dialog.width - 36),
+            text_color="#A9BACB",
+            font=ctk.CTkFont(
+                family=TC_FONT_FAMILY,
+                size=POPUP_FONT_SIZES["auxiliary"],
+            ),
+        )
 
         self.source_label = ctk.CTkLabel(
             self.root,
@@ -1719,8 +1740,24 @@ class BaseResultSurface:
         self.standard_actions.pulse_error(slot_id, duration_ms)
 
     def show_action_message(self, text: str, duration_ms: int = 1000) -> None:
-        self.action_status_label.configure(text=text)
-        self.dialog.lifecycle.schedule(duration_ms, lambda: self.action_status_label.configure(text=""))
+        if self._action_message_job is not None:
+            self.dialog.lifecycle.cancel(self._action_message_job)
+            self._action_message_job = None
+        self._action_message_revision += 1
+        revision = self._action_message_revision
+        self.action_status_label.configure(text=f"ⓘ  {text}")
+        self.action_status_label.grid(row=0, column=0, sticky="ew", pady=(2, 0))
+        self._action_message_job = self.dialog.lifecycle.schedule(
+            duration_ms,
+            lambda expected=revision: self._hide_action_message(expected),
+        )
+
+    def _hide_action_message(self, expected_revision: int) -> None:
+        if expected_revision != self._action_message_revision:
+            return
+        self._action_message_job = None
+        self.action_status_label.grid_remove()
+        self.action_status_label.configure(text="")
 
     def add_action_slot(
         self,
@@ -1760,7 +1797,7 @@ class BaseResultSurface:
     def toggle_overflow(self) -> bool:
         self.overflow_expanded = not self.overflow_expanded
         if self.overflow_expanded:
-            self.overflow_actions.grid(row=2, column=0, sticky="w", padx=12, pady=(2, 2))
+            self.overflow_actions.grid(row=1, column=0, sticky="w", pady=(2, 2))
         else:
             self.overflow_actions.grid_forget()
         self._overflow_button.configure(text="▼" if self.overflow_expanded else "▶")

@@ -862,6 +862,68 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
     ]
 
 
+def test_action_message_uses_its_own_row_and_stale_timeout_cannot_clear_newer_feedback() -> None:
+    class Label:
+        def __init__(self) -> None:
+            self.options = {"text": ""}
+            self.grid_options = None
+            self.removed = False
+
+        def configure(self, **options) -> None:
+            self.options.update(options)
+
+        def grid(self, **options) -> None:
+            self.grid_options = options
+            self.removed = False
+
+        def grid_remove(self) -> None:
+            self.removed = True
+
+    class Lifecycle:
+        def __init__(self) -> None:
+            self.scheduled = []
+            self.cancelled = []
+
+        def schedule(self, delay_ms, callback):
+            job_id = f"job-{len(self.scheduled) + 1}"
+            self.scheduled.append((job_id, delay_ms, callback))
+            return job_id
+
+        def cancel(self, job_id) -> None:
+            self.cancelled.append(job_id)
+
+    lifecycle = Lifecycle()
+    label = Label()
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.dialog = type("Dialog", (), {"lifecycle": lifecycle})()
+    surface.action_status_label = label
+    surface._action_message_job = None
+    surface._action_message_revision = 0
+
+    surface.show_action_message("No speech was recognized. Try again.", 4000)
+    first_callback = lifecycle.scheduled[-1][2]
+    surface.show_action_message("請先停止語音輸入", 1500)
+    second_callback = lifecycle.scheduled[-1][2]
+
+    assert lifecycle.cancelled == ["job-1"]
+    assert label.options["text"] == "ⓘ  請先停止語音輸入"
+    assert label.grid_options == {
+        "row": 0,
+        "column": 0,
+        "sticky": "ew",
+        "pady": (2, 0),
+    }
+
+    first_callback()
+    assert label.options["text"] == "ⓘ  請先停止語音輸入"
+    assert label.removed is False
+
+    second_callback()
+    assert label.options["text"] == ""
+    assert label.removed is True
+    assert surface._action_message_job is None
+
+
 def test_action_slot_selects_text_font_only_for_word_labels(monkeypatch) -> None:
     class Button:
         def __init__(self, _master, **options) -> None:

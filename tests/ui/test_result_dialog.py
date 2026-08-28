@@ -17,11 +17,12 @@ def test_voice_waveform_uses_canvas_and_packs_after_right_anchors() -> None:
     source = inspect.getsource(BaseResultSurface._build)
     creation = source.index("self.voice_input_button = _VoiceWaveIndicator")
     overflow = source.index("self._overflow_button = self.add_action_slot", creation)
-    status = source.index('self.action_status_label.pack(side="right"', overflow)
-    waveform = source.index('self.voice_input_button.pack(side="left"', status)
+    waveform = source.index('self.voice_input_button.pack(side="left"', overflow)
 
-    assert creation < overflow < status < waveform
+    assert creation < overflow < waveform
     assert 'self._action_tooltips["voice_input"] = _Tooltip' in source
+    assert "self.action_status_label = ctk.CTkLabel(\n            self.action_auxiliary" in source
+    assert 'self.action_status_label.pack(side="right"' not in source
 
 
 def test_voice_waveform_animation_uses_only_the_dialog_lifecycle() -> None:
