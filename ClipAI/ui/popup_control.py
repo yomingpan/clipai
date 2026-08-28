@@ -1,19 +1,42 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+import logging
 from typing import Callable, Protocol
 
-from ClipAI.core.models import OutputActionKind, OutputOperationResult
+from ClipAI.core.commands import WorkflowAttentionCompleted
+from ClipAI.core.models import OutputActionKind, OutputOperationResult, PasteTarget
 from ClipAI.ui.popup_external_output import (
+    FocusPopup,
     PopupExternalOutputTransitions,
     PulseOutputAction,
+    SetFocusProjection,
     SetOutputActionEnabled,
+    SetPopupVisibility,
     ShowOutputMessage,
 )
 
 
+_LOGGER = logging.getLogger("clipai.ui.popup_control")
+
+
+@dataclass(frozen=True)
+class PopupProjectionContext:
+    paste_target: PasteTarget | None
+    voice_draft_editing: bool | None
+
+
 class _PopupDialog(Protocol):
+    lifecycle: _PopupLifecycle
+
     def apply_external_output_visibility(self, visibility: str) -> bool | None: ...
+
+    def flash(self, mode: str = "default") -> None: ...
+
+
+class _PopupLifecycle(Protocol):
+    def focus(self) -> bool: ...
 
 
 class _PopupSurface(Protocol):
@@ -26,6 +49,14 @@ class _PopupSurface(Protocol):
     def pulse_standard_action_error(self, slot_id: str, duration_ms: int = 1000) -> None: ...
 
     def show_action_message(self, text: str, duration_ms: int = 1000) -> None: ...
+
+    def set_paste_focus_state(
+        self,
+        focused: bool,
+        target: PasteTarget | None,
+        *,
+        voice_draft_editing: bool | None,
+    ) -> None: ...
 
 
 def _new_operation_id() -> str:
@@ -44,6 +75,8 @@ class PopupControl:
         command_sink: Callable[[object], None],
         request_close: Callable[[], None],
         identity_factory: Callable[[], str] = _new_operation_id,
+        projection_context: PopupProjectionContext | None = None,
+        _transition_state: PopupExternalOutputTransitions | None = None,
     ) -> None:
         self._workflow_id = workflow_id
         self._dialog = dialog
@@ -51,7 +84,24 @@ class PopupControl:
         self._command_sink = command_sink
         self._request_close = request_close
         self._identity_factory = identity_factory
-        self._transitions = PopupExternalOutputTransitions()
+        self._projection_context = projection_context or PopupProjectionContext(None, None)
+        self._transitions = _transition_state or PopupExternalOutputTransitions()
+
+    @property
+    def focused_inside(self) -> bool:
+        return self._transitions.focused_inside
+
+    @property
+    def owns_focus(self) -> bool:
+        return self._transitions.owns_focus
+
+    def update_projection_context(self, context: PopupProjectionContext) -> None:
+        self._projection_context = context
+        self._surface.set_paste_focus_state(
+            self.focused_inside,
+            context.paste_target,
+            voice_draft_editing=context.voice_draft_editing,
+        )
 
     def begin_output(
         self,
@@ -71,7 +121,29 @@ class PopupControl:
 
     def _apply(self, actions: tuple[object, ...]) -> None:
         for action in actions:
-            if isinstance(action, SetOutputActionEnabled):
+            if isinstance(action, SetPopupVisibility):
+                applied = self._dialog.apply_external_output_visibility(action.visibility)
+                if applied is False:
+                    _LOGGER.warning(
+                        "popup visibility application failed workflow_id=%s visibility=%s",
+                        self._workflow_id,
+                        action.visibility,
+                    )
+            elif isinstance(action, SetFocusProjection):
+                self._surface.set_paste_focus_state(
+                    action.focused,
+                    self._projection_context.paste_target,
+                    voice_draft_editing=self._projection_context.voice_draft_editing,
+                )
+            elif isinstance(action, FocusPopup):
+                focus_acquired = self._dialog.lifecycle.focus()
+                if action.attention_id is not None:
+                    self._command_sink(WorkflowAttentionCompleted(
+                        action.attention_id,
+                        self._workflow_id,
+                        focus_acquired,
+                    ))
+            elif isinstance(action, SetOutputActionEnabled):
                 self._surface.set_standard_action_enabled(action.slot_id, action.enabled)
             elif isinstance(action, PulseOutputAction):
                 if action.error:
@@ -82,5 +154,7 @@ class PopupControl:
                 if action.only_when_overflow_collapsed and self._surface.overflow_expanded:
                     continue
                 self._surface.show_action_message(action.message, action.duration_ms)
+                if action.warning:
+                    self._dialog.flash("warning")
             else:
                 raise TypeError(f"unsupported PopupControl action: {action!r}")
