@@ -1,14 +1,32 @@
 from __future__ import annotations
 
-from ClipAI.core.commands import WorkflowAttentionCompleted
+from ClipAI.core.commands import ActivateWorkflow, ControlSurfaceActivated, ControlSurfaceReleased, WorkflowAttentionCompleted
+from ClipAI.core.models import ControlSurfaceRef
 from ClipAI.core.models import OutputOperationResult, PasteTarget, WorkflowAttention
-from ClipAI.ui.popup_control import PopupControl, PopupProjectionContext
+from ClipAI.ui.popup_control import (
+    PopupControl,
+    PopupForegroundPolled,
+    PopupInsidePointerPressed,
+    PopupOutsideFocusRequested,
+    PopupOutsidePointerPressed,
+    PopupOwnedDialogClosed,
+    PopupOwnedDialogOpened,
+    PopupControlRegistered,
+    PopupControlShown,
+    PopupProjectionContext,
+    ToolkitFocusEntered,
+)
 
 
 class Dialog:
     def __init__(self, events: list[object] | None = None) -> None:
         self.events = events if events is not None else []
         self.lifecycle = Lifecycle(self.events)
+        self.root = Root(self)
+        self.native_foreground = True
+        self.toolkit_focused = True
+        self.pinned = False
+        self.alive = True
 
     def apply_external_output_visibility(self, visibility: str) -> bool:
         self.events.append(("visibility", visibility))
@@ -17,14 +35,36 @@ class Dialog:
     def flash(self, mode: str = "default") -> None:
         self.events.append(("flash", mode))
 
+    def native_owns_foreground(self) -> bool:
+        return self.native_foreground
+
+    def is_alive(self) -> bool:
+        return self.alive
+
+
+class Root:
+    def __init__(self, dialog: Dialog) -> None:
+        self.dialog = dialog
+
+    def focus_get(self):
+        return self if self.dialog.toolkit_focused else None
+
+    def winfo_toplevel(self):
+        return self
+
 
 class Lifecycle:
     def __init__(self, events: list[object]) -> None:
         self.events = events
+        self.callbacks: list[tuple[int, object]] = []
 
     def focus(self) -> bool:
         self.events.append(("focus-request",))
         return True
+
+    def schedule(self, delay_ms: int, callback) -> str:
+        self.callbacks.append((delay_ms, callback))
+        return f"scheduled-{len(self.callbacks)}"
 
 
 class Surface:
@@ -51,6 +91,9 @@ class Surface:
         voice_draft_editing: bool,
     ) -> None:
         self.events.append(("focus", focused, target, voice_draft_editing))
+
+    def collapse_overflow(self) -> None:
+        self.events.append(("collapse-overflow",))
 
 
 def test_output_lifecycle_is_observed_through_popup_control_interface() -> None:
@@ -144,4 +187,141 @@ def test_attention_actuation_is_observed_through_popup_control_interface() -> No
         WorkflowAttentionCompleted("attention-1", "w1", True),
         ("message", "Voice Input is unavailable", 1500),
         ("flash", "warning"),
+    ]
+
+
+def test_delayed_native_focus_is_confirmed_inside_popup_control() -> None:
+    events: list[object] = []
+    dialog = Dialog(events)
+    dialog.native_foreground = False
+    surface = Surface()
+    surface.events = events
+    control = PopupControl(
+        "w1",
+        dialog,
+        surface,
+        command_sink=events.append,
+        request_close=lambda: None,
+    )
+
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+    control.observe_focus(ToolkitFocusEntered())
+    dialog.native_foreground = True
+    _delay_ms, confirmation = dialog.lifecycle.callbacks[-1]
+    confirmation()
+
+    assert [delay for delay, _callback in dialog.lifecycle.callbacks] == [25]
+    assert ("focus", False, None, None) in events
+    assert ("focus", True, None, None) in events
+    assert events.count(ControlSurfaceActivated(ControlSurfaceRef("w1", "workflow"))) == 1
+    assert events.count(ActivateWorkflow("w1")) == 1
+
+
+def test_inside_pointer_requests_native_focus_before_confirmation() -> None:
+    events: list[object] = []
+    dialog = Dialog(events)
+    dialog.native_foreground = False
+    surface = Surface()
+    surface.events = events
+    control = PopupControl(
+        "w1",
+        dialog,
+        surface,
+        command_sink=events.append,
+        request_close=lambda: events.append(("close",)),
+    )
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+
+    control.observe_focus(PopupInsidePointerPressed())
+
+    assert ("focus-request",) in events
+    assert events.count(ActivateWorkflow("w1")) == 1
+    assert not any(isinstance(event, ControlSurfaceActivated) for event in events)
+    assert [delay for delay, _callback in dialog.lifecycle.callbacks] == [25]
+
+
+def test_outside_focus_observation_releases_and_closes_unpinned_popup() -> None:
+    events: list[object] = []
+    dialog = Dialog(events)
+    surface = Surface()
+    surface.events = events
+    control = PopupControl(
+        "w1",
+        dialog,
+        surface,
+        command_sink=events.append,
+        request_close=lambda: events.append(("close",)),
+    )
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+    control.observe_focus(ToolkitFocusEntered())
+    events.clear()
+
+    control.observe_focus(PopupOutsideFocusRequested())
+    dialog.toolkit_focused = False
+    delay_ms, observe = dialog.lifecycle.callbacks[-1]
+    observe()
+
+    assert delay_ms == 100
+    assert events == [
+        ("focus", False, None, None),
+        ControlSurfaceReleased(ControlSurfaceRef("w1", "workflow")),
+        ("collapse-overflow",),
+        ("close",),
+    ]
+
+
+def test_outside_pointer_closes_even_before_initial_focus_is_confirmed() -> None:
+    events: list[object] = []
+    dialog = Dialog(events)
+    surface = Surface()
+    surface.events = events
+    control = PopupControl(
+        "w1",
+        dialog,
+        surface,
+        command_sink=events.append,
+        request_close=lambda: events.append(("close",)),
+    )
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+
+    control.observe_focus(PopupOutsidePointerPressed())
+
+    assert events == [
+        ("focus", False, None, None),
+        ControlSurfaceReleased(ControlSurfaceRef("w1", "workflow")),
+        ("collapse-overflow",),
+        ("close",),
+    ]
+
+
+def test_foreground_poll_and_owned_dialog_handoff_use_popup_control_guards() -> None:
+    events: list[object] = []
+    dialog = Dialog(events)
+    surface = Surface()
+    surface.events = events
+    control = PopupControl(
+        "w1",
+        dialog,
+        surface,
+        command_sink=events.append,
+        request_close=lambda: events.append(("close",)),
+    )
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+    control.observe_focus(ToolkitFocusEntered())
+    events.clear()
+
+    control.observe_focus(PopupOwnedDialogOpened())
+    dialog.native_foreground = False
+    control.observe_focus(PopupForegroundPolled())
+    control.observe_focus(PopupOwnedDialogClosed(restored=True))
+
+    assert events == [
+        ("focus", False, None, None),
+        ("focus-request",),
+        ("focus", True, None, None),
     ]
