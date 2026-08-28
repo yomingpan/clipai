@@ -16,6 +16,7 @@ from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, Pointer
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
+from ClipAI.ui.popup_control import PopupControl
 from ClipAI.ui.popup_external_output import FocusConfirmationObserved, FocusEntered, FocusPopup, ForegroundLeftApplication, InsidePointerPressed, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleFocusConfirmationCheck, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
@@ -56,6 +57,7 @@ class _SessionView:
     content: str = ""
     step_id: str | None = None
     external_output: PopupExternalOutputTransitions = field(default_factory=PopupExternalOutputTransitions)
+    popup_control: PopupControl | None = None
     flashed_completion_keys: set[str] = field(default_factory=set)
     rendered_content_key: tuple[object, ...] | None = None
     shown_guidance_keys: set[str] = field(default_factory=set)
@@ -305,6 +307,9 @@ class ResultDialogPresenter:
             return
         if not view.dialog.is_alive():
             self._close_dead_view(result.workflow_id, view)
+            return
+        if result.kind in {"copy", "archive", "speech"}:
+            self._popup_control(result.workflow_id, view).settle_output(result)
             return
         self._apply_transition_actions(
             result.workflow_id,
@@ -789,6 +794,19 @@ class ResultDialogPresenter:
             return None
         return view
 
+    def _popup_control(self, workflow_id: str, view: _SessionView) -> PopupControl:
+        control = view.popup_control
+        if control is None:
+            control = PopupControl(
+                workflow_id,
+                view.dialog,
+                view.surface,
+                command_sink=lambda command: self._command_sink(command),
+                request_close=lambda: self._request_close(workflow_id),
+            )
+            view.popup_control = control
+        return control
+
     def _send_text_command(self, session_id: str, command_type) -> None:
         view = self._interactive_view(session_id)
         if view is not None:
@@ -798,8 +816,9 @@ class ResultDialogPresenter:
         view = self._interactive_view(session_id)
         if view is None:
             return
-        operation_id = uuid.uuid4().hex
-        view.external_output.begin("copy", operation_id)
+        operation_id = self._popup_control(session_id, view).begin_output("copy")
+        if operation_id is None:
+            return
         text = view.surface.selected_text()
         self._command_sink(CopyResult(session_id, text, operation_id))
 
@@ -810,15 +829,18 @@ class ResultDialogPresenter:
         text = view.surface.selected_text()
         operation_id = uuid.uuid4().hex
         if not view.speaking:
-            view.external_output.begin("speech", operation_id)
+            operation_id = self._popup_control(session_id, view).begin_output("speech")
+            if operation_id is None:
+                return
         self._command_sink(ToggleSpeech(session_id, text, operation_id))
 
     def _archive(self, session_id: str) -> None:
         view = self._interactive_view(session_id)
         if view is None:
             return
-        operation_id = uuid.uuid4().hex
-        view.external_output.begin("archive", operation_id)
+        operation_id = self._popup_control(session_id, view).begin_output("archive")
+        if operation_id is None:
+            return
         self._command_sink(ArchiveResult(session_id, view.surface.selected_text(), operation_id))
 
     def _paste(self, session_id: str) -> None:

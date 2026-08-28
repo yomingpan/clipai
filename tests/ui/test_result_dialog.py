@@ -252,10 +252,12 @@ def test_copy_and_archive_wait_for_typed_acknowledgment() -> None:
 
 def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:
     presenter, events = presenter_with_selection("selected")
-    presenter._views["s1"].external_output.begin("archive", "new")
+    presenter._archive("s1")
+    operation_id = events[-1].operation_id
+    events.clear()
     presenter._apply_output_operation(OutputOperationResult("old", "s1", "archive", "succeeded"))
     assert events == []
-    presenter._apply_output_operation(OutputOperationResult("new", "s1", "archive", "succeeded"))
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "archive", "succeeded"))
     assert "archive:pulse:1000" in events
 
 
@@ -595,17 +597,19 @@ def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:
 
 def test_speech_operation_projects_to_speaker_slot() -> None:
     presenter, events = presenter_with_selection("selected")
-    presenter._views["s1"].external_output.begin("speech", "speech-op")
-    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "pending"))
-    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "succeeded"))
+    presenter._toggle_speech("s1")
+    operation_id = events[-1].operation_id
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "speech", "pending"))
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "speech", "succeeded"))
     assert "speaker:pulse:1000" in events
 
 
 def test_speech_failure_projects_to_speaker_slot() -> None:
     presenter, events = presenter_with_selection("selected")
-    presenter._views["s1"].external_output.begin("speech", "speech-op")
-    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "pending"))
-    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "failed"))
+    presenter._toggle_speech("s1")
+    operation_id = events[-1].operation_id
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "speech", "pending"))
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "speech", "failed"))
     assert "speaker:error:1000" in events
 
 
