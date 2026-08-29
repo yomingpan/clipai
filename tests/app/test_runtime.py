@@ -12,7 +12,7 @@ from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
@@ -1911,6 +1911,28 @@ def test_contextual_action_reuses_active_workflow_and_prefers_popup_selection() 
     invocation = view.execute_action.invocations[-1]
     assert invocation.input_target.document.text == "selected popup text"
     assert invocation.parent_step_id == "step-1"
+
+
+def test_start_action_admission_uses_explicit_prepared_input_target() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    prepared_target = InputTarget(
+        "external_text",
+        InputDocument("prepared panel input", "selection"),
+    )
+
+    admission = runtime._workflow_module.start_action(
+        "a",
+        "short",
+        input_target=prepared_target,
+    )
+    runtime.drain_commands()
+
+    assert admission.accepted
+    controller = workflow(view, view.snapshots[-1].session_id)
+    invocation_id = controller.snapshot.active_invocation_id
+    assert invocation_id is not None
+    supervisor.work[invocation_id]()
+    assert view.execute_action.invocations[-1].input_target is prepared_target
 
 
 def test_new_visible_action_replaces_a_released_unpinned_popup() -> None:

@@ -9,7 +9,7 @@ from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
-from ClipAI.core.models import ActionInvocation, ControlSurfaceRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, WorkflowAttention
+from ClipAI.core.models import ActionInvocation, ActionStartAdmission, ControlSurfaceRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, PressType, ResultRoute, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceCaptureContextReader, WorkflowAttentionPresenter, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
@@ -393,7 +393,11 @@ class WorkflowRuntimeModule:
 
     def handle(self, command: WorkflowRuntimeCommand) -> None:
         if isinstance(command, StartAction):
-            self._start_action(command)
+            self.start_action(
+                command.action_id,
+                command.press_type,
+                result_route=command.result_route,
+            )
         elif isinstance(command, OpenContextualQuestion):
             self._open_contextual_question()
         elif isinstance(command, SubmitContextualQuestion):
@@ -440,19 +444,35 @@ class WorkflowRuntimeModule:
         if error is not None and self._notifier is not None:
             self._notifier.notify("ClipAI — Last Error", " ".join(part for part in (error.message, error.suggestion) if part))
 
-    def _start_action(self, command: StartAction) -> None:
-        action = self._actions.resolve(command.action_id, command.press_type)
+    def start_action(
+        self,
+        action_id: str,
+        press_type: PressType,
+        *,
+        result_route: ResultRoute = "popup",
+        input_target: InputTarget | None = None,
+    ) -> ActionStartAdmission:
+        """Admit one Action through the existing Workflow runtime."""
+        try:
+            action = self._actions.resolve(action_id, press_type)
+        except ValueError as error:
+            return ActionStartAdmission("rejected", "unknown_action", str(error))
         if self._personal_styles is not None:
             try:
                 action = self._personal_styles.bind(action)
             except PersonalStyleUnavailableError as error:
                 self._sequence_error(str(error), "Open Personal Styles from the tray menu.")
-                return
-        if command.result_route == "speech":
-            self._start_headless_action(action, command)
-            return
+                return ActionStartAdmission(
+                    "rejected",
+                    "personal_style_unavailable",
+                    str(error),
+                )
+        command = StartAction(action_id, press_type, result_route)
+        if result_route == "speech":
+            self._start_headless_action(action, command, input_target=input_target)
+            return ActionStartAdmission("accepted")
         context = self._foreground_context()
-        target = self._input_targets.resolve(context, action.external_fallback)
+        target = input_target or self._input_targets.resolve(context, action.external_fallback)
         contextual = target.kind == "workflow_result" and target.document is not None
         if contextual:
             assert context is not None
@@ -465,13 +485,15 @@ class WorkflowRuntimeModule:
             if visible is not None and visible[1].controller.snapshot.pinned:
                 workflow_id, record = visible
                 controller = record.controller
-                target = InputTarget("external_text")
                 parent_step_id = None
             else:
                 if not self._replace_unpinned_visible_workflow():
-                    return
+                    return ActionStartAdmission(
+                        "blocked",
+                        "pinned_workflow",
+                        "Close or unpin the current Workflow, then try again.",
+                    )
                 workflow_id = uuid.uuid4().hex
-                target = InputTarget("external_text")
                 parent_step_id = None
                 controller = WorkflowController(
                     SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
@@ -518,10 +540,17 @@ class WorkflowRuntimeModule:
             invocation.invocation_id,
             lambda: self._execute_action.execute_invocation(action, invocation, controller, binding=record.binding),
         )
+        return ActionStartAdmission("accepted")
 
-    def _start_headless_action(self, action, command: StartAction) -> None:
+    def _start_headless_action(
+        self,
+        action,
+        command: StartAction,
+        *,
+        input_target: InputTarget | None = None,
+    ) -> None:
         context = self._foreground_context()
-        target = self._input_targets.resolve(context, action.external_fallback)
+        target = input_target or self._input_targets.resolve(context, action.external_fallback)
         workflow_id = uuid.uuid4().hex
         controller = WorkflowController(
             SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
