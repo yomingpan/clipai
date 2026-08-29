@@ -45,6 +45,7 @@ PasteDeliveryState = Literal["not_dispatched", "dispatched_unconfirmed"]
 PasteCleanupState = Literal["not_required", "restored", "external_change", "failed"]
 PasteCompletionState = Literal["failed", "cancelled", "dispatched_unconfirmed", "cleanup_failed"]
 ResultCompleteness = Literal["none", "partial", "complete"]
+ActionStartAdmissionState = Literal["accepted", "rejected", "blocked"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
 ControlSurfaceKind = Literal["workflow", "provider_settings", "shortcut_guide", "personal_styles"]
@@ -63,6 +64,23 @@ InterruptibleOperationKind = Literal[
 class ShortcutPressRef:
     press_id: ShortcutPressId
     shortcut_id: str
+
+
+@dataclass(frozen=True)
+class EntryActionRef:
+    action_id: str
+    press_type: PressType
+
+
+@dataclass(frozen=True)
+class ActionStartAdmission:
+    state: ActionStartAdmissionState
+    reason: str = ""
+    message: str = ""
+
+    @property
+    def accepted(self) -> bool:
+        return self.state == "accepted"
 
 
 @dataclass(frozen=True)
