@@ -45,6 +45,14 @@ OutputOperationState = Literal[
 PasteDeliveryState = Literal["not_dispatched", "dispatched_unconfirmed"]
 PasteCleanupState = Literal["not_required", "restored", "external_change", "failed"]
 PasteCompletionState = Literal["failed", "cancelled", "dispatched_unconfirmed", "cleanup_failed"]
+ExternalWindowActivationState = Literal[
+    "activated",
+    "modifiers_held",
+    "target_gone",
+    "target_refused_focus",
+    "target_focus_timeout",
+    "target_changed",
+]
 ResultCompleteness = Literal["none", "partial", "complete"]
 ActionStartAdmissionState = Literal["accepted", "rejected", "blocked"]
 EntryPanelPage = Literal["root", "scene", "more"]
@@ -555,6 +563,25 @@ class SelectionCaptureOutcome:
 
 
 @dataclass(frozen=True)
+class ExternalWindowRef:
+    """Opaque identity snapshot for one non-ClipAI top-level window."""
+
+    window_token: str
+    process_id: int
+    observation_sequence: int
+
+
+@dataclass(frozen=True)
+class ExternalWindowActivationOutcome:
+    state: ExternalWindowActivationState
+    message: str = ""
+
+    @property
+    def activated(self) -> bool:
+        return self.state == "activated"
+
+
+@dataclass(frozen=True)
 class PasteTarget:
     """Opaque snapshot of a non-ClipAI window that can receive paste output."""
 
@@ -563,6 +590,14 @@ class PasteTarget:
     application_name: str
     window_title: str
     observation_sequence: int
+
+    @property
+    def external_ref(self) -> ExternalWindowRef:
+        return ExternalWindowRef(
+            self.window_token,
+            self.process_id,
+            self.observation_sequence,
+        )
 
 
 @dataclass(frozen=True)

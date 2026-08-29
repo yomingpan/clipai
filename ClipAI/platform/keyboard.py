@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import ctypes
 import time
 
 from ClipAI.core.errors import CancelledError, PASTE_FAILURE_MESSAGES, PasteFailure
 from ClipAI.core.models import PasteDispatchReceipt, PasteTarget
 from ClipAI.core.state import CancellationToken
+from ClipAI.platform.external_window import (
+    activate_windows_target,
+    windows_target_is_foreground,
+    windows_target_is_valid,
+)
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_modifier_is_pressed
 
 
@@ -32,9 +36,9 @@ class SystemKeyboardOutput:
         self._poll_sec = poll_sec
         self._wait = wait
         self._paste_shortcut = paste_shortcut or _send_paste_shortcut
-        self._target_is_valid = target_is_valid or _windows_target_is_valid
-        self._activate_target = activate_target or _activate_windows_target
-        self._target_is_foreground = target_is_foreground or _windows_target_is_foreground
+        self._target_is_valid = target_is_valid or windows_target_is_valid
+        self._activate_target = activate_target or activate_windows_target
+        self._target_is_foreground = target_is_foreground or windows_target_is_foreground
 
     def dispatch(self, target: PasteTarget, cancellation: CancellationToken) -> PasteDispatchReceipt:
         deadline = time.monotonic() + self._modifier_release_timeout_sec
@@ -88,50 +92,3 @@ def _send_paste_shortcut() -> None:
 def _raise_if_cancelled(cancellation: CancellationToken) -> None:
     if cancellation.is_cancelled:
         raise CancelledError("Paste was cancelled before dispatch.")
-
-
-def _windows_target_is_valid(target: PasteTarget) -> bool:
-    handle = _window_handle(target)
-    if handle is None:
-        return False
-    user32 = ctypes.windll.user32
-    process_id = ctypes.c_ulong()
-    try:
-        return bool(
-            user32.IsWindow(handle)
-            and user32.IsWindowVisible(handle)
-            and user32.GetWindowThreadProcessId(handle, ctypes.byref(process_id))
-            and process_id.value == target.process_id
-        )
-    except (AttributeError, OSError, TypeError, ValueError):
-        return False
-
-
-def _activate_windows_target(target: PasteTarget) -> bool:
-    handle = _window_handle(target)
-    if handle is None:
-        return False
-    try:
-        return bool(ctypes.windll.user32.SetForegroundWindow(handle))
-    except (AttributeError, OSError, TypeError, ValueError):
-        return False
-
-
-def _windows_target_is_foreground(target: PasteTarget) -> bool:
-    handle = _window_handle(target)
-    if handle is None:
-        return False
-    try:
-        return int(ctypes.windll.user32.GetForegroundWindow()) == handle
-    except (AttributeError, OSError, TypeError, ValueError):
-        return False
-
-
-def _window_handle(target: PasteTarget) -> int | None:
-    prefix = "hwnd:"
-    if not target.window_token.startswith(prefix):
-        return None
-    try:
-        return int(target.window_token[len(prefix):], 16)
-    except ValueError:
-        return None
