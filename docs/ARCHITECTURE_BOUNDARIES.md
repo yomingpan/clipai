@@ -45,6 +45,15 @@ tests/              # Unit sims 與 integration tests
 - Personal Style profiles、active profile identity 與 import/select lifecycle 由單一 `PersonalStyleCoordinator` 擁有。Workflow 在 provider invocation 前綁定 profile snapshot；UI 與 filesystem adapter 不得形成第二套 selection owner。完整規則見 `docs/contracts/services/personal-style-contract.md`。
 - 所有 provider configuration mutation 共用一個 operation gate。設定儲存或 catalog refresh 進行中，不得由 tray 或其他入口同時寫入 provider 設定。
 - Provider environment mapping、credential resolution、concrete provider 建構與 `.env` persistence 屬於 app composition adapter；services 只依賴 typed backend contract。
+- Unified Entry Panel 的 ownership 依 ADR-0012 分離：`EntryPanelCoordinator`
+  擁有純導覽、搜尋與資訊密度 projection，`EntryPanelRuntimeModule` 擁有唯一
+  Panel lifetime、launch source 與 input-preparation identity；它只能透過
+  `WorkflowRuntimeModule.start_action` 請求 Action admission。UI 不得讀
+  clipboard、native handle、provider 或 Workflow state，也不得從 render 或
+  focus 推導 Action intent。
+- 最近使用由 `RecentActionHistory` 擁有，只接收 `WorkflowController` 已接受的
+  successful step 所解析出的 `action_id + press_type`；不得由 provider completion、
+  Workflow snapshot revision、Popup visibility 或 operation tracker 推導成功。
 
 ## Core
 
@@ -281,8 +290,13 @@ UI 只負責：
 - `config/actions.yaml`
 - `config/shortcuts.yaml`
 - `config/output_profiles.yaml`
+- `config/entry_panel.yaml`
 
 目標是避免把產品行為硬寫進程式。程式可以定義 schema、預設值、validation，但可調整內容應盡量外部化。
+
+`config/entry_panel.yaml` 只擁有 Entry Panel 的 category、顯示順序、文案與
+`action_id + press_type` 候選人。Action prompt、input/output mode、provider、
+Personal Style 與可執行性仍由既有 owner 決定；UI 不得依 action ID 寫分支。
 
 ### Prompts
 
