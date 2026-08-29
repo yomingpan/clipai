@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ClipAI · Unified Entry Mock</title>
+  <style>
+    :root { color-scheme: dark; --bg:#17191c; --panel:#2b2b2b; --surface:#36393d; --hover:#42474d; --text:#f0f3f6; --muted:#aab4bf; --faint:#727c86; --blue:#1f6aa5; --green:#8de8bc; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; overflow:hidden; background:var(--bg); color:var(--text); font-family:"Microsoft JhengHei UI","Segoe UI",sans-serif; }
+    .host { position:absolute; inset:0; padding:62px 7vw; }
+    .brand { color:#5e6872; font-size:26px; font-weight:700; }
+    .note { margin-top:14px; color:#48515a; font-size:13px; }
+    .document { margin-top:80px; width:min(700px,65vw); height:440px; padding:72px 58px; border-radius:16px; background:#202328; }
+    .document .lead { color:#68737d; font-size:18px; line-height:1.6; }
+    .document .body { margin-top:26px; color:#3f4850; font-size:16px; line-height:1.75; }
+    .document .label { margin-top:132px; color:#35404a; font-size:11px; font-weight:700; letter-spacing:.08em; }
+    .cursor { position:fixed; left:50%; top:35%; width:12px; height:12px; border:2px solid #8ec5ff; border-radius:50%; box-shadow:0 0 0 5px #8ec5ff22; }
+    .cursor::after { content:""; position:absolute; left:9px; top:9px; width:12px; height:1px; background:#8ec5ff; transform:rotate(45deg); transform-origin:left center; }
+    .panel { position:fixed; left:calc(50% + 28px); top:calc(35% - 30px); width:264px; padding:8px; border:1px solid #4a5056; border-radius:12px; background:var(--panel); box-shadow:0 18px 42px #0008; opacity:1; transform:translateY(0); transition:opacity 100ms ease,transform 100ms ease; }
+    .panel.is-hidden { pointer-events:none; opacity:0; transform:translateY(5px); }
+    .panel-header { display:flex; align-items:center; gap:8px; min-height:31px; padding:2px 7px 7px; border-bottom:1px solid #41464b; }
+    .panel-header strong { flex:1; font-size:13px; }
+    .panel-header span { color:var(--faint); font-size:10px; }
+    .panel-header .escape-hint { color:var(--faint); }
+    .density-toggle { position:relative; width:28px; height:16px; padding:0; border:1px solid #596169; border-radius:9px; background:#222528; cursor:pointer; }
+    .density-toggle::after { content:""; position:absolute; top:3px; left:3px; width:8px; height:8px; border-radius:50%; background:#9AA4AD; transition:left 100ms ease; }
+    .density-toggle.compact::after { left:15px; background:#F0F3F6; }
+    .density-toggle:hover { border-color:#7D8993; }
+    .panel-view { padding-top:6px; }
+    .menu-row, .back-row { display:flex; align-items:center; width:100%; min-height:40px; padding:0 9px; border:0; border-radius:7px; background:transparent; color:var(--text); text-align:left; cursor:pointer; font:inherit; }
+    .menu-row:hover, .menu-row:focus-visible, .back-row:hover, .back-row:focus-visible { outline:0; background:var(--hover); }
+    .menu-row .number { width:27px; color:#8ec5ff; font-size:12px; font-weight:700; }
+    .menu-row .label { flex:1; font-size:13px; }
+    .menu-row .arrow { color:var(--faint); font-size:16px; }
+    .back-row { min-height:32px; color:#8ec5ff; font-size:12px; }
+    .back-row .back { margin-right:7px; font-size:16px; }
+    .view-title { padding:5px 9px 8px; color:var(--muted); font-size:12px; line-height:1.45; }
+    .action-row { display:flex; align-items:center; width:100%; min-height:48px; padding:5px 9px; border:0; border-radius:7px; background:transparent; color:var(--text); text-align:left; cursor:pointer; font:inherit; }
+    .action-row:hover, .action-row:focus-visible { outline:0; background:var(--hover); }
+    .action-key { display:inline-flex; align-items:center; justify-content:center; width:23px; height:23px; margin-right:9px; border-radius:5px; background:#4b535b; color:var(--text); font-size:11px; font-weight:700; }
+    .action-copy { flex:1; min-width:0; }
+    .action-title { display:block; overflow:hidden; font-size:12px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+    .action-desc { display:block; margin-top:2px; overflow:hidden; color:var(--muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+    .more-row { margin-top:4px; border-top:1px solid #41464b; color:var(--text); }
+    .more-row .action-key { background:transparent; color:var(--muted); }
+    .more-search { width:100%; height:31px; margin:2px 0 6px; padding:0 9px; border:1px solid #4a5056; border-radius:6px; outline:0; background:#222528; color:var(--text); font:inherit; font-size:11px; }
+    .more-search:focus { border-color:#6d9fc7; }
+    .is-hidden { display:none !important; }
+    .status { position:fixed; left:7vw; bottom:30px; color:var(--faint); font-size:11px; }
+    .status.active { color:var(--green); }
+  </style>
+</head>
+<body>
+  <main class="host">
+    <div class="brand">ClipAI</div>
+    <div class="note">工作區預覽 · 游標附近開啟輕量入口</div>
+    <section class="document">
+      <div class="lead">Select a sentence, press the ClipAI shortcut, and continue thinking.</div>
+      <div class="body">The goal is not to make every decision for you.<br>It is to reduce the friction between noticing something<br>and knowing what to do with it.</div>
+      <div class="label">MOCK HOST SURFACE</div>
+    </section>
+  </main>
+  <div class="cursor" aria-hidden="true"></div>
+  <aside id="panel" class="panel" aria-label="ClipAI unified entry"></aside>
+  <div id="status" class="status">Mock · 已模擬完成 500ms 長按</div>
+  <script>
+    const panel = document.querySelector('#panel');
+    const status = document.querySelector('#status');
+    const scenes = {
+      '看得懂': { description:'把內容變成你真正理解的東西', actions:[['1','翻譯成繁體中文','保留原意，轉成自然中文'],['2','English Companion','讀懂英文、學會怎麼說'],['3','朋友方式說明','用簡單方式說清楚'],['4','讀懂這段英文','解決當下看不懂的英文']], more:[['文章架構與重要觀點','看清楚文章脈絡'],['抽取核心關鍵字','快速抓住內容骨架'],['翻譯成英文','轉成自然英文表達']] },
+      '寫得出': { description:'把腦中的意思變成可以使用的文字', actions:[['1','翻譯成英文','轉成自然、清楚的英文'],['2','縮短內容','保留意思，讓文字更俐落'],['3','私下口吻改寫','改成自然、像你會說的話'],['4','語音成稿編輯','把口語整理成可用文字']], more:[['Capture an Expression','找出可直接使用的表達'],['正式口述講稿','生成可以說出口的講稿'],['正式重點稿','整理成可用的表述稿']] },
+      '想清楚': { description:'把模糊的感覺變成可以判斷的結構', actions:[['1','麥肯錫金字塔','整理立場、理由與條件'],['2','反向挑戰','檢查假設、盲點與漏洞'],['3','權衡透視','看見選擇背後的代價'],['4','提出一個值得思考的問題','推進下一層判斷']], more:[['概念命名','校準概念邊界，再找到名稱'],['最小行動','把想法落成下一步'],['MECE 拆解','把問題拆成清楚結構']] }
+    };
+    const tools = [['1','OCR／擷取截圖文字','把畫面內容變成文字'],['2','AI 對話交接','整理成下一個 AI 可接續的脈絡']];
+    const recent = [['1','English Companion','最近啟動'],['2','Capture an Expression','昨天啟動'],['3','反向挑戰','最近啟動']];
+    let view = 'root';
+    let activeScene = '看得懂';
+    let detailed = true;
+    let menuOpen = true;
+    let holdTimer = null;
+    function showRoot() { menuOpen=true; view='root'; panel.classList.remove('is-hidden'); render(); status.textContent='Mock · 已模擬完成 500ms 長按'; status.classList.remove('active'); }
+    function hidePanel() { menuOpen=false; panel.classList.add('is-hidden'); }
+    function menuRow(number,label) { return `<button class="menu-row" data-view="${label}"><span class="number">${number}</span><span class="label">${label}</span><span class="arrow">›</span></button>`; }
+    function actionRow(item) { const description=detailed?`<span class="action-desc">${item[2]}</span>`:''; return `<button class="action-row" data-action="${item[1]}"><span class="action-key">${item[0]}</span><span class="action-copy"><span class="action-title">${item[1]}</span>${description}</span></button>`; }
+    function panelHeader() { const stateClass=detailed?'':'compact'; const label=detailed?'顯示詳細說明，點擊切換精簡模式':'精簡模式，點擊顯示詳細說明'; return `<div class="panel-header"><strong>ClipAI</strong><button class="density-toggle ${stateClass}" data-density-toggle aria-label="${label}" title="${label}"></button><span class="escape-hint">Esc ${view==='root'?'關閉':'返回'}</span></div>`; }
+    function renderRoot() { panel.innerHTML=`${panelHeader()}<div class="panel-view">${menuRow('0','最近使用')}${menuRow('1','看得懂')}${menuRow('2','寫得出')}${menuRow('3','想清楚')}${menuRow('4','工具')}</div>`; }
+    function renderRecent() { const description=detailed?'<div class="view-title">直接選擇最近啟動的功能</div>':''; panel.innerHTML=`${panelHeader()}<div class="panel-view"><button class="back-row" data-back><span class="back">‹</span>返回</button>${description}${recent.map(actionRow).join('')}</div>`; }
+    function renderScene(scene) { const data=scenes[scene]; const description=detailed?`<div class="view-title">${data.description}</div>`:''; panel.innerHTML=`${panelHeader()}<div class="panel-view"><button class="back-row" data-back><span class="back">‹</span>${scene}</button>${description}${data.actions.map(actionRow).join('')}<button class="action-row more-row" data-more="${scene}"><span class="action-key">+</span><span class="action-copy"><span class="action-title">更多${scene}功能</span>${detailed?'<span class="action-desc">查看進階 action</span>':''}</span></button></div>`; }
+    function renderTools() { const description=detailed?'<div class="view-title">支援輸入、交接與系統操作</div>':''; panel.innerHTML=`${panelHeader()}<div class="panel-view"><button class="back-row" data-back><span class="back">‹</span>工具</button>${description}${tools.map(actionRow).join('')}</div>`; }
+    function renderMore(scene) { const items=scenes[scene].more.map((item,index)=>[String(index+1),item[0],item[1]]); panel.innerHTML=`${panelHeader()}<div class="panel-view"><button class="back-row" data-back><span class="back">‹</span>${scene}</button><input class="more-search" id="moreSearch" placeholder="搜尋進階功能..."><div id="moreRows">${items.map(actionRow).join('')}</div></div>`; document.querySelector('#moreSearch').oninput=event=>{const query=event.target.value.toLowerCase();document.querySelectorAll('#moreRows .action-row').forEach(row=>row.classList.toggle('is-hidden',!row.textContent.toLowerCase().includes(query)));}; }
+    function render() { if(view==='root')renderRoot(); else if(view==='recent')renderRecent(); else if(view==='tools')renderTools(); else if(view==='more')renderMore(activeScene); else renderScene(activeScene); bind(); }
+    function chooseAction(title) { status.textContent=`Mock · 已選取「${title}」，未執行`; status.classList.add('active'); setTimeout(hidePanel,460); }
+    function bind() { panel.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{const label=button.dataset.view; if(label==='最近使用')view='recent'; else if(label==='工具')view='tools'; else {activeScene=label;view='scene';} render();}); panel.querySelectorAll('[data-back]').forEach(button=>button.onclick=()=>{view='root';render();}); panel.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>chooseAction(button.dataset.action)); panel.querySelectorAll('[data-more]').forEach(button=>button.onclick=()=>{activeScene=button.dataset.more;view='more';render();}); panel.querySelectorAll('[data-density-toggle]').forEach(button=>button.onclick=()=>{detailed=!detailed;render();}); }
+    function startHold() { if(holdTimer||menuOpen)return; holdTimer=setTimeout(()=>{holdTimer=null;showRoot();},500); }
+    function cancelHold() { if(holdTimer){clearTimeout(holdTimer);holdTimer=null;} }
+    document.addEventListener('keydown',event=>{ if(event.key==='Escape'){ if(view!=='root'&&menuOpen){view='root';render();} else hidePanel(); return; } if(event.ctrlKey&&event.altKey)startHold(); if(!menuOpen)return; if(view==='root'&&['0','1','2','3','4'].includes(event.key)){ if(event.key==='0')view='recent'; if(event.key==='1'){activeScene='看得懂';view='scene';} if(event.key==='2'){activeScene='寫得出';view='scene';} if(event.key==='3'){activeScene='想清楚';view='scene';} if(event.key==='4')view='tools'; render(); } });
+    document.addEventListener('keyup',event=>{ if(event.key==='Control'||event.key==='Alt')cancelHold(); });
+    render();
+  </script>
+</body>
+</html>
