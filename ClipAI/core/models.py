@@ -46,6 +46,8 @@ PasteCleanupState = Literal["not_required", "restored", "external_change", "fail
 PasteCompletionState = Literal["failed", "cancelled", "dispatched_unconfirmed", "cleanup_failed"]
 ResultCompleteness = Literal["none", "partial", "complete"]
 ActionStartAdmissionState = Literal["accepted", "rejected", "blocked"]
+EntryPanelPage = Literal["root", "scene", "more"]
+EntryPanelDensity = Literal["detailed", "compact"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
 ControlSurfaceKind = Literal["workflow", "provider_settings", "shortcut_guide", "personal_styles"]
@@ -81,6 +83,35 @@ class ActionStartAdmission:
     @property
     def accepted(self) -> bool:
         return self.state == "accepted"
+
+
+@dataclass(frozen=True)
+class EntryPanelOption:
+    slot: int | None
+    label: str
+    description: str = ""
+    action: EntryActionRef | None = None
+    category_id: str = ""
+    enabled: bool = True
+    disabled_reason: str = ""
+
+
+@dataclass(frozen=True)
+class EntryPanelSnapshot:
+    panel_id: str
+    page: EntryPanelPage
+    category_id: str = ""
+    density: EntryPanelDensity = "detailed"
+    options: tuple[EntryPanelOption, ...] = ()
+    search_text: str = ""
+    status: Literal["idle", "preparing", "error"] = "idle"
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class EntryPanelDecision:
+    snapshot: EntryPanelSnapshot
+    action: EntryActionRef | None = None
 
 
 @dataclass(frozen=True)

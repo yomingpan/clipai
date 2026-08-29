@@ -1,0 +1,138 @@
+schema_version: 1
+
+categories:
+  - id: understand
+    slot: 3
+    label: 看得懂
+    description: 降低理解門檻，掌握這段內容真正要表達的意思。
+    flagship:
+      - action_id: translate_to_traditional_chinese
+        press_type: short
+        label: 翻譯成繁體中文
+        description: 將內容轉成自然、易讀的繁體中文。
+      - action_id: english_companion
+        press_type: short
+        label: English Companion
+        description: 理解英文用法、語境與常見表達。
+      - action_id: explain_like_friend
+        press_type: short
+        label: 朋友方式說明
+        description: 用熟悉、直接的方式解釋內容。
+      - action_id: reading_friction
+        press_type: short
+        label: 讀懂這段英文
+        description: 找出造成閱讀卡頓的語句並說清楚。
+    advanced:
+      - action_id: article_structure
+        press_type: short
+        label: 文章架構與重要觀點
+        description: 整理文章結構與關鍵論點。
+      - action_id: extract_keywords
+        press_type: short
+        label: 抽取核心關鍵字
+        description: 找出理解內容最重要的概念詞。
+
+  - id: write
+    slot: 4
+    label: 寫得出
+    description: 把已有的意思轉成可直接使用的文字。
+    flagship:
+      - action_id: translate_to_english
+        press_type: short
+        label: 翻譯成英文
+        description: 將內容翻成自然、可用的英文。
+      - action_id: shorten_content
+        press_type: short
+        label: 縮短內容
+        description: 保留原意並刪除不必要的文字。
+      - action_id: personal_style_informal
+        press_type: short
+        label: 私下口吻改寫
+        description: 依個人風格改成自然的私下表達。
+      - action_id: intent_preserving_dictation_editor
+        press_type: short
+        label: 語音成稿編輯
+        description: 保留說話意圖並整理成可用文字。
+    advanced:
+      - action_id: expression_retrieval
+        press_type: short
+        label: Capture an Expression
+        description: 找回想表達卻一時想不起來的說法。
+      - action_id: personal_style_oral
+        press_type: short
+        label: 正式口述講稿
+        description: 依個人風格整理成正式口述內容。
+      - action_id: personal_style_presentation
+        press_type: short
+        label: 正式重點稿
+        description: 依個人風格整理成重點清楚的正式稿。
+
+  - id: think
+    slot: 5
+    label: 想清楚
+    description: 照亮結構、盲點與取捨，保留最後判斷給你。
+    flagship:
+      - action_id: pyramid_position
+        press_type: short
+        label: 麥肯錫金字塔
+        description: 先釐清主張，再整理支持它的理由。
+      - action_id: critical_thinking
+        press_type: short
+        label: 反向挑戰
+        description: 從相反角度找出盲點與薄弱假設。
+      - action_id: tradeoff_perspective
+        press_type: short
+        label: 權衡透視
+        description: 看見選項之間真正需要交換的代價。
+      - action_id: reflective_question
+        press_type: short
+        label: 提出一個值得思考的問題
+        description: 找出最能推進理解的下一個問題。
+    advanced:
+      - action_id: name_idea
+        press_type: short
+        label: 為想法命名
+        description: 替一個暫時成形的想法找出名稱。
+      - action_id: name_concept_carefully
+        press_type: short
+        label: 概念命名
+        description: 審慎界定概念的名稱與邊界。
+      - action_id: illuminate_essence
+        press_type: short
+        label: 照亮不變的本質
+        description: 從變動細節中找出較穩定的核心。
+      - action_id: temporary_viewpoint
+        press_type: short
+        label: 保存暫時觀點
+        description: 將尚未定論的觀點整理成可回看的版本。
+      - action_id: mece_decomposition
+        press_type: short
+        label: MECE 拆解
+        description: 用不重疊、無遺漏的方式拆解問題。
+      - action_id: minimum_action
+        press_type: short
+        label: 最小行動
+        description: 找出能推進事情的最小下一步。
+      - action_id: structure_score_prompt
+        press_type: short
+        label: SCORE 需求整理
+        description: 用 SCORE 結構釐清需求與背景。
+
+  - id: tools
+    slot: 6
+    label: 工具
+    description: 把內容或脈絡帶進來，再交給既有 Action 處理。
+    flagship:
+      - action_id: extract_screenshot_text
+        press_type: short
+        label: OCR／擷取截圖文字
+        description: 從剪貼簿圖片擷取可使用的文字。
+      - action_id: session_handoff
+        press_type: short
+        label: AI 對話交接
+        description: 整理可帶往下一段 AI 對話的交接內容。
+      - action_id: command_copilot
+        press_type: short
+        label: Command Copilot
+        description: 協助檢視與理解即將使用的指令。
+    advanced: []

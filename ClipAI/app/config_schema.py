@@ -6,6 +6,7 @@ from typing import Literal
 from ClipAI.core.models import ReadinessIssue
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings, ProviderSettings
 from ClipAI.services.action_catalog import ActionCatalog
+from ClipAI.services.entry_panel import EntryPanelCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.support.logging_setup import LoggingSettings
@@ -20,6 +21,7 @@ class AppSettings:
     stream: bool
     modifier_mode: ModifierMode
     system_prompt: str
+    entry_panel_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,7 @@ class ConfigSchemaVersions:
     actions: int
     output_profiles: int
     shortcuts: int
+    entry_panel: int
 
 
 @dataclass(frozen=True)
@@ -77,5 +80,6 @@ class ConfigBundle:
     voice_input: VoiceInputSettings
     logging: LoggingSettings
     output_profiles: OutputProfileCatalog
+    entry_panel: EntryPanelCatalog
     schema_versions: ConfigSchemaVersions
     readiness_issues: tuple[ReadinessIssue, ...] = ()
