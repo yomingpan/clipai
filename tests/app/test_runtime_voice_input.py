@@ -3,7 +3,7 @@ from __future__ import annotations
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureAdmission
 from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceSilenceWatchdogExpired
-from ClipAI.core.models import ControlSurfaceRef, PasteTarget
+from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
@@ -118,6 +118,24 @@ class Setup:
 class Notifier:
     def __init__(self) -> None: self.messages = []
     def notify(self, title, message) -> None: self.messages.append((title, message))
+
+
+def test_active_voice_capture_rejects_entry_panel_open_with_feedback() -> None:
+    notifier = Notifier()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=Engine(),
+        workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        notifier=notifier,
+    )
+    runtime.handle_shortcut_started(
+        ShortcutPressStarted(ShortcutPressId(1), "voice_input")
+    )
+
+    assert runtime.admit_entry_panel_open() is False
+    assert notifier.messages
+    assert "Voice Input is active" in notifier.messages[-1][1]
 
 
 class Watchdog:

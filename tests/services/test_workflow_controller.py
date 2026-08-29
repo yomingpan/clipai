@@ -28,6 +28,36 @@ def controller() -> WorkflowController:
     return WorkflowController(SessionSnapshot("w1", 0, SessionStatus.CREATED, "a", "A", "model"), Presenter())
 
 
+def test_completion_emits_precise_accepted_step_identity_once() -> None:
+    accepted = []
+    workflow = WorkflowController(
+        SessionSnapshot("w1", 0, SessionStatus.CREATED, "a", "A", "model"),
+        Presenter(),
+        on_step_accepted=lambda workflow_id, step_id: accepted.append((workflow_id, step_id)),
+    )
+    current = invocation("accepted")
+    stale = invocation("stale")
+    resolved = action()
+    workflow.begin_invocation(current, resolved)
+
+    workflow.complete(
+        current,
+        resolved,
+        current.input_target.document,
+        "result",
+        ("copy",),
+    )
+    workflow.complete(
+        stale,
+        resolved,
+        stale.input_target.document,
+        "late result",
+        ("copy",),
+    )
+
+    assert accepted == [("w1", "accepted")]
+
+
 def test_contextual_source_capture_enters_question_state_with_fixed_snapshot() -> None:
     workflow = controller()
     token = workflow.begin_contextual_source_capture("capture-1")

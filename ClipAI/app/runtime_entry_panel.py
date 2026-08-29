@@ -26,6 +26,7 @@ from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.entry_panel import EntryPanelCoordinator
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.input_target_resolver import InputTargetResolver
+from ClipAI.services.recent_actions import RecentActionHistory
 
 
 class WorkflowActionAdmitter(Protocol):
@@ -40,6 +41,8 @@ class WorkflowActionAdmitter(Protocol):
         result_route: ResultRoute = "popup",
         input_target: InputTarget | None = None,
     ) -> ActionStartAdmission: ...
+
+    def entry_panel_action_block_reason(self, action: EntryActionRef) -> str: ...
 
 
 EntryPanelRuntimeCommand: TypeAlias = (
@@ -72,6 +75,7 @@ class EntryPanelRuntimeModule:
         supervisor: TaskSupervisor,
         enqueue: Callable[[object], None],
         presenter: EntryPanelPresenter,
+        recent_actions: RecentActionHistory | None = None,
     ) -> None:
         self._coordinator = coordinator
         self._actions = actions
@@ -83,6 +87,7 @@ class EntryPanelRuntimeModule:
         self._supervisor = supervisor
         self._enqueue = enqueue
         self._presenter = presenter
+        self._recent_actions = recent_actions
         self._input_targets = InputTargetResolver()
         self._source: EntryPanelSource | None = None
         self._task_id: str | None = None
@@ -104,7 +109,11 @@ class EntryPanelRuntimeModule:
                 "external" if external is not None else "unavailable",
                 external_window=external,
             )
-        snapshot = self._coordinator.open(uuid.uuid4().hex)
+        snapshot = self._coordinator.open(
+            uuid.uuid4().hex,
+            recent=self._recent_actions.refs if self._recent_actions is not None else (),
+            disabled=self._disabled_actions(),
+        )
         self._presenter.present_entry_panel(snapshot)
         return snapshot
 
@@ -161,6 +170,10 @@ class EntryPanelRuntimeModule:
     def select_action(self, action: EntryActionRef) -> None:
         current = self._coordinator.snapshot
         if current is None:
+            return
+        reason = self._workflows.entry_panel_action_block_reason(action)
+        if reason:
+            self._presenter.present_entry_panel(self._coordinator.show_error(reason))
             return
         self._cancel_preparation()
         selection_id = EntryPanelSelectionId(uuid.uuid4().hex)
@@ -229,6 +242,18 @@ class EntryPanelRuntimeModule:
         if current is not None:
             self.close(current.panel_id)
 
+    def request_escape(self) -> bool:
+        current = self._coordinator.snapshot
+        if current is None:
+            return False
+        self.handle(EntryPanelEscape(current.panel_id))
+        return True
+
+    def refresh_availability(self) -> None:
+        snapshot = self._coordinator.set_disabled(self._disabled_actions())
+        if snapshot is not None:
+            self._presenter.present_entry_panel(snapshot)
+
     def _schedule_external_preparation(
         self,
         panel_id: str,
@@ -294,3 +319,10 @@ class EntryPanelRuntimeModule:
     def _matches_panel(self, panel_id: str) -> bool:
         current = self._coordinator.snapshot
         return current is not None and current.panel_id == panel_id
+
+    def _disabled_actions(self) -> dict[EntryActionRef, str]:
+        return {
+            action: reason
+            for action in self._coordinator.actions
+            if (reason := self._workflows.entry_panel_action_block_reason(action))
+        }

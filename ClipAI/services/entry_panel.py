@@ -61,6 +61,14 @@ class EntryPanelCoordinator:
     def snapshot(self) -> EntryPanelSnapshot | None:
         return self._snapshot
 
+    @property
+    def actions(self) -> tuple[EntryActionRef, ...]:
+        return tuple(
+            candidate.action
+            for category in self._catalog.categories
+            for candidate in (*category.flagship, *category.advanced)
+        )
+
     def open(
         self,
         panel_id: str,
@@ -180,6 +188,28 @@ class EntryPanelCoordinator:
             status="error",
             message=message,
             selection_id=None,
+        )
+        return self._snapshot
+
+    def set_disabled(
+        self,
+        disabled: dict[EntryActionRef, str],
+    ) -> EntryPanelSnapshot | None:
+        self._disabled = dict(disabled)
+        if self._snapshot is None:
+            return None
+        self._snapshot = replace(
+            self._snapshot,
+            options=tuple(
+                replace(
+                    option,
+                    enabled=not self._disabled.get(option.action, ""),
+                    disabled_reason=self._disabled.get(option.action, ""),
+                )
+                if option.action is not None
+                else option
+                for option in self._snapshot.options
+            ),
         )
         return self._snapshot
 

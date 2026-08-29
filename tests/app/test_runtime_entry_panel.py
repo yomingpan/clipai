@@ -35,13 +35,17 @@ class Supervisor:
 
 
 class Workflows:
-    def __init__(self, *, foreground_workflow_id=None) -> None:
+    def __init__(self, *, foreground_workflow_id=None, block_reason="") -> None:
         self.foreground_workflow_id = foreground_workflow_id
+        self.block_reason = block_reason
         self.starts = []
 
     def start_action(self, action_id, press_type, *, result_route="popup", input_target=None):
         self.starts.append((action_id, press_type, result_route, input_target))
         return ActionStartAdmission("accepted")
+
+    def entry_panel_action_block_reason(self, _action):
+        return self.block_reason
 
 
 class Activator:
@@ -177,3 +181,41 @@ def test_popup_source_reuses_current_semantic_selection_without_external_capture
     assert inputs.documents == []
     assert supervisor.work == {}
     assert coordinator.snapshot is None
+
+
+def test_known_runtime_unavailability_keeps_actions_visible_and_disabled() -> None:
+    module, coordinator, _presenter, _supervisor, workflows, _activator, _inputs, _commands, _external = make_module()
+    workflows.block_reason = "AI 正在回答，完成後再選擇功能。"
+
+    module.open()
+    scene = coordinator.select_digit("4").snapshot
+
+    assert scene.options
+    assert all(not option.enabled for option in scene.options)
+    assert all("AI 正在回答" in option.disabled_reason for option in scene.options)
+
+
+def test_action_rechecks_runtime_availability_at_selection_intent() -> None:
+    module, coordinator, _presenter, supervisor, workflows, _activator, _inputs, _commands, _external = make_module()
+    module.open()
+    workflows.block_reason = "AI 正在回答，完成後再選擇功能。"
+
+    module.select_action(EntryActionRef("shorten_content", "short"))
+
+    assert coordinator.snapshot.status == "error"
+    assert "AI 正在回答" in coordinator.snapshot.message
+    assert supervisor.work == {}
+
+
+def test_availability_refresh_updates_open_options_without_navigation_reset() -> None:
+    module, coordinator, _presenter, _supervisor, workflows, _activator, _inputs, _commands, _external = make_module()
+    module.open()
+    before = coordinator.select_digit("4").snapshot
+    workflows.block_reason = "AI 正在回答，完成後再選擇功能。"
+
+    module.refresh_availability()
+
+    after = coordinator.snapshot
+    assert after.page == before.page
+    assert after.category_id == before.category_id
+    assert all(not option.enabled for option in after.options)

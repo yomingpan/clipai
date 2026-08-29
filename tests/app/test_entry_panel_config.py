@@ -224,6 +224,6 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
 def test_config_bundle_exposes_disabled_entry_panel_catalog() -> None:
     bundle = load_config_bundle()
 
-    assert bundle.app.entry_panel_enabled is False
+    assert bundle.app.entry_panel_enabled is True
     assert bundle.entry_panel.category_for_slot(3).category_id == "understand"
     assert bundle.schema_versions.entry_panel == 1

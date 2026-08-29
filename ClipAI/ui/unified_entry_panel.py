@@ -273,7 +273,6 @@ class UnifiedEntryPanelDialog:
         return f"{key}{option.label}{description}{reason}"
 
     def _on_escape(self, _event=None) -> str:
-        self._intent.escape()
         return "break"
 
     def _on_key(self, event) -> None:

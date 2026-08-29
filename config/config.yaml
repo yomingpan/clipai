@@ -4,7 +4,7 @@ app:
   stream: true
   temperature: 0.2
   modifier_mode: ctrl_alt
-  entry_panel_enabled: false
+  entry_panel_enabled: true
   system_prompt: |
     你是 ClipAI，幫使用者快速處理眼前內容。
 

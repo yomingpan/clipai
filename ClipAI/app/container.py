@@ -14,6 +14,7 @@ from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
 from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
+from ClipAI.app.recent_action_persistence import RecentActionPersistence
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
@@ -38,6 +39,7 @@ from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
 from ClipAI.platform.external_window import SystemExternalWindowActivator
+from ClipAI.platform.recent_actions import JsonRecentActionStore
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
 from ClipAI.platform.pointer_input import WindowsPointerPressReader
 from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
@@ -52,6 +54,7 @@ from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.entry_panel import EntryPanelCoordinator
+from ClipAI.services.recent_actions import RecentActionHistory
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.action_feedback import ActionFeedbackService
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
@@ -241,6 +244,21 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
 
     user_control = UserControlCoordinator()
     incident_reporter = IncidentReporter()
+    local_app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    recent_store = JsonRecentActionStore(local_app_data / "ClipAI" / "recent_actions.json")
+    valid_recent = []
+    for ref in recent_store.load():
+        try:
+            bundle.entry_panel.candidate_for_action(ref)
+        except ValueError:
+            continue
+        valid_recent.append(ref)
+    recent_actions = RecentActionHistory(tuple(valid_recent))
+    recent_persistence = RecentActionPersistence(
+        recent_store,
+        supervisor,
+        incident_reporter,
+    )
     workflow_module = WorkflowRuntimeModule(
         actions=bundle.actions,
         shortcuts=bundle.shortcuts,
@@ -260,6 +278,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         personal_styles=personal_styles,
         input_resolver=input_resolver,
         supervisor=supervisor,
+        recent_actions=recent_actions,
+        recent_action_sink=recent_persistence.schedule,
     )
     result_output_module = ResultOutputRuntimeModule(
         output_actions=output_actions,
@@ -307,7 +327,6 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         presenter=view,
         operation_tracker=operation_tracker,
     )
-    local_app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
     owned_processes = AppOwnedProcessRegistry()
     voice_engine = BrowserSpeechWebView2Engine(
         lambda event: enqueue(VoiceEngineEventReceived(event)),
@@ -336,6 +355,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             supervisor=supervisor,
             enqueue=enqueue,
             presenter=view,
+            recent_actions=recent_actions,
         )
         if bundle.app.entry_panel_enabled
         else None

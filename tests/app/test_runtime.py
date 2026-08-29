@@ -12,7 +12,7 @@ from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ControlSurfaceRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ActionInvocation, ControlSurfaceRef, EntryActionRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
@@ -22,6 +22,7 @@ from ClipAI.services.provider_binding import ProviderExecutionBinding, ProviderR
 from ClipAI.services.provider_configuration import ProviderConfigurationCoordinator
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
 from ClipAI.services.paste_target import PasteTargetCoordinator
+from ClipAI.services.recent_actions import RecentActionHistory
 from ClipAI.support.diagnostics import IncidentReporter
 
 
@@ -571,7 +572,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, personal_styles=None, entry_panel=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, personal_styles=None, entry_panel=None, recent_actions=None, recent_action_sink=None):
     action = ActionDefinition(
         "a",
         "Action",
@@ -651,6 +652,8 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         personal_styles=personal_styles,
         input_resolver=ContextResolver(),
         supervisor=supervisor,
+        recent_actions=recent_actions,
+        recent_action_sink=recent_action_sink,
     )
     output_module = ResultOutputRuntimeModule(
         output_actions=outputs,
@@ -1934,6 +1937,56 @@ def test_start_action_admission_uses_explicit_prepared_input_target() -> None:
     assert invocation_id is not None
     supervisor.work[invocation_id]()
     assert view.execute_action.invocations[-1].input_target is prepared_target
+
+
+def test_accepted_follow_up_records_its_root_action_as_recent() -> None:
+    history = RecentActionHistory()
+    persisted = []
+    runtime, view, supervisor, _outputs, _listener = make_runtime(
+        recent_actions=history,
+        recent_action_sink=persisted.append,
+    )
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    controller = workflow(view, view.snapshots[-1].session_id)
+    root_invocation_id = controller.snapshot.active_invocation_id
+    assert root_invocation_id is not None
+    supervisor.work[root_invocation_id]()
+    root_invocation = view.execute_action.invocations[-1]
+    root_action = view.execute_action.actions[-1]
+    controller.complete(
+        root_invocation,
+        root_action,
+        InputDocument("source", "selection"),
+        "root result",
+        ("follow_up",),
+    )
+    runtime.drain_commands()
+
+    follow_invocation = ActionInvocation(
+        "follow-step",
+        "shorten",
+        "long",
+        InputTarget(
+            "workflow_result",
+            InputDocument("question", "workflow_result", controller.snapshot.session_id, root_invocation_id),
+        ),
+        workflow_id=controller.snapshot.session_id,
+        parent_step_id=root_invocation_id,
+    )
+    follow_action = view.actions.resolve("shorten", "long")
+    controller.begin_invocation(follow_invocation, follow_action)
+    controller.complete(
+        follow_invocation,
+        follow_action,
+        follow_invocation.input_target.document,
+        "follow result",
+        ("follow_up",),
+    )
+    runtime.drain_commands()
+
+    assert history.refs == (EntryActionRef("a", "short"),)
+    assert persisted[-1] == history.refs
 
 
 def test_new_visible_action_replaces_a_released_unpinned_popup() -> None:
