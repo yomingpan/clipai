@@ -5,6 +5,9 @@ Scope: an independent, desktop-native action-entry UI that reuses ClipAI's
 existing workflow and service pipeline. This document intentionally contains no
 implementation change.
 
+The implementation sequence, commit boundaries and documentation gates live in
+[the development plan](./unified-entry-panel-development-plan.md).
+
 ## Executive decision
 
 Adopt a **bounded Entry Panel slice**, not a rewrite and not a PopupControl
@@ -27,6 +30,9 @@ The selected design preserves these current owners:
 | Provider task, transport cancellation and settlement | `ProviderExecutionModule` | None. |
 | Selection and paste clipboard transactions | Container-scoped `ClipboardTransactionCoordinator` | None; request existing capture through the action path. |
 | Physical key state, hold timer and stale recovery | Platform hotkey listener | Add a generic modifier-hold gesture. |
+| Panel launch/source/selection-operation identity | `EntryPanelRuntimeModule` | Project one active Panel and reject stale preparation completions. |
+| Panel navigation, search, density and numeric resolution | `EntryPanelCoordinator` | Apply pure transitions; never execute an Action. |
+| Recent successful Action aggregate | `RecentActionHistory` | Project the top three references; never infer success. |
 | Dialog/toolkit lifecycle, focus and geometry | UI adapter | Own the Panel surface only. |
 
 ## Evidence and current capability
@@ -75,8 +81,9 @@ Key source material:
    navigating, rendering and provider completion never imply a new action.
 3. Input is captured at action intent, not at panel open. This preserves the
    existing "explicit selection first, clipboard fallback" rule.
-4. The panel closes only after the runtime admits the action. UI feedback
-   mirrors the actual lifecycle: pending, rejected, disabled or closed.
+4. The panel closes only after input preparation has settled and the workflow
+   runtime admits the action. UI feedback mirrors the actual lifecycle:
+   preparing, rejected, disabled or closed.
 5. A lightweight abstraction is added only where it removes present coupling:
    modifier hold, entry IA/catalog, action admission, external-target
    activation and recent-action history.
@@ -101,8 +108,9 @@ physical Ctrl+Alt hold
 OpenUnifiedEntryPanel typed command
         ▼
 EntryPanelRuntimeModule ──────── EntryPanelCatalog ← config/entry_panel.yaml
-  │ source snapshot / navigation                  (IA and copy only)
-  │ external target restore + action-time capture
+  │ launch/source/selection identity              (IA and copy only)
+  ├── EntryPanelCoordinator (pure navigation/search/density transitions)
+  │ external target restore + action-time capture, scoped by selection ID
   ▼
 WorkflowRuntimeModule.start_action(...) → ActionExecutor → InputResolver
                                                 │              │
@@ -125,6 +133,7 @@ UnifiedEntryPanelDialog
 |---|---|---|---|
 | Generic modifier-hold gesture | platform + typed core command | Exact Ctrl+Alt recognition, 500 ms timer, physical-state recheck and numeric-key claim. | Panel UI, action execution, clipboard. |
 | `EntryPanelRuntimeModule` | app | Compose launch lifecycle, source snapshot, panel coordinator and action admission. | Workflow state, provider task, raw native UI handles. |
+| `EntryPanelCoordinator` | services | Own the immutable Panel projection and pure navigation, search, density, disabled-state and numeric-key transitions. | Toolkit state, external focus, Action execution or persistence. |
 | `UnifiedEntryPanelDialog` | ui | Render/filter/navigate; native placement/focus; emit typed UI commands. | Services, platform APIs, clipboard, provider. |
 | `EntryPanelCatalog` | services/config composition | Validated panel IA: category, order, copy, flagship selection. | Action execution semantics or prompts. |
 | `ExternalWindowRef` + activator port | core/platform | Opaque external target reference and safe restore/validate operation. | Panel policy or duplicate paste ownership. |
@@ -165,13 +174,15 @@ Keep `ActionCatalog` execution-only. Add `config/entry_panel.yaml`, compiled
 and validated during app composition into `EntryPanelCatalog`.
 
 The file owns categories, visual order, concise descriptions and up to four
-flagship actions per scene. It does **not** duplicate prompts, input modes,
-provider choices, keyboard mappings or availability logic. Validation fails
-application startup when an action is unknown, repeated across a location, a
-category is invalid, or a flagship limit is exceeded. The digit assignments
-are structural rather than duplicated configuration:
+flagship candidates per scene. Each candidate is an explicit
+`action_id + press_type` reference, so press-variant semantics are not guessed
+by the UI. It does **not** duplicate prompts, input modes, provider choices,
+keyboard mappings or availability logic. Validation fails application startup
+when an action/variant is unknown, repeated across a location, a category is
+invalid, or a flagship limit is exceeded. The digit assignments are structural
+rather than duplicated configuration:
 
-- Recent: 1–3.
+- Recent: 0–2.
 - Top-level categories: 3–6 as defined by the PRD navigation scheme.
 - Scene flagship actions: 1–4.
 - More: no numeric mapping; use search, Tab, arrows, Enter or click.
@@ -179,12 +190,22 @@ are structural rather than duplicated configuration:
 Known unavailable actions remain visible and disabled with a reason. Actions
 whose input/OCR viability is only knowable at execution are not pre-probed.
 
-### 3. Typed admission into the established workflow
+### 3. Two-stage typed admission into the established workflow
 
 Expose a narrow typed `start_action(...) -> ActionStartAdmission` on
 `WorkflowRuntimeModule`. It uses the current internal start path and accepts an
 optional explicit `InputTarget`; the legacy `StartAction` command handler
 continues to call the same behavior and may discard the result.
+
+External input preparation is a separate, identity-scoped stage because target
+activation and selection capture are blocking work. `EntryPanelRuntimeModule`
+allocates one `EntryPanelSelectionId`, projects `preparing`, and schedules the
+work through `TaskSupervisor`'s interactive lane. Completion returns through
+the typed command queue with the same Panel lifecycle ID and selection ID. A
+closed/reopened Panel, a second selection, cancellation or shutdown invalidates
+the old identity; its late completion cannot start an Action or close the new
+Panel. The existing clipboard transaction coordinator remains responsible for
+safe restoration even when preparation becomes stale.
 
 `ActionStartAdmission` is the single synchronous fact used to close the Panel:
 
@@ -216,12 +237,18 @@ For an external source, the intentional ordering is:
 ```text
 select Action → Panel pending → restore/validate external target
               → InputResolver captures selection (clipboard fallback only inside its existing contract)
+              → typed preparation completion with matching selection ID
               → explicit InputDocument/InputTarget → action admission
               → close Panel only if accepted
 ```
 
 The explicit document prevents the workflow from capturing a second time after
 the Panel or Popup has changed focus.
+
+Closing or navigating while preparation is pending cancels the task when
+possible and always invalidates the selection ID. A preparation failure restores
+the same Panel projection with an actionable error; it must not fall back to a
+new foreground window or a later clipboard value.
 
 ### 5. Independent UI surface with shared lifecycle
 
@@ -256,8 +283,12 @@ UI behavior confirmed for the first release:
 
 Introduce `RecentActionRef(action_id, press_type)` and `RecentActionHistory`.
 It maintains a unique, most-recent-first top three list. It receives a precise,
-typed accepted-step event—not a workflow snapshot revision—and persists only
-those two fields with ordering in a dedicated atomic JSON file.
+typed `WorkflowStepAccepted(workflow_id, step_id)` event—not a workflow snapshot
+revision. The event is enqueued only after `WorkflowController.complete`
+accepts the active invocation. `WorkflowRuntimeModule` resolves that immutable
+step and its root from the authoritative controller before sending the minimal
+reference to `RecentActionHistory`; persistence contains only those two fields
+with ordering in a dedicated atomic JSON file.
 
 Confirmed policy:
 
@@ -280,9 +311,12 @@ preferences) or `WorkflowController` history (per-workflow accepted steps).
 |---|---|---|
 | `OpenUnifiedEntryPanel` | core command | Platform-to-runtime entry intent, carrying a launch/press identity; never an alias of `StartAction`. |
 | `EntryPanelSource` | core immutable model | Popup semantic source or opaque external-window reference; no clipboard payload. |
-| `EntryPanelCatalog` | services/config | Validated, display-only mapping to existing action IDs. |
+| `EntryPanelCatalog` | services/config | Validated, display-only mapping to existing Action ID and press-type references. |
 | `ActionStartAdmission` | core/app boundary | Exact accepted/rejected/blocked start result; only accepted permits Panel close. |
-| `InputTarget` | existing core model extension/use | Carries explicit `InputDocument` and selection-capture identity; executor skips duplicate capture. |
+| `EntryPanelSelectionId` | core/app boundary | Prevents late target/input preparation from acting on a closed, reopened or newer Panel. |
+| `EntryPanelInputPrepared` | core command | Returns an explicit document or typed preparation failure through the ordered command queue. |
+| `InputTarget` | existing core model use | Carries the explicit `InputDocument`; the executor skips duplicate capture while Panel selection identity remains separate. |
+| `WorkflowStepAccepted` | core/app command | Minimal accepted-step identity emitted only after controller acceptance; never carries user content. |
 | `RecentActionRef` | core/services | Minimal replay reference; no user content or window metadata. |
 | modifier-hold press identity | platform internal | Bounds timers, release, stale recovery and shutdown to one physical hold. |
 
@@ -319,7 +353,8 @@ Privacy boundaries:
 - All PRD action IDs compile in `entry_panel.yaml`; invalid/missing/duplicate
   catalog entries fail predictably.
 - Popup source reuse; external target restore; capture at action intent;
-  restore/capture failure; explicit input target prevents duplicate capture.
+  restore/capture failure; explicit input target prevents duplicate capture;
+  closed/reopened/newer Panel rejects late preparation completion.
 - `ActionStartAdmission` drives close/reject state; existing provider and
   workflow tests remain green.
 - Recent ordering, dedupe, press-type replay, root-follow-up behavior,
