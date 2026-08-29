@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from ClipAI.core.models import EntryActionRef, EntryPanelDecision, EntryPanelOption, EntryPanelSnapshot
+from ClipAI.core.models import EntryActionRef, EntryPanelDecision, EntryPanelOption, EntryPanelSelectionId, EntryPanelSnapshot
 
 
 @dataclass(frozen=True)
@@ -137,6 +137,50 @@ class EntryPanelCoordinator:
             raise RuntimeError("entry panel is not open")
         density = "compact" if self._snapshot.density == "detailed" else "detailed"
         self._snapshot = replace(self._snapshot, density=density)
+        return self._snapshot
+
+    def begin_preparation(
+        self,
+        selection_id: EntryPanelSelectionId,
+    ) -> EntryPanelSnapshot:
+        if self._snapshot is None:
+            raise RuntimeError("entry panel is not open")
+        self._snapshot = replace(
+            self._snapshot,
+            status="preparing",
+            message="Preparing input…",
+            selection_id=selection_id,
+        )
+        return self._snapshot
+
+    def settle_preparation(
+        self,
+        selection_id: EntryPanelSelectionId,
+        *,
+        message: str = "",
+    ) -> EntryPanelSnapshot | None:
+        if self._snapshot is None or self._snapshot.selection_id != selection_id:
+            return None
+        self._snapshot = replace(
+            self._snapshot,
+            status="error" if message else "idle",
+            message=message,
+            selection_id=None,
+        )
+        return self._snapshot
+
+    def close(self) -> None:
+        self._snapshot = None
+
+    def show_error(self, message: str) -> EntryPanelSnapshot:
+        if self._snapshot is None:
+            raise RuntimeError("entry panel is not open")
+        self._snapshot = replace(
+            self._snapshot,
+            status="error",
+            message=message,
+            selection_id=None,
+        )
         return self._snapshot
 
     def escape(self) -> EntryPanelSnapshot | None:

@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EntryPanelSnapshot, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 from ClipAI.core.voice import VoiceCaptureId, VoiceCaptureSurfaceContext, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
 
@@ -56,6 +56,10 @@ class ResultPresenter(Protocol):
 
 class WorkflowAttentionPresenter(Protocol):
     def present_workflow_attention(self, attention: WorkflowAttention) -> None: ...
+
+
+class EntryPanelPresenter(Protocol):
+    def present_entry_panel(self, snapshot: EntryPanelSnapshot | None) -> None: ...
 
 
 class ApplicationView(ResultPresenter, Protocol):

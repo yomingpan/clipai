@@ -9,6 +9,7 @@ from ClipAI.core.state import CancellationToken
 PressType = Literal["short", "long"]
 ShortcutPressId = NewType("ShortcutPressId", int)
 ModifierHoldId = NewType("ModifierHoldId", int)
+EntryPanelSelectionId = NewType("EntryPanelSelectionId", str)
 ShortcutPressOutcome = Literal["released", "cancelled"]
 InterruptionScope = Literal["current", "all"]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
@@ -115,6 +116,7 @@ class EntryPanelSnapshot:
     search_text: str = ""
     status: Literal["idle", "preparing", "error"] = "idle"
     message: str = ""
+    selection_id: EntryPanelSelectionId | None = None
 
 
 @dataclass(frozen=True)
@@ -569,6 +571,13 @@ class ExternalWindowRef:
     window_token: str
     process_id: int
     observation_sequence: int
+
+
+@dataclass(frozen=True)
+class EntryPanelSource:
+    kind: Literal["workflow", "external", "unavailable"]
+    workflow_id: str = ""
+    external_window: ExternalWindowRef | None = None
 
 
 @dataclass(frozen=True)

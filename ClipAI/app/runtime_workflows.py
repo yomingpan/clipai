@@ -321,6 +321,10 @@ class WorkflowRuntimeModule:
     def has_foreground_workflow(self) -> bool:
         return self._foreground_id in self._records
 
+    @property
+    def foreground_workflow_id(self) -> str | None:
+        return self._foreground_id if self._foreground_id in self._records else None
+
     def observe_paste_completion(
         self,
         command: PasteOperationCompleted,

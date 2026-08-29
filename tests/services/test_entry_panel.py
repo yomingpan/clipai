@@ -1,5 +1,5 @@
 from ClipAI.app.config_loader import load_action_catalog, load_entry_panel_catalog
-from ClipAI.core.models import EntryActionRef
+from ClipAI.core.models import EntryActionRef, EntryPanelSelectionId
 from ClipAI.services.entry_panel import EntryPanelCoordinator
 
 
@@ -111,3 +111,34 @@ def test_disabled_action_stays_visible_with_reason_and_cannot_be_selected() -> N
     assert scene.options[0].enabled is False
     assert scene.options[0].disabled_reason == "請先完成 Personal Style 設定"
     assert decision.action is None
+
+
+def test_preparation_identity_rejects_late_completion_after_replacement() -> None:
+    panel = coordinator()
+    panel.open("panel-1")
+    first = EntryPanelSelectionId("selection-1")
+    second = EntryPanelSelectionId("selection-2")
+
+    panel.begin_preparation(first)
+    pending = panel.begin_preparation(second)
+    stale = panel.settle_preparation(first, message="stale failure")
+    settled = panel.settle_preparation(second, message="target unavailable")
+
+    assert pending.status == "preparing"
+    assert pending.selection_id == second
+    assert stale is None
+    assert settled.status == "error"
+    assert settled.message == "target unavailable"
+    assert settled.selection_id is None
+
+
+def test_close_invalidates_active_preparation_identity() -> None:
+    panel = coordinator()
+    panel.open("panel-1")
+    selection_id = EntryPanelSelectionId("selection-1")
+    panel.begin_preparation(selection_id)
+
+    panel.close()
+
+    assert panel.snapshot is None
+    assert panel.settle_preparation(selection_id) is None
