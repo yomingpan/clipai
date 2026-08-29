@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ClipAI.core.commands import CloseSession, CopyResult, SelectProviderModel, SetFirstUseHintsEnabled, StartAction
-from ClipAI.core.models import UserPreferences
+from ClipAI.core.commands import CloseSession, CopyResult, EntryPanelDigitPressed, OpenUnifiedEntryPanel, SelectProviderModel, SetFirstUseHintsEnabled, StartAction
+from ClipAI.core.models import ModifierHoldId, UserPreferences
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
 from tests.app.test_runtime import GuidanceStore, ModelPreferences, make_runtime
 
@@ -71,3 +71,25 @@ def test_runtime_routes_close_output_cleanup_before_workflow_close() -> None:
     runtime.drain_commands()
 
     assert calls == [("output", "workflow-1"), ("workflow", "workflow-1")]
+
+
+def test_runtime_routes_entry_panel_commands_to_its_independent_module() -> None:
+    commands = []
+
+    class EntryPanel:
+        def handle(self, command) -> None:
+            commands.append(command)
+
+        def stop(self) -> None:
+            pass
+
+    panel = EntryPanel()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(entry_panel=panel)
+    opened = OpenUnifiedEntryPanel(ModifierHoldId(1))
+    digit = EntryPanelDigitPressed(ModifierHoldId(1), "3")
+
+    runtime.enqueue(opened)
+    runtime.enqueue(digit)
+    runtime.drain_commands()
+
+    assert commands == [opened, digit]

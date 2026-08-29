@@ -13,6 +13,7 @@ from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
+from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
@@ -36,6 +37,7 @@ from ClipAI.platform.dotenv_preferences import DotenvModelPreferenceStore
 from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
+from ClipAI.platform.external_window import SystemExternalWindowActivator
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
 from ClipAI.platform.pointer_input import WindowsPointerPressReader
 from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
@@ -49,6 +51,7 @@ from ClipAI.providers.http_transport import HttpTransport, HttpxAsyncTransport
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
+from ClipAI.services.entry_panel import EntryPanelCoordinator
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.action_feedback import ActionFeedbackService
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
@@ -317,6 +320,27 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         is_owned_process=owned_processes.contains,
     )
 
+    def capture_entry_panel_source():
+        target = foreground_monitor.capture_foreground_target()
+        return target.external_ref if target is not None else None
+
+    entry_panel_module = (
+        EntryPanelRuntimeModule(
+            coordinator=EntryPanelCoordinator(bundle.entry_panel),
+            actions=bundle.actions,
+            workflows=workflow_module,
+            workflow_context_reader=view.workflow_context,
+            external_source_reader=capture_entry_panel_source,
+            external_window_activator=SystemExternalWindowActivator(),
+            input_resolver=input_resolver,
+            supervisor=supervisor,
+            enqueue=enqueue,
+            presenter=view,
+        )
+        if bundle.app.entry_panel_enabled
+        else None
+    )
+
     def project_voice(projection) -> None:
         tray.set_voice_projection(projection)
         view.set_voice_projection(projection)
@@ -377,6 +401,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         user_control=user_control,
         voice_input=voice_input_module,
         personal_styles=personal_styles_module,
+        entry_panel=entry_panel_module,
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):

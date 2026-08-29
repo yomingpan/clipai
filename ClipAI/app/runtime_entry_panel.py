@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import uuid
-from typing import Protocol
+from typing import Protocol, TypeAlias
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import EntryPanelInputPrepared
+from ClipAI.core.commands import CloseEntryPanel, EntryPanelActionSelected, EntryPanelDigitPressed, EntryPanelEscape, EntryPanelInputPrepared, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, OpenUnifiedEntryPanel
 from ClipAI.core.errors import CancelledError, InputError
 from ClipAI.core.models import (
     ActionStartAdmission,
@@ -16,6 +16,7 @@ from ClipAI.core.models import (
     EntryPanelSource,
     ExternalWindowRef,
     InputTarget,
+    ModifierHoldId,
     PressType,
     ResultRoute,
 )
@@ -39,6 +40,20 @@ class WorkflowActionAdmitter(Protocol):
         result_route: ResultRoute = "popup",
         input_target: InputTarget | None = None,
     ) -> ActionStartAdmission: ...
+
+
+EntryPanelRuntimeCommand: TypeAlias = (
+    OpenUnifiedEntryPanel
+    | EntryPanelDigitPressed
+    | EntryPanelInputPrepared
+    | CloseEntryPanel
+    | EntryPanelActionSelected
+    | EntryPanelSlotSelected
+    | EntryPanelOpenMore
+    | EntryPanelSearchChanged
+    | EntryPanelToggleDensity
+    | EntryPanelEscape
+)
 
 
 class EntryPanelRuntimeModule:
@@ -71,12 +86,15 @@ class EntryPanelRuntimeModule:
         self._input_targets = InputTargetResolver()
         self._source: EntryPanelSource | None = None
         self._task_id: str | None = None
+        self._hold_id: ModifierHoldId | None = None
 
-    def open(self) -> EntryPanelSnapshot:
+    def open(self, hold_id: ModifierHoldId | None = None) -> EntryPanelSnapshot:
         current = self._coordinator.snapshot
         if current is not None:
+            self._hold_id = hold_id
             self._presenter.present_entry_panel(current)
             return current
+        self._hold_id = hold_id
         workflow_id = self._workflows.foreground_workflow_id
         if workflow_id is not None:
             self._source = EntryPanelSource("workflow", workflow_id=workflow_id)
@@ -90,6 +108,46 @@ class EntryPanelRuntimeModule:
         self._presenter.present_entry_panel(snapshot)
         return snapshot
 
+    def handle(self, command: EntryPanelRuntimeCommand) -> None:
+        if isinstance(command, OpenUnifiedEntryPanel):
+            self.open(command.hold_id)
+        elif isinstance(command, EntryPanelDigitPressed):
+            if self._hold_id is not None and command.hold_id == self._hold_id:
+                decision = self._coordinator.select_digit(command.digit)
+                self._presenter.present_entry_panel(decision.snapshot)
+                if decision.action is not None:
+                    self.select_action(decision.action)
+        elif isinstance(command, EntryPanelInputPrepared):
+            self._complete_preparation(command)
+        elif self._matches_panel(command.panel_id):
+            if isinstance(command, CloseEntryPanel):
+                self.close(command.panel_id)
+            elif isinstance(command, EntryPanelActionSelected):
+                self.select_action(command.action)
+            elif isinstance(command, EntryPanelSlotSelected):
+                decision = self._coordinator.select_digit(str(command.slot))
+                self._presenter.present_entry_panel(decision.snapshot)
+                if decision.action is not None:
+                    self.select_action(decision.action)
+            elif isinstance(command, EntryPanelOpenMore):
+                self._cancel_preparation()
+                self._presenter.present_entry_panel(self._coordinator.open_more())
+            elif isinstance(command, EntryPanelSearchChanged):
+                self._presenter.present_entry_panel(
+                    self._coordinator.set_search(command.text)
+                )
+            elif isinstance(command, EntryPanelToggleDensity):
+                self._presenter.present_entry_panel(
+                    self._coordinator.toggle_density()
+                )
+            elif isinstance(command, EntryPanelEscape):
+                self._cancel_preparation()
+                snapshot = self._coordinator.escape()
+                if snapshot is None:
+                    self._source = None
+                    self._hold_id = None
+                self._presenter.present_entry_panel(snapshot)
+
     def close(self, panel_id: str) -> None:
         current = self._coordinator.snapshot
         if current is None or current.panel_id != panel_id:
@@ -97,6 +155,7 @@ class EntryPanelRuntimeModule:
         self._cancel_preparation()
         self._coordinator.close()
         self._source = None
+        self._hold_id = None
         self._presenter.present_entry_panel(None)
 
     def select_action(self, action: EntryActionRef) -> None:
@@ -137,7 +196,7 @@ class EntryPanelRuntimeModule:
             return
         self._schedule_external_preparation(current.panel_id, selection_id, action, source)
 
-    def handle(self, command: EntryPanelInputPrepared) -> None:
+    def _complete_preparation(self, command: EntryPanelInputPrepared) -> None:
         current = self._coordinator.snapshot
         if current is None or current.panel_id != command.panel_id:
             return
@@ -164,6 +223,11 @@ class EntryPanelRuntimeModule:
             return
         message = admission.message or "This Action cannot start right now."
         self._presenter.present_entry_panel(self._coordinator.show_error(message))
+
+    def stop(self) -> None:
+        current = self._coordinator.snapshot
+        if current is not None:
+            self.close(current.panel_id)
 
     def _schedule_external_preparation(
         self,
@@ -226,3 +290,7 @@ class EntryPanelRuntimeModule:
         if self._task_id is not None:
             self._supervisor.cancel(self._task_id)
             self._task_id = None
+
+    def _matches_panel(self, panel_id: str) -> bool:
+        current = self._coordinator.snapshot
+        return current is not None and current.panel_id == panel_id

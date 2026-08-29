@@ -10,7 +10,7 @@ import uuid
 import customtkinter as ctk
 
 from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
-from ClipAI.core.models import ActiveWorkflowContext, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
+from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
@@ -20,6 +20,7 @@ from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.personal_styles import PersonalStylesDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
+from ClipAI.ui.unified_entry_panel import UnifiedEntryPanelDialog
 from ClipAI.ui.voice_setup import VoiceSetupDialog
 
 
@@ -126,6 +127,7 @@ class ResultDialogPresenter:
         self._provider_settings_dialog: ProviderSettingsDialog | None = None
         self._personal_styles_dialog: PersonalStylesDialog | None = None
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
+        self._entry_panel_dialog: UnifiedEntryPanelDialog | None = None
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
         self._voice_setup_dialog: VoiceSetupDialog | None = None
@@ -177,6 +179,25 @@ class ResultDialogPresenter:
 
     def present_workflow_attention(self, attention: WorkflowAttention) -> None:
         self._attention_updates.put(attention)
+
+    def present_entry_panel(self, snapshot: EntryPanelSnapshot | None) -> None:
+        if snapshot is None:
+            if self._entry_panel_dialog is not None:
+                self._entry_panel_dialog.close()
+                self._entry_panel_dialog = None
+            self._restore_focus_after_owned_surface()
+            return
+        if self._native_window_surface is None or self._display_metrics is None:
+            return
+        self._hold_focus_for_owned_surface()
+        if self._entry_panel_dialog is None:
+            self._entry_panel_dialog = UnifiedEntryPanelDialog(
+                self._root,
+                self._command_sink,
+                self._native_window_surface,
+                self._display_metrics,
+            )
+        self._entry_panel_dialog.show(snapshot)
 
     def show_provider_settings(self, state: ProviderSettingsState) -> None:
         if self._provider_settings_dialog is None:
@@ -255,6 +276,9 @@ class ResultDialogPresenter:
                 self._configure_voice_control(view.last_snapshot, view)
 
     def _hold_focus_for_shortcut_guide(self) -> None:
+        self._hold_focus_for_owned_surface()
+
+    def _hold_focus_for_owned_surface(self) -> None:
         if self._shortcut_guide_focus_hold_active:
             return
         self._shortcut_guide_focus_hold_active = True
@@ -270,6 +294,9 @@ class ResultDialogPresenter:
             return
 
     def _restore_focus_after_shortcut_guide(self) -> None:
+        self._restore_focus_after_owned_surface()
+
+    def _restore_focus_after_owned_surface(self) -> None:
         if not self._shortcut_guide_focus_hold_active:
             return
         self._shortcut_guide_focus_hold_active = False
@@ -348,6 +375,9 @@ class ResultDialogPresenter:
         if self._shortcut_guide_dialog is not None:
             self._shortcut_guide_dialog.destroy()
             self._shortcut_guide_dialog = None
+        if self._entry_panel_dialog is not None:
+            self._entry_panel_dialog.close()
+            self._entry_panel_dialog = None
         try:
             self._root.quit()
         except tk.TclError:
