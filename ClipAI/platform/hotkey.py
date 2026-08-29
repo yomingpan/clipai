@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ClipAI.core.hotkeys import GRAVE_KEY_ALIASES, GRAVE_KEY_TOKEN, canonicalize_hotkey, parse_hotkey_tokens
-from ClipAI.core.commands import InterruptionRequested, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted
-from ClipAI.core.models import ShortcutObservationSnapshot, ShortcutPressId, ShortcutPressRef
+from ClipAI.core.commands import EntryPanelDigitPressed, InterruptionRequested, OpenUnifiedEntryPanel, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted
+from ClipAI.core.models import ModifierHoldId, ShortcutObservationSnapshot, ShortcutPressId, ShortcutPressRef
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_key_is_pressed
 
 logger = logging.getLogger("clipai.hotkey")
@@ -103,6 +103,14 @@ class _HotkeyState:
     long_fired: bool = False
 
 
+@dataclass
+class _ModifierHoldState:
+    timer_generation: int
+    hold_id: ModifierHoldId
+    timer: threading.Timer | None = None
+    opened: bool = False
+
+
 class _ShortcutObservationLease:
     def __init__(
         self,
@@ -153,6 +161,8 @@ class _HotkeyDispatcher:
         timer_factory: Callable[..., threading.Timer] = threading.Timer,
         diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
         key_is_pressed: Callable[[str], bool | None] | None = None,
+        entry_panel_enabled: bool = False,
+        entry_panel_hold_sec: float = LONG_PRESS_SEC,
     ) -> None:
         self._hotkeys = [(shortcut_id, frozenset(tokens)) for shortcut_id, tokens in hotkeys]
         self._on_event = on_event
@@ -160,11 +170,15 @@ class _HotkeyDispatcher:
         self._timer_factory = timer_factory
         self._diagnostics_enabled = diagnostics_enabled
         self._key_is_pressed = key_is_pressed
+        self._entry_panel_enabled = entry_panel_enabled
+        self._entry_panel_hold_sec = entry_panel_hold_sec
         self._pressed: set[str] = set()
         self._active: dict[str, _HotkeyState] = {}
         self._escape: _HotkeyState | None = None
         self._timer_generation = 0
         self._press_generation = 0
+        self._hold_generation = 0
+        self._entry_hold: _ModifierHoldState | None = None
         self._observation_generation = 0
         self._observers: set[int] = set()
         self._lock = threading.RLock()
@@ -217,13 +231,75 @@ class _HotkeyDispatcher:
                     state.timer.cancel()
             if self._escape is not None and self._escape.timer is not None:
                 self._escape.timer.cancel()
+            if self._entry_hold is not None and self._entry_hold.timer is not None:
+                self._entry_hold.timer.cancel()
             self._pressed.clear()
             self._active.clear()
             self._escape = None
+            self._entry_hold = None
             self._observers.clear()
             self._stopped = True
         for state in active:
             self._on_event(ShortcutPressEnded(state.press_id, state.shortcut_id, "cancelled"))
+
+    def _update_entry_hold_on_press(self, token: str) -> None:
+        if not self._entry_panel_enabled:
+            return
+        state = self._entry_hold
+        if state is not None and not state.opened and token not in {"ctrl", "alt"}:
+            if state.timer is not None:
+                state.timer.cancel()
+            self._entry_hold = None
+            return
+        if self._entry_hold is not None or self._pressed != {"ctrl", "alt"}:
+            return
+        self._timer_generation += 1
+        self._hold_generation += 1
+        state = _ModifierHoldState(
+            self._timer_generation,
+            ModifierHoldId(self._hold_generation),
+        )
+
+        def fire(
+            hold_id=state.hold_id,
+            timer_generation=state.timer_generation,
+        ) -> None:
+            with self._lock:
+                current = self._entry_hold
+                if (
+                    self._stopped
+                    or current is None
+                    or current.hold_id != hold_id
+                    or current.timer_generation != timer_generation
+                    or self._pressed != {"ctrl", "alt"}
+                    or (
+                        self._key_is_pressed is not None
+                        and any(self._key_is_pressed(modifier) is False for modifier in ("ctrl", "alt"))
+                    )
+                ):
+                    return
+                current.opened = True
+                self._emit(OpenUnifiedEntryPanel(hold_id))
+
+        state.timer = self._timer_factory(self._entry_panel_hold_sec, fire)
+        state.timer.daemon = True
+        state.timer.start()
+        self._entry_hold = state
+
+    def _release_entry_hold(self, token: str) -> None:
+        state = self._entry_hold
+        if state is None or token not in {"ctrl", "alt"}:
+            return
+        if state.timer is not None:
+            state.timer.cancel()
+        self._entry_hold = None
+
+    def _claim_entry_digit(self, token: str) -> bool:
+        state = self._entry_hold
+        if state is None or not state.opened or token not in set("0123456789"):
+            return False
+        self._emit(EntryPanelDigitPressed(state.hold_id, token))
+        return True
 
     def _fire_long(
         self,
@@ -371,6 +447,10 @@ class _HotkeyDispatcher:
             if token in self._pressed:
                 return
             self._pressed.add(token)
+            self._update_entry_hold_on_press(token)
+            if self._claim_entry_digit(token):
+                self._report_key_state()
+                return
             matched = False
             if self._diagnostics_enabled("hotkey_raw_events") and (token in {"ctrl", "alt", "shift"} or len(self._pressed) > 1):
                 logger.debug("[clipai] Key press token=%s raw=(%s) pressed=%s", token, _describe_key(key), sorted(self._pressed))
@@ -437,6 +517,7 @@ class _HotkeyDispatcher:
                     sorted(self._pressed),
                 )
             self._pressed.discard(token)
+            self._release_entry_hold(token)
             for action_id, tokens in self._hotkeys:
                 if action_id not in self._active:
                     continue
@@ -482,6 +563,8 @@ def create_hotkey_dispatcher(
     timer_factory: Callable[..., threading.Timer] = threading.Timer,
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
     key_is_pressed: Callable[[str], bool | None] | None = None,
+    entry_panel_enabled: bool = False,
+    entry_panel_hold_sec: float = LONG_PRESS_SEC,
 ) -> _HotkeyDispatcher:
     return _HotkeyDispatcher(
         build_hotkey_bindings(shortcut_map, modifier_mode=modifier_mode),
@@ -490,6 +573,8 @@ def create_hotkey_dispatcher(
         timer_factory=timer_factory,
         diagnostics_enabled=diagnostics_enabled,
         key_is_pressed=key_is_pressed,
+        entry_panel_enabled=entry_panel_enabled,
+        entry_panel_hold_sec=entry_panel_hold_sec,
     )
 
 
@@ -500,6 +585,7 @@ def register_hotkeys_with_long_press(
     modifier_mode: str = "alt_shift",
     long_press_sec: float = LONG_PRESS_SEC,
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
+    entry_panel_enabled: bool = False,
 ):
     try:
         from pynput import keyboard
@@ -518,6 +604,7 @@ def register_hotkeys_with_long_press(
         long_press_sec=long_press_sec,
         diagnostics_enabled=diagnostics_enabled,
         key_is_pressed=windows_key_is_pressed,
+        entry_panel_enabled=entry_panel_enabled,
     )
     listener = keyboard.Listener(on_press=dispatcher.on_press, on_release=dispatcher.on_release)
     listener.start()

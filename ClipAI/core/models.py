@@ -8,6 +8,7 @@ from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
 ShortcutPressId = NewType("ShortcutPressId", int)
+ModifierHoldId = NewType("ModifierHoldId", int)
 ShortcutPressOutcome = Literal["released", "cancelled"]
 InterruptionScope = Literal["current", "all"]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]

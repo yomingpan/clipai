@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
-from ClipAI.core.models import FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, PasteOutcome, PasteTarget, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
+from ClipAI.core.models import FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
 from ClipAI.core.models import ControlSurfaceRef
 from ClipAI.core.voice import VoiceCaptureId, VoiceDisableId, VoiceEngineEvent, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
 
@@ -71,6 +71,17 @@ class ShortcutAttemptRejected:
 
 
 @dataclass(frozen=True)
+class OpenUnifiedEntryPanel:
+    hold_id: ModifierHoldId
+
+
+@dataclass(frozen=True)
+class EntryPanelDigitPressed:
+    hold_id: ModifierHoldId
+    digit: str
+
+
+@dataclass(frozen=True)
 class InterruptionRequested:
     scope: InterruptionScope
 
@@ -81,6 +92,8 @@ ShortcutInputEvent: TypeAlias = (
     | ShortcutPressInvoked
     | ShortcutPressEnded
     | ShortcutAttemptRejected
+    | OpenUnifiedEntryPanel
+    | EntryPanelDigitPressed
     | InterruptionRequested
 )
 

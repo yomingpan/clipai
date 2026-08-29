@@ -233,6 +233,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             callback,
             modifier_mode=bundle.app.modifier_mode,
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
+            entry_panel_enabled=bundle.app.entry_panel_enabled,
         )
 
     user_control = UserControlCoordinator()
