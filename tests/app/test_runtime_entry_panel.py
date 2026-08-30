@@ -41,8 +41,16 @@ class Workflows:
         self.block_reason = block_reason
         self.starts = []
 
-    def start_action(self, action_id, press_type, *, result_route="popup", input_target=None):
-        self.starts.append((action_id, press_type, result_route, input_target))
+    def start_action(
+        self,
+        action_id,
+        press_type,
+        *,
+        result_route="popup",
+        input_target=None,
+        admission_origin="shortcut",
+    ):
+        self.starts.append((action_id, press_type, result_route, input_target, admission_origin))
         return ActionStartAdmission("accepted")
 
     def entry_panel_action_block_reason(self, _action):
@@ -119,6 +127,7 @@ def test_external_action_restores_exact_source_then_admits_prepared_input() -> N
     assert activator.targets == [external]
     assert inputs.documents
     assert workflows.starts[-1][3].document.text == "selected at intent"
+    assert workflows.starts[-1][4] == "entry_panel"
     assert coordinator.snapshot is None
     assert presenter.snapshots[-1] is None
 
@@ -178,6 +187,7 @@ def test_popup_source_reuses_current_semantic_selection_without_external_capture
     assert target.document.text == "selected popup text"
     assert target.document.workflow_id == "workflow-1"
     assert target.document.step_id == "step-1"
+    assert workflows.starts[-1][4] == "entry_panel"
     assert activator.targets == []
     assert inputs.documents == []
     assert supervisor.work == {}

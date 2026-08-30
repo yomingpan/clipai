@@ -48,7 +48,9 @@ tests/              # Unit sims 與 integration tests
 - Unified Entry Panel 的 ownership 依 ADR-0012 分離：`EntryPanelCoordinator`
   擁有純導覽、搜尋與資訊密度 projection，`EntryPanelRuntimeModule` 擁有唯一
   Panel lifetime、launch source 與 input-preparation identity；它只能透過
-  `WorkflowRuntimeModule.start_action` 請求 Action admission。UI 不得讀
+  `WorkflowRuntimeModule.start_action` 請求 Action admission。Workflow runtime
+  必須以已捕捉的 `InputDocument.workflow_id + step_id` 驗證 contextual lineage，
+  不得在 admission 時以目前 Foreground Workflow 取代來源 identity。UI 不得讀
   clipboard、native handle、provider 或 Workflow state，也不得從 render 或
   focus 推導 Action intent。
 - 最近使用由 `RecentActionHistory` 擁有，只接收 `WorkflowController` 已接受的
@@ -423,9 +425,11 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
   `dispatched_unconfirmed`.
 - Paste acknowledgement has no `succeeded` state. Legal terminal states are
   `failed`, `cancelled`, `dispatched_unconfirmed`, and `cleanup_failed`.
-- Platform paste adapters own modifier state, target validation, activation,
-  final foreground validation, and input injection. Returning from input
-  injection proves dispatch only, not target consumption.
+- `SystemExternalWindowActivator` 是 external-window pre-dispatch 的唯一
+  implementation owner：modifier release、target validation、activation、final
+  foreground validation 與 cancellation check 必須由 Panel capture 和 Paste
+  共用。Platform paste adapter 只擁有 Paste Dispatch 與 input injection；返回
+  injection 只證明 dispatch，不證明目標已消費內容。
 - Clipboard Preservation is fail-closed. Unsupported non-redundant native
   formats stop the Paste Operation before clipboard mutation and dispatch.
 - `OutputActions.copy()` is wired through the same container-scoped

@@ -171,7 +171,9 @@ the Panel itself does not show an extra shortcut-guide entry.
 ### 2. Action catalog versus entry catalog
 
 Keep `ActionCatalog` execution-only. Add `config/entry_panel.yaml`, compiled
-and validated during app composition into `EntryPanelCatalog`.
+during app composition into `EntryPanelCatalog`; the catalog implementation
+owns semantic validity and lookup indexes while the config adapter owns YAML
+shape and error-path translation.
 
 The file owns categories, visual order, concise descriptions and up to four
 flagship candidates per scene. Each candidate is an explicit
@@ -213,6 +215,12 @@ safe restoration even when preparation becomes stale.
 - `rejected`: keep Panel visible and show the reason.
 - `blocked`: retain Panel with an explicit busy/voice message, as applicable.
 
+Panel admission is explicitly identified at this seam. Its provider-busy policy
+is checked again at final admission, while direct Shortcut policy remains
+unchanged. A prepared workflow-result document retains its captured Workflow
+and step lineage through admission; Workflow runtime validates that identity
+instead of re-reading the current Foreground Workflow.
+
 This avoids faking a shortcut, bypassing action execution, or treating a
 provider notification as action acceptance.
 
@@ -227,10 +235,12 @@ handles in the UI.
 | External application | Store opaque `ExternalWindowRef` at panel open. | Restore and validate target first, then request existing selection capture at action intent. |
 | External target cannot be restored | No source fallback. | Keep Panel with a visible error; do not use latest clipboard. |
 
-Extract a generic `ExternalWindowRef`/activation port from the native target
-logic already used by keyboard output. `PasteTarget` may derive the reference,
-but the Panel must not use `PasteTarget` as its semantic source or call native
-activation directly.
+Use one generic external-window activation implementation for Panel capture and
+keyboard Paste: modifier release, validation, focus evidence, revalidation and
+the final cancellation check are shared. `PasteTarget` may use that
+implementation, but the Panel must not use `PasteTarget` as its semantic source
+or call native activation directly; Paste Dispatch truth remains in the
+keyboard adapter.
 
 For an external source, the intentional ordering is:
 

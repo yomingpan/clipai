@@ -1,6 +1,9 @@
 from ClipAI.app.config_loader import load_action_catalog, load_entry_panel_catalog
+import pytest
+
 from ClipAI.core.models import EntryActionRef, EntryPanelSelectionId
-from ClipAI.services.entry_panel import EntryPanelCoordinator
+from ClipAI.services.action_catalog import ActionCatalog
+from ClipAI.services.entry_panel import EntryPanelCandidate, EntryPanelCatalog, EntryPanelCategory, EntryPanelCoordinator
 
 
 def coordinator() -> EntryPanelCoordinator:
@@ -156,3 +159,37 @@ def test_close_invalidates_active_preparation_identity() -> None:
 
     assert panel.snapshot is None
     assert panel.settle_preparation(selection_id) is None
+
+
+def test_catalog_rejects_semantically_invalid_categories_without_yaml_loader() -> None:
+    with pytest.raises(ValueError, match="slot must be one of: 3, 4, 5, 6"):
+        EntryPanelCatalog(
+            (
+                EntryPanelCategory(
+                    "invalid",
+                    2,
+                    "Invalid",
+                    "Invalid",
+                    (EntryPanelCandidate(EntryActionRef("unknown", "short"), "Unknown", ""),),
+                    (),
+                ),
+            ),
+            actions=ActionCatalog([]),
+        )
+
+
+def test_catalog_rejects_unknown_action_without_yaml_loader() -> None:
+    with pytest.raises(ValueError, match="unknown entry action: unknown/short"):
+        EntryPanelCatalog(
+            (
+                EntryPanelCategory(
+                    "understand",
+                    3,
+                    "Understand",
+                    "Understand",
+                    (EntryPanelCandidate(EntryActionRef("unknown", "short"), "Unknown", ""),),
+                    (),
+                ),
+            ),
+            actions=ActionCatalog([]),
+        )

@@ -8,6 +8,7 @@ from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import CloseEntryPanel, EntryPanelActionSelected, EntryPanelDigitPressed, EntryPanelEscape, EntryPanelInputPrepared, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, OpenUnifiedEntryPanel, SetEntryPanelDensity
 from ClipAI.core.errors import CancelledError, InputError
 from ClipAI.core.models import (
+    ActionAdmissionOrigin,
     ActionStartAdmission,
     ActiveWorkflowContext,
     EntryActionRef,
@@ -40,6 +41,7 @@ class WorkflowActionAdmitter(Protocol):
         *,
         result_route: ResultRoute = "popup",
         input_target: InputTarget | None = None,
+        admission_origin: ActionAdmissionOrigin = "shortcut",
     ) -> ActionStartAdmission: ...
 
     def entry_panel_action_block_reason(self, action: EntryActionRef) -> str: ...
@@ -230,6 +232,7 @@ class EntryPanelRuntimeModule:
             command.action.action_id,
             command.action.press_type,
             input_target=InputTarget(target_kind, command.document),
+            admission_origin="entry_panel",
         )
         if admission.accepted:
             self.close(command.panel_id)

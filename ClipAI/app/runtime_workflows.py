@@ -9,7 +9,7 @@ from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted, WorkflowStepAccepted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
-from ClipAI.core.models import ActionInvocation, ActionStartAdmission, ControlSurfaceRef, EntryActionRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, PressType, ResultRoute, WorkflowAttention
+from ClipAI.core.models import ActionAdmissionOrigin, ActionInvocation, ActionStartAdmission, ControlSurfaceRef, EntryActionRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, PressType, ResultRoute, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceCaptureContextReader, WorkflowAttentionPresenter, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
@@ -345,6 +345,13 @@ class WorkflowRuntimeModule:
         return self._foreground_id if self._foreground_id in self._records else None
 
     def entry_panel_action_block_reason(self, action: EntryActionRef) -> str:
+        try:
+            resolved = self._actions.resolve(action.action_id, action.press_type)
+        except ValueError as error:
+            return str(error)
+        return self._entry_panel_block_reason(resolved)
+
+    def _entry_panel_block_reason(self, action) -> str:
         provider_active = any(
             record.controller.snapshot.active_invocation_id is not None
             and record.controller.snapshot.status in {
@@ -358,9 +365,7 @@ class WorkflowRuntimeModule:
             return "AI 正在回答，完成後再選擇功能。"
         if self._personal_styles is not None:
             try:
-                self._personal_styles.bind(
-                    self._actions.resolve(action.action_id, action.press_type)
-                )
+                self._personal_styles.bind(action)
             except (PersonalStyleUnavailableError, ValueError) as error:
                 return str(error)
         return ""
@@ -497,12 +502,17 @@ class WorkflowRuntimeModule:
         *,
         result_route: ResultRoute = "popup",
         input_target: InputTarget | None = None,
+        admission_origin: ActionAdmissionOrigin = "shortcut",
     ) -> ActionStartAdmission:
         """Admit one Action through the existing Workflow runtime."""
         try:
             action = self._actions.resolve(action_id, press_type)
         except ValueError as error:
             return ActionStartAdmission("rejected", "unknown_action", str(error))
+        if admission_origin == "entry_panel":
+            reason = self._entry_panel_block_reason(action)
+            if reason:
+                return ActionStartAdmission("blocked", "entry_panel_unavailable", reason)
         if self._personal_styles is not None:
             try:
                 action = self._personal_styles.bind(action)
@@ -517,15 +527,42 @@ class WorkflowRuntimeModule:
         if result_route == "speech":
             self._start_headless_action(action, command, input_target=input_target)
             return ActionStartAdmission("accepted")
-        context = self._foreground_context()
-        target = input_target or self._input_targets.resolve(context, action.external_fallback)
-        contextual = target.kind == "workflow_result" and target.document is not None
+        target = input_target or self._input_targets.resolve(
+            self._foreground_context(),
+            action.external_fallback,
+        )
+        document = target.document
+        contextual = target.kind == "workflow_result" and document is not None
         if contextual:
-            assert context is not None
-            workflow_id = context.workflow_id
-            record = self._records[workflow_id]
+            assert document is not None
+            workflow_id = document.workflow_id
+            parent_step_id = document.step_id
+            if not workflow_id or not parent_step_id:
+                return ActionStartAdmission(
+                    "rejected",
+                    "workflow_source_invalid",
+                    "The original Workflow content is no longer available.",
+                )
+            record = self._records.get(workflow_id)
+            if record is None or record.presentation != "visible":
+                return ActionStartAdmission(
+                    "rejected",
+                    "workflow_source_unavailable",
+                    "The original Workflow content is no longer available.",
+                )
             controller = record.controller
-            parent_step_id = context.step_id
+            valid_voice_origin = (
+                parent_step_id == "voice-origin"
+                and controller.snapshot.status is SessionStatus.VOICE_REVIEW
+            )
+            if not valid_voice_origin and parent_step_id not in {
+                step.step_id for step in controller.snapshot.steps
+            }:
+                return ActionStartAdmission(
+                    "rejected",
+                    "workflow_source_unavailable",
+                    "The original Workflow content is no longer available.",
+                )
         else:
             visible = self._visible_record()
             if visible is not None and visible[1].controller.snapshot.pinned:

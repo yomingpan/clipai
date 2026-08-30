@@ -1939,6 +1939,88 @@ def test_start_action_admission_uses_explicit_prepared_input_target() -> None:
     assert view.execute_action.invocations[-1].input_target is prepared_target
 
 
+def test_start_action_admission_uses_captured_workflow_lineage_without_current_foreground() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    first = runtime._workflow_module.start_action("a", "short")
+    runtime.drain_commands()
+    assert first.accepted
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    captured_step = WorkflowStep(
+        "captured-step",
+        "a",
+        "Action",
+        "input",
+        "captured popup result",
+        "plain_text",
+    )
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.COMPLETED,
+        steps=(captured_step,),
+        active_invocation_id=None,
+    )
+    captured_target = InputTarget(
+        "workflow_result",
+        InputDocument("captured popup result", "workflow_result", workflow_id, "captured-step"),
+    )
+    view.context = None
+
+    admission = runtime._workflow_module.start_action(
+        "shorten",
+        "long",
+        input_target=captured_target,
+    )
+    runtime.drain_commands()
+
+    assert admission.accepted
+    invocation_id = controller.snapshot.active_invocation_id
+    assert invocation_id is not None
+    supervisor.work[invocation_id]()
+    invocation = view.execute_action.invocations[-1]
+    assert invocation.workflow_id == workflow_id
+    assert invocation.parent_step_id == "captured-step"
+
+
+def test_start_action_admission_rejects_unavailable_captured_workflow_source() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+
+    admission = runtime._workflow_module.start_action(
+        "a",
+        "short",
+        input_target=InputTarget(
+            "workflow_result",
+            InputDocument("captured", "workflow_result", "closed-workflow", "old-step"),
+        ),
+    )
+
+    assert admission.state == "rejected"
+    assert admission.reason == "workflow_source_unavailable"
+
+
+def test_entry_panel_admission_rechecks_provider_activity_before_starting() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    first = runtime._workflow_module.start_action("a", "short")
+    runtime.drain_commands()
+    assert first.accepted
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    controller._snapshot = controller.snapshot.evolve(
+        status=SessionStatus.REQUESTING_PROVIDER,
+    )
+    active_invocation_id = controller.snapshot.active_invocation_id
+
+    admission = runtime._workflow_module.start_action(
+        "shorten",
+        "long",
+        input_target=InputTarget("external_text", InputDocument("prepared", "selection")),
+        admission_origin="entry_panel",
+    )
+
+    assert admission.state == "blocked"
+    assert admission.reason == "entry_panel_unavailable"
+    assert controller.snapshot.active_invocation_id == active_invocation_id
+
+
 def test_accepted_follow_up_records_its_root_action_as_recent() -> None:
     history = RecentActionHistory()
     persisted = []

@@ -342,31 +342,14 @@ def load_entry_panel_catalog(path: str | Path, *, actions: ActionCatalog) -> Ent
     if not isinstance(raw_categories, list):
         raise ConfigError("entry_panel.categories must be a list")
     categories: list[EntryPanelCategory] = []
-    category_ids: set[str] = set()
-    category_slots: set[int] = set()
-    action_refs: set[EntryActionRef] = set()
     for index, value in enumerate(raw_categories):
         category_path = f"entry_panel.categories[{index}]"
         data = _mapping(value, category_path)
         _reject_unknown(data, {"id", "slot", "label", "description", "flagship", "advanced"}, category_path)
         slot = _integer(data.get("slot"), f"{category_path}.slot", default=0)
-        if slot not in {3, 4, 5, 6}:
-            raise ConfigError(f"{category_path}.slot must be one of: 3, 4, 5, 6")
-        if slot in category_slots:
-            raise ConfigError(f"duplicate category slot: {slot}")
-        category_slots.add(slot)
         category_id = _string(data.get("id"), f"{category_path}.id")
-        if category_id in category_ids:
-            raise ConfigError(f"duplicate category id: {category_id}")
-        category_ids.add(category_id)
-        flagship = _parse_entry_panel_candidates(data.get("flagship"), f"{category_path}.flagship", actions, max_count=4)
-        advanced = _parse_entry_panel_candidates(data.get("advanced"), f"{category_path}.advanced", actions)
-        for candidate in (*flagship, *advanced):
-            if candidate.action in action_refs:
-                raise ConfigError(
-                    f"duplicate entry action: {candidate.action.action_id}/{candidate.action.press_type}"
-                )
-            action_refs.add(candidate.action)
+        flagship = _parse_entry_panel_candidates(data.get("flagship"), f"{category_path}.flagship")
+        advanced = _parse_entry_panel_candidates(data.get("advanced"), f"{category_path}.advanced")
         categories.append(EntryPanelCategory(
             category_id=category_id,
             slot=slot,
@@ -375,28 +358,24 @@ def load_entry_panel_catalog(path: str | Path, *, actions: ActionCatalog) -> Ent
             flagship=flagship,
             advanced=advanced,
         ))
-    return EntryPanelCatalog(tuple(categories))
+    try:
+        return EntryPanelCatalog(tuple(categories), actions=actions)
+    except ValueError as error:
+        raise ConfigError(str(error)) from error
 
 
 def _parse_entry_panel_candidates(
     value: Any,
     path: str,
-    actions: ActionCatalog,
-    *,
-    max_count: int | None = None,
 ) -> tuple[EntryPanelCandidate, ...]:
     if not isinstance(value, list):
         raise ConfigError(f"{path} must be a list")
-    if max_count is not None and len(value) > max_count:
-        raise ConfigError(f"{path} must contain at most {max_count} candidates")
     candidates: list[EntryPanelCandidate] = []
     for index, item in enumerate(value):
         candidate_path = f"{path}[{index}]"
         data = _mapping(item, candidate_path)
         _reject_unknown(data, {"action_id", "press_type", "label", "description"}, candidate_path)
         action_id = _string(data.get("action_id"), f"{candidate_path}.action_id")
-        if not actions.contains(action_id):
-            raise ConfigError(f"{candidate_path}.action_id references unknown action: {action_id}")
         press_type = cast(PressType, _choice(data.get("press_type"), f"{candidate_path}.press_type", {"short", "long"}, "short"))
         candidates.append(EntryPanelCandidate(
             EntryActionRef(action_id, press_type),

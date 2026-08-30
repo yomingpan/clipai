@@ -56,6 +56,7 @@ ExternalWindowActivationState = Literal[
 ]
 ResultCompleteness = Literal["none", "partial", "complete"]
 ActionStartAdmissionState = Literal["accepted", "rejected", "blocked"]
+ActionAdmissionOrigin = Literal["shortcut", "entry_panel"]
 EntryPanelPage = Literal["root", "scene", "more"]
 EntryPanelDensity = Literal["detailed", "compact"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]

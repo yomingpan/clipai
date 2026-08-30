@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from ClipAI.core.models import EntryActionRef, EntryPanelDecision, EntryPanelDensity, EntryPanelOption, EntryPanelSelectionId, EntryPanelSnapshot
+from ClipAI.services.action_catalog import ActionCatalog
 
 
 @dataclass(frozen=True)
@@ -23,8 +24,52 @@ class EntryPanelCategory:
 
 
 class EntryPanelCatalog:
-    def __init__(self, categories: tuple[EntryPanelCategory, ...]) -> None:
+    """Validated presentation metadata and lookup indexes for the Entry Panel."""
+
+    def __init__(
+        self,
+        categories: tuple[EntryPanelCategory, ...],
+        *,
+        actions: ActionCatalog,
+    ) -> None:
+        category_ids: set[str] = set()
+        category_slots: set[int] = set()
+        candidates: dict[EntryActionRef, EntryPanelCandidate] = {}
+        categories_by_id: dict[str, EntryPanelCategory] = {}
+        categories_by_slot: dict[int, EntryPanelCategory] = {}
+        for category in categories:
+            if category.slot not in {3, 4, 5, 6}:
+                raise ValueError("entry panel category slot must be one of: 3, 4, 5, 6")
+            if category.slot in category_slots:
+                raise ValueError(f"duplicate category slot: {category.slot}")
+            if category.category_id in category_ids:
+                raise ValueError(f"duplicate category id: {category.category_id}")
+            if len(category.flagship) > 4:
+                raise ValueError("entry panel flagship must contain at most 4 candidates")
+            category_slots.add(category.slot)
+            category_ids.add(category.category_id)
+            categories_by_slot[category.slot] = category
+            categories_by_id[category.category_id] = category
+            for candidate in (*category.flagship, *category.advanced):
+                if candidate.action.press_type not in {"short", "long"}:
+                    raise ValueError(
+                        f"unknown entry action press type: {candidate.action.press_type}"
+                    )
+                if not actions.contains(candidate.action.action_id):
+                    raise ValueError(
+                        "unknown entry action: "
+                        f"{candidate.action.action_id}/{candidate.action.press_type}"
+                    )
+                if candidate.action in candidates:
+                    raise ValueError(
+                        "duplicate entry action: "
+                        f"{candidate.action.action_id}/{candidate.action.press_type}"
+                    )
+                candidates[candidate.action] = candidate
         self._categories = categories
+        self._categories_by_id = categories_by_id
+        self._categories_by_slot = categories_by_slot
+        self._candidates = candidates
 
     @property
     def categories(self) -> tuple[EntryPanelCategory, ...]:
@@ -32,21 +77,22 @@ class EntryPanelCatalog:
 
     def category_for_slot(self, slot: int) -> EntryPanelCategory:
         try:
-            return next(category for category in self._categories if category.slot == slot)
-        except StopIteration as exc:
+            return self._categories_by_slot[slot]
+        except KeyError as exc:
             raise ValueError(f"unknown entry panel category slot: {slot}") from exc
 
     def candidate_for_action(self, action: EntryActionRef) -> EntryPanelCandidate:
-        for category in self._categories:
-            for candidate in (*category.flagship, *category.advanced):
-                if candidate.action == action:
-                    return candidate
-        raise ValueError(f"unknown entry panel action: {action.action_id}/{action.press_type}")
+        try:
+            return self._candidates[action]
+        except KeyError as exc:
+            raise ValueError(
+                f"unknown entry panel action: {action.action_id}/{action.press_type}"
+            ) from exc
 
     def category(self, category_id: str) -> EntryPanelCategory:
         try:
-            return next(category for category in self._categories if category.category_id == category_id)
-        except StopIteration as exc:
+            return self._categories_by_id[category_id]
+        except KeyError as exc:
             raise ValueError(f"unknown entry panel category: {category_id}") from exc
 
 

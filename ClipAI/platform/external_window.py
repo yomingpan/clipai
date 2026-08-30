@@ -3,12 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 import ctypes
 import time
+from typing import TypeAlias
 
 from ClipAI.core.errors import CancelledError
 from ClipAI.core.models import (
     ExternalWindowActivationOutcome,
     ExternalWindowActivationState,
     ExternalWindowRef,
+    PasteTarget,
 )
 from ClipAI.core.state import CancellationToken
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_modifier_is_pressed
@@ -22,6 +24,8 @@ _MESSAGES = {
     "target_changed": "The original window changed before input capture.",
 }
 
+ExternalWindowTarget: TypeAlias = ExternalWindowRef | PasteTarget
+
 
 class SystemExternalWindowActivator:
     def __init__(
@@ -32,9 +36,9 @@ class SystemExternalWindowActivator:
         target_activation_timeout_sec: float = 0.5,
         poll_sec: float = 0.02,
         wait: Callable[[float], None] = time.sleep,
-        target_is_valid: Callable[[ExternalWindowRef], bool] | None = None,
-        activate_target: Callable[[ExternalWindowRef], bool] | None = None,
-        target_is_foreground: Callable[[ExternalWindowRef], bool] | None = None,
+        target_is_valid: Callable[[ExternalWindowTarget], bool] | None = None,
+        activate_target: Callable[[ExternalWindowTarget], bool] | None = None,
+        target_is_foreground: Callable[[ExternalWindowTarget], bool] | None = None,
     ) -> None:
         self._modifier_is_pressed = modifier_is_pressed
         self._modifier_release_timeout_sec = modifier_release_timeout_sec
@@ -47,7 +51,7 @@ class SystemExternalWindowActivator:
 
     def activate(
         self,
-        target: ExternalWindowRef,
+        target: ExternalWindowTarget,
         cancellation: CancellationToken,
     ) -> ExternalWindowActivationOutcome:
         modifier_deadline = time.monotonic() + self._modifier_release_timeout_sec
@@ -70,10 +74,11 @@ class SystemExternalWindowActivator:
         _raise_if_cancelled(cancellation)
         if not self._target_is_valid(target) or not self._target_is_foreground(target):
             return _outcome("target_changed")
+        _raise_if_cancelled(cancellation)
         return ExternalWindowActivationOutcome("activated")
 
 
-def windows_target_is_valid(target: ExternalWindowRef) -> bool:
+def windows_target_is_valid(target: ExternalWindowTarget) -> bool:
     handle = _window_handle(target)
     if handle is None:
         return False
@@ -90,7 +95,7 @@ def windows_target_is_valid(target: ExternalWindowRef) -> bool:
         return False
 
 
-def activate_windows_target(target: ExternalWindowRef) -> bool:
+def activate_windows_target(target: ExternalWindowTarget) -> bool:
     handle = _window_handle(target)
     if handle is None:
         return False
@@ -100,7 +105,7 @@ def activate_windows_target(target: ExternalWindowRef) -> bool:
         return False
 
 
-def windows_target_is_foreground(target: ExternalWindowRef) -> bool:
+def windows_target_is_foreground(target: ExternalWindowTarget) -> bool:
     handle = _window_handle(target)
     if handle is None:
         return False
@@ -110,7 +115,7 @@ def windows_target_is_foreground(target: ExternalWindowRef) -> bool:
         return False
 
 
-def _window_handle(target: ExternalWindowRef) -> int | None:
+def _window_handle(target: ExternalWindowTarget) -> int | None:
     prefix = "hwnd:"
     if not target.window_token.startswith(prefix):
         return None

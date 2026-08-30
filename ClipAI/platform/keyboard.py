@@ -3,15 +3,11 @@ from __future__ import annotations
 from collections.abc import Callable
 import time
 
-from ClipAI.core.errors import CancelledError, PASTE_FAILURE_MESSAGES, PasteFailure
-from ClipAI.core.models import PasteDispatchReceipt, PasteTarget
+from ClipAI.core.errors import PASTE_FAILURE_MESSAGES, PasteFailure
+from ClipAI.core.models import ExternalWindowActivationState, PasteDispatchReceipt, PasteTarget
 from ClipAI.core.state import CancellationToken
-from ClipAI.platform.external_window import (
-    activate_windows_target,
-    windows_target_is_foreground,
-    windows_target_is_valid,
-)
-from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_modifier_is_pressed
+from ClipAI.platform.external_window import SystemExternalWindowActivator
+from ClipAI.platform.keyboard_state import windows_modifier_is_pressed
 
 
 class SystemKeyboardOutput:
@@ -29,45 +25,24 @@ class SystemKeyboardOutput:
         activate_target: Callable[[PasteTarget], bool] | None = None,
         target_is_foreground: Callable[[PasteTarget], bool] | None = None,
     ) -> None:
-        self._modifier_is_pressed = modifier_is_pressed
-        self._modifier_release_timeout_sec = modifier_release_timeout_sec
-        self._target_activation_timeout_sec = target_activation_timeout_sec
         self._paste_settle_sec = paste_settle_sec
-        self._poll_sec = poll_sec
         self._wait = wait
         self._paste_shortcut = paste_shortcut or _send_paste_shortcut
-        self._target_is_valid = target_is_valid or windows_target_is_valid
-        self._activate_target = activate_target or activate_windows_target
-        self._target_is_foreground = target_is_foreground or windows_target_is_foreground
+        self._external_activation = SystemExternalWindowActivator(
+            modifier_is_pressed=modifier_is_pressed,
+            modifier_release_timeout_sec=modifier_release_timeout_sec,
+            target_activation_timeout_sec=target_activation_timeout_sec,
+            poll_sec=poll_sec,
+            wait=wait,
+            target_is_valid=target_is_valid,
+            activate_target=activate_target,
+            target_is_foreground=target_is_foreground,
+        )
 
     def dispatch(self, target: PasteTarget, cancellation: CancellationToken) -> PasteDispatchReceipt:
-        deadline = time.monotonic() + self._modifier_release_timeout_sec
-        while any(self._modifier_is_pressed(modifier) is True for modifier in MODIFIER_KEYS):
-            _raise_if_cancelled(cancellation)
-            if time.monotonic() >= deadline:
-                raise PasteFailure("modifiers_held", PASTE_FAILURE_MESSAGES["modifiers_held"])
-            self._wait(self._poll_sec)
-        _raise_if_cancelled(cancellation)
-        if not self._target_is_valid(target):
-            raise PasteFailure("target_gone", PASTE_FAILURE_MESSAGES["target_gone"])
-        if not self._activate_target(target) and not self._target_is_foreground(target):
-            raise PasteFailure(
-                "target_refused_focus",
-                PASTE_FAILURE_MESSAGES["target_refused_focus"],
-            )
-        activation_deadline = time.monotonic() + self._target_activation_timeout_sec
-        while not self._target_is_foreground(target):
-            _raise_if_cancelled(cancellation)
-            if time.monotonic() >= activation_deadline:
-                raise PasteFailure(
-                    "target_focus_timeout",
-                    PASTE_FAILURE_MESSAGES["target_focus_timeout"],
-                )
-            self._wait(self._poll_sec)
-        _raise_if_cancelled(cancellation)
-        if not self._target_is_valid(target) or not self._target_is_foreground(target):
-            raise PasteFailure("target_changed", PASTE_FAILURE_MESSAGES["target_changed"])
-        _raise_if_cancelled(cancellation)
+        activation = self._external_activation.activate(target, cancellation)
+        if not activation.activated:
+            raise _paste_failure_for_activation(activation.state)
         detail = ""
         try:
             self._paste_shortcut()
@@ -89,6 +64,21 @@ def _send_paste_shortcut() -> None:
         keyboard.release("v")
 
 
-def _raise_if_cancelled(cancellation: CancellationToken) -> None:
-    if cancellation.is_cancelled:
-        raise CancelledError("Paste was cancelled before dispatch.")
+def _paste_failure_for_activation(state: ExternalWindowActivationState) -> PasteFailure:
+    if state == "modifiers_held":
+        return PasteFailure("modifiers_held", PASTE_FAILURE_MESSAGES["modifiers_held"])
+    if state == "target_gone":
+        return PasteFailure("target_gone", PASTE_FAILURE_MESSAGES["target_gone"])
+    if state == "target_refused_focus":
+        return PasteFailure(
+            "target_refused_focus",
+            PASTE_FAILURE_MESSAGES["target_refused_focus"],
+        )
+    if state == "target_focus_timeout":
+        return PasteFailure(
+            "target_focus_timeout",
+            PASTE_FAILURE_MESSAGES["target_focus_timeout"],
+        )
+    if state == "target_changed":
+        return PasteFailure("target_changed", PASTE_FAILURE_MESSAGES["target_changed"])
+    raise RuntimeError(f"unexpected external activation state: {state}")

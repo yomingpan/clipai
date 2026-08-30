@@ -19,8 +19,10 @@ then requests admission through the existing Workflow runtime.
   Workflow admission.
 - `UnifiedEntryPanelDialog` owns only toolkit widgets, focus evidence, placement
   and mechanical rendering. Every user operation emits a typed command.
-- `EntryPanelCatalog` owns validated presentation metadata and maps candidates
-  to existing `action_id + press_type` references.
+- `EntryPanelCatalog` owns validated presentation metadata：category slot/ID、
+  flagship limit、candidate uniqueness 與 existing `action_id + press_type`
+  membership，並提供其 lookup indexes。config adapter 只負責 YAML shape 與
+  error-path translation。
 - `RecentActionHistory` owns the unique most-recent-first top three references.
 
 ## Legal lifecycle
@@ -51,6 +53,9 @@ blocked admission keeps the same Panel and projects the authoritative reason.
   value.
 - Prepared `InputDocument` enters Workflow admission through `InputTarget`, so
   `ActionExecutor` does not capture a second time.
+- A workflow-result document keeps its captured `workflow_id + step_id` through
+  final admission. Workflow runtime validates that lineage against its own
+  membership/history; it never substitutes the current Foreground Workflow.
 - Cancellation and stale completion do not weaken the existing clipboard
   transaction restoration rules.
 
