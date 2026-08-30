@@ -11,7 +11,9 @@ then requests admission through the existing Workflow runtime.
 
 - `EntryPanelCoordinator` owns the immutable projection: page stack, detailed
   versus compact density, search text, focused candidate, disabled candidates,
-  transient message and active selection-preparation identity.
+  transient message and active selection-preparation identity. It receives the
+  saved density from `UserPreferencesCoordinator` at composition time; the
+  existing user-preferences lifecycle persists later density changes.
 - `EntryPanelRuntimeModule` owns the one live Panel lifecycle ID, captured source
   reference, selection-preparation scheduling/cancellation and the transition to
   Workflow admission.

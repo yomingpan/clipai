@@ -5,7 +5,7 @@ import uuid
 from typing import Protocol, TypeAlias
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import CloseEntryPanel, EntryPanelActionSelected, EntryPanelDigitPressed, EntryPanelEscape, EntryPanelInputPrepared, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, OpenUnifiedEntryPanel
+from ClipAI.core.commands import CloseEntryPanel, EntryPanelActionSelected, EntryPanelDigitPressed, EntryPanelEscape, EntryPanelInputPrepared, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, OpenUnifiedEntryPanel, SetEntryPanelDensity
 from ClipAI.core.errors import CancelledError, InputError
 from ClipAI.core.models import (
     ActionStartAdmission,
@@ -146,9 +146,9 @@ class EntryPanelRuntimeModule:
                     self._coordinator.set_search(command.text)
                 )
             elif isinstance(command, EntryPanelToggleDensity):
-                self._presenter.present_entry_panel(
-                    self._coordinator.toggle_density()
-                )
+                snapshot = self._coordinator.toggle_density()
+                self._presenter.present_entry_panel(snapshot)
+                self._enqueue(SetEntryPanelDensity(snapshot.density))
             elif isinstance(command, EntryPanelEscape):
                 self._cancel_preparation()
                 snapshot = self._coordinator.escape()

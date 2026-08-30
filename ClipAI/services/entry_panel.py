@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from ClipAI.core.models import EntryActionRef, EntryPanelDecision, EntryPanelOption, EntryPanelSelectionId, EntryPanelSnapshot
+from ClipAI.core.models import EntryActionRef, EntryPanelDecision, EntryPanelDensity, EntryPanelOption, EntryPanelSelectionId, EntryPanelSnapshot
 
 
 @dataclass(frozen=True)
@@ -51,8 +51,14 @@ class EntryPanelCatalog:
 
 
 class EntryPanelCoordinator:
-    def __init__(self, catalog: EntryPanelCatalog) -> None:
+    def __init__(
+        self,
+        catalog: EntryPanelCatalog,
+        *,
+        density: EntryPanelDensity = "detailed",
+    ) -> None:
         self._catalog = catalog
+        self._density = density
         self._snapshot: EntryPanelSnapshot | None = None
         self._recent: tuple[EntryActionRef, ...] = ()
         self._disabled: dict[EntryActionRef, str] = {}
@@ -86,6 +92,7 @@ class EntryPanelCoordinator:
         self._snapshot = EntryPanelSnapshot(
             panel_id,
             "root",
+            density=self._density,
             options=recent_options + tuple(
                 EntryPanelOption(
                     category.slot,
@@ -144,6 +151,7 @@ class EntryPanelCoordinator:
         if self._snapshot is None:
             raise RuntimeError("entry panel is not open")
         density = "compact" if self._snapshot.density == "detailed" else "detailed"
+        self._density = density
         self._snapshot = replace(self._snapshot, density=density)
         return self._snapshot
 

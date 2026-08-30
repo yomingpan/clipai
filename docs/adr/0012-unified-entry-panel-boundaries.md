@@ -20,8 +20,9 @@ has closed or reopened.
 
 ## Decision
 
-- `EntryPanelCoordinator` owns immutable entry navigation, density, search,
-  disabled projection and numeric resolution. It is toolkit-free.
+- `EntryPanelCoordinator` owns immutable entry navigation, the active density,
+  search, disabled projection and numeric resolution. It is toolkit-free; its
+  initial density comes from the existing persisted user-preferences owner.
 - `EntryPanelRuntimeModule` owns Panel membership, launch/source identity and
   one active input-preparation identity. Only matching completion can request
   Workflow admission.
@@ -70,6 +71,6 @@ has closed or reopened.
 Implementation requires contracts and tests before visible UI, but it can be
 rolled back behind one feature flag without changing direct shortcuts. Review
 this decision if a second non-Panel consumer needs entry navigation, if another
-feature needs persisted recent content instead of Action references, if density
-or sorting becomes a persisted preference, or if external activation remains
-unreliable after real Windows measurements.
+feature needs persisted recent content instead of Action references, if sorting
+becomes a persisted preference, or if external activation remains unreliable
+after real Windows measurements.

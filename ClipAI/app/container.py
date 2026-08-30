@@ -345,7 +345,10 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
 
     entry_panel_module = (
         EntryPanelRuntimeModule(
-            coordinator=EntryPanelCoordinator(bundle.entry_panel),
+            coordinator=EntryPanelCoordinator(
+                bundle.entry_panel,
+                density=user_preferences.entry_panel_density,
+            ),
             actions=bundle.actions,
             workflows=workflow_module,
             workflow_context_reader=view.workflow_context,

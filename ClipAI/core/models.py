@@ -531,6 +531,7 @@ class UserPreferences:
     speech_speed: SpeechSpeed | None = None
     voice_input_enabled: bool = False
     voice_language: VoiceLanguagePreference = "zh-TW"
+    entry_panel_density: EntryPanelDensity = "detailed"
 
 
 @dataclass(frozen=True)

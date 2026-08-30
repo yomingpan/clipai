@@ -1,5 +1,6 @@
 from ClipAI.app.config_loader import load_action_catalog, load_entry_panel_catalog
 from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
+from ClipAI.core.commands import EntryPanelToggleDensity, SetEntryPanelDensity
 from ClipAI.core.models import (
     ActionStartAdmission,
     ActiveWorkflowContext,
@@ -219,3 +220,14 @@ def test_availability_refresh_updates_open_options_without_navigation_reset() ->
     assert after.page == before.page
     assert after.category_id == before.category_id
     assert all(not option.enabled for option in after.options)
+
+
+def test_density_toggle_projects_immediately_and_requests_preference_persistence() -> None:
+    module, coordinator, presenter, _supervisor, _workflows, _activator, _inputs, commands, _external = make_module()
+    panel_id = module.open().panel_id
+
+    module.handle(EntryPanelToggleDensity(panel_id))
+
+    assert coordinator.snapshot.density == "compact"
+    assert presenter.snapshots[-1].density == "compact"
+    assert commands == [SetEntryPanelDensity("compact")]

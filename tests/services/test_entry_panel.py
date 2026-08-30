@@ -97,6 +97,20 @@ def test_density_toggle_preserves_page_search_and_action_order() -> None:
     assert panel.toggle_density().density == "detailed"
 
 
+def test_open_reuses_the_preferred_density_for_the_next_panel_lifecycle() -> None:
+    panel = EntryPanelCoordinator(
+        load_entry_panel_catalog("config/entry_panel.yaml", actions=load_action_catalog("config/actions.yaml")),
+        density="compact",
+    )
+
+    first = panel.open("panel-1")
+    panel.close()
+    second = panel.open("panel-2")
+
+    assert first.density == "compact"
+    assert second.density == "compact"
+
+
 def test_disabled_action_stays_visible_with_reason_and_cannot_be_selected() -> None:
     panel = coordinator()
     action = EntryActionRef("translate_to_english", "short")

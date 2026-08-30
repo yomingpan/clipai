@@ -17,6 +17,7 @@ from ClipAI.core.commands import (
 from ClipAI.core.models import EntryPanelOption, EntryPanelSnapshot
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
 from ClipAI.ui.base_dialog import (
+    ACTION_COLOR,
     CONTENT_COLOR,
     MODEL_COLOR,
     POPUP_FONT_SIZES,
@@ -98,7 +99,7 @@ class UnifiedEntryPanelDialog:
         self._intent = EntryPanelIntentAdapter(command_sink)
         self._snapshot: EntryPanelSnapshot | None = None
         self._search_guard = False
-        self._option_buttons: list[ctk.CTkButton] = []
+        self._option_buttons: list[tk.Misc] = []
         self._placed_panel_id: str | None = None
 
         self._window = ctk.CTkToplevel(master)
@@ -363,27 +364,40 @@ class UnifiedEntryPanelDialog:
         else:
             slot = f"{option.slot:02d}" if snapshot.page == "scene" else str(option.slot)
             title = f"{slot}  {option.label}"
-        button = ctk.CTkButton(
+        card.configure(takefocus=True)
+
+        def activate(_event=None) -> str:
+            if option.enabled:
+                card.focus_set()
+                self._intent.select(option)
+            return "break"
+
+        def show_focus(_event=None) -> None:
+            if option.enabled:
+                card.configure(border_color=ACTION_COLOR)
+
+        def clear_focus(_event=None) -> None:
+            card.configure(border_color="#454545")
+
+        title_label = ctk.CTkLabel(
             card,
             text=title,
             anchor="w",
-            height=32,
-            # The card owns the rounded clipping edge.  A transparent rounded
-            # child button leaves anti-aliased corner pixels exposed on Windows.
-            corner_radius=0,
-            fg_color="#252525",
-            hover_color="#3A3A3A",
             text_color=CONTENT_COLOR,
             font=ctk.CTkFont(
                 family=TC_FONT_FAMILY,
                 size=POPUP_FONT_SIZES["interface"],
                 weight="bold",
             ),
-            command=lambda selected=option: self._intent.select(selected),
-            state="normal" if option.enabled else "disabled",
         )
-        button.grid(row=0, column=0, padx=5, pady=(4, 0), sticky="ew")
-        self._option_buttons.append(button)
+        title_label.grid(row=0, column=0, padx=12, pady=(7, 0), sticky="ew")
+        for widget in (card, title_label):
+            widget.bind("<Button-1>", activate, add="+")
+        card.bind("<Return>", activate, add="+")
+        card.bind("<space>", activate, add="+")
+        card.bind("<FocusIn>", show_focus, add="+")
+        card.bind("<FocusOut>", clear_focus, add="+")
+        self._option_buttons.append(card)
 
         detail = option.disabled_reason or (
             option.description if snapshot.density == "detailed" else ""
@@ -402,10 +416,7 @@ class UnifiedEntryPanelDialog:
                 ),
             )
             detail_label.grid(row=1, column=0, padx=12, pady=(0, 6), sticky="ew")
-            detail_label.bind(
-                "<Button-1>",
-                lambda _event, selected=option: self._intent.select(selected),
-            )
+            detail_label.bind("<Button-1>", activate, add="+")
         return card
 
     @staticmethod
