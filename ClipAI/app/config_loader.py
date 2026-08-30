@@ -13,6 +13,7 @@ from ClipAI.core.errors import ConfigError
 from ClipAI.core.models import EntryActionRef, PressType, ShortcutCommandKind, ShortcutDefinition
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
+from ClipAI.services.action_language_packs import CompiledActionLanguagePack
 from ClipAI.services.entry_panel import EntryPanelCandidate, EntryPanelCatalog, EntryPanelCategory
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -32,20 +33,23 @@ def load_config_bundle(
     shortcuts_path: str | Path = "config/shortcuts.yaml",
     output_profiles_path: str | Path = "config/output_profiles.yaml",
     entry_panel_path: str | Path = "config/entry_panel.yaml",
+    action_language_pack: CompiledActionLanguagePack | None = None,
 ) -> ConfigBundle:
     app, runtime, providers, tts, voice_input, logging_settings = load_app_config(app_config_path)
     config_dir = Path(actions_path).parent
-    skeleton = load_feature_skeleton(
-        config_dir,
-        actions_path=actions_path,
-        shortcuts_path=shortcuts_path,
-        output_profiles_path=output_profiles_path,
-    )
-    language_pack_loader = ActionLanguagePackLoader(config_dir, skeleton)
-    language_pack_registry = language_pack_loader.load_registry()
-    compiled_pack = language_pack_loader.load(
-        language_pack_registry.entry(language_pack_registry.default_pack_id)
-    )
+    compiled_pack = action_language_pack
+    if compiled_pack is None:
+        skeleton = load_feature_skeleton(
+            config_dir,
+            actions_path=actions_path,
+            shortcuts_path=shortcuts_path,
+            output_profiles_path=output_profiles_path,
+        )
+        language_pack_loader = ActionLanguagePackLoader(config_dir, skeleton)
+        language_pack_registry = language_pack_loader.load_registry()
+        compiled_pack = language_pack_loader.load(
+            language_pack_registry.entry(language_pack_registry.default_pack_id)
+        )
     app = replace(app, system_prompt=compiled_pack.default_system_prompt)
     output_profiles = OutputProfileCatalog(list(compiled_pack.output_profiles))
     actions = ActionCatalog(

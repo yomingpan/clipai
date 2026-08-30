@@ -247,6 +247,12 @@ class ActionLanguagePackSelectionState:
 
 
 @dataclass(frozen=True)
+class ActionLanguagePackSelectionRead:
+    selected_pack_id: str | None
+    diagnostic_code: str = ""
+
+
+@dataclass(frozen=True)
 class EnvironmentSetting:
     name: str
     value: str

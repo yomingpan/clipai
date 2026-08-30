@@ -3,10 +3,11 @@ from __future__ import annotations
 import multiprocessing
 
 from ClipAI.app.application_lifecycle import build_application_instance_gate
-from ClipAI.app.config_loader import load_config_bundle
+from ClipAI.app.language_pack_bootstrap import bootstrap_action_language_config
 from ClipAI.app.container import build_runtime
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.ports import ApplicationInstanceGate
+from ClipAI.platform.action_language_selection import JsonActionLanguagePackSelectionStore
 from ClipAI.ui.startup_error import show_startup_error
 
 try:
@@ -25,8 +26,10 @@ def main(*, instance_gate: ApplicationInstanceGate | None = None) -> None:
         if load_dotenv:
             load_dotenv(override=True)
 
-        bundle = load_config_bundle()
-        runtime = build_runtime(bundle)
+        bootstrap = bootstrap_action_language_config(
+            JsonActionLanguagePackSelectionStore()
+        )
+        runtime = build_runtime(bootstrap.bundle)
         runtime.run_forever()
     except ConfigError as exc:
         show_startup_error(str(exc))
