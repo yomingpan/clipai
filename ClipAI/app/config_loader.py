@@ -6,6 +6,7 @@ from typing import Any, Literal, TypeVar, cast
 import yaml
 import warnings
 
+from ClipAI.app.config_yaml import UniqueKeyLoader
 from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, ActionVariant, EntryActionRef, ExternalFallback, FeedbackReason, InputMode, OutputMode, OutputProfile, PersonalStyleMode, PressType, ShortcutCommandKind, ShortcutDefinition
@@ -20,31 +21,6 @@ T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
 APP_CONFIG_SCHEMA_VERSION = 2
 ACTIONS_SCHEMA_VERSION = 10
-
-
-class _UniqueKeyLoader(yaml.SafeLoader):
-    pass
-
-
-def _construct_unique_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
-    mapping: dict[Any, Any] = {}
-    for key_node, value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        if key in mapping:
-            raise yaml.constructor.ConstructorError(
-                "while constructing a mapping",
-                node.start_mark,
-                f"found duplicate key: {key}",
-                key_node.start_mark,
-            )
-        mapping[key] = loader.construct_object(value_node, deep=deep)
-    return mapping
-
-
-_UniqueKeyLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
-    _construct_unique_mapping,
-)
 
 
 def load_config_bundle(
@@ -463,7 +439,7 @@ def _model_catalog(value: Any, path: str, default_model: str) -> tuple[str, ...]
 def _load_yaml_mapping(path: str | Path) -> dict[str, Any]:
     try:
         with Path(path).open("r", encoding="utf-8") as handle:
-            return _mapping(yaml.load(handle, Loader=_UniqueKeyLoader) or {}, str(path))
+            return _mapping(yaml.load(handle, Loader=UniqueKeyLoader) or {}, str(path))
     except OSError as exc:
         raise ConfigError(f"cannot read config {path}: {exc}") from exc
     except yaml.YAMLError as exc:
