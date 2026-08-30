@@ -6,7 +6,13 @@ import json
 import pytest
 
 from ClipAI.core.commands import SubmitActionFeedback
-from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, WorkflowStep
+from ClipAI.core.models import (
+    ActionFeedbackContract,
+    ActionLanguagePackIdentity,
+    ActionLanguageProvenance,
+    FeedbackReason,
+    WorkflowStep,
+)
 from ClipAI.platform.action_feedback import JsonlActionFeedbackStore
 from ClipAI.services.action_feedback import ActionFeedbackService
 
@@ -36,6 +42,11 @@ def make_step() -> WorkflowStep:
         action_version="abc123",
         provider="fake",
         model="fake-model",
+        action_language=ActionLanguageProvenance(
+            identity=ActionLanguagePackIdentity("zh-TW", "1.0.0", "zh-TW"),
+            feature_contract_hash="sha256:contract",
+            resource_content_hash="sha256:resources",
+        ),
     )
 
 
@@ -70,10 +81,13 @@ def test_explicit_adjustment_case_preserves_input_and_output_and_execution_metad
     assert record.input_text == "original private text"
     assert record.result_text == "short result"
     assert record.note == "lost the caveat"
-    assert record.record_schema_version == 1
+    assert record.record_schema_version == 2
     assert record.press_type == "short"
     assert record.provider == "fake"
     assert record.model == "fake-model"
+    assert record.action_language_pack_id == "zh-TW"
+    assert record.action_language_pack_version == "1.0.0"
+    assert record.action_language_locale == "zh-TW"
 
 
 def test_explicit_helpful_case_preserves_input_and_output() -> None:
@@ -114,10 +128,13 @@ def test_jsonl_store_serializes_one_append_only_record(tmp_path) -> None:
     ))
 
     payload = json.loads(path.read_text(encoding="utf-8").strip())
-    assert payload["record_schema_version"] == 1
+    assert payload["record_schema_version"] == 2
     assert payload["feedback_id"] == "feedback-1"
     assert payload["outcome"] == "not_applicable"
     assert payload["press_type"] == "short"
     assert payload["provider"] == "fake"
     assert payload["model"] == "fake-model"
+    assert payload["action_language_pack_id"] == "zh-TW"
+    assert payload["action_language_pack_version"] == "1.0.0"
+    assert payload["action_language_locale"] == "zh-TW"
     assert payload["input_text"] is None

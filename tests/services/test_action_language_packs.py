@@ -149,6 +149,8 @@ def test_valid_pack_compiles_complete_existing_domain_models() -> None:
     assert compiled.descriptor.display_name == "繁體中文"
     assert compiled.provenance.feature_contract_hash == manifest.feature_contract_hash
     assert compiled.provenance.resource_content_hash.startswith("sha256:")
+    assert compiled.version_context.provenance == compiled.provenance
+    assert compiled.version_context.output_profiles == compiled.output_profiles
     assert compiled.default_system_prompt == resources.default_system_prompt
     assert len(compiled.action_definitions) == 1
     action = compiled.action_definitions[0]

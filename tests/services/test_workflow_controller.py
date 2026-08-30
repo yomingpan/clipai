@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, FeedbackReason, InputDocument, InputTarget, ResolvedAction
+from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionLanguagePackIdentity, ActionLanguageProvenance, FeedbackReason, InputDocument, InputTarget, ResolvedAction
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.workflow_controller import CONTEXTUAL_SOURCE_MAX_CHARS, WorkflowController
 
@@ -194,9 +194,14 @@ def test_partial_provider_failure_preserves_copyable_text_without_step() -> None
 def test_feedback_lifecycle_is_owned_by_completed_step_and_ignores_late_completion() -> None:
     workflow = controller()
     contract = ActionFeedbackContract("Shorten", "Do not change meaning", (FeedbackReason("meaning_lost", "Meaning lost"),))
+    provenance = ActionLanguageProvenance(
+        ActionLanguagePackIdentity("zh-TW", "1.0.0", "zh-TW"),
+        "sha256:contract",
+        "sha256:resources",
+    )
     resolved = ResolvedAction(
         "a", "A", "system", "{input}", "short", "selection_or_clipboard", "popup", 0.2,
-        feedback_contract=contract, version_id="version-1",
+        feedback_contract=contract, version_id="version-1", action_language=provenance,
     )
     document = InputDocument("input", "selection")
     first = ActionInvocation("one", "a", "short", InputTarget("external_text", document), workflow_id="w1")
@@ -207,6 +212,7 @@ def test_feedback_lifecycle_is_owned_by_completed_step_and_ignores_late_completi
     assert step is not None
     assert step.provider == "openai"
     assert step.model == "gpt-test"
+    assert step.action_language == provenance
     assert workflow.snapshot.feedback_state == "pending"
     assert workflow.complete_feedback("one", "stale") is None
     workflow.complete_feedback("one", "feedback-1")

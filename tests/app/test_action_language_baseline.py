@@ -40,6 +40,13 @@ def _digest(value: Any) -> str:
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
+def _resolved_content(value: Any) -> dict[str, Any]:
+    payload = asdict(value)
+    payload.pop("version_id")
+    payload.pop("action_language")
+    return payload
+
+
 def _current_baseline() -> dict[str, Any]:
     action_payload = _load_yaml("actions.yaml")
     profile_payload = _load_yaml("output_profiles.yaml")
@@ -61,7 +68,7 @@ def _current_baseline() -> dict[str, Any]:
     shortcuts = [asdict(shortcut) for shortcut in bundle.shortcuts.definitions()]
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "inventory": {
             "actions": len(action_ids),
             "explicit_variants": explicit_variants,
@@ -74,7 +81,7 @@ def _current_baseline() -> dict[str, Any]:
         "default_system_prompt": _digest(bundle.app.system_prompt),
         "resolved_actions": {
             f"{action_id}:{press_type}": _digest(
-                asdict(bundle.actions.resolve(action_id, press_type))
+                _resolved_content(bundle.actions.resolve(action_id, press_type))
             )
             for action_id in action_ids
             for press_type in ("short", "long")

@@ -430,6 +430,9 @@ class ActionFeedbackRecord:
     model: str
     input_source: str
     outcome: FeedbackOutcome
+    action_language_pack_id: str = ""
+    action_language_pack_version: str = ""
+    action_language_locale: str = ""
     reason: str = ""
     note: str = ""
     input_text: str | None = None
@@ -520,6 +523,7 @@ class ResolvedAction:
     stream: bool = False
     personal_style_mode: PersonalStyleMode | None = None
     personal_style: PersonalStyleProfile | None = None
+    action_language: ActionLanguageProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -555,6 +559,7 @@ class WorkflowStep:
     action_version: str = ""
     provider: str = ""
     model: str = ""
+    action_language: ActionLanguageProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -588,6 +593,12 @@ class OutputProfile:
     instruction: str
     required_markers: tuple[str, ...] = ()
     presentation: str = "plain_text"
+
+
+@dataclass(frozen=True)
+class ActionVersionContext:
+    provenance: ActionLanguageProvenance
+    output_profiles: tuple[OutputProfile, ...]
 
 
 @dataclass(frozen=True)

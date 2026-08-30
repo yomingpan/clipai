@@ -51,6 +51,7 @@ def load_config_bundle(
     actions = ActionCatalog(
         list(compiled_pack.action_definitions),
         default_stream=app.stream,
+        version_context=compiled_pack.version_context,
     )
     shortcuts = load_shortcut_catalog(shortcuts_path, actions=actions)
     entry_panel = load_entry_panel_catalog(entry_panel_path, actions=actions)

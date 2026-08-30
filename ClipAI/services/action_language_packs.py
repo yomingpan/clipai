@@ -14,6 +14,7 @@ from ClipAI.core.models import (
     ActionLanguagePackDescriptor,
     ActionLanguagePackIdentity,
     ActionLanguageProvenance,
+    ActionVersionContext,
     ActionVariant,
     ExternalFallback,
     FeedbackReason,
@@ -154,6 +155,7 @@ class CompiledActionLanguagePack:
     default_system_prompt: str
     action_definitions: tuple[ActionDefinition, ...]
     output_profiles: tuple[OutputProfile, ...]
+    version_context: ActionVersionContext
 
 
 def feature_contract_hash(skeleton: FeatureSkeleton) -> str:
@@ -293,6 +295,10 @@ def compile_pack(
         default_system_prompt=resources.default_system_prompt,
         action_definitions=definitions,
         output_profiles=profiles,
+        version_context=ActionVersionContext(
+            provenance=provenance,
+            output_profiles=profiles,
+        ),
     )
 
 
