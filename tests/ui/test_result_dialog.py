@@ -1270,6 +1270,26 @@ def test_pointer_press_inside_popup_does_not_close_it() -> None:
     assert not any(isinstance(event, CloseSession) for event in events)
 
 
+def test_outside_pointer_press_closes_the_unified_entry_panel() -> None:
+    class EntryPanel:
+        def __init__(self) -> None:
+            self.close_requests = 0
+
+        def contains_screen_point(self, _x: int, _y: int) -> bool:
+            return False
+
+        def request_close(self) -> None:
+            self.close_requests += 1
+
+    presenter, _events = presenter_with_selection(None)
+    panel = EntryPanel()
+    presenter._entry_panel_dialog = panel
+
+    presenter._handle_pointer_press(100, 100)
+
+    assert panel.close_requests == 1
+
+
 def test_dead_popup_emits_close_intent_before_view_is_evicted() -> None:
     presenter, events = presenter_with_selection(None)
     presenter._views["s1"].dialog.alive = False

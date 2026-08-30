@@ -431,6 +431,9 @@ class ResultDialogPresenter:
         self._popup_control(attention.workflow_id, view).present_attention(attention)
 
     def _handle_pointer_press(self, x: int, y: int) -> None:
+        entry_panel = getattr(self, "_entry_panel_dialog", None)
+        if entry_panel is not None and not entry_panel.contains_screen_point(x, y):
+            entry_panel.request_close()
         for workflow_id, view in tuple(self._views.items()):
             if not view.dialog.is_alive():
                 self._close_dead_view(workflow_id, view)

@@ -28,6 +28,9 @@ from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 
 
+_TRANSPARENT_WINDOW_BACKGROUND = "#111111"
+
+
 class EntryPanelIntentAdapter:
     """Translate toolkit gestures into typed Panel intents."""
 
@@ -103,10 +106,17 @@ class UnifiedEntryPanelDialog:
         self._window.title("ClipAI")
         self._window.overrideredirect(True)
         self._window.attributes("-topmost", True)
-        # Keep the non-client pixels behind the rounded shell in the same
-        # neutral gray as a result Popup.  A contrasting Toplevel background
-        # is visible as dark corner artefacts on some Windows compositions.
-        self._window.configure(fg_color=SURFACE_BG)
+        # Match the result Popup: Windows owns the real rounded outer edge.
+        # The transparent key removes the rectangular Toplevel background,
+        # so no dark pixels can leak through the shell's curved corners.
+        self._window.configure(fg_color=_TRANSPARENT_WINDOW_BACKGROUND)
+        try:
+            self._window.attributes(
+                "-transparentcolor",
+                _TRANSPARENT_WINDOW_BACKGROUND,
+            )
+        except tk.TclError:
+            self._window.configure(fg_color=SURFACE_BG)
         self._window.bind("<Escape>", self._on_escape)
         self._window.bind("<KeyPress>", self._on_key)
         self._window.bind("<FocusOut>", self._on_focus_out, add="+")
@@ -217,6 +227,21 @@ class UnifiedEntryPanelDialog:
 
     def close(self) -> None:
         self._lifecycle.close()
+
+    def request_close(self) -> None:
+        """Request runtime-owned Panel closure after an external click."""
+        self._intent.close()
+
+    def contains_screen_point(self, x: int, y: int) -> bool:
+        try:
+            self._window.update_idletasks()
+            left = int(self._window.winfo_rootx())
+            top = int(self._window.winfo_rooty())
+            width = int(self._window.winfo_width())
+            height = int(self._window.winfo_height())
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            return False
+        return left <= x < left + width and top <= y < top + height
 
     def _rebuild_body(self, snapshot: EntryPanelSnapshot) -> None:
         for child in self._body.winfo_children():
@@ -343,8 +368,10 @@ class UnifiedEntryPanelDialog:
             text=title,
             anchor="w",
             height=32,
-            corner_radius=7,
-            fg_color="transparent",
+            # The card owns the rounded clipping edge.  A transparent rounded
+            # child button leaves anti-aliased corner pixels exposed on Windows.
+            corner_radius=0,
+            fg_color="#252525",
             hover_color="#3A3A3A",
             text_color=CONTENT_COLOR,
             font=ctk.CTkFont(
