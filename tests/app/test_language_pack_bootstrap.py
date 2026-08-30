@@ -78,11 +78,11 @@ def test_missing_selection_bootstraps_default_without_rewriting_store(tmp_path) 
 def test_missing_selected_pack_falls_back_without_changing_selection(tmp_path) -> None:
     config_dir = _copy_config(tmp_path)
 
-    result = _bootstrap(config_dir, SelectionStore("ja-JP"))
+    result = _bootstrap(config_dir, SelectionStore("missing-pack"))
 
     assert result.bundle.action_language.identity.pack_id == "zh-TW"
     assert result.state.active_pack.pack_id == "zh-TW"
-    assert result.state.selected_pack_id == "ja-JP"
+    assert result.state.selected_pack_id == "missing-pack"
     assert result.state.recovery is not None
     assert result.state.recovery.reason == "pack_missing"
 
@@ -95,7 +95,7 @@ def test_invalid_nondefault_pack_is_omitted_from_availability(tmp_path) -> None:
 
     assert tuple(
         descriptor.identity.pack_id for descriptor in result.state.available_packs
-    ) == ("zh-TW",)
+    ) == ("zh-TW", "ja-JP")
     assert "action_language_pack.broken.manifest_invalid" in result.diagnostic_codes
 
 

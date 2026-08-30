@@ -4,6 +4,7 @@ from ClipAI.app.language_pack_loader import (
     ActionLanguagePackLoader,
     LanguagePackRegistryEntry,
     load_feature_skeleton,
+    validate_official_language_packs,
 )
 from ClipAI.core.models import ActionDefinition
 
@@ -35,6 +36,19 @@ def test_japanese_candidate_compiles_as_one_complete_pack() -> None:
     assert pack.descriptor.display_name == "日本語"
     assert len(pack.action_definitions) == 27
     assert len(pack.output_profiles) == 10
+
+
+def test_official_registry_releases_both_complete_packs_in_product_order() -> None:
+    packs = validate_official_language_packs("config")
+
+    assert tuple(pack.descriptor.identity.pack_id for pack in packs) == (
+        "zh-TW",
+        "ja-JP",
+    )
+    assert tuple(pack.descriptor.display_name for pack in packs) == (
+        "繁體中文",
+        "日本語",
+    )
 
 
 def test_japanese_pack_preserves_fixed_output_language_semantics() -> None:

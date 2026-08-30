@@ -3,3 +3,5 @@ default_pack_id: zh-TW
 packs:
 - pack_id: zh-TW
   path: language_packs/zh-TW
+- pack_id: ja-JP
+  path: language_packs/ja-JP
