@@ -89,6 +89,7 @@ def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
 
 def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     configure_logging(bundle.logging)
+    application_version = _application_version()
     settings_store = DotenvModelPreferenceStore()
     provider_transport = HttpxAsyncTransport()
     provider_execution = ProviderExecutionModule(provider_transport)
@@ -142,6 +143,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         on_disable_voice=lambda: runtime_holder[0].enqueue(DisableVoiceInput(VoiceDisableId(uuid.uuid4().hex))),
         on_set_voice_language=lambda language: runtime_holder[0].enqueue(SetVoiceLanguage(language)),
         on_manage_voice_permission=lambda: runtime_holder[0].enqueue(OpenVoicePermissionSettings()),
+        application_version=application_version,
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     native_window_surface = WindowsNativeWindowSurface()
@@ -154,7 +156,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     )
     diagnostics_exporter = SafeDiagnosticsExporter(
         metadata={
-            "version": _application_version(),
+            "version": application_version,
             "schema_versions": {
                 "config": bundle.schema_versions.app,
                 "actions": bundle.schema_versions.actions,

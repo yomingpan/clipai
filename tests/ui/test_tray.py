@@ -83,7 +83,16 @@ def test_tray_projects_status_and_current_configuration_as_compact_summaries() -
     assert tray._configuration_summary() == "OpenAI · gpt-test"
     tray.set_status("error")
     assert tray._status == "error"
-    assert tray._tooltip() == "ClipAI — Needs attention · OpenAI · gpt-test"
+    assert tray._tooltip() == "ClipAI vdevelopment — Needs attention · OpenAI · gpt-test"
+
+
+def test_tray_top_menu_and_tooltip_show_the_application_version() -> None:
+    tray = TrayController(lambda: None, application_version="3.6.5")
+
+    assert tray._application_label() == "ClipAI v3.6.5 — Ready"
+    assert tray._tooltip() == "ClipAI v3.6.5 — Ready · No provider configured"
+
+    tray.stop()
 
 
 def test_tray_notification_uses_the_existing_icon() -> None:
@@ -323,6 +332,7 @@ def test_speech_speed_follows_keyboard_shortcuts_and_is_separated_from_guidance(
 
     tray.start()
     tray._thread.join(timeout=1)
+    assert tray._icon.menu.items[0].text(None) == "ClipAI vdevelopment — Ready"
     items = tray._icon.menu.items
     shortcut_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "Keyboard Shortcuts...")
     speech_index = next(index for index, item in enumerate(items) if callable(getattr(item, "text", None)) and item.text(None) == "Speech Speed")

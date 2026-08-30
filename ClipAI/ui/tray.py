@@ -100,8 +100,10 @@ class TrayController:
         on_disable_voice: Callable[[], None] | None = None,
         on_set_voice_language: Callable[[VoiceLanguage], None] | None = None,
         on_manage_voice_permission: Callable[[], None] | None = None,
+        application_version: str = "development",
     ) -> None:
         self._on_exit = on_exit
+        self._application_version = application_version
         self._on_export_diagnostics = on_export_diagnostics
         self._on_show_last_error = on_show_last_error
         self._model_selection = model_selection
@@ -137,7 +139,7 @@ class TrayController:
             self._on_exit()
 
         menu_items = [
-            pystray.MenuItem(lambda _item: f"ClipAI — {STATUS_LABELS[self._status]}", None, enabled=False),
+            pystray.MenuItem(lambda _item: self._application_label(), None, enabled=False),
             pystray.MenuItem(lambda _item: self._configuration_summary(), None, enabled=False),
             pystray.Menu.SEPARATOR,
         ]
@@ -185,8 +187,11 @@ class TrayController:
         model = self._model_selection.selected_model if self._model_selection is not None else ""
         return " · ".join(part for part in (provider, model) if part) or "No provider configured"
 
+    def _application_label(self) -> str:
+        return f"ClipAI v{self._application_version} — {STATUS_LABELS[self._status]}"
+
     def _tooltip(self) -> str:
-        return f"ClipAI — {STATUS_LABELS[self._status]} · {self._configuration_summary()}"
+        return f"{self._application_label()} · {self._configuration_summary()}"
 
     def _build_model_menu(self, pystray):
         selection = self._model_selection
