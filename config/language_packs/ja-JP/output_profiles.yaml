@@ -1,0 +1,48 @@
+schema_version: 1
+profiles:
+  plain_text:
+    instruction: ''
+  english_learning_compact:
+    instruction: 最初の行に対象の英語表現を一つだけ置く。続けて日本語で意味と具体的な使用場面を短く説明し、自然な英語例を一つ示す。必要なら `語感：` で話し言葉・書き言葉やフォーマル度を説明し、`類義：` で近い表現を1〜3個、最後に `記憶：` で短い覚え方を示す。Markdown見出しや余分な区画は使わない。
+  reading_friction_explain:
+    instruction: 選択英文を語順どおり最初に置き、必要な場合だけ意味のまとまり一つを太字にする。次に日本語1〜2文で不足する意味または関係だけを説明する。最後は正確なマーカー `文全体では：` で始め、選択全体の日本語の読みを一つ示す。見出し、リスト、例、類義語、練習を足さず、英語をコード書式にしない。
+    markers:
+      recomposed_reading_prefix: 文全体では：
+  reading_friction_practice:
+    instruction: 選択英文を無印のまま最初に置き、次の行で訳さず一度読むよう短く促す。`## 言い換えて読む` の下に同じ読解能力を使う未見文を一つ置き、答えや訳を示さない。課題後に `[[SCROLL_BREAK]]` を単独行で置く。区切り後は `詰まったら：` で最小ヒントを一つだけ示し、全文訳は出さない。
+    markers:
+      transfer_heading: '## 言い換えて読む'
+      hint_prefix: 詰まったら：
+  english_improvement:
+    instruction: 次の三つのMarkdown区画を順に使う：全文リライト、主な改善点、再利用できる型。各区画を簡潔で読みやすくし、同じ修正を繰り返さない。
+    markers:
+      full_rewrite_heading: '## 全文リライト'
+      key_improvements_heading: '## 主な改善点'
+      useful_patterns_heading: '## 再利用できる型'
+  expression_capture:
+    instruction: 最初に価値のある原文英語一文を置き、固定の再利用チャンクだけを太字にする。続けて短いパターン、日本語の用途説明、異なる置換例3つを示す。その後 `## 思い出す` と `## 自分の表現にする` を順に使う。想起課題では答えの前に `[[SCROLL_FOR_ANSWER]]` を単独行で置く。固定チャンクの語を全箇所で一致させ、英語をコード書式にしない。
+    markers:
+      retrieve_heading: '## 思い出す'
+      make_it_yours_heading: '## 自分の表現にする'
+  expression_transfer:
+    instruction: 最初に使える完成英語を置き、元入力全文は繰り返さない。続けて `## 変化の要点`、`## 再利用チャンク`、`## あなたの番` を順に使う。最後の課題は模範解答を出さず、単独行 `Ctrl+/ を押して回答` で終える。follow-upが回答なら対象チャンクだけを評価して最小修正を返す。
+    markers:
+      key_shift_heading: '## 変化の要点'
+      transfer_chunk_heading: '## 再利用チャンク'
+      your_turn_heading: '## あなたの番'
+  temporary_viewpoint:
+    instruction: 成熟した考えなら見出しなしで暫定的な見方から始め、`## 観察と仮説` で **観察**、**仮説**、必要な場合だけ **傾向** を区別する。本当に有効な場合だけ反証条件と未整理要素を追加する。未成熟なら `現在感じていること：` から始め、結論を強制しない。
+    markers:
+      evidence_hypothesis_heading: '## 観察と仮説'
+  session_handoff:
+    instruction: '`## A. 現在の目的` から始め、指定区画を順に使う。目的、必要な文脈、意図と制約、採用・却下した判断と理由、未解決事項、具体的な再開地点を簡潔に記す。ない区画は `特になし。` とする。最後の確認は最大5件とし、事実・圧縮・推論を区別する。'
+    markers:
+      current_objective_heading: '## A. 現在の目的'
+      relevant_context_heading: '## B. 関連する文脈'
+      intent_constraints_heading: '## C. 意図と制約'
+      reasoning_state_heading: '## D. 推論の状態'
+      open_loops_heading: '## E. 未解決事項'
+      continuation_point_heading: '## F. 再開地点'
+      user_double_check_heading: '## 利用者による最終確認'
+  score_compact:
+    instruction: 'SCORE各欄の同一行規則を最優先する。独立情報が1点なら `S: 内容` のようにラベルと同じ物理行へ書き、先頭にbulletを付けない。2点以上ある欄だけラベルを単独行にし、次行から `- ` を使う。`未提供` も同じ行に書く。見た目を揃えるため全欄をリスト化しない。'

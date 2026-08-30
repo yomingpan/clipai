@@ -1,0 +1,16 @@
+schema_version: 1
+pack_id: ja-JP
+locale: ja-JP
+display_name: 日本語
+pack_version: 1.0.0
+feature_contract_hash: sha256:f439d77740d5812586cb6d0dc3c99d97c01cc4ad5c652e101dc44e04508ef9fe
+resources:
+  app:
+    path: app.yaml
+    sha256: 02d1cf22d1e3bb0473bfdcd7eb33fd888abbdc25b78372d8e4e85fa0f443d2fd
+  actions:
+    path: actions.yaml
+    sha256: fa4e331f4d8c978a962effbe103d92babe87430c68099fba9ffde9cbdb68d351
+  output_profiles:
+    path: output_profiles.yaml
+    sha256: b34b09a5f0317ed8a400b1ce37cd2e3d5275dfaeb084081b8e8bc2ad20b53562
