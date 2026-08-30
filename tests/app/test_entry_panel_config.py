@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from ClipAI.app.config_loader import load_action_catalog, load_config_bundle, load_entry_panel_catalog
+from ClipAI.app.config_loader import load_config_bundle, load_entry_panel_catalog
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.models import EntryActionRef
 
@@ -29,7 +29,7 @@ categories:
 
     catalog = load_entry_panel_catalog(
         path,
-        actions=load_action_catalog("config/actions.yaml"),
+        actions=load_config_bundle().actions,
     )
 
     category = catalog.category_for_slot(3)
@@ -60,7 +60,7 @@ categories:
     )
 
     with pytest.raises(ConfigError, match="duplicate category slot: 3"):
-        load_entry_panel_catalog(path, actions=load_action_catalog("config/actions.yaml"))
+        load_entry_panel_catalog(path, actions=load_config_bundle().actions)
 
 
 def test_entry_panel_catalog_limits_scene_to_four_flagships(tmp_path: Path) -> None:
@@ -91,7 +91,7 @@ def test_entry_panel_catalog_limits_scene_to_four_flagships(tmp_path: Path) -> N
     )
 
     with pytest.raises(ConfigError, match="flagship must contain at most 4 candidates"):
-        load_entry_panel_catalog(path, actions=load_action_catalog("config/actions.yaml"))
+        load_entry_panel_catalog(path, actions=load_config_bundle().actions)
 
 
 def test_entry_panel_catalog_rejects_duplicate_action_reference(tmp_path: Path) -> None:
@@ -119,7 +119,7 @@ categories:
     )
 
     with pytest.raises(ConfigError, match="duplicate entry action: english_companion/short"):
-        load_entry_panel_catalog(path, actions=load_action_catalog("config/actions.yaml"))
+        load_entry_panel_catalog(path, actions=load_config_bundle().actions)
 
 
 def test_entry_panel_catalog_reserves_root_slots_three_through_six(tmp_path: Path) -> None:
@@ -139,7 +139,7 @@ categories:
     )
 
     with pytest.raises(ConfigError, match="slot must be one of: 3, 4, 5, 6"):
-        load_entry_panel_catalog(path, actions=load_action_catalog("config/actions.yaml"))
+        load_entry_panel_catalog(path, actions=load_config_bundle().actions)
 
 
 def test_entry_panel_catalog_rejects_duplicate_category_ids(tmp_path: Path) -> None:
@@ -165,13 +165,13 @@ categories:
     )
 
     with pytest.raises(ConfigError, match="duplicate category id: understand"):
-        load_entry_panel_catalog(path, actions=load_action_catalog("config/actions.yaml"))
+        load_entry_panel_catalog(path, actions=load_config_bundle().actions)
 
 
 def test_product_entry_panel_catalog_matches_prd_order() -> None:
     catalog = load_entry_panel_catalog(
         "config/entry_panel.yaml",
-        actions=load_action_catalog("config/actions.yaml"),
+        actions=load_config_bundle().actions,
     )
 
     expected = {

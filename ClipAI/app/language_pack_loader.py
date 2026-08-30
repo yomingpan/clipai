@@ -150,11 +150,21 @@ class ActionLanguagePackLoader:
         return compile_pack(self._skeleton, manifest, resources)
 
 
-def load_feature_skeleton(config_dir: str | Path) -> FeatureSkeleton:
+def load_feature_skeleton(
+    config_dir: str | Path,
+    *,
+    actions_path: str | Path | None = None,
+    shortcuts_path: str | Path | None = None,
+    output_profiles_path: str | Path | None = None,
+) -> FeatureSkeleton:
     root = Path(config_dir)
-    actions = _parse_action_skeleton(root / "actions.yaml")
-    shortcuts = _parse_shortcut_skeleton(root / "shortcuts.yaml")
-    profiles = _parse_output_profile_skeleton(root / "output_profiles.yaml")
+    actions = _parse_action_skeleton(Path(actions_path) if actions_path is not None else root / "actions.yaml")
+    shortcuts = _parse_shortcut_skeleton(Path(shortcuts_path) if shortcuts_path is not None else root / "shortcuts.yaml")
+    profiles = _parse_output_profile_skeleton(
+        Path(output_profiles_path)
+        if output_profiles_path is not None
+        else root / "output_profiles.yaml"
+    )
     return FeatureSkeleton(actions=actions, shortcuts=shortcuts, output_profiles=profiles)
 
 

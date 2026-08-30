@@ -23,6 +23,13 @@ def _load_yaml(name: str) -> dict[str, Any]:
     return payload
 
 
+def _load_zh_tw_resource(name: str) -> dict[str, Any]:
+    path = CONFIG_DIR / "language_packs" / "zh-TW" / name
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert isinstance(payload, dict)
+    return payload
+
+
 def _digest(value: Any) -> str:
     encoded = json.dumps(
         value,
@@ -84,6 +91,7 @@ def test_action_language_inventory_and_prompt_contract_are_frozen() -> None:
     action_payload = _load_yaml("actions.yaml")
     shortcut_payload = _load_yaml("shortcuts.yaml")
     profile_payload = _load_yaml("output_profiles.yaml")
+    language_payload = _load_zh_tw_resource("actions.yaml")
     actions = action_payload["actions"]
     explicit_variants = [
         variant
@@ -100,8 +108,13 @@ def test_action_language_inventory_and_prompt_contract_are_frozen() -> None:
     ) == 27
     assert len(profile_payload["profiles"]) == 10
 
-    prompts = [action["prompt"] for action in actions]
-    prompts.extend(variant["prompt"] for variant in explicit_variants)
+    localized_actions = language_payload["actions"].values()
+    prompts = [action["prompt"] for action in localized_actions]
+    prompts.extend(
+        variant["prompt"]
+        for action in localized_actions
+        for variant in action.get("variants", {}).values()
+    )
     for prompt in prompts:
         fields = [field for _, field, _, _ in Formatter().parse(prompt) if field]
         assert fields == ["input"]

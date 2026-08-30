@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from ClipAI.core.models import ReadinessIssue
+from ClipAI.core.models import ActionLanguageProvenance, ReadinessIssue
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings, ProviderSettings
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.entry_panel import EntryPanelCatalog
@@ -67,6 +67,9 @@ class ConfigSchemaVersions:
     output_profiles: int
     shortcuts: int
     entry_panel: int
+    action_language_registry: int
+    action_language_manifest: int
+    action_language_resources: int
 
 
 @dataclass(frozen=True)
@@ -81,5 +84,6 @@ class ConfigBundle:
     logging: LoggingSettings
     output_profiles: OutputProfileCatalog
     entry_panel: EntryPanelCatalog
+    action_language: ActionLanguageProvenance
     schema_versions: ConfigSchemaVersions
     readiness_issues: tuple[ReadinessIssue, ...] = ()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
-from ClipAI.app.config_loader import load_action_catalog, load_app_config, load_shortcut_catalog
+from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.core.commands import CloseShortcutGuide, SelectShortcutGuideItem
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
@@ -15,10 +15,12 @@ class MockShortcutGuideSurface:
         self.root = ctk.CTk()
         self.root.withdraw()
         self.coordinator = ShortcutGuideCoordinator()
-        app, *_ = load_app_config("config/config.yaml")
-        actions = load_action_catalog("config/actions.yaml")
-        shortcuts = load_shortcut_catalog("config/shortcuts.yaml", actions=actions)
-        catalog = ShortcutGuideCatalog(shortcuts, actions, modifier_mode=app.modifier_mode)
+        config = load_config_bundle()
+        catalog = ShortcutGuideCatalog(
+            config.shortcuts,
+            config.actions,
+            modifier_mode=config.app.modifier_mode,
+        )
         self.dialog = ShortcutGuideDialog(self.root, self.handle)
         self.dialog.show(self.coordinator.open("mock-guide", catalog.items()))
 

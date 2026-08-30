@@ -1,0 +1,92 @@
+schema_version: 1
+profiles:
+  plain_text:
+    instruction: ''
+  english_learning_compact:
+    instruction: |-
+      Put exactly one target English expression by itself on the first line, without any spoken/written or formal/informal label. Then give at most two short, conversational Traditional Chinese sentences combining its meaning with a concrete usage situation, followed by one practical English example.
+      After the example, add a separate `語感：` line when a spoken/written or formal/informal distinction is useful. If the target is mainly written or formal, mention that gently and give its closest everyday spoken alternative. Add `同義：` with 1-3 useful close alternatives when helpful; for a mainly written or formal target, include and mark conversational alternatives with `（口語常用）`. End with `記憶：` and one concrete, short mnemonic or association.
+      Keep the entire answer compact. Do not use Markdown headings or extra sections.
+  reading_friction_explain:
+    instruction: |-
+      Start directly with the selected English. Preserve every word and its order; add at most one bold span around one meaningful unit only when that cue makes the obstacle easier to see. Never split a collocation, fixed expression, or syntactic unit merely to shorten the bold span.
+      Follow with one or two short, natural Traditional Chinese sentences that explain only the missing meaning or relationship. Avoid grammar terminology unless the term itself is the shortest useful explanation.
+      End with one recomposed Traditional Chinese reading of the complete selection beginning with the exact marker `整句就是：`.
+      Do not add headings, lists, labels, examples, synonyms, exercises, a More Help invitation, or more than one primary visual cue. Never format English as inline code or with backticks.
+    markers:
+      recomposed_reading_prefix: 整句就是：
+  reading_friction_practice:
+    instruction: |-
+      Start directly with the complete selected English. Keep the selected source completely unmarked: preserve every word and its order, and do not use bold, slashes, colors, labels, or decomposition. On the next line, give one short Traditional Chinese invitation to read it once silently or aloud without translating or submitting an answer.
+      Then use the single heading `## 換一句`. Give exactly one unseen near-transfer sentence that differs on the surface while exercising the same reading capability. Keep this sentence completely unmarked and follow it with one short Traditional Chinese reading task. Do not show an answer, translation, analysis, correctness judgment, or score.
+      If natural pronunciation support is genuinely useful, add the optional sentence `想聽自然讀法，可以只選取英文句子後按喇叭按鈕。` before the scroll break. Never autoplay audio.
+      Put `[[SCROLL_BREAK]]` alone on a line after the transfer task. After the break, begin with the exact text `卡住時再看：` and give exactly one minimal hint: either one bold meaningful unit or one short relationship statement. The hint must be just sufficient to repair the likely mistaken reading, must preserve linguistic bonds, and must not provide a full translation. End with one short invitation to reread the original and transfer sentences.
+      Do not add other headings, steps, or answers. Do not add a More Help button or invitation, scores, streaks, learner-profile language, or multiple visual cues. Never format English as inline code or with backticks.
+    markers:
+      transfer_heading: '## 換一句'
+      hint_prefix: 卡住時再看：
+  english_improvement:
+    instruction: |-
+      Use exactly these three Markdown sections in order: Full Rewrite, Key Improvements,
+      and Useful Patterns. Keep every section concise, visually scannable, and free of repeated corrections.
+    markers:
+      full_rewrite_heading: '## Full Rewrite'
+      key_improvements_heading: '## Key Improvements'
+      useful_patterns_heading: '## Useful Patterns'
+  expression_capture:
+    instruction: |-
+      Start with one valuable source sentence before any Markdown heading. Bold only the selected fixed reusable chunk in that sentence, using at most two bold spans per line.
+      Immediately after it, on a new line, give one reusable pattern without a Primary expression label. Its fixed part should be a small spoken memory anchor, usually 2-8 English words, with at most two plain-language semantic slots for replaceable meaning. Keep the pattern visibly shorter and easier to remember than the source sentence. Avoid grammar-class slots such as `[subject]`, `[noun phrase]`, and `[verb-ed]`.
+      On the following line, write one short Traditional Chinese sentence explaining its communicative intent and what kind of meaning can replace the slots.
+      Then, without a Pattern heading, give exactly three short unnumbered bullet examples that substitute the pattern's slots. Every example line begins with the literal Markdown bullet `- `. Every bullet example and the Retrieve answer must be a complete English sentence. Use meaningfully different replacement content across the examples. Traditional Chinese is allowed only in the one usage explanation and the Retrieve situation and task.
+      The fixed reusable chunk is authoritative: use exactly the same fixed words in the source, pattern, all three examples, Retrieve answer, and Make It Yours line. Bold only the fixed reusable chunk. Never bold slot labels or replacement content.
+      Use exactly these two Markdown sections afterward, in order: Retrieve and Make It Yours.
+      Retrieve contains one concrete Traditional Chinese situation and one Chinese retrieval prompt. Tell the learner to try saying it before scrolling, then put `[[SCROLL_FOR_ANSWER]]` alone on a line. Put the English answer only after that marker.
+      Make It Yours contains one concise fill-in pattern. Keep the result compact and do not add other sections.
+      Never format English learning content as inline code or with backticks, including the chunk, patterns, examples, answer, and fill-in pattern. Never use nested or unbalanced Markdown bold markers; each bold span has one opening and one closing pair, contains no other bold marker, and each line has at most two bold spans.
+      Do not prefix content with redundant field labels, and do not turn every line into a bullet. Present Retrieve and Make It Yours content directly in natural reading order instead of as labeled key-value fields.
+    markers:
+      retrieve_heading: '## Retrieve'
+      make_it_yours_heading: '## Make It Yours'
+  expression_transfer:
+    instruction: |-
+      For the initial response, put the complete usable English first without a Natural Version heading. Do not repeat the complete original input.
+      Then use exactly these three Markdown sections in order: Key Shift, Transfer Chunk, and Your Turn.
+      Key Shift contains one smallest original-to-improved comparison and one short Traditional Chinese explanation of why the improved version is more natural.
+      Transfer Chunk contains exactly one bold primary reusable chunk and one short Traditional Chinese explanation of when it is useful. Add a second chunk only when the primary chunk cannot be used naturally without it; put it on a separate line without a label or unrelated synonym.
+      Your Turn contains one concrete Traditional Chinese task that names the primary target chunk and asks the learner to type a new English sentence. Do not reveal a model answer. End with the exact standalone line: 按 Ctrl+/ 回答
+      If the latest user message is an attempted answer to Your Turn, do not repeat the three-section lesson. Evaluate only the target chunk usage, make the smallest necessary correction, and give at most one conversational alternative.
+    markers:
+      key_shift_heading: '## Key Shift'
+      transfer_chunk_heading: '## Transfer Chunk'
+      your_turn_heading: '## Your Turn'
+  temporary_viewpoint:
+    instruction: |-
+      For a developed thought, start directly with the temporary viewpoint in one to four short paragraphs, without a 暫時觀點 heading. Preserve the user's uncertainty, tension, and voice; do not turn a summary into a conclusion.
+      Then use `## 依據與假說`. Use **觀察** for what is actually seen, experienced, or known, and **假說** for the explanation currently being inferred. Add **傾向** only when the user genuinely leans toward a belief that is not established. Do not create categories merely to fill the format, and do not promote a hypothesis to an observation.
+      Add `## 反轉條件` only when a genuinely discriminating future observation, experience, or result could lower confidence, revise, or overturn the viewpoint. State it as a concrete “如果看到 X，我會改變目前看法” condition, not a research to-do list. If no meaningful condition is available, say directly that this uncertainty should be retained.
+      Add `## 尚未馴化` only when the input contains an important but not-yet-explainable phrase, metaphor, feeling, contradiction, or intuition. Preserve it alone on its own line; do not explain, define, or rationalize it.
+      When the input is not mature enough for a viewpoint, do not force one. Start with `目前的味道：` and describe the unresolved tension directly, then include `## 依據與假說` and only the optional sections that genuinely apply.
+      Keep the result compact and visually calm. Do not repeat the input, add generic wisdom, invent causal links, or add decorative labels and bullets.
+    markers:
+      evidence_hypothesis_heading: '## 依據與假說'
+  session_handoff:
+    instruction: |-
+      Start directly with `## A. Current Objective`, without a SESSION HANDOFF heading, and use the exact section structure below. This document must be directly pasteable into a new AI session and must let the user inspect it in 30 seconds.
+      In A, write the current objective in one or two direct sentences; do not mix in superseded historical goals. In B and C, use short bullets only for background or constraints whose removal could cause the next session to misunderstand the task, repeat an answered question, violate a preference, or ignore a limit. When a section has no material content, write `None identified.` rather than inventing information.
+      In D, use `### Accepted` and `### Rejected`. Bold the accepted judgment or rejected option, then put its necessary reason on the following line in normal text. A rejection without its reason is incomplete. Preserve meaningful corrections, failed approaches, changed minds, trade-offs, and unverified core hypotheses.
+      In E, keep only genuinely unresolved questions or validations. In F, provide exactly one concrete continuation point as a blockquote, not a generic request to continue discussing.
+      Follow source fidelity strictly: user statements first, then proposals explicitly accepted by the user. Mark material unconfirmed AI proposals as `[待確認]` and inferences as `[推論]`; never present either as fact.
+      In USER DOUBLE-CHECK, list at most five items that could materially misdirect the next session if wrong. Use only ✅ for explicit user statements, ⚠️ for compressed material worth checking, and ❓ for a necessary inference or unconfirmed item. Do not manufacture checks to fill the list.
+      Preserve reasoning continuity, not conversation history. Do not repeat the transcript, add praise, answer the original conversation, or add decorative labels beyond the required structure.
+    markers:
+      current_objective_heading: '## A. Current Objective'
+      relevant_context_heading: '## B. Relevant Context'
+      intent_constraints_heading: '## C. Intent & Constraints'
+      reasoning_state_heading: '## D. Reasoning State'
+      open_loops_heading: '## E. Open Loops'
+      continuation_point_heading: '## F. Continuation Point'
+      user_double_check_heading: '## USER DOUBLE-CHECK'
+  score_compact:
+    instruction: 'SCORE 欄位的同行規則是最高優先級。輸出前逐一計算 S、C、O、R、E 各欄的獨立資訊點：剛好一點時，必須把內容直接寫在欄位標籤後的同一實體行，例如 `S: 使用者正在整理需求`；不得換行，也不得在前面加
+      `-`、`*`、`•` 或其他 bullet。只有同一欄確實有兩個以上獨立資訊點時，才能將欄位標籤單獨成行，並在後續各行使用 `-`。`未提供` 也必須同行寫成例如 `C: 未提供`。不得為了視覺一致而把五個欄位全部改成清單。'

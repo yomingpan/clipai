@@ -1,0 +1,5 @@
+schema_version: 1
+default_pack_id: zh-TW
+packs:
+- pack_id: zh-TW
+  path: language_packs/zh-TW

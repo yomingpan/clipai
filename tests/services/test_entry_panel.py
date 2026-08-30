@@ -1,4 +1,4 @@
-from ClipAI.app.config_loader import load_action_catalog, load_entry_panel_catalog
+from ClipAI.app.config_loader import load_config_bundle, load_entry_panel_catalog
 import pytest
 
 from ClipAI.core.models import EntryActionRef, EntryPanelSelectionId
@@ -9,7 +9,7 @@ from ClipAI.services.entry_panel import EntryPanelCandidate, EntryPanelCatalog, 
 def coordinator() -> EntryPanelCoordinator:
     return EntryPanelCoordinator(load_entry_panel_catalog(
         "config/entry_panel.yaml",
-        actions=load_action_catalog("config/actions.yaml"),
+        actions=load_config_bundle().actions,
     ))
 
 
@@ -102,7 +102,7 @@ def test_density_toggle_preserves_page_search_and_action_order() -> None:
 
 def test_open_reuses_the_preferred_density_for_the_next_panel_lifecycle() -> None:
     panel = EntryPanelCoordinator(
-        load_entry_panel_catalog("config/entry_panel.yaml", actions=load_action_catalog("config/actions.yaml")),
+        load_entry_panel_catalog("config/entry_panel.yaml", actions=load_config_bundle().actions),
         density="compact",
     )
 

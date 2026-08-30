@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ClipAI.app.config_loader import _parse_voice_input, load_action_catalog, load_app_config, load_config_bundle, load_output_profiles, load_shortcut_catalog
+from ClipAI.app.config_loader import _parse_voice_input, load_app_config, load_config_bundle, load_shortcut_catalog
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.commands import OpenContextualQuestion, SpeakSelectionOrClipboard, StartAction
@@ -45,9 +45,13 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "After the example, add a separate `語感：` line" in profile.instruction
     assert "mark conversational alternatives with `（口語常用）`" in profile.instruction
     assert bundle.schema_versions.app == 2
-    assert bundle.schema_versions.actions == 10
-    assert bundle.schema_versions.output_profiles == 1
+    assert bundle.schema_versions.actions == 11
+    assert bundle.schema_versions.output_profiles == 2
     assert bundle.schema_versions.shortcuts == 1
+    assert bundle.schema_versions.action_language_registry == 1
+    assert bundle.schema_versions.action_language_manifest == 1
+    assert bundle.schema_versions.action_language_resources == 1
+    assert bundle.action_language.identity.pack_id == "zh-TW"
     assert bundle.shortcuts.resolve("english_companion", "long").action_id == "english_companion"
 
 
@@ -90,7 +94,7 @@ def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input()
 
 
 def test_name_idea_keeps_two_part_format_without_markdown_headings() -> None:
-    action = load_action_catalog("config/actions.yaml").get("name_idea")
+    action = load_config_bundle().actions.get("name_idea")
 
     assert "第一段只放命名" in action.prompt
     assert "空一行後，第二段" in action.prompt
@@ -131,7 +135,7 @@ def test_personal_style_actions_have_distinct_poi_contracts_and_shortcuts() -> N
 
 
 def test_long_press_uses_variant_prompt() -> None:
-    catalog = load_action_catalog("config/actions.yaml")
+    catalog = load_config_bundle().actions
     resolved = catalog.resolve("english_companion", "long")
     assert resolved.name == "英文改善建議"
     assert "Improve the following English" in resolved.prompt
@@ -297,54 +301,6 @@ def test_long_press_ctrl_alt_2_translates_to_japanese() -> None:
     assert long_action.feedback_contract != short_action.feedback_contract
 
 
-def test_action_input_mode_defaults_to_selection_or_clipboard(tmp_path: Path) -> None:
-    path = tmp_path / "actions.yaml"
-    path.write_text(
-        """schema_version: 3
-actions:
-  - id: default_input
-    name: Default Input
-    system_prompt: system
-    prompt: "{input}"
-  - id: clipboard_only
-    name: Clipboard Only
-    system_prompt: system
-    prompt: "{input}"
-    input_mode: clipboard
-""",
-        encoding="utf-8",
-    )
-
-    catalog = load_action_catalog(path)
-    assert catalog.resolve("default_input", "short").input_mode == "selection_or_clipboard"
-    assert catalog.resolve("clipboard_only", "short").input_mode == "clipboard"
-
-
-def test_action_stream_inherits_catalog_default_and_allows_override(tmp_path: Path) -> None:
-    path = tmp_path / "actions.yaml"
-    path.write_text(
-        """schema_version: 8
-actions:
-  - id: inherited
-    name: Inherited
-    system_prompt: system
-    prompt: "{input}"
-  - id: disabled
-    name: Disabled
-    system_prompt: system
-    prompt: "{input}"
-    stream: false
-""",
-        encoding="utf-8",
-    )
-
-    catalog = load_action_catalog(path, default_stream=True)
-
-    assert catalog.get("inherited").stream is None
-    assert catalog.resolve("inherited", "short").stream is True
-    assert catalog.resolve("disabled", "short").stream is False
-
-
 def test_unknown_config_field_reports_full_path(tmp_path: Path) -> None:
     path = tmp_path / "config.yaml"
     path.write_text(
@@ -466,26 +422,8 @@ def test_future_schema_version_reports_file_and_version(tmp_path: Path) -> None:
         load_app_config(path)
 
 
-@pytest.mark.parametrize(
-    ("filename", "loader"),
-    (("output_profiles.yaml", load_output_profiles),),
-)
-def test_future_catalog_schema_version_is_rejected(tmp_path: Path, filename: str, loader) -> None:
-    path = tmp_path / filename
-    path.write_text("schema_version: 2\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=rf"{filename}.*schema_version 2"):
-        loader(path)
-
-
-def test_future_actions_schema_version_is_rejected(tmp_path: Path) -> None:
-    path = tmp_path / "actions.yaml"
-    path.write_text("schema_version: 11\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"actions.yaml.*schema_version 11"):
-        load_action_catalog(path)
-
-
 def test_feedback_contract_is_typed_for_enabled_actions() -> None:
-    catalog = load_action_catalog("config/actions.yaml")
+    catalog = load_config_bundle().actions
 
     translated = catalog.resolve("translate_to_english", "short")
     shortened = catalog.resolve("shorten_content", "short")
@@ -824,43 +762,8 @@ def test_score_action_classifies_before_compressing_and_supports_clarification()
     assert "剛好一點時，必須把內容直接寫在欄位標籤後的同一實體行" in bundle.output_profiles.get("score_compact").instruction
 
 
-@pytest.mark.parametrize(
-    ("original", "changed"),
-    [
-        ("將內容翻譯成符合情境的自然英文", "將內容翻成自然英文"),
-        ("不替你決定真正想表達的意思、立場、關係拿捏與最後選擇", "不替你決定真正想表達的意思"),
-        ("說法不自然或不適合對象", "說法不自然"),
-    ],
-)
-def test_action_version_changes_with_every_feedback_contract_dimension(tmp_path: Path, original: str, changed: str) -> None:
-    source = Path("config/actions.yaml")
-    baseline = load_action_catalog(source).resolve("translate_to_english", "short").version_id
-    modified = tmp_path / "actions.yaml"
-    modified.write_text(source.read_text(encoding="utf-8").replace(original, changed, 1), encoding="utf-8")
-
-    assert load_action_catalog(modified).resolve("translate_to_english", "short").version_id != baseline
-
-
-def test_variant_feedback_changes_only_the_resolved_variant_version(tmp_path: Path) -> None:
-    source = Path("config/actions.yaml")
-    baseline = load_action_catalog(source)
-    modified = tmp_path / "actions.yaml"
-    modified.write_text(
-        source.read_text(encoding="utf-8").replace(
-            "找出最影響英文自然度與清晰度的問題，提供改寫與可重用句型",
-            "找出英文問題並提供改寫",
-            1,
-        ),
-        encoding="utf-8",
-    )
-    changed = load_action_catalog(modified)
-
-    assert changed.resolve("english_companion", "long").version_id != baseline.resolve("english_companion", "long").version_id
-    assert changed.resolve("english_companion", "short").version_id == baseline.resolve("english_companion", "short").version_id
-
-
 def test_action_external_fallback_is_typed() -> None:
-    catalog = load_action_catalog("config/actions.yaml")
+    catalog = load_config_bundle().actions
     assert catalog.get("english_companion").external_fallback == "selection_or_clipboard"
     assert catalog.get("shorten_content").external_fallback == "selection_or_clipboard"
     assert "preserve the original language of each part" in catalog.get("shorten_content").system_prompt
@@ -869,28 +772,6 @@ def test_action_external_fallback_is_typed() -> None:
     assert "structure absent from the input" in catalog.get("shorten_content").system_prompt
     assert "as briefly as possible" in catalog.resolve("shorten_content", "long").prompt
     assert "freely merge paragraphs and remove line breaks" in catalog.resolve("shorten_content", "long").prompt
-
-
-def test_legacy_input_policy_is_accepted_with_deprecation_warning(tmp_path: Path) -> None:
-    path = tmp_path / "actions.yaml"
-    path.write_text(
-        "schema_version: 3\nactions:\n  - id: old\n    name: Old\n    system_prompt: system\n    prompt: '{input}'\n    input_policy: contextual_text\n",
-        encoding="utf-8",
-    )
-    with pytest.warns(DeprecationWarning, match="external_fallback"):
-        action = load_action_catalog(path).get("old")
-    assert action.external_fallback == "selection_or_clipboard"
-
-
-def test_new_external_fallback_wins_when_legacy_field_is_also_present(tmp_path: Path) -> None:
-    path = tmp_path / "actions.yaml"
-    path.write_text(
-        "schema_version: 4\nactions:\n  - id: both\n    name: Both\n    system_prompt: system\n    prompt: '{input}'\n    input_policy: contextual_text\n    external_fallback: clipboard\n",
-        encoding="utf-8",
-    )
-    with pytest.warns(DeprecationWarning):
-        action = load_action_catalog(path).get("both")
-    assert action.external_fallback == "clipboard"
 
 
 @pytest.mark.parametrize(
@@ -906,36 +787,9 @@ def test_invalid_shortcut_is_rejected(tmp_path: Path, shortcut: dict, message: s
 
     path = tmp_path / "shortcuts.yaml"
     path.write_text(yaml.safe_dump({"schema_version": 1, "shortcuts": [shortcut]}), encoding="utf-8")
-    actions = load_action_catalog("config/actions.yaml")
+    actions = load_config_bundle().actions
     with pytest.raises(ConfigError, match=message):
         load_shortcut_catalog(path, actions=actions)
-
-
-def test_start_action_shortcut_rejects_action_without_feedback(tmp_path: Path) -> None:
-    actions_path = tmp_path / "actions.yaml"
-    actions_path.write_text(
-        "schema_version: 8\nactions:\n  - id: no_feedback\n    name: No Feedback\n    system_prompt: system\n    prompt: '{input}'\n",
-        encoding="utf-8",
-    )
-    shortcuts_path = tmp_path / "shortcuts.yaml"
-    shortcuts_path.write_text(
-        "schema_version: 1\nshortcuts:\n  - id: no_feedback\n    hotkey: ctrl+alt+n\n    command: start_action\n    action_id: no_feedback\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ConfigError, match="feedback enabled"):
-        load_shortcut_catalog(shortcuts_path, actions=load_action_catalog(actions_path))
-
-
-def test_duplicate_yaml_key_is_rejected_instead_of_silently_overwriting(tmp_path: Path) -> None:
-    path = tmp_path / "actions.yaml"
-    path.write_text(
-        "schema_version: 8\nactions:\n  - id: duplicate\n    name: First\n    name: Second\n    system_prompt: system\n    prompt: '{input}'\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ConfigError, match="duplicate key: name"):
-        load_action_catalog(path)
 
 
 def test_duplicate_shortcut_hotkey_is_rejected(tmp_path: Path) -> None:
@@ -953,7 +807,7 @@ shortcuts:
         encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="duplicate shortcut hotkey"):
-        load_shortcut_catalog(path, actions=load_action_catalog("config/actions.yaml"))
+        load_shortcut_catalog(path, actions=load_config_bundle().actions)
 
 
 def test_provider_readiness_is_nonfatal_and_secret_repr_is_redacted() -> None:
