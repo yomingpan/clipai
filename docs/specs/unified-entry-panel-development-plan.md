@@ -321,8 +321,8 @@ deterministic; architecture and pure unit suites pass.
 
 6. `feat: add modifier-hold entry gesture`
 
-   Extend the existing listener with identity-scoped 500 ms hold and digit
-   claim. Preserve ordinary shortcut bindings. Add 499/500 ms, release, stale,
+   Extend the existing listener with identity-scoped 1.5 second hold and digit
+   claim. Preserve ordinary shortcut bindings. Add 1499/1500 ms, release, stale,
    injected, shutdown, repeated hold, top-row/numpad and no-double-invoke tests.
 7. `refactor: generalize external target activation`
 

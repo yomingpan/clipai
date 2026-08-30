@@ -29,7 +29,7 @@ has closed or reopened.
 - `UnifiedEntryPanelDialog` is an independent UI adapter on the existing Tk root.
   It renders projections and emits typed intents; it does not call services,
   platform adapters or providers.
-- The platform hotkey listener owns the exact `Ctrl+Alt` 500 ms hold and digit
+- The platform hotkey listener owns the exact `Ctrl+Alt` 1.5 second hold and digit
   claim. It emits typed facts and never resolves Action IDs.
 - External target validation/activation remains a platform capability behind an
   opaque core port. Selection capture reuses `InputResolver` and the one

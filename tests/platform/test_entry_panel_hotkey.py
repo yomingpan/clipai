@@ -18,7 +18,8 @@ class Key:
 class Timer:
     timers: list["Timer"] = []
 
-    def __init__(self, _delay, callback) -> None:
+    def __init__(self, delay, callback) -> None:
+        self.delay = delay
         self.callback = callback
         self.cancelled = False
         self.daemon = False
@@ -48,6 +49,7 @@ def test_exact_ctrl_alt_hold_opens_entry_panel_at_deadline() -> None:
 
     dispatcher.on_press(Key("ctrl"))
     dispatcher.on_press(Key("alt"))
+    assert Timer.timers[0].delay == 1.5
     Timer.timers[0].fire()
 
     assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]

@@ -87,7 +87,7 @@ logging:
     clipai.output: INFO
     clipai.action_runner: INFO
   diagnostics:
-    hotkey_raw_events: false
+    hotkey_raw_events: true
     selection_capture_polls: false
     paste_timing: false
     focus_transitions: true

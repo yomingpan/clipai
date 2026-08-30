@@ -131,7 +131,7 @@ UnifiedEntryPanelDialog
 
 | Component | Layer | Responsibility | Must not own |
 |---|---|---|---|
-| Generic modifier-hold gesture | platform + typed core command | Exact Ctrl+Alt recognition, 500 ms timer, physical-state recheck and numeric-key claim. | Panel UI, action execution, clipboard. |
+| Generic modifier-hold gesture | platform + typed core command | Exact Ctrl+Alt recognition, 1.5 second timer, physical-state recheck and numeric-key claim. | Panel UI, action execution, clipboard. |
 | `EntryPanelRuntimeModule` | app | Compose launch lifecycle, source snapshot, panel coordinator and action admission. | Workflow state, provider task, raw native UI handles. |
 | `EntryPanelCoordinator` | services | Own the immutable Panel projection and pure navigation, search, density, disabled-state and numeric-key transitions. | Toolkit state, external focus, Action execution or persistence. |
 | `UnifiedEntryPanelDialog` | ui | Render/filter/navigate; native placement/focus; emit typed UI commands. | Services, platform APIs, clipboard, provider. |
@@ -151,7 +151,7 @@ press/direct shortcut paths.
 
 Required behavior:
 
-1. Both modifiers down creates a press identity and starts the 500 ms timer.
+1. Both modifiers down creates a press identity and starts the 1.5 second timer.
 2. Releasing either modifier before the deadline cancels; there is no short
    invoke.
 3. A non-modifier before the deadline cancels only the entry candidate; normal
@@ -354,7 +354,7 @@ Privacy boundaries:
 
 ### Platform and runtime tests
 
-- Ctrl+Alt at 499 ms and 500 ms; release-before-deadline; physical-state
+- Ctrl+Alt at 1499 ms and 1500 ms; release-before-deadline; physical-state
   recheck; stale timer; injected event; shutdown; direct digit coexistence; no
   double invoke.
 - Panel-open repeated hold; top-row/numpad claim while modifiers remain held.

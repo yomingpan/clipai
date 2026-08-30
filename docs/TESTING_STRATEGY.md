@@ -327,7 +327,7 @@ Recipe 回饋與使用引導應測：
   search、density、Esc、disabled reason 與 numeric resolution，不讀 private state。
 - Runtime tests 必須以 Panel lifecycle ID 加 selection-preparation ID 驗證 close、
   reopen、replace、cancel 與 late completion；舊 completion 不得啟動 Action。
-- Hotkey tests 覆蓋 499/500 ms、deadline physical-state recheck、提前 release、
+- Hotkey tests 覆蓋 1499/1500 ms、deadline physical-state recheck、提前 release、
   direct digit coexistence、Panel-open digit claim、top-row/numpad、injected event、
   stale timer、repeated hold、shutdown 與 no-double-invoke。
 - Recent tests 只接受 `WorkflowController` 已接受 step 的最小 identity，涵蓋

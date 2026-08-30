@@ -13,6 +13,7 @@ from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_key_is_pressed
 logger = logging.getLogger("clipai.hotkey")
 
 LONG_PRESS_SEC = 0.5
+ENTRY_PANEL_HOLD_SEC = 1.5
 
 _SHIFTED_DIGIT_MAP = {
     "!": "1",
@@ -162,7 +163,7 @@ class _HotkeyDispatcher:
         diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
         key_is_pressed: Callable[[str], bool | None] | None = None,
         entry_panel_enabled: bool = False,
-        entry_panel_hold_sec: float = LONG_PRESS_SEC,
+        entry_panel_hold_sec: float = ENTRY_PANEL_HOLD_SEC,
     ) -> None:
         self._hotkeys = [(shortcut_id, frozenset(tokens)) for shortcut_id, tokens in hotkeys]
         self._on_event = on_event
@@ -564,7 +565,7 @@ def create_hotkey_dispatcher(
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
     key_is_pressed: Callable[[str], bool | None] | None = None,
     entry_panel_enabled: bool = False,
-    entry_panel_hold_sec: float = LONG_PRESS_SEC,
+    entry_panel_hold_sec: float = ENTRY_PANEL_HOLD_SEC,
 ) -> _HotkeyDispatcher:
     return _HotkeyDispatcher(
         build_hotkey_bindings(shortcut_map, modifier_mode=modifier_mode),

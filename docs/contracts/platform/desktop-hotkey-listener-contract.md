@@ -114,7 +114,7 @@ and the guide-close regression.
 ## Unified Entry Panel modifier hold
 
 The listener owns one generic exact-modifier hold candidate for `Ctrl+Alt`.
-Both modifiers down starts an identity-scoped 500 ms deadline. Releasing either
+Both modifiers down starts an identity-scoped 1.5 second deadline. Releasing either
 modifier or pressing a non-modifier before the deadline cancels only that
 candidate; an ordinary registered direct shortcut continues through its existing
 Shortcut Press lifecycle.
