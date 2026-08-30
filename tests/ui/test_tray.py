@@ -317,30 +317,41 @@ def test_speech_speed_menu_distinguishes_custom_and_unavailable_states() -> None
     assert all(item.enabled(None) is False for item in menu.action.items)
 
 
-def test_speech_speed_follows_keyboard_shortcuts_and_is_separated_from_guidance(monkeypatch) -> None:
+def test_tray_groups_settings_voice_and_support_items(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "pystray", Pystray)
     tray = TrayController(
         lambda: None,
+        on_show_last_error=lambda: None,
         on_open_provider_settings=lambda: None,
         on_open_shortcut_guide=lambda: None,
+        on_open_personal_styles=lambda: None,
         speech_speed=SpeechSpeedState("normal"),
         on_set_speech_speed=lambda _speed: None,
-        guidance_preferences=GuidancePreferences(),
-        on_set_first_use_hints=lambda _enabled: None,
-        on_reset_first_use_hints=lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.DISABLED, "zh-TW"),
+        on_enable_voice=lambda: None,
+        on_disable_voice=lambda: None,
+        on_open_about=lambda: None,
     )
 
     tray.start()
     tray._thread.join(timeout=1)
     assert tray._icon.menu.items[0].text(None) == "ClipAI vdevelopment — Ready"
     items = tray._icon.menu.items
+    settings_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "Settings & Models...")
     shortcut_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "Keyboard Shortcuts...")
     speech_index = next(index for index, item in enumerate(items) if callable(getattr(item, "text", None)) and item.text(None) == "Speech Speed")
-    guidance_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "Usage Guidance")
+    voice_index = next(index for index, item in enumerate(items) if callable(getattr(item, "text", None)) and item.text(None).startswith("Voice Input"))
+    support_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "Support and Diagnostics")
+    about_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "About...")
 
-    assert speech_index == shortcut_index + 1
-    assert items[speech_index + 1] is Menu.SEPARATOR
-    assert guidance_index == speech_index + 2
+    assert shortcut_index == settings_index + 1
+    assert items[shortcut_index + 1].text == "Personal Styles..."
+    assert items[shortcut_index + 2] is Menu.SEPARATOR
+    assert speech_index == shortcut_index + 3
+    assert voice_index == speech_index + 1
+    assert items[voice_index + 1] is Menu.SEPARATOR
+    assert support_index == voice_index + 2
+    assert about_index == support_index + 1
 
 
 def test_voice_menu_projects_authoritative_state_without_optimistic_toggle() -> None:

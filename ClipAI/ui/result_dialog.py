@@ -6,6 +6,7 @@ import queue
 import threading
 import tkinter as tk
 import uuid
+import webbrowser
 
 import customtkinter as ctk
 
@@ -22,6 +23,7 @@ from ClipAI.ui.personal_styles import PersonalStylesDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
 from ClipAI.ui.unified_entry_panel import UnifiedEntryPanelDialog
 from ClipAI.ui.voice_setup import VoiceSetupDialog
+from ClipAI.ui.about import AboutDialog
 
 
 # Windows Tk maps Num Lock to Mod1 (0x0008), while physical Alt uses
@@ -106,6 +108,8 @@ class ResultDialogPresenter:
         native_window_surface: NativeWindowSurface | None = None,
         focus_transition_diagnostics: bool = False,
         voice_projection: VoiceProjection | None = None,
+        application_version: str = "development",
+        github_url: str = "https://github.com/yomingpan/clipai",
     ) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
@@ -132,6 +136,9 @@ class ResultDialogPresenter:
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
         self._voice_setup_dialog: VoiceSetupDialog | None = None
         self._voice_projection = voice_projection
+        self._application_version = application_version
+        self._github_url = github_url
+        self._about_dialog: AboutDialog | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
@@ -266,6 +273,26 @@ class ResultDialogPresenter:
     def close_voice_setup(self) -> None:
         if self._voice_setup_dialog is not None:
             self._voice_setup_dialog.close()
+
+    def show_about(self) -> None:
+        if self._native_window_surface is None:
+            return
+        if self._about_dialog is None:
+            self._about_dialog = AboutDialog(
+                self._root,
+                self._command_sink,
+                self._native_window_surface,
+                version=self._application_version,
+                github_url=self._github_url,
+            )
+
+    def close_about(self) -> None:
+        if self._about_dialog is not None:
+            self._about_dialog.close()
+            self._about_dialog = None
+
+    def open_github(self, url: str) -> None:
+        webbrowser.open(url)
 
     def set_voice_projection(self, projection: VoiceProjection) -> None:
         self._voice_projection = projection

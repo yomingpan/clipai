@@ -100,6 +100,7 @@ class TrayController:
         on_disable_voice: Callable[[], None] | None = None,
         on_set_voice_language: Callable[[VoiceLanguage], None] | None = None,
         on_manage_voice_permission: Callable[[], None] | None = None,
+        on_open_about: Callable[[], None] | None = None,
         application_version: str = "development",
     ) -> None:
         self._on_exit = on_exit
@@ -125,6 +126,7 @@ class TrayController:
         self._on_disable_voice = on_disable_voice
         self._on_set_voice_language = on_set_voice_language
         self._on_manage_voice_permission = on_manage_voice_permission
+        self._on_open_about = on_open_about
         self._icon = None
         self._thread: threading.Thread | None = None
         self._status: ApplicationStatus = "idle"
@@ -144,22 +146,19 @@ class TrayController:
             pystray.Menu.SEPARATOR,
         ]
         if self._on_open_provider_settings is not None:
-            menu_items.append(pystray.MenuItem("Settings and Models...", lambda _icon, _item: self._on_open_provider_settings()))
+            menu_items.append(pystray.MenuItem("Settings & Models...", lambda _icon, _item: self._on_open_provider_settings()))
         if self._on_open_shortcut_guide is not None:
             menu_items.append(pystray.MenuItem(SHORTCUT_GUIDE_MENU_LABEL, lambda _icon, _item: self._on_open_shortcut_guide()))
         if self._on_open_personal_styles is not None:
             menu_items.append(pystray.MenuItem("Personal Styles...", lambda _icon, _item: self._on_open_personal_styles()))
+        menu_items.append(pystray.Menu.SEPARATOR)
         speech_speed_menu = self._build_speech_speed_menu(pystray)
         if speech_speed_menu is not None:
             menu_items.append(speech_speed_menu)
-            menu_items.append(pystray.Menu.SEPARATOR)
         voice_menu = self._build_voice_menu(pystray)
         if voice_menu is not None:
             menu_items.append(voice_menu)
             menu_items.append(pystray.Menu.SEPARATOR)
-        guidance_menu = self._build_guidance_menu(pystray)
-        if guidance_menu is not None:
-            menu_items.append(guidance_menu)
         support_items = []
         if self._on_show_last_error is not None:
             support_items.append(pystray.MenuItem("Show Last Error", lambda _icon, _item: self._on_show_last_error()))
@@ -167,8 +166,10 @@ class TrayController:
             support_items.append(pystray.MenuItem("Export Diagnostics", lambda _icon, _item: self._on_export_diagnostics()))
         if support_items:
             menu_items.append(pystray.MenuItem("Support and Diagnostics", pystray.Menu(*support_items)))
+        if self._on_open_about is not None:
+            menu_items.append(pystray.MenuItem("About...", lambda _icon, _item: self._on_open_about()))
         menu_items.append(pystray.Menu.SEPARATOR)
-        menu_items.append(pystray.MenuItem("Quit ClipAI", quit_app))
+        menu_items.append(pystray.MenuItem("Quit", quit_app))
 
         self._icon = pystray.Icon(
             "clipai",

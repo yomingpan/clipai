@@ -157,6 +157,21 @@ class OpenShortcutGuide:
 
 
 @dataclass(frozen=True)
+class OpenAbout:
+    pass
+
+
+@dataclass(frozen=True)
+class CloseAbout:
+    pass
+
+
+@dataclass(frozen=True)
+class OpenGitHub:
+    url: str
+
+
+@dataclass(frozen=True)
 class CloseShortcutGuide:
     guide_id: str
 
@@ -501,4 +516,4 @@ class UpdateVoiceDraft:
     text: str
 
 
-AppCommand: TypeAlias = ShortcutInputEvent | EntryPanelInputPrepared | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelEscape | WorkflowStepAccepted | OpenShortcutGuide | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft
+AppCommand: TypeAlias = ShortcutInputEvent | EntryPanelInputPrepared | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelEscape | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

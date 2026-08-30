@@ -23,7 +23,7 @@ from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.owned_processes import AppOwnedProcessRegistry
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
-from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenAbout, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -143,6 +143,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         on_disable_voice=lambda: runtime_holder[0].enqueue(DisableVoiceInput(VoiceDisableId(uuid.uuid4().hex))),
         on_set_voice_language=lambda language: runtime_holder[0].enqueue(SetVoiceLanguage(language)),
         on_manage_voice_permission=lambda: runtime_holder[0].enqueue(OpenVoicePermissionSettings()),
+        on_open_about=lambda: runtime_holder[0].enqueue(OpenAbout()),
         application_version=application_version,
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
@@ -153,6 +154,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         native_window_surface=native_window_surface,
         focus_transition_diagnostics=bundle.logging.diagnostics.enabled("focus_transitions"),
         voice_projection=voice_controller.projection,
+        application_version=application_version,
     )
     diagnostics_exporter = SafeDiagnosticsExporter(
         metadata={
