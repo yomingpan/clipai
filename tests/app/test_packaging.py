@@ -15,7 +15,6 @@ def test_project_metadata_matches_the_supported_runtime() -> None:
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert 'name = "clipai"' in pyproject
-    assert 'version = "3.6.5"' in pyproject
     assert 'requires-python = ">=3.10,<3.14"' in pyproject
     assert '"pip-system-certs>=5; sys_platform == \'win32\'"' in pyproject
     assert '"certifi-win32"' not in pyproject
@@ -223,8 +222,10 @@ def test_failed_install_has_actionable_stage(tmp_path: Path) -> None:
         bootstrap.create_environment(tmp_path, Path("python"), runner)
 
 
-def test_release_workflow_parses_toml_on_python_310() -> None:
+def test_release_workflow_parses_toml_and_verifies_tag_on_python_310() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "pip build tomli" in workflow
     assert "import tomli" in workflow
     assert "import tomllib" not in workflow
+    assert "['project']['version']" in workflow
+    assert '"v$version" -ne "${{ github.ref_name }}"' in workflow
