@@ -1,3 +1,8 @@
+import tkinter as tk
+
+import customtkinter as ctk
+import pytest
+
 from ClipAI.core.commands import (
     EntryPanelActionSelected,
     EntryPanelEscape,
@@ -6,6 +11,40 @@ from ClipAI.core.commands import (
 )
 from ClipAI.core.models import DisplayMetrics, EntryActionRef, EntryPanelOption, EntryPanelSnapshot
 from ClipAI.ui.unified_entry_panel import EntryPanelIntentAdapter, UnifiedEntryPanelDialog
+
+
+@pytest.mark.integration
+def test_panel_dialog_builds_and_closes_cleanly() -> None:
+    """A native Panel surface must not leave a partial Toplevel on startup."""
+
+    class NativeSurface:
+        def activate(self, _window_id: int) -> bool:
+            return True
+
+        def hide_from_task_switcher(self, _window_id: int) -> None:
+            pass
+
+    class DisplayMetrics:
+        def current(self):
+            raise AssertionError("The construction path must not read display metrics")
+
+    master = ctk.CTk()
+    master.withdraw()
+    dialog = None
+    try:
+        dialog = UnifiedEntryPanelDialog(
+            master,
+            lambda _command: None,
+            NativeSurface(),
+            DisplayMetrics(),
+        )
+    finally:
+        if dialog is not None:
+            dialog.close()
+        try:
+            master.destroy()
+        except tk.TclError:
+            pass
 
 
 def test_intent_adapter_emits_typed_mouse_and_keyboard_commands() -> None:

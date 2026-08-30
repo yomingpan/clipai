@@ -364,8 +364,6 @@ class UnifiedEntryPanelDialog:
         else:
             slot = f"{option.slot:02d}" if snapshot.page == "scene" else str(option.slot)
             title = f"{slot}  {option.label}"
-        card.configure(takefocus=True)
-
         def activate(_event=None) -> str:
             if option.enabled:
                 card.focus_set()
