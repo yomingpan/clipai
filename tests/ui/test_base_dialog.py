@@ -42,6 +42,7 @@ from ClipAI.ui.base_dialog import (
     SurfaceStateColors,
     BaseDialog,
     BaseResultSurface,
+    _Tooltip,
     _PresentationTextbox,
     apply_widget_font_scaling,
     rgb_to_hex,
@@ -49,6 +50,7 @@ from ClipAI.ui.base_dialog import (
     configure_display_break_typography,
     configure_hanging_indent,
     configure_tooltip_layer,
+    compact_action_message,
     insert_display_text,
     paste_target_display_text,
     _CanonicalSelectionSegment,
@@ -862,6 +864,81 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
     ]
 
 
+def test_compact_action_message_preserves_known_feedback_meaning_in_a_short_slot() -> None:
+    assert compact_action_message("No speech was recognized. Try again.") == "No speech"
+    assert compact_action_message("請先停止語音輸入") == "先停止語音"
+    assert compact_action_message("A longer generic message") == "A longer g…"
+    assert compact_action_message("這是一段沒有對應表的長文字") == "這是一段沒…"
+
+
+def test_action_message_uses_short_label_and_keeps_full_text_in_tooltip() -> None:
+    class Label:
+        def __init__(self) -> None:
+            self.options = {"text": ""}
+            self.pack_options = None
+            self.forgotten = False
+
+        def configure(self, **options) -> None:
+            self.options.update(options)
+
+        def pack(self, **options) -> None:
+            self.pack_options = options
+            self.forgotten = False
+
+        def pack_forget(self) -> None:
+            self.forgotten = True
+
+    class Tooltip:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def set_text(self, text: str) -> None:
+            self.text = text
+
+    class Lifecycle:
+        def __init__(self) -> None:
+            self.scheduled = []
+            self.cancelled = []
+
+        def schedule(self, delay_ms, callback):
+            job_id = f"job-{len(self.scheduled) + 1}"
+            self.scheduled.append((job_id, delay_ms, callback))
+            return job_id
+
+        def cancel(self, job_id) -> None:
+            self.cancelled.append(job_id)
+
+    lifecycle = Lifecycle()
+    label = Label()
+    tooltip = Tooltip()
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.dialog = type("Dialog", (), {"lifecycle": lifecycle})()
+    surface.action_status_label = label
+    surface._action_status_tooltip = tooltip
+    surface._action_message_job = None
+    surface._action_message_revision = 0
+
+    surface.show_action_message("No speech was recognized. Try again.", 4000)
+    first_callback = lifecycle.scheduled[-1][2]
+    surface.show_action_message("請先停止語音輸入", 1500)
+    second_callback = lifecycle.scheduled[-1][2]
+
+    assert lifecycle.cancelled == ["job-1"]
+    assert label.options["text"] == "先停止語音"
+    assert label.pack_options == {"side": "right", "padx": (4, 0)}
+    assert tooltip.text == "請先停止語音輸入"
+
+    first_callback()
+    assert label.options["text"] == "先停止語音"
+    assert label.forgotten is False
+
+    second_callback()
+    assert label.options["text"] == ""
+    assert label.forgotten is True
+    assert tooltip.text == ""
+    assert surface._action_message_job is None
+
+
 def test_action_slot_selects_text_font_only_for_word_labels(monkeypatch) -> None:
     class Button:
         def __init__(self, _master, **options) -> None:
@@ -1267,6 +1344,137 @@ def test_tooltip_layer_is_transient_and_above_popup() -> None:
         ("attributes", "-topmost", True),
         ("lift", owner),
     ]
+
+
+def test_tooltip_renders_for_native_tk_widget_using_widget_scaling(monkeypatch) -> None:
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback):
+            return "job"
+
+        def cancel(self, _job):
+            pass
+
+    class Widget:
+        def bind(self, *_args, **_kwargs) -> None:
+            pass
+
+        def winfo_rootx(self) -> int:
+            return 100
+
+        def winfo_rooty(self) -> int:
+            return 200
+
+        def winfo_width(self) -> int:
+            return 82
+
+        def winfo_height(self) -> int:
+            return 22
+
+        def winfo_toplevel(self):
+            return "popup"
+
+    class Window:
+        def __init__(self, _widget) -> None:
+            self.children: list[Label] = []
+            self.destroyed = False
+
+        def wm_overrideredirect(self, _enabled: bool) -> None:
+            pass
+
+        def wm_geometry(self, geometry: str) -> None:
+            self.geometry = geometry
+
+        def winfo_children(self):
+            return self.children
+
+        def destroy(self) -> None:
+            self.destroyed = True
+
+    class Label:
+        def __init__(self, parent, **options) -> None:
+            self.options = options
+            parent.children.append(self)
+
+        def pack(self) -> None:
+            self.packed = True
+
+        def configure(self, **options) -> None:
+            self.options.update(options)
+
+    monkeypatch.setattr("ClipAI.ui.base_dialog.tk.Toplevel", Window)
+    monkeypatch.setattr("ClipAI.ui.base_dialog.tk.Label", Label)
+    monkeypatch.setattr(
+        "ClipAI.ui.base_dialog.ScalingTracker.get_widget_scaling",
+        lambda _widget: 1.5,
+    )
+
+    tooltip = _Tooltip(Widget(), "Voice Input is unavailable", Lifecycle())
+    tooltip._show()
+
+    assert tooltip._window is not None
+    assert tooltip._window.geometry == "+141+230"
+    assert len(tooltip._window.children) == 1
+    assert tooltip._window.children[0].options["text"] == "Voice Input is unavailable"
+    assert tooltip._window.children[0].options["font"] == (TC_FONT_FAMILY, -18)
+
+
+def test_tooltip_destroys_unrendered_window_on_label_failure(monkeypatch) -> None:
+    windows = []
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback):
+            return "job"
+
+        def cancel(self, _job):
+            pass
+
+    class Widget:
+        def bind(self, *_args, **_kwargs) -> None:
+            pass
+
+        def winfo_rootx(self) -> int:
+            return 100
+
+        def winfo_rooty(self) -> int:
+            return 200
+
+        def winfo_width(self) -> int:
+            return 82
+
+        def winfo_height(self) -> int:
+            return 22
+
+        def winfo_toplevel(self):
+            return "popup"
+
+    class Window:
+        def __init__(self, _widget) -> None:
+            self.destroyed = False
+            windows.append(self)
+
+        def wm_overrideredirect(self, _enabled: bool) -> None:
+            pass
+
+        def wm_geometry(self, _geometry: str) -> None:
+            pass
+
+        def destroy(self) -> None:
+            self.destroyed = True
+
+    class Label:
+        def __init__(self, _parent, **_options) -> None:
+            raise RuntimeError("label setup failed")
+
+    monkeypatch.setattr("ClipAI.ui.base_dialog.tk.Toplevel", Window)
+    monkeypatch.setattr("ClipAI.ui.base_dialog.tk.Label", Label)
+
+    tooltip = _Tooltip(Widget(), "Voice Input is unavailable", Lifecycle())
+
+    with pytest.raises(RuntimeError, match="label setup failed"):
+        tooltip._show()
+
+    assert tooltip._window is None
+    assert windows[0].destroyed is True
 
 
 def test_standard_result_action_idle_style_is_uniform() -> None:

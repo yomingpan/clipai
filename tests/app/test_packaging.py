@@ -15,7 +15,6 @@ def test_project_metadata_matches_the_supported_runtime() -> None:
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert 'name = "clipai"' in pyproject
-    assert 'version = "3.0.1"' in pyproject
     assert 'requires-python = ">=3.10,<3.14"' in pyproject
     assert '"pip-system-certs>=5; sys_platform == \'win32\'"' in pyproject
     assert '"certifi-win32"' not in pyproject
@@ -31,6 +30,15 @@ def test_windows_launcher_is_a_thin_bootstrap_entrypoint() -> None:
     assert "scripts\\bootstrap_windows.ps1" in launcher
     assert "pip install" not in launcher
     assert "-m venv" not in launcher
+
+
+def test_silent_launcher_always_checks_bootstrap_fingerprint() -> None:
+    launcher = (PROJECT_ROOT / "run_clipai_silent.vbs").read_text(encoding="utf-8")
+
+    assert 'batchPath = fso.BuildPath(repoDir, "run_clipai.bat")' in launcher
+    assert 'shell.Run command, 0, False' in launcher
+    assert "pythonwPath" not in launcher
+    assert "markerPath" not in launcher
 
 
 def test_windows_bootstrap_installs_and_selects_python_312() -> None:
@@ -214,8 +222,10 @@ def test_failed_install_has_actionable_stage(tmp_path: Path) -> None:
         bootstrap.create_environment(tmp_path, Path("python"), runner)
 
 
-def test_release_workflow_parses_toml_on_python_310() -> None:
+def test_release_workflow_parses_toml_and_verifies_tag_on_python_310() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "pip build tomli" in workflow
     assert "import tomli" in workflow
     assert "import tomllib" not in workflow
+    assert "['project']['version']" in workflow
+    assert '"v$version" -ne "${{ github.ref_name }}"' in workflow

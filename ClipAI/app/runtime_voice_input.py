@@ -8,7 +8,7 @@ from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModu
 from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
 from ClipAI.core.ports import UserNotifier, VoiceInputEngine, VoiceSetupPresenter
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceDraftTarget, VoiceEngineListening, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceDraftTarget, VoiceEngineListening, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
 from ClipAI.services.voice_input import FinalizeVoiceDraft, FinalizeVoiceFollowUp, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceFollowUp, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
 
@@ -65,6 +65,20 @@ class VoiceInputRuntimeModule:
         self._notifier = notifier
         self._watchdogs: dict[ShortcutPressId, object] = {}
         self._silence_watchdogs: dict[VoiceCaptureId, object] = {}
+
+    def admit_entry_panel_open(self) -> bool:
+        if self._controller.projection.capture_phase not in {
+            VoiceCapturePhase.STARTING,
+            VoiceCapturePhase.LISTENING,
+            VoiceCapturePhase.STOP_REQUESTED,
+            VoiceCapturePhase.FINALIZING,
+            VoiceCapturePhase.CANCEL_REQUESTED,
+        }:
+            return True
+        self._notify_shortcut_rejected(
+            "Voice Input is active. Finish or cancel it before opening the Action panel."
+        )
+        return False
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
         focused_surface = self._focused_surface_reader()

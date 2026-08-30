@@ -7,12 +7,14 @@ import uuid
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import (
     GuidancePreferencesCompleted,
+    EntryPanelDensityPreferencesCompleted,
     ResetFirstUseHints,
+    SetEntryPanelDensity,
     SetFirstUseHintsEnabled,
     SetSpeechSpeed,
     SpeechSpeedPreferencesCompleted,
 )
-from ClipAI.core.models import SpeechSpeed, VoiceLanguagePreference
+from ClipAI.core.models import EntryPanelDensity, SpeechSpeed, VoiceLanguagePreference
 from ClipAI.core.ports import GuidancePreferencesPresenter, OperationTracker, SpeechSpeedPresenter, UserNotifier
 from ClipAI.services.user_preferences import UserPreferencesCoordinator, UserPreferencesUpdate
 
@@ -23,6 +25,8 @@ UserPreferencesRuntimeCommand: TypeAlias = (
     | GuidancePreferencesCompleted
     | SetSpeechSpeed
     | SpeechSpeedPreferencesCompleted
+    | SetEntryPanelDensity
+    | EntryPanelDensityPreferencesCompleted
 )
 
 
@@ -55,7 +59,9 @@ class UserPreferencesRuntimeModule:
             self._begin_preference("guidance_reset", command.operation_id or uuid.uuid4().hex)
         elif isinstance(command, SetSpeechSpeed):
             self._begin_preference("speech_speed", command.operation_id or uuid.uuid4().hex, speed=command.speed)
-        elif isinstance(command, (GuidancePreferencesCompleted, SpeechSpeedPreferencesCompleted)):
+        elif isinstance(command, SetEntryPanelDensity):
+            self._begin_preference("entry_panel_density", command.operation_id or uuid.uuid4().hex, density=command.density)
+        elif isinstance(command, (GuidancePreferencesCompleted, SpeechSpeedPreferencesCompleted, EntryPanelDensityPreferencesCompleted)):
             if self._user_preferences is not None:
                 self._project_preferences(self._user_preferences.complete(command.operation_id, command.error))
 
@@ -116,6 +122,7 @@ class UserPreferencesRuntimeModule:
         *,
         enabled: bool = False,
         speed: SpeechSpeed | None = None,
+        density: EntryPanelDensity | None = None,
     ) -> None:
         if self._user_preferences is None:
             return
@@ -125,6 +132,8 @@ class UserPreferencesRuntimeModule:
             update = self._user_preferences.begin_reset_guidance(operation_id)
         elif speed is not None:
             update = self._user_preferences.begin_set_speech_speed(speed, operation_id)
+        elif density is not None:
+            update = self._user_preferences.begin_set_entry_panel_density(density, operation_id)
         else:
             return
         self._project_preferences(update)
@@ -132,10 +141,18 @@ class UserPreferencesRuntimeModule:
             return
         user_preferences = self._user_preferences
         work = update.work
-        completion = SpeechSpeedPreferencesCompleted if kind == "speech_speed" else GuidancePreferencesCompleted
+        completion = (
+            SpeechSpeedPreferencesCompleted
+            if kind == "speech_speed"
+            else EntryPanelDensityPreferencesCompleted
+            if kind == "entry_panel_density"
+            else GuidancePreferencesCompleted
+        )
         unexpected_error = (
             "Could not save speech speed. The previous speed remains active."
             if kind == "speech_speed"
+            else "Unable to save the Entry Panel view preference. The previous setting remains active."
+            if kind == "entry_panel_density"
             else "無法儲存使用引導設定，請再試一次。"
         )
 

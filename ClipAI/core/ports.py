@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EnvironmentSetting, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
+from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EntryPanelSnapshot, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 from ClipAI.core.voice import VoiceCaptureId, VoiceCaptureSurfaceContext, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
 
@@ -58,6 +58,10 @@ class WorkflowAttentionPresenter(Protocol):
     def present_workflow_attention(self, attention: WorkflowAttention) -> None: ...
 
 
+class EntryPanelPresenter(Protocol):
+    def present_entry_panel(self, snapshot: EntryPanelSnapshot | None) -> None: ...
+
+
 class ApplicationView(ResultPresenter, Protocol):
     def set_command_sink(self, sink: Callable[[object], None]) -> None: ...
 
@@ -66,6 +70,12 @@ class ApplicationView(ResultPresenter, Protocol):
     def stop(self) -> None: ...
 
     def present_paste_target(self, target: PasteTarget | None) -> None: ...
+
+    def show_about(self) -> None: ...
+
+    def close_about(self) -> None: ...
+
+    def open_github(self, url: str) -> None: ...
 
 
 
@@ -113,6 +123,14 @@ class SpeechOutput(Protocol):
 
 class TargetedPasteOutput(Protocol):
     def dispatch(self, target: PasteTarget, cancellation: CancellationToken) -> PasteDispatchReceipt: ...
+
+
+class ExternalWindowActivator(Protocol):
+    def activate(
+        self,
+        target: ExternalWindowRef,
+        cancellation: CancellationToken,
+    ) -> ExternalWindowActivationOutcome: ...
 
 
 class PasteTargetPresenter(Protocol):

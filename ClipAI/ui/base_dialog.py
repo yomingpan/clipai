@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import tkinter as tk
 import tkinter.font as tkfont
 from dataclasses import dataclass
@@ -79,6 +80,25 @@ def ellipsize_source_preview(text: str, limit: int = SOURCE_PREVIEW_MAX_CHARS) -
     return f"{compact[: limit - 3].rstrip()}..."
 
 
+_COMPACT_ACTION_MESSAGES: Mapping[str, str] = {
+    "No speech was recognized. Try again.": "No speech",
+    "Voice Input cancelled.": "Cancelled",
+    "此 Recipe 尚未啟用回饋": "尚無回饋",
+    "請先停止語音輸入": "先停止語音",
+    "已記錄回饋": "已記錄",
+}
+
+
+def compact_action_message(text: str) -> str:
+    """Keep transient action feedback inside its reserved one-line slot."""
+    compact = " ".join(text.split())
+    mapped = _COMPACT_ACTION_MESSAGES.get(compact)
+    if mapped is not None:
+        return mapped
+    limit = 5 if any(ord(char) >= 0x2E80 for char in compact) else 10
+    return compact if len(compact) <= limit else f"{compact[:limit].rstrip()}…"
+
+
 def paste_target_display_text(target: PasteTarget) -> str:
     title = " ".join(target.window_title.split())
     if len(title) > 36:
@@ -134,6 +154,237 @@ FOLLOW_UP_ICON = "\uE8BD"
 CHECK_ICON = "\uE73E"
 PIN_ICON = "\uE718"
 UNPIN_ICON = "\uE77A"
+
+
+class _VoiceWaveIndicator(tk.Canvas):
+    """Render the authoritative Voice Input level without owning audio state."""
+
+    BASE_WIDTH = 82
+    BASE_HEIGHT = 22
+    FRAME_DELAY_MS = 40
+    AMPLITUDE_EASING = 0.24
+    FONT_BASE_PX = 10
+
+    _DISABLED_PILL = "#4A4A4A"
+    _ACTIVE_PILL = "#244B44"
+    _DEFAULT_PILL = ACTION_COLOR
+    _DISABLED_LINE = "#858585"
+    _SILENCE_LINE = "#D9A441"
+    _ACTIVE_LINE = "#8DE8BC"
+    _DEFAULT_LINE = "#F4F8FB"
+
+    def __init__(
+        self,
+        parent: tk.Misc,
+        *,
+        lifecycle: DialogLifecycle,
+        font_family: str,
+    ) -> None:
+        super().__init__(
+            parent,
+            width=self.BASE_WIDTH,
+            height=self.BASE_HEIGHT,
+            bg=SURFACE_BG,
+            bd=0,
+            highlightthickness=0,
+            takefocus=True,
+        )
+        self._lifecycle = lifecycle
+        self._font_family = font_family
+        self._font: tkfont.Font | None = None
+        self._font_px: int | None = None
+        self._word = "語音"
+        self._listening = False
+        self._silence = False
+        self._enabled = False
+        self._active = False
+        self._command: Callable[[], None] | None = None
+        self._target_amplitude = 0.0
+        self._amplitude = 0.0
+        self._phase = 0.0
+        self._job: str | None = None
+        self.bind("<Button-1>", self._invoke, add="+")
+        self.bind("<Return>", self._invoke, add="+")
+        self.bind("<space>", self._invoke, add="+")
+        self.bind("<Destroy>", self._on_destroy, add="+")
+        self._render()
+
+    def update_state(
+        self,
+        *,
+        word: str,
+        level: float,
+        listening: bool,
+        silence: bool,
+        enabled: bool,
+        active: bool,
+        command: Callable[[], None] | None,
+    ) -> None:
+        self._word = word
+        self._listening = listening
+        self._silence = silence
+        self._enabled = enabled
+        self._active = active
+        self._command = command if enabled else None
+        normalized_level = max(0.0, min(1.0, float(level)))
+        self._target_amplitude = normalized_level if listening and not silence else 0.0
+        try:
+            self.configure(cursor="hand2" if self._command is not None else "")
+        except tk.TclError:
+            return
+        self._render()
+        self._ensure_animation()
+
+    def _invoke(self, _event: object | None = None) -> str:
+        if self._enabled and self._command is not None:
+            self._command()
+        return "break"
+
+    def _ensure_animation(self) -> None:
+        if self._job is not None or self._lifecycle.is_closed:
+            return
+        if (
+            abs(self._target_amplitude - self._amplitude) < 0.005
+            and (not self._listening or self._amplitude <= 0.002)
+        ):
+            return
+        self._job = self._lifecycle.schedule(self.FRAME_DELAY_MS, self._tick)
+
+    def _tick(self) -> None:
+        self._job = None
+        if self._lifecycle.is_closed:
+            return
+        delta = self._target_amplitude - self._amplitude
+        self._amplitude += delta * self.AMPLITUDE_EASING
+        if abs(delta) < 0.005:
+            self._amplitude = self._target_amplitude
+        if self._listening and self._amplitude > 0.002:
+            self._phase = (self._phase + 0.42) % math.tau
+        try:
+            self._render()
+        except tk.TclError:
+            return
+        self._ensure_animation()
+
+    def _on_destroy(self, event: object) -> None:
+        if getattr(event, "widget", None) is not self or self._job is None:
+            return
+        self._lifecycle.cancel(self._job)
+        self._job = None
+
+    def _widget_scaling(self) -> float:
+        try:
+            return max(0.1, float(ScalingTracker.get_widget_scaling(self)))
+        except Exception:
+            return 1.0
+
+    def _scaled_font(self, scaling: float) -> tkfont.Font:
+        font_px = max(1, round(self.FONT_BASE_PX * scaling))
+        if self._font is None or self._font_px != font_px:
+            self._font = tkfont.Font(
+                root=self,
+                family=self._font_family,
+                size=-font_px,
+            )
+            self._font_px = font_px
+        return self._font
+
+    def _colors(self) -> tuple[str, str, str]:
+        if not self._enabled:
+            return self._DISABLED_PILL, self._DISABLED_LINE, "#B0B0B0"
+        pill = self._ACTIVE_PILL if self._active else self._DEFAULT_PILL
+        if self._silence:
+            line = self._SILENCE_LINE
+        elif self._active:
+            line = self._ACTIVE_LINE
+        else:
+            line = self._DEFAULT_LINE
+        return pill, line, CONTENT_COLOR
+
+    def _render(self) -> None:
+        scaling = self._widget_scaling()
+        width = round(self.BASE_WIDTH * scaling)
+        height = round(self.BASE_HEIGHT * scaling)
+        self.configure(width=width, height=height)
+        self.delete("all")
+
+        pill_color, line_color, word_color = self._colors()
+        radius = 6.0 * scaling
+        self._draw_rounded_pill(0.0, 0.0, float(width), float(height), radius, pill_color)
+
+        font = self._scaled_font(scaling)
+        padding = 7.0 * scaling
+        word_width = float(font.measure(self._word))
+        word_x = float(width) - padding
+        center_y = float(height) / 2.0
+        self.create_text(
+            word_x,
+            center_y,
+            text=self._word,
+            fill=word_color,
+            font=font,
+            anchor="e",
+        )
+
+        line_left = padding
+        line_right = max(
+            line_left + scaling,
+            word_x - word_width - (7.0 * scaling),
+        )
+        point_count = 18
+        amplitude_px = self._amplitude * 6.2 * scaling
+        points: list[float] = []
+        for index in range(point_count):
+            progress = index / (point_count - 1)
+            x = line_left + ((line_right - line_left) * progress)
+            envelope = math.sin(math.pi * progress) ** 0.7
+            wave = (
+                math.sin((progress * math.tau * 1.8) + self._phase)
+                + 0.35 * math.sin((progress * math.tau * 3.7) - (self._phase * 0.7))
+            ) / 1.35
+            y = center_y - (amplitude_px * envelope * wave)
+            points.extend((x, y))
+        self.create_line(
+            *points,
+            fill=line_color,
+            width=max(1.0, 1.35 * scaling),
+            capstyle=tk.ROUND,
+            joinstyle=tk.ROUND,
+            smooth=True,
+            splinesteps=8,
+        )
+
+    def _draw_rounded_pill(
+        self,
+        left: float,
+        top: float,
+        right: float,
+        bottom: float,
+        radius: float,
+        color: str,
+    ) -> None:
+        self.create_polygon(
+            left + radius,
+            top,
+            right - radius,
+            top,
+            right,
+            top,
+            right,
+            bottom,
+            right - radius,
+            bottom,
+            left + radius,
+            bottom,
+            left,
+            bottom,
+            left,
+            top,
+            fill=color,
+            outline="",
+            smooth=True,
+            splinesteps=24,
+        )
 
 PRESENTATION_TAG_STYLES: dict[str, dict[str, object]] = {
     "heading_1": {"foreground": "#8EC5FF", "spacing1": 10, "spacing3": 6},
@@ -690,6 +941,8 @@ class _Tooltip:
         self._job: str | None = None
         widget.bind("<Enter>", self._schedule, add="+")
         widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<FocusIn>", self._schedule, add="+")
+        widget.bind("<FocusOut>", self._hide, add="+")
         widget.bind("<ButtonPress>", self._hide, add="+")
 
     def _schedule(self, _event=None) -> None:
@@ -702,21 +955,39 @@ class _Tooltip:
             return
         x = self.widget.winfo_rootx() + self.widget.winfo_width() // 2
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + 8
-        self._window = tk.Toplevel(self.widget)
-        self._window.wm_overrideredirect(True)
-        configure_tooltip_layer(self._window, self.widget.winfo_toplevel())
-        self._window.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(
-            self._window,
-            text=self.text,
-            bg="#0F172A",
-            fg="#FFFFFF",
-            padx=8,
-            pady=4,
-            font=apply_widget_font_scaling(self.widget, (TC_FONT_FAMILY, POPUP_FONT_SIZES["tooltip"])),
-            justify="left",
-        )
-        label.pack()
+        window = tk.Toplevel(self.widget)
+        try:
+            window.wm_overrideredirect(True)
+            configure_tooltip_layer(window, self.widget.winfo_toplevel())
+            window.wm_geometry(f"+{x}+{y}")
+            label = tk.Label(
+                window,
+                text=self.text,
+                bg="#0F172A",
+                fg="#FFFFFF",
+                padx=8,
+                pady=4,
+                font=self._font(),
+                justify="left",
+            )
+            label.pack()
+        except Exception:
+            window.destroy()
+            raise
+        self._window = window
+
+    def _font(self) -> tuple:
+        apply_scaling = getattr(self.widget, "_apply_font_scaling", None)
+        if callable(apply_scaling):
+            return apply_widget_font_scaling(
+                self.widget,
+                (TC_FONT_FAMILY, POPUP_FONT_SIZES["tooltip"]),
+            )
+        try:
+            scaling = max(0.1, float(ScalingTracker.get_widget_scaling(self.widget)))
+        except Exception:
+            scaling = 1.0
+        return (TC_FONT_FAMILY, -max(1, round(POPUP_FONT_SIZES["tooltip"] * scaling)))
 
     def set_text(self, text: str) -> None:
         self.text = text
@@ -890,7 +1161,7 @@ class BaseResultSurface:
         self.root = dialog.surface
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(4, weight=1)
-        self._action_buttons: dict[str, ctk.CTkButton] = {}
+        self._action_buttons: dict[str, tk.Widget] = {}
         self._action_tooltips: dict[str, _Tooltip] = {}
         self.follow_up_visible = False
         self.overflow_expanded = False
@@ -901,6 +1172,8 @@ class BaseResultSurface:
         self._feedback_success_job: str | None = None
         self._feedback_pending_payload: tuple[FeedbackOutcome, str, str, bool] | None = None
         self._guidance_job: str | None = None
+        self._action_message_job: str | None = None
+        self._action_message_revision = 0
         self._rendered_pinned_state: bool | None = None
         self._build()
 
@@ -987,19 +1260,44 @@ class BaseResultSurface:
         self._back_button = self.add_action_slot("back", "←", None, width=24, tooltip="Previous result (Ctrl + Z)")
         self._back_button.pack_forget()
         self.standard_actions = StandardResultActions(self)
-        self.voice_input_button = self.add_action_slot(
-            "voice_input",
-            "▁▁▁▁  語音",
-            None,
-            width=76,
-            tooltip="Voice Input is unavailable",
-            icon=False,
+        self.voice_input_button = _VoiceWaveIndicator(
+            self.actions,
+            lifecycle=self.dialog.lifecycle,
+            font_family=TC_FONT_FAMILY,
         )
-        self.voice_input_button.configure(state="disabled", fg_color="#4A4A4A")
-        self._overflow_button = self.add_action_slot("overflow", "▶", self.toggle_overflow, width=24, tooltip="More actions")
-        self._overflow_button.pack_configure(side="right", padx=(12, 0))
-        self.action_status_label = ctk.CTkLabel(self.actions, text="", text_color="#8A8A8A", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]))
-        self.action_status_label.pack(side="right", padx=(8, 0))
+        self._action_buttons["voice_input"] = self.voice_input_button
+        self._action_tooltips["voice_input"] = _Tooltip(
+            self.voice_input_button,
+            "Voice Input is unavailable",
+            self.dialog.lifecycle,
+        )
+        self._overflow_button = self.add_action_slot(
+            "overflow",
+            "▶",
+            self.toggle_overflow,
+            width=24,
+            tooltip="More actions",
+            side="right",
+            padx=(12, 0),
+        )
+        self.voice_input_button.pack(side="left", padx=(0, 5))
+        self.action_status_label = ctk.CTkLabel(
+            self.actions,
+            text="",
+            width=68,
+            height=22,
+            anchor="w",
+            text_color="#A9BACB",
+            font=ctk.CTkFont(
+                family=TC_FONT_FAMILY,
+                size=POPUP_FONT_SIZES["auxiliary"],
+            ),
+        )
+        self._action_status_tooltip = _Tooltip(
+            self.action_status_label,
+            "",
+            self.dialog.lifecycle,
+        )
 
         self.source_label = ctk.CTkLabel(
             self.root,
@@ -1422,18 +1720,23 @@ class BaseResultSurface:
     def configure_voice_action(
         self,
         *,
-        text: str,
-        command: Callable[[], None] | None,
+        word: str,
+        level: float,
+        listening: bool,
+        silence: bool,
         enabled: bool,
+        active: bool,
+        command: Callable[[], None] | None,
         tooltip: str,
-        active: bool = False,
     ) -> None:
-        self.voice_input_button.configure(
-            text=text,
+        self.voice_input_button.update_state(
+            word=word,
+            level=level,
+            listening=listening,
+            silence=silence,
             command=command,
-            state="normal" if enabled else "disabled",
-            fg_color="#244B44" if active else ACTION_COLOR if enabled else "#4A4A4A",
-            hover_color="#31665C" if active else ACTION_HOVER_COLOR,
+            enabled=enabled,
+            active=active,
         )
         self.set_action_tooltip("voice_input", tooltip)
 
@@ -1472,8 +1775,26 @@ class BaseResultSurface:
         self.standard_actions.pulse_error(slot_id, duration_ms)
 
     def show_action_message(self, text: str, duration_ms: int = 1000) -> None:
-        self.action_status_label.configure(text=text)
-        self.dialog.lifecycle.schedule(duration_ms, lambda: self.action_status_label.configure(text=""))
+        if self._action_message_job is not None:
+            self.dialog.lifecycle.cancel(self._action_message_job)
+            self._action_message_job = None
+        self._action_message_revision += 1
+        revision = self._action_message_revision
+        self.action_status_label.configure(text=compact_action_message(text))
+        self._action_status_tooltip.set_text(text)
+        self.action_status_label.pack(side="right", padx=(4, 0))
+        self._action_message_job = self.dialog.lifecycle.schedule(
+            duration_ms,
+            lambda expected=revision: self._hide_action_message(expected),
+        )
+
+    def _hide_action_message(self, expected_revision: int) -> None:
+        if expected_revision != self._action_message_revision:
+            return
+        self._action_message_job = None
+        self.action_status_label.pack_forget()
+        self.action_status_label.configure(text="")
+        self._action_status_tooltip.set_text("")
 
     def add_action_slot(
         self,
@@ -1486,6 +1807,8 @@ class BaseResultSurface:
         text_color: str = CONTENT_COLOR,
         overflow: bool = False,
         icon: bool = True,
+        side: Literal["left", "right"] = "left",
+        padx: tuple[int, int] = (0, 5),
     ) -> ctk.CTkButton:
         button = ctk.CTkButton(
             self.overflow_actions if overflow else self.actions,
@@ -1502,7 +1825,7 @@ class BaseResultSurface:
             ),
             command=command,
         )
-        button.pack(side="left", padx=(0, 5))
+        button.pack(side=side, padx=padx)
         if tooltip:
             self._action_tooltips[slot_id] = _Tooltip(button, tooltip, self.dialog.lifecycle)
         self._action_buttons[slot_id] = button

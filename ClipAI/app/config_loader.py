@@ -8,9 +8,10 @@ import warnings
 
 from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, ActionVariant, ExternalFallback, FeedbackReason, InputMode, OutputMode, OutputProfile, PersonalStyleMode, PressType, ShortcutCommandKind, ShortcutDefinition
+from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, ActionVariant, EntryActionRef, ExternalFallback, FeedbackReason, InputMode, OutputMode, OutputProfile, PersonalStyleMode, PressType, ShortcutCommandKind, ShortcutDefinition
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
+from ClipAI.services.entry_panel import EntryPanelCandidate, EntryPanelCatalog, EntryPanelCategory
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
@@ -52,11 +53,13 @@ def load_config_bundle(
     actions_path: str | Path = "config/actions.yaml",
     shortcuts_path: str | Path = "config/shortcuts.yaml",
     output_profiles_path: str | Path = "config/output_profiles.yaml",
+    entry_panel_path: str | Path = "config/entry_panel.yaml",
 ) -> ConfigBundle:
     app, runtime, providers, tts, voice_input, logging_settings = load_app_config(app_config_path)
     output_profiles = load_output_profiles(output_profiles_path)
     actions = load_action_catalog(actions_path, output_profiles=output_profiles, default_stream=app.stream)
     shortcuts = load_shortcut_catalog(shortcuts_path, actions=actions)
+    entry_panel = load_entry_panel_catalog(entry_panel_path, actions=actions)
     return ConfigBundle(
         app=app,
         runtime=runtime,
@@ -67,11 +70,13 @@ def load_config_bundle(
         voice_input=voice_input,
         logging=logging_settings,
         output_profiles=output_profiles,
+        entry_panel=entry_panel,
         schema_versions=ConfigSchemaVersions(
             app=_read_schema_version(app_config_path, max_version=APP_CONFIG_SCHEMA_VERSION),
             actions=_read_schema_version(actions_path, max_version=ACTIONS_SCHEMA_VERSION),
             output_profiles=_read_schema_version(output_profiles_path),
             shortcuts=_read_schema_version(shortcuts_path),
+            entry_panel=_read_schema_version(entry_panel_path),
         ),
     )
 
@@ -81,12 +86,13 @@ def load_app_config(path: str | Path) -> tuple[AppSettings, RuntimeSettings, Pro
     _schema_version(root, path, max_version=APP_CONFIG_SCHEMA_VERSION)
     _reject_unknown(root, {"schema_version", "app", "provider", "runtime", "tts", "voice_input", "logging"}, "config")
     app_data = _mapping(root.get("app"), "config.app")
-    _reject_unknown(app_data, {"stream", "temperature", "system_prompt", "modifier_mode"}, "config.app")
+    _reject_unknown(app_data, {"stream", "temperature", "system_prompt", "modifier_mode", "entry_panel_enabled"}, "config.app")
     app = AppSettings(
         stream=_boolean(app_data.get("stream"), "config.app.stream", default=False),
         temperature=_number(app_data.get("temperature"), "config.app.temperature", default=0.2),
         system_prompt=_string(app_data.get("system_prompt"), "config.app.system_prompt", default=""),
         modifier_mode=cast(ModifierMode, _choice(app_data.get("modifier_mode"), "config.app.modifier_mode", {"alt_shift", "ctrl_shift", "ctrl_alt"}, "ctrl_alt")),
+        entry_panel_enabled=_boolean(app_data.get("entry_panel_enabled"), "config.app.entry_panel_enabled", default=False),
     )
 
     runtime_data = _mapping(root.get("runtime"), "config.runtime", allow_none=True)
@@ -326,6 +332,57 @@ def load_shortcut_catalog(path: str | Path, *, actions: ActionCatalog) -> Shortc
         hotkeys.add(hotkey)
         shortcuts.append(ShortcutDefinition(shortcut_id, hotkey, command, action_id))
     return ShortcutCatalog(shortcuts)
+
+
+def load_entry_panel_catalog(path: str | Path, *, actions: ActionCatalog) -> EntryPanelCatalog:
+    payload = _load_yaml_mapping(path)
+    _schema_version(payload, path)
+    _reject_unknown(payload, {"schema_version", "categories"}, "entry_panel")
+    raw_categories = payload.get("categories")
+    if not isinstance(raw_categories, list):
+        raise ConfigError("entry_panel.categories must be a list")
+    categories: list[EntryPanelCategory] = []
+    for index, value in enumerate(raw_categories):
+        category_path = f"entry_panel.categories[{index}]"
+        data = _mapping(value, category_path)
+        _reject_unknown(data, {"id", "slot", "label", "description", "flagship", "advanced"}, category_path)
+        slot = _integer(data.get("slot"), f"{category_path}.slot", default=0)
+        category_id = _string(data.get("id"), f"{category_path}.id")
+        flagship = _parse_entry_panel_candidates(data.get("flagship"), f"{category_path}.flagship")
+        advanced = _parse_entry_panel_candidates(data.get("advanced"), f"{category_path}.advanced")
+        categories.append(EntryPanelCategory(
+            category_id=category_id,
+            slot=slot,
+            label=_string(data.get("label"), f"{category_path}.label"),
+            description=_string(data.get("description"), f"{category_path}.description"),
+            flagship=flagship,
+            advanced=advanced,
+        ))
+    try:
+        return EntryPanelCatalog(tuple(categories), actions=actions)
+    except ValueError as error:
+        raise ConfigError(str(error)) from error
+
+
+def _parse_entry_panel_candidates(
+    value: Any,
+    path: str,
+) -> tuple[EntryPanelCandidate, ...]:
+    if not isinstance(value, list):
+        raise ConfigError(f"{path} must be a list")
+    candidates: list[EntryPanelCandidate] = []
+    for index, item in enumerate(value):
+        candidate_path = f"{path}[{index}]"
+        data = _mapping(item, candidate_path)
+        _reject_unknown(data, {"action_id", "press_type", "label", "description"}, candidate_path)
+        action_id = _string(data.get("action_id"), f"{candidate_path}.action_id")
+        press_type = cast(PressType, _choice(data.get("press_type"), f"{candidate_path}.press_type", {"short", "long"}, "short"))
+        candidates.append(EntryPanelCandidate(
+            EntryActionRef(action_id, press_type),
+            _string(data.get("label"), f"{candidate_path}.label"),
+            _string(data.get("description"), f"{candidate_path}.description"),
+        ))
+    return tuple(candidates)
 
 
 def _parse_gemini(data: dict[str, Any]) -> GeminiSettings:

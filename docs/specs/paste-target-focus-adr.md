@@ -65,19 +65,20 @@ the next global Voice shortcut starts a fresh Workflow rather than being
 blocked by a hidden Voice Popup. Cleanup failure keeps the dispatch fact visible
 because an automatic retry could duplicate content.
 
-`PopupExternalOutputTransitions` owns the Popup's local transition table for
-copy, archive, speech, and Paste acknowledgements. Its small interface accepts
-operation begin, acknowledgement, and toolkit focus facts, then returns explicit
-UI actions. It owns stale acknowledgement rejection, Paste pin capture,
+`PopupControl` owns the Popup's local actuation lifecycle for copy, archive,
+speech, and Paste acknowledgements. Its semantic interface accepts operation
+begin, acknowledgement, attention, and focus lifecycle observations; its
+transition actions remain private. It owns stale acknowledgement rejection, Paste pin capture,
 hide/restore/no-activate decisions, whether Paste still owns a withdrawal, and
-focus-check generations. Attention received before Paste settles is deferred
+focus-check generations, command reporting, and scheduled cleanup. Attention received before Paste settles is deferred
 until its ordered terminal acknowledgement so it cannot steal the external
 target before dispatch. The runtime then closes an unpinned dispatched Voice
 Workflow, while other unpinned Workflows remain hidden and pinned Workflows
 remain available for later attention. Only an observed focus entry or an
 explicit Paste restoration releases that local withdrawal fact, and snapshot
 revisions do not imply visibility. BaseDialog and the presenter execute those
-actions without duplicating their policy.
+mechanical requests without duplicating their policy. The presenter retains
+view membership, dead-view detection, canonical content, and snapshot rendering.
 
 Voice Draft rendering separately preserves the current insertion caret when an
 authoritative content revision replaces widget text. Toolkit text marks remain

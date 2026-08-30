@@ -4,6 +4,7 @@ app:
   stream: true
   temperature: 0.2
   modifier_mode: ctrl_alt
+  entry_panel_enabled: true
   system_prompt: |
     你是 ClipAI，幫使用者快速處理眼前內容。
 
@@ -86,7 +87,7 @@ logging:
     clipai.output: INFO
     clipai.action_runner: INFO
   diagnostics:
-    hotkey_raw_events: false
+    hotkey_raw_events: true
     selection_capture_polls: false
     paste_timing: false
     focus_transitions: true

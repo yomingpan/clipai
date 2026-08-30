@@ -124,3 +124,29 @@ def test_voice_enablement_and_language_use_the_existing_single_preference_gate()
     assert coordinator.execute(language.work) == ""
     coordinator.complete("voice-language")
     assert coordinator.voice_preferences.language == "en-US"
+
+
+def test_entry_panel_density_uses_the_existing_preference_gate() -> None:
+    store = MemoryStore()
+    coordinator = UserPreferencesCoordinator(store)
+
+    update = coordinator.begin_set_entry_panel_density("compact", "panel-density")
+
+    assert update.work is not None
+    assert coordinator.execute(update.work) == ""
+    coordinator.complete("panel-density")
+    assert coordinator.entry_panel_density == "compact"
+    assert store.preferences.entry_panel_density == "compact"
+
+
+def test_newer_entry_panel_density_replaces_an_unsettled_density_write() -> None:
+    store = MemoryStore()
+    coordinator = UserPreferencesCoordinator(store)
+    compact = coordinator.begin_set_entry_panel_density("compact", "compact")
+    detailed = coordinator.begin_set_entry_panel_density("detailed", "detailed")
+
+    assert coordinator.execute(compact.work) == ""
+    assert store.saved == []
+    assert coordinator.execute(detailed.work) == ""
+    coordinator.complete("detailed")
+    assert coordinator.entry_panel_density == "detailed"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import threading
 
 from ClipAI.core.models import ActionInvocation, InputDocument, PresentationDocument, ResolvedAction, WorkflowStep
@@ -15,7 +16,13 @@ CONTEXTUAL_SOURCE_MAX_CHARS = 40_000
 class WorkflowController:
     """Single owner for one popup workflow and its linear successful-step history."""
 
-    def __init__(self, initial: SessionSnapshot, presenter: ResultPresenter) -> None:
+    def __init__(
+        self,
+        initial: SessionSnapshot,
+        presenter: ResultPresenter,
+        *,
+        on_step_accepted: Callable[[str, str], None] | None = None,
+    ) -> None:
         self._snapshot = initial
         self._presenter = presenter
         self._lock = threading.RLock()
@@ -23,6 +30,7 @@ class WorkflowController:
         self._context_capture_token = CancellationToken()
         self._feedback_step_ids: set[str] = set()
         self._feedback_operations: dict[str, str] = {}
+        self._on_step_accepted = on_step_accepted
         self._presenter.render(initial)
 
     @property
@@ -274,6 +282,8 @@ class WorkflowController:
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
+        if self._on_step_accepted is not None:
+            self._on_step_accepted(snapshot.session_id, step.step_id)
         return snapshot
 
     def fail(self, invocation_id: str, message: str) -> SessionSnapshot | None:

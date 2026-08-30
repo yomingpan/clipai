@@ -1,36 +1,209 @@
 from __future__ import annotations
 
 import queue
-import ast
 import inspect
-import textwrap
 from dataclasses import replace
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, WorkflowAttention
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
-from ClipAI.ui.base_dialog import BaseResultSurface
-from ClipAI.ui.popup_external_output import FocusEntered, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown
-from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, _voice_waveform_text, workflow_render_patch
+from ClipAI.ui.base_dialog import BaseResultSurface, _VoiceWaveIndicator
+from ClipAI.ui.popup_control import PopupControlRegistered, PopupControlShown, PopupOwnedDialogOpened, ToolkitFocusEntered
+from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, _voice_status_word, workflow_render_patch
 
 
-def test_voice_waveform_uses_a_compact_fixed_text_slot() -> None:
-    tree = ast.parse(textwrap.dedent(inspect.getsource(BaseResultSurface._build)))
-    icon_modes = {
-        call.args[0].value: next(
-            keyword.value.value for keyword in call.keywords if keyword.arg == "icon"
-        )
-        for call in ast.walk(tree)
-        if isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr == "add_action_slot"
-        and call.args
-        and isinstance(call.args[0], ast.Constant)
-        and call.args[0].value == "voice_input"
-    }
+def test_voice_waveform_uses_canvas_and_packs_after_right_anchors() -> None:
+    source = inspect.getsource(BaseResultSurface._build)
+    creation = source.index("self.voice_input_button = _VoiceWaveIndicator")
+    overflow = source.index("self._overflow_button = self.add_action_slot", creation)
+    waveform = source.index('self.voice_input_button.pack(side="left"', overflow)
 
-    assert icon_modes == {"voice_input": False}
+    assert creation < overflow < waveform
+    assert 'self._action_tooltips["voice_input"] = _Tooltip' in source
+    assert "self.action_status_label = ctk.CTkLabel(\n            self.actions" in source
+    assert "width=68" in source
+
+
+def test_voice_waveform_animation_uses_only_the_dialog_lifecycle() -> None:
+    source = inspect.getsource(_VoiceWaveIndicator)
+
+    assert "self.after(" not in source
+    assert "self.after_cancel(" not in source
+    assert "self._lifecycle.schedule(" in source
+    assert "self._lifecycle.cancel(" in source
+    assert "if self._lifecycle.is_closed:" in source
+
+
+def test_voice_waveform_silence_forces_the_target_to_a_flat_line() -> None:
+    class Indicator:
+        def configure(self, **kwargs) -> None:
+            self.configured = kwargs
+
+        def _render(self) -> None:
+            self.rendered = True
+
+        def _ensure_animation(self) -> None:
+            self.animation_checked = True
+
+    indicator = Indicator()
+
+    _VoiceWaveIndicator.update_state(
+        indicator,
+        word="無聲",
+        level=0.9,
+        listening=True,
+        silence=True,
+        enabled=True,
+        active=True,
+        command=lambda: None,
+    )
+
+    assert indicator._target_amplitude == 0.0
+    assert indicator._silence is True
+    assert indicator._word == "無聲"
+    assert indicator.rendered is True
+    assert indicator.animation_checked is True
+
+
+def test_voice_waveform_tick_eases_toward_the_authoritative_level() -> None:
+    class Lifecycle:
+        is_closed = False
+
+    class Indicator:
+        AMPLITUDE_EASING = _VoiceWaveIndicator.AMPLITUDE_EASING
+
+        def _render(self) -> None:
+            self.rendered = True
+
+        def _ensure_animation(self) -> None:
+            self.animation_checked = True
+
+    indicator = Indicator()
+    indicator._job = "scheduled"
+    indicator._lifecycle = Lifecycle()
+    indicator._target_amplitude = 1.0
+    indicator._amplitude = 0.0
+    indicator._listening = True
+    indicator._phase = 0.0
+
+    _VoiceWaveIndicator._tick(indicator)
+
+    assert indicator._amplitude == _VoiceWaveIndicator.AMPLITUDE_EASING
+    assert indicator._amplitude != indicator._target_amplitude
+    assert indicator._phase > 0.0
+    assert indicator.rendered is True
+    assert indicator.animation_checked is True
+
+
+def test_voice_waveform_colors_distinguish_disabled_silence_active_and_default() -> None:
+    indicator = type("Indicator", (), {
+        "_DISABLED_PILL": _VoiceWaveIndicator._DISABLED_PILL,
+        "_ACTIVE_PILL": _VoiceWaveIndicator._ACTIVE_PILL,
+        "_DEFAULT_PILL": _VoiceWaveIndicator._DEFAULT_PILL,
+        "_DISABLED_LINE": _VoiceWaveIndicator._DISABLED_LINE,
+        "_SILENCE_LINE": _VoiceWaveIndicator._SILENCE_LINE,
+        "_ACTIVE_LINE": _VoiceWaveIndicator._ACTIVE_LINE,
+        "_DEFAULT_LINE": _VoiceWaveIndicator._DEFAULT_LINE,
+    })()
+
+    indicator._enabled = False
+    indicator._active = True
+    indicator._silence = True
+    disabled = _VoiceWaveIndicator._colors(indicator)
+    indicator._enabled = True
+    silence = _VoiceWaveIndicator._colors(indicator)
+    indicator._silence = False
+    active = _VoiceWaveIndicator._colors(indicator)
+    indicator._active = False
+    default = _VoiceWaveIndicator._colors(indicator)
+
+    assert disabled[:2] == (
+        _VoiceWaveIndicator._DISABLED_PILL,
+        _VoiceWaveIndicator._DISABLED_LINE,
+    )
+    assert silence[:2] == (
+        _VoiceWaveIndicator._ACTIVE_PILL,
+        _VoiceWaveIndicator._SILENCE_LINE,
+    )
+    assert active[:2] == (
+        _VoiceWaveIndicator._ACTIVE_PILL,
+        _VoiceWaveIndicator._ACTIVE_LINE,
+    )
+    assert default[:2] == (
+        _VoiceWaveIndicator._DEFAULT_PILL,
+        _VoiceWaveIndicator._DEFAULT_LINE,
+    )
+
+
+def test_voice_waveform_font_uses_scaled_negative_pixel_size_and_is_cached(monkeypatch) -> None:
+    created: list[dict[str, object]] = []
+    font = object()
+    monkeypatch.setattr(
+        "ClipAI.ui.base_dialog.tkfont.Font",
+        lambda **kwargs: created.append(kwargs) or font,
+    )
+    indicator = type("Indicator", (), {
+        "FONT_BASE_PX": 10,
+        "_font_family": "Test UI",
+        "_font": None,
+        "_font_px": None,
+    })()
+
+    assert _VoiceWaveIndicator._scaled_font(indicator, 1.5) is font
+    assert _VoiceWaveIndicator._scaled_font(indicator, 1.5) is font
+
+    assert len(created) == 1
+    assert created[0]["root"] is indicator
+    assert created[0]["size"] == -15
+
+
+def test_voice_waveform_line_ends_before_the_measured_status_word() -> None:
+    class Font:
+        def measure(self, word: str) -> int:
+            assert word == "聆聽"
+            return 30
+
+    class Indicator:
+        BASE_WIDTH = 82
+        BASE_HEIGHT = 22
+
+        def _widget_scaling(self) -> float:
+            return 1.5
+
+        def _scaled_font(self, _scaling: float) -> Font:
+            return Font()
+
+        def _colors(self):
+            return "pill", "line", "word"
+
+        def configure(self, **kwargs) -> None:
+            self.configured = kwargs
+
+        def delete(self, _tag: str) -> None:
+            pass
+
+        def _draw_rounded_pill(self, *_args) -> None:
+            pass
+
+        def create_text(self, *_args, **_kwargs) -> None:
+            pass
+
+        def create_line(self, *points, **_kwargs) -> None:
+            self.points = points
+
+    indicator = Indicator()
+    indicator._word = "聆聽"
+    indicator._amplitude = 0.7
+    indicator._phase = 0.0
+
+    _VoiceWaveIndicator._render(indicator)
+
+    width = round(82 * 1.5)
+    padding = 7.0 * 1.5
+    measured_line_right = width - padding - 30 - padding
+    x_coordinates = indicator.points[0::2]
+    assert max(x_coordinates) <= measured_line_right
 
 
 class Root:
@@ -42,6 +215,12 @@ class Root:
 
     def deiconify(self) -> None:
         self.events.append("deiconify")
+
+    def focus_get(self):
+        return self
+
+    def winfo_toplevel(self):
+        return self
 
 
 class Dialog:
@@ -217,11 +396,7 @@ class Surface:
 def presenter_with_selection(selected: str | None):
     events: list[str] = []
     presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
-    external_output = PopupExternalOutputTransitions()
-    external_output.focus(PopupRegistered())
-    external_output.focus(PopupShown())
-    external_output.focus(FocusEntered(native_foreground=True, toolkit_focused=True))
-    presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events), external_output=external_output)}
+    presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events))}
     presenter._command_sink = lambda command: events.append(command)
     presenter._paste_target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
     presenter._paste_target_updates = queue.Queue()
@@ -232,6 +407,11 @@ def presenter_with_selection(selected: str | None):
         VoiceCapabilityPhase.READY,
         VoiceLanguage("zh-TW"),
     )
+    control = presenter._popup_control("s1", presenter._views["s1"])
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+    control.observe_focus(ToolkitFocusEntered())
+    events.clear()
     return presenter, events
 
 
@@ -252,10 +432,12 @@ def test_copy_and_archive_wait_for_typed_acknowledgment() -> None:
 
 def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:
     presenter, events = presenter_with_selection("selected")
-    presenter._views["s1"].external_output.begin("archive", "new")
+    presenter._archive("s1")
+    operation_id = events[-1].operation_id
+    events.clear()
     presenter._apply_output_operation(OutputOperationResult("old", "s1", "archive", "succeeded"))
     assert events == []
-    presenter._apply_output_operation(OutputOperationResult("new", "s1", "archive", "succeeded"))
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "archive", "succeeded"))
     assert "archive:pulse:1000" in events
 
 
@@ -311,9 +493,16 @@ def test_latest_snapshot_mailbox_coalesces_each_workflow_to_highest_revision() -
     assert mailbox.drain() == ()
 
 
-def test_waveform_text_reflects_real_levels_and_silence() -> None:
-    assert _voice_waveform_text([0.0, 0.25, 0.5, 1.0]) == "▁▂▄▇  聆聽"
-    assert _voice_waveform_text([1.0], silence_detected=True) == "▁▁▁▁  無聲"
+def test_voice_status_word_keeps_phase_semantics_in_the_presenter() -> None:
+    assert _voice_status_word(None, silence_detected=False) == "語音"
+    assert _voice_status_word(VoiceCapturePhase.LISTENING, silence_detected=False) == "聆聽"
+    assert _voice_status_word(VoiceCapturePhase.LISTENING, silence_detected=True) == "無聲"
+    for phase in (
+        VoiceCapturePhase.STOP_REQUESTED,
+        VoiceCapturePhase.FINALIZING,
+        VoiceCapturePhase.CANCEL_REQUESTED,
+    ):
+        assert _voice_status_word(phase, silence_detected=True) == "整理"
 
 
 def test_completed_popup_offers_voice_follow_up_and_emits_typed_start() -> None:
@@ -333,6 +522,10 @@ def test_completed_popup_offers_voice_follow_up_and_emits_typed_start() -> None:
 
     assert action["enabled"] is True
     assert action["active"] is False
+    assert action["word"] == "語音"
+    assert action["level"] == 0.0
+    assert action["listening"] is False
+    assert action["silence"] is False
     action["command"]()
     assert isinstance(events[-1], StartPopupVoiceCapture)
     assert events[-1].workflow_id == "s1"
@@ -389,10 +582,100 @@ def test_active_voice_follow_up_uses_same_control_to_stop() -> None:
     action = presenter._views["s1"].surface.voice_action
 
     assert action["active"] is True
-    assert "聆聽" in action["text"]
+    assert action["word"] == "聆聽"
+    assert action["level"] == 0.8
+    assert action["listening"] is True
+    assert action["silence"] is False
     assert "follow-up-send:False" in events
     action["command"]()
     assert events[-1] == StopVoiceCapture(capture_id)
+
+
+def test_voice_silence_projects_real_level_but_marks_the_widget_silent() -> None:
+    presenter, _events = presenter_with_selection(None)
+    snapshot = SessionSnapshot(
+        "s1",
+        2,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        available_actions=("follow_up",),
+        voice_capture_id=VoiceCaptureId("capture-1"),
+        voice_capture_phase=VoiceCapturePhase.LISTENING,
+        voice_audio_level=0.8,
+        voice_silence_detected=True,
+    )
+
+    presenter._configure_voice_control(snapshot, presenter._views["s1"])
+    action = presenter._views["s1"].surface.voice_action
+
+    assert action["word"] == "無聲"
+    assert action["level"] == 0.8
+    assert action["listening"] is True
+    assert action["silence"] is True
+
+
+def test_every_finalizing_phase_disables_the_control_and_overrides_silence() -> None:
+    presenter, _events = presenter_with_selection(None)
+    for revision, phase in enumerate(
+        (
+            VoiceCapturePhase.STOP_REQUESTED,
+            VoiceCapturePhase.FINALIZING,
+            VoiceCapturePhase.CANCEL_REQUESTED,
+        ),
+        start=2,
+    ):
+        snapshot = SessionSnapshot(
+            "s1",
+            revision,
+            SessionStatus.COMPLETED,
+            "a",
+            "A",
+            "m",
+            available_actions=("follow_up",),
+            voice_capture_id=VoiceCaptureId("capture-1"),
+            voice_capture_phase=phase,
+            voice_audio_level=0.7,
+            voice_silence_detected=True,
+        )
+
+        presenter._configure_voice_control(snapshot, presenter._views["s1"])
+        action = presenter._views["s1"].surface.voice_action
+
+        assert action["word"] == "整理"
+        assert action["level"] == 0.7
+        assert action["listening"] is False
+        assert action["silence"] is True
+        assert action["enabled"] is False
+        assert action["active"] is True
+        assert action["command"] is None
+
+
+def test_global_voice_projection_does_not_replace_snapshot_audio_level() -> None:
+    presenter, _events = presenter_with_selection(None)
+    presenter._voice_projection = VoiceProjection(
+        VoiceCapabilityPhase.READY,
+        VoiceLanguage("zh-TW"),
+        capture_id=VoiceCaptureId("capture-1"),
+        capture_phase=VoiceCapturePhase.LISTENING,
+        workflow_id="s1",
+        audio_level=0.95,
+    )
+    snapshot = SessionSnapshot(
+        "s1",
+        2,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "m",
+        available_actions=("follow_up",),
+        voice_audio_level=0.25,
+    )
+
+    presenter._configure_voice_control(snapshot, presenter._views["s1"])
+
+    assert presenter._views["s1"].surface.voice_action["level"] == 0.25
 
 
 def test_shortcut_started_voice_follow_up_immediately_opens_the_review_field() -> None:
@@ -595,17 +878,19 @@ def test_speaker_command_waits_for_snapshot_to_change_icon() -> None:
 
 def test_speech_operation_projects_to_speaker_slot() -> None:
     presenter, events = presenter_with_selection("selected")
-    presenter._views["s1"].external_output.begin("speech", "speech-op")
-    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "pending"))
-    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "succeeded"))
+    presenter._toggle_speech("s1")
+    operation_id = events[-1].operation_id
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "speech", "pending"))
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "speech", "succeeded"))
     assert "speaker:pulse:1000" in events
 
 
 def test_speech_failure_projects_to_speaker_slot() -> None:
     presenter, events = presenter_with_selection("selected")
-    presenter._views["s1"].external_output.begin("speech", "speech-op")
-    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "pending"))
-    presenter._apply_output_operation(OutputOperationResult("speech-op", "s1", "speech", "failed"))
+    presenter._toggle_speech("s1")
+    operation_id = events[-1].operation_id
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "speech", "pending"))
+    presenter._apply_output_operation(OutputOperationResult(operation_id, "s1", "speech", "failed"))
     assert "speaker:error:1000" in events
 
 
@@ -857,7 +1142,7 @@ def test_failed_initial_focus_attempt_does_not_claim_popup_focus() -> None:
 
     presenter, _events = presenter_with_selection(None)
     view = presenter._views["s1"]
-    view.external_output = PopupExternalOutputTransitions()
+    view.popup_control = None
     view.dialog.root = ShortcutRoot()
     view.dialog.lifecycle = Lifecycle()
     view.surface.focus_result = False
@@ -866,7 +1151,7 @@ def test_failed_initial_focus_attempt_does_not_claim_popup_focus() -> None:
     presenter._register_view("s1", view)
     view.dialog.lifecycle.callbacks[0]()
 
-    assert view.external_output.focused_inside is False
+    assert presenter._popup_control("s1", view).focused_inside is False
 
 
 def test_clicking_toolkit_focused_popup_requests_native_focus_and_confirms_it() -> None:
@@ -900,7 +1185,7 @@ def test_clicking_toolkit_focused_popup_requests_native_focus_and_confirms_it() 
 
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
-    view.external_output = PopupExternalOutputTransitions()
+    view.popup_control = None
     view.dialog.root = FocusRoot()
     view.dialog.native_foreground = False
     view.dialog.lifecycle = Lifecycle(view.dialog, events)
@@ -920,12 +1205,56 @@ def test_clicking_toolkit_focused_popup_requests_native_focus_and_confirms_it() 
     assert ActivateWorkflow("s1") in events
 
 
+def test_confirmed_focus_reports_control_surface_and_workflow_activation_once() -> None:
+    class FocusedRoot:
+        def focus_get(self):
+            return self
+
+        def winfo_toplevel(self):
+            return self
+
+    presenter, events = presenter_with_selection(None)
+    presenter._views["s1"].dialog.root = FocusedRoot()
+
+    presenter._focus_in("s1")
+
+    assert events.count(ControlSurfaceActivated(ControlSurfaceRef("s1", "workflow"))) == 1
+    assert events.count(ActivateWorkflow("s1")) == 1
+
+
+def test_inside_pointer_requests_workflow_activation_before_focus_is_confirmed() -> None:
+    class Lifecycle:
+        def __init__(self) -> None:
+            self.callbacks = []
+
+        def focus(self) -> bool:
+            return True
+
+        def schedule(self, delay_ms, callback) -> str:
+            self.callbacks.append((delay_ms, callback))
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.popup_control = None
+    control = presenter._popup_control("s1", view)
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
+    view.dialog.lifecycle = Lifecycle()
+
+    presenter._pointer_pressed_inside("s1")
+
+    assert events == [ActivateWorkflow("s1")]
+    assert [delay_ms for delay_ms, _callback in view.dialog.lifecycle.callbacks] == [25]
+
+
 def test_first_outside_pointer_press_closes_popup_when_native_focus_failed() -> None:
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
-    view.external_output = PopupExternalOutputTransitions()
-    view.external_output.focus(PopupRegistered())
-    view.external_output.focus(PopupShown())
+    view.popup_control = None
+    control = presenter._popup_control("s1", view)
+    control.observe_focus(PopupControlRegistered())
+    control.observe_focus(PopupControlShown())
 
     presenter._handle_pointer_press(100, 100)
 
@@ -939,6 +1268,26 @@ def test_pointer_press_inside_popup_does_not_close_it() -> None:
     presenter._handle_pointer_press(10, 10)
 
     assert not any(isinstance(event, CloseSession) for event in events)
+
+
+def test_outside_pointer_press_closes_the_unified_entry_panel() -> None:
+    class EntryPanel:
+        def __init__(self) -> None:
+            self.close_requests = 0
+
+        def contains_screen_point(self, _x: int, _y: int) -> bool:
+            return False
+
+        def request_close(self) -> None:
+            self.close_requests += 1
+
+    presenter, _events = presenter_with_selection(None)
+    panel = EntryPanel()
+    presenter._entry_panel_dialog = panel
+
+    presenter._handle_pointer_press(100, 100)
+
+    assert panel.close_requests == 1
 
 
 def test_dead_popup_emits_close_intent_before_view_is_evicted() -> None:
@@ -1063,7 +1412,7 @@ def test_ctrl_v_pastes_only_for_active_popup() -> None:
     assert events == ["paste:s1"]
 
     events.clear()
-    view.external_output.focus(OwnedDialogOpened())
+    presenter._popup_control("s1", view).observe_focus(PopupOwnedDialogOpened())
     result = view.dialog.root.bindings["<Control-v>"](None)
 
     assert result == "break"
@@ -1337,7 +1686,7 @@ def test_ctrl_e_toggles_pin_for_active_popup() -> None:
     assert events == ["pin:toggled", TogglePin("s1")]
 
     events.clear()
-    view.external_output.focus(OwnedDialogOpened())
+    presenter._popup_control("s1", view).observe_focus(PopupOwnedDialogOpened())
     result = view.dialog.root.bindings["<Control-e>"](CtrlWithNumLockEvent())
 
     assert result == "break"
@@ -1472,7 +1821,7 @@ def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
 
     assert events[:3] == ["guide:show", "guide:close", "focus"]
     assert isinstance(events[3], CopyResult)
-    assert view.external_output.focused_inside is True
+    assert presenter._popup_control("s1", view).focused_inside is True
     assert view.surface.focused is True
 
 
@@ -1494,7 +1843,7 @@ def test_shortcut_guide_does_not_restore_a_popup_that_started_closing() -> None:
     presenter.close_shortcut_guide()
 
     assert events == ["guide:close"]
-    assert view.external_output.focused_inside is False
+    assert presenter._popup_control("s1", view).focused_inside is False
 
 
 def test_shortcut_guide_without_an_original_popup_does_not_force_focus() -> None:

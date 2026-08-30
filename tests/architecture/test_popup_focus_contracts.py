@@ -4,23 +4,25 @@ import ast
 from pathlib import Path
 
 
-def test_focus_entered_requires_named_native_and_toolkit_evidence() -> None:
+def test_popup_control_state_is_private_to_popup_control() -> None:
     violations: list[str] = []
-    for root in (Path("ClipAI"), Path("tests")):
-        for path in root.rglob("*.py"):
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name) or node.func.id != "FocusEntered":
-                    continue
-                keywords = {keyword.arg for keyword in node.keywords}
-                if node.args or keywords != {"native_foreground", "toolkit_focused"}:
-                    violations.append(f"{path}:{node.lineno}: FocusEntered must name both evidence axes")
+    owner = Path("ClipAI/ui/popup_control.py")
+    for path in Path("ClipAI").rglob("*.py"):
+        if path == owner or path.name == "_popup_control_state.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            modules = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""]
+            if any("_popup_control_state" in module for module in modules):
+                violations.append(f"{path}:{node.lineno}: Popup control state bypasses PopupControl")
     assert violations == [], "\n".join(violations)
 
 
 def test_only_popup_transition_owner_constructs_focus_projection() -> None:
     violations: list[str] = []
-    owner = Path("ClipAI/ui/popup_external_output.py")
+    owner = Path("ClipAI/ui/_popup_control_state.py")
     for path in Path("ClipAI").rglob("*.py"):
         if path == owner:
             continue

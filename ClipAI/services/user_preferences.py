@@ -5,7 +5,7 @@ import logging
 import threading
 from typing import Literal
 
-from ClipAI.core.models import GuidancePreferences, SpeechSpeed, SpeechSpeedState, UserPreferences, VoiceLanguagePreference, VoicePreferencesState
+from ClipAI.core.models import EntryPanelDensity, GuidancePreferences, SpeechSpeed, SpeechSpeedState, UserPreferences, VoiceLanguagePreference, VoicePreferencesState
 from ClipAI.core.ports import UserPreferencesStore
 
 logger = logging.getLogger("clipai.user_preferences")
@@ -17,7 +17,7 @@ SPEECH_SPEED_RATES: dict[SpeechSpeed, str] = {
     "super_fast": "+50%",
 }
 _SPEECH_SPEED_BY_RATE = {rate: speed for speed, rate in SPEECH_SPEED_RATES.items()}
-PreferenceOperationKind = Literal["set_guidance_enabled", "reset_guidance", "set_speech_speed", "set_voice_enabled", "set_voice_language"]
+PreferenceOperationKind = Literal["set_guidance_enabled", "reset_guidance", "set_speech_speed", "set_voice_enabled", "set_voice_language", "set_entry_panel_density"]
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,7 @@ class UserPreferencesWork:
     enabled: bool | None = None
     speed: SpeechSpeed | None = None
     voice_language: VoiceLanguagePreference | None = None
+    density: EntryPanelDensity | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,11 @@ class UserPreferencesCoordinator:
         with self._lock:
             return self._voice_projection()
 
+    @property
+    def entry_panel_density(self) -> EntryPanelDensity:
+        with self._lock:
+            return self._preferences.entry_panel_density
+
     def current_speech_rate(self) -> str:
         with self._lock:
             speed = self._preferences.speech_speed
@@ -100,6 +106,22 @@ class UserPreferencesCoordinator:
                 return self._update(ignored=True)
         return self._begin(UserPreferencesWork(operation_id, "set_voice_language", voice_language=language))
 
+    def begin_set_entry_panel_density(self, density: EntryPanelDensity, operation_id: str) -> UserPreferencesUpdate:
+        with self._lock:
+            if self._pending is not None:
+                if self._pending.kind != "set_entry_panel_density":
+                    return self._update(ignored=True)
+                work = UserPreferencesWork(
+                    operation_id,
+                    "set_entry_panel_density",
+                    density=density,
+                )
+                self._pending = work
+                return self._update(work=work)
+            if self._preferences.entry_panel_density == density:
+                return self._update(ignored=True)
+        return self._begin(UserPreferencesWork(operation_id, "set_entry_panel_density", density=density))
+
     def _begin(self, work: UserPreferencesWork) -> UserPreferencesUpdate:
         with self._lock:
             if self._pending is not None:
@@ -123,6 +145,8 @@ class UserPreferencesCoordinator:
                     desired = replace(current, voice_input_enabled=work.enabled)
                 elif work.kind == "set_voice_language" and work.voice_language is not None:
                     desired = replace(current, voice_language=work.voice_language)
+                elif work.kind == "set_entry_panel_density" and work.density is not None:
+                    desired = replace(current, entry_panel_density=work.density)
                 else:
                     raise ValueError(f"unsupported user preference operation: {work.kind}")
                 self._store.save(desired)

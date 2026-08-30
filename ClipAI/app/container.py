@@ -13,6 +13,8 @@ from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.app.readiness import assess_provider_readiness
 from ClipAI.app.runtime import AppRuntime
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeModule
+from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
+from ClipAI.app.recent_action_persistence import RecentActionPersistence
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
@@ -21,7 +23,7 @@ from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.owned_processes import AppOwnedProcessRegistry
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
-from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenAbout, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -36,6 +38,8 @@ from ClipAI.platform.dotenv_preferences import DotenvModelPreferenceStore
 from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.speech import EdgeSpeechOutput
 from ClipAI.platform.keyboard import SystemKeyboardOutput
+from ClipAI.platform.external_window import SystemExternalWindowActivator
+from ClipAI.platform.recent_actions import JsonRecentActionStore
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
 from ClipAI.platform.pointer_input import WindowsPointerPressReader
 from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
@@ -49,6 +53,8 @@ from ClipAI.providers.http_transport import HttpTransport, HttpxAsyncTransport
 from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.providers.settings import ProviderCredential
 from ClipAI.services.execute_action import ActionExecutor
+from ClipAI.services.entry_panel import EntryPanelCoordinator
+from ClipAI.services.recent_actions import RecentActionHistory
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.action_feedback import ActionFeedbackService
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
@@ -83,6 +89,7 @@ def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
 
 def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     configure_logging(bundle.logging)
+    application_version = _application_version()
     settings_store = DotenvModelPreferenceStore()
     provider_transport = HttpxAsyncTransport()
     provider_execution = ProviderExecutionModule(provider_transport)
@@ -136,6 +143,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         on_disable_voice=lambda: runtime_holder[0].enqueue(DisableVoiceInput(VoiceDisableId(uuid.uuid4().hex))),
         on_set_voice_language=lambda language: runtime_holder[0].enqueue(SetVoiceLanguage(language)),
         on_manage_voice_permission=lambda: runtime_holder[0].enqueue(OpenVoicePermissionSettings()),
+        on_open_about=lambda: runtime_holder[0].enqueue(OpenAbout()),
+        application_version=application_version,
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     native_window_surface = WindowsNativeWindowSurface()
@@ -145,10 +154,11 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         native_window_surface=native_window_surface,
         focus_transition_diagnostics=bundle.logging.diagnostics.enabled("focus_transitions"),
         voice_projection=voice_controller.projection,
+        application_version=application_version,
     )
     diagnostics_exporter = SafeDiagnosticsExporter(
         metadata={
-            "version": _application_version(),
+            "version": application_version,
             "schema_versions": {
                 "config": bundle.schema_versions.app,
                 "actions": bundle.schema_versions.actions,
@@ -233,10 +243,26 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             callback,
             modifier_mode=bundle.app.modifier_mode,
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
+            entry_panel_enabled=bundle.app.entry_panel_enabled,
         )
 
     user_control = UserControlCoordinator()
     incident_reporter = IncidentReporter()
+    local_app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    recent_store = JsonRecentActionStore(local_app_data / "ClipAI" / "recent_actions.json")
+    valid_recent = []
+    for ref in recent_store.load():
+        try:
+            bundle.entry_panel.candidate_for_action(ref)
+        except ValueError:
+            continue
+        valid_recent.append(ref)
+    recent_actions = RecentActionHistory(tuple(valid_recent))
+    recent_persistence = RecentActionPersistence(
+        recent_store,
+        supervisor,
+        incident_reporter,
+    )
     workflow_module = WorkflowRuntimeModule(
         actions=bundle.actions,
         shortcuts=bundle.shortcuts,
@@ -256,6 +282,8 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         personal_styles=personal_styles,
         input_resolver=input_resolver,
         supervisor=supervisor,
+        recent_actions=recent_actions,
+        recent_action_sink=recent_persistence.schedule,
     )
     result_output_module = ResultOutputRuntimeModule(
         output_actions=output_actions,
@@ -303,7 +331,6 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         presenter=view,
         operation_tracker=operation_tracker,
     )
-    local_app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
     owned_processes = AppOwnedProcessRegistry()
     voice_engine = BrowserSpeechWebView2Engine(
         lambda event: enqueue(VoiceEngineEventReceived(event)),
@@ -314,6 +341,31 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
     foreground_monitor = WindowsForegroundWindowMonitor(
         lambda target: runtime_holder[0].enqueue(ExternalForegroundChanged(target)),
         is_owned_process=owned_processes.contains,
+    )
+
+    def capture_entry_panel_source():
+        target = foreground_monitor.capture_foreground_target()
+        return target.external_ref if target is not None else None
+
+    entry_panel_module = (
+        EntryPanelRuntimeModule(
+            coordinator=EntryPanelCoordinator(
+                bundle.entry_panel,
+                density=user_preferences.entry_panel_density,
+            ),
+            actions=bundle.actions,
+            workflows=workflow_module,
+            workflow_context_reader=view.workflow_context,
+            external_source_reader=capture_entry_panel_source,
+            external_window_activator=SystemExternalWindowActivator(),
+            input_resolver=input_resolver,
+            supervisor=supervisor,
+            enqueue=enqueue,
+            presenter=view,
+            recent_actions=recent_actions,
+        )
+        if bundle.app.entry_panel_enabled
+        else None
     )
 
     def project_voice(projection) -> None:
@@ -376,6 +428,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         user_control=user_control,
         voice_input=voice_input_module,
         personal_styles=personal_styles_module,
+        entry_panel=entry_panel_module,
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):

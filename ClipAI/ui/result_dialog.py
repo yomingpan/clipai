@@ -2,49 +2,51 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-import logging
 import queue
 import threading
 import tkinter as tk
 import uuid
+import webbrowser
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
-from ClipAI.core.models import ActiveWorkflowContext, ControlSurfaceRef, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
+from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
+from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
-from ClipAI.ui.popup_external_output import FocusConfirmationObserved, FocusEntered, FocusPopup, ForegroundLeftApplication, InsidePointerPressed, OutsideFocusCheckRequested, OutsideFocusObserved, OutsidePointerPressed, OwnedDialogClosed, OwnedDialogOpened, PopupExternalOutputTransitions, PopupRegistered, PopupShown, PopupTransitionAction, PulseOutputAction, ReportControlSurfaceReleased, RequestPopupClose, ScheduleFocusConfirmationCheck, ScheduleOutsideFocusCheck, SetFocusProjection, SetOutputActionEnabled, SetPopupVisibility, ShowOutputMessage
+from ClipAI.ui.popup_control import PopupControl, PopupControlRegistered, PopupControlShown, PopupForegroundPolled, PopupInsidePointerPressed, PopupOutsideFocusRequested, PopupOutsidePointerPressed, PopupOwnedDialogClosed, PopupOwnedDialogOpened, PopupProjectionContext, ToolkitFocusEntered
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.personal_styles import PersonalStylesDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
+from ClipAI.ui.unified_entry_panel import UnifiedEntryPanelDialog
 from ClipAI.ui.voice_setup import VoiceSetupDialog
+from ClipAI.ui.about import AboutDialog
 
 
 # Windows Tk maps Num Lock to Mod1 (0x0008), while physical Alt uses
 # the separate 0x00020000 state bit. Lock states must not disable Ctrl shortcuts.
 _POPUP_SHORTCUT_ALLOWED_MODIFIERS = 0x0002 | 0x0004 | 0x0008 | 0x0010
-_LOGGER = logging.getLogger("clipai.ui.focus")
-_VOICE_LEVEL_GLYPHS = "▁▂▃▄▅▆▇"
 
 
-def _voice_waveform_text(levels: list[float], *, silence_detected: bool = False) -> str:
+def _voice_status_word(
+    phase: VoiceCapturePhase | None,
+    *,
+    silence_detected: bool,
+) -> str:
+    if phase in {
+        VoiceCapturePhase.STOP_REQUESTED,
+        VoiceCapturePhase.FINALIZING,
+        VoiceCapturePhase.CANCEL_REQUESTED,
+    }:
+        return "整理"
+    if phase is None:
+        return "語音"
     if silence_detected:
-        return "▁▁▁▁  無聲"
-    padded = ([0.0] * 4 + levels)[-4:]
-    bars = "".join(
-        _VOICE_LEVEL_GLYPHS[
-            min(
-                len(_VOICE_LEVEL_GLYPHS) - 1,
-                int(max(0.0, min(1.0, level)) * len(_VOICE_LEVEL_GLYPHS)),
-            )
-        ]
-        for level in padded
-    )
-    return f"{bars}  聆聽"
+        return "無聲"
+    return "聆聽"
 
 
 @dataclass
@@ -55,7 +57,7 @@ class _SessionView:
     speaking: bool = False
     content: str = ""
     step_id: str | None = None
-    external_output: PopupExternalOutputTransitions = field(default_factory=PopupExternalOutputTransitions)
+    popup_control: PopupControl | None = None
     flashed_completion_keys: set[str] = field(default_factory=set)
     rendered_content_key: tuple[object, ...] | None = None
     shown_guidance_keys: set[str] = field(default_factory=set)
@@ -64,7 +66,6 @@ class _SessionView:
     voice_draft_revision: int = 0
     applied_voice_insertion_revision: int | None = None
     voice_draft_editing: bool = True
-    voice_level_history: list[float] = field(default_factory=list)
     applied_follow_up_capture_ids: set[str] = field(default_factory=set)
 
 
@@ -107,6 +108,8 @@ class ResultDialogPresenter:
         native_window_surface: NativeWindowSurface | None = None,
         focus_transition_diagnostics: bool = False,
         voice_projection: VoiceProjection | None = None,
+        application_version: str = "development",
+        github_url: str = "https://github.com/yomingpan/clipai",
     ) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
@@ -128,10 +131,14 @@ class ResultDialogPresenter:
         self._provider_settings_dialog: ProviderSettingsDialog | None = None
         self._personal_styles_dialog: PersonalStylesDialog | None = None
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
+        self._entry_panel_dialog: UnifiedEntryPanelDialog | None = None
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
         self._voice_setup_dialog: VoiceSetupDialog | None = None
         self._voice_projection = voice_projection
+        self._application_version = application_version
+        self._github_url = github_url
+        self._about_dialog: AboutDialog | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
@@ -179,6 +186,25 @@ class ResultDialogPresenter:
 
     def present_workflow_attention(self, attention: WorkflowAttention) -> None:
         self._attention_updates.put(attention)
+
+    def present_entry_panel(self, snapshot: EntryPanelSnapshot | None) -> None:
+        if snapshot is None:
+            if self._entry_panel_dialog is not None:
+                self._entry_panel_dialog.close()
+                self._entry_panel_dialog = None
+            self._restore_focus_after_owned_surface()
+            return
+        if self._native_window_surface is None or self._display_metrics is None:
+            return
+        self._hold_focus_for_owned_surface()
+        if self._entry_panel_dialog is None:
+            self._entry_panel_dialog = UnifiedEntryPanelDialog(
+                self._root,
+                self._command_sink,
+                self._native_window_surface,
+                self._display_metrics,
+            )
+        self._entry_panel_dialog.show(snapshot)
 
     def show_provider_settings(self, state: ProviderSettingsState) -> None:
         if self._provider_settings_dialog is None:
@@ -248,6 +274,26 @@ class ResultDialogPresenter:
         if self._voice_setup_dialog is not None:
             self._voice_setup_dialog.close()
 
+    def show_about(self) -> None:
+        if self._native_window_surface is None:
+            return
+        if self._about_dialog is None:
+            self._about_dialog = AboutDialog(
+                self._root,
+                self._command_sink,
+                self._native_window_surface,
+                version=self._application_version,
+                github_url=self._github_url,
+            )
+
+    def close_about(self) -> None:
+        if self._about_dialog is not None:
+            self._about_dialog.close()
+            self._about_dialog = None
+
+    def open_github(self, url: str) -> None:
+        webbrowser.open(url)
+
     def set_voice_projection(self, projection: VoiceProjection) -> None:
         self._voice_projection = projection
         if self._voice_setup_dialog is not None:
@@ -257,6 +303,9 @@ class ResultDialogPresenter:
                 self._configure_voice_control(view.last_snapshot, view)
 
     def _hold_focus_for_shortcut_guide(self) -> None:
+        self._hold_focus_for_owned_surface()
+
+    def _hold_focus_for_owned_surface(self) -> None:
         if self._shortcut_guide_focus_hold_active:
             return
         self._shortcut_guide_focus_hold_active = True
@@ -264,18 +313,17 @@ class ResultDialogPresenter:
         for workflow_id, view in self._views.items():
             if (
                 self._interactive_view(workflow_id) is not view
-                or not view.external_output.owns_focus
+                or not self._popup_control(workflow_id, view).owns_focus
             ):
                 continue
-            self._apply_transition_actions(
-                workflow_id,
-                view,
-                view.external_output.focus(OwnedDialogOpened()),
-            )
+            self._popup_control(workflow_id, view).observe_focus(PopupOwnedDialogOpened())
             self._shortcut_guide_focus_return = (workflow_id, view)
             return
 
     def _restore_focus_after_shortcut_guide(self) -> None:
+        self._restore_focus_after_owned_surface()
+
+    def _restore_focus_after_owned_surface(self) -> None:
         if not self._shortcut_guide_focus_hold_active:
             return
         self._shortcut_guide_focus_hold_active = False
@@ -284,17 +332,19 @@ class ResultDialogPresenter:
             return
         workflow_id, held_view = target
         if self._interactive_view(workflow_id) is not held_view:
-            held_view.external_output.focus(OwnedDialogClosed(restored=False))
+            self._popup_control(workflow_id, held_view).observe_focus(
+                PopupOwnedDialogClosed(restored=False)
+            )
             return
 
         def restore() -> None:
             if self._interactive_view(workflow_id) is not held_view:
-                held_view.external_output.focus(OwnedDialogClosed(restored=False))
+                self._popup_control(workflow_id, held_view).observe_focus(
+                    PopupOwnedDialogClosed(restored=False)
+                )
                 return
-            self._apply_transition_actions(
-                workflow_id,
-                held_view,
-                held_view.external_output.focus(OwnedDialogClosed(restored=True)),
+            self._popup_control(workflow_id, held_view).observe_focus(
+                PopupOwnedDialogClosed(restored=True)
             )
 
         held_view.dialog.lifecycle.schedule(0, restore)
@@ -306,136 +356,7 @@ class ResultDialogPresenter:
         if not view.dialog.is_alive():
             self._close_dead_view(result.workflow_id, view)
             return
-        self._apply_transition_actions(
-            result.workflow_id,
-            view,
-            view.external_output.acknowledge(result),
-        )
-
-    def _apply_transition_actions(
-        self,
-        workflow_id: str,
-        view: _SessionView,
-        actions: tuple[PopupTransitionAction, ...],
-    ) -> None:
-        for action in actions:
-            if isinstance(action, SetPopupVisibility):
-                visibility_applied = view.dialog.apply_external_output_visibility(action.visibility)
-                if visibility_applied is False:
-                    _LOGGER.warning(
-                        "popup visibility application failed workflow_id=%s visibility=%s",
-                        workflow_id,
-                        action.visibility,
-                    )
-            elif isinstance(action, SetFocusProjection):
-                if self._focus_transition_diagnostics:
-                    native_foreground, toolkit_focused = self._focus_evidence(view)
-                    _LOGGER.info(
-                        "focus transition workflow_id=%s native_foreground=%s toolkit_focused=%s projection=%s",
-                        workflow_id,
-                        native_foreground,
-                        toolkit_focused,
-                        action.focused,
-                    )
-                view.surface.set_paste_focus_state(
-                    action.focused,
-                    self._paste_target,
-                    voice_draft_editing=_voice_draft_editing(view),
-                )
-            elif isinstance(action, FocusPopup):
-                focus_acquired = view.dialog.lifecycle.focus()
-                if action.attention_id is not None:
-                    self._command_sink(WorkflowAttentionCompleted(
-                        action.attention_id,
-                        workflow_id,
-                        focus_acquired,
-                    ))
-            elif isinstance(action, ScheduleOutsideFocusCheck):
-                self._schedule_outside_focus_check(workflow_id, view, action)
-            elif isinstance(action, ScheduleFocusConfirmationCheck):
-                self._schedule_focus_confirmation_check(workflow_id, view, action)
-            elif isinstance(action, ReportControlSurfaceReleased):
-                self._command_sink(ControlSurfaceReleased(ControlSurfaceRef(workflow_id, "workflow")))
-            elif isinstance(action, RequestPopupClose):
-                view.surface.collapse_overflow()
-                self._request_close(workflow_id)
-            elif isinstance(action, SetOutputActionEnabled):
-                view.surface.set_standard_action_enabled(action.slot_id, action.enabled)
-            elif isinstance(action, PulseOutputAction):
-                pulse = (
-                    view.surface.pulse_standard_action_error
-                    if action.error
-                    else view.surface.pulse_standard_action
-                )
-                pulse(action.slot_id)
-            elif isinstance(action, ShowOutputMessage):
-                if not action.only_when_overflow_collapsed or not view.surface.overflow_expanded:
-                    view.surface.show_action_message(action.message, action.duration_ms)
-                if action.warning:
-                    view.dialog.flash("warning")
-
-    def _schedule_outside_focus_check(
-        self,
-        workflow_id: str,
-        scheduled_view: _SessionView,
-        action: ScheduleOutsideFocusCheck,
-    ) -> None:
-        def check() -> None:
-            view = self._views.get(workflow_id)
-            if view is not scheduled_view:
-                return
-            try:
-                focused = view.dialog.root.focus_get()
-                focused_inside = focused is not None and focused.winfo_toplevel() is view.dialog.root
-            except tk.TclError:
-                focused_inside = False
-            self._apply_transition_actions(
-                workflow_id,
-                view,
-                view.external_output.focus(OutsideFocusObserved(
-                    action.generation,
-                    pinned=view.dialog.pinned,
-                    focused_inside=focused_inside,
-                )),
-            )
-
-        self._root.after(action.delay_ms, check)
-
-    def _schedule_focus_confirmation_check(
-        self,
-        workflow_id: str,
-        scheduled_view: _SessionView,
-        action: ScheduleFocusConfirmationCheck,
-    ) -> None:
-        def check() -> None:
-            view = self._views.get(workflow_id)
-            if view is not scheduled_view or not view.dialog.is_alive():
-                return
-            native_foreground, toolkit_focused = self._focus_evidence(view)
-            if self._focus_transition_diagnostics:
-                _LOGGER.info(
-                    "focus confirmation workflow_id=%s generation=%s attempt=%s native_foreground=%s toolkit_focused=%s",
-                    workflow_id,
-                    action.generation,
-                    action.attempt,
-                    native_foreground,
-                    toolkit_focused,
-                )
-            was_focused = view.external_output.focused_inside
-            self._apply_transition_actions(
-                workflow_id,
-                view,
-                view.external_output.focus(FocusConfirmationObserved(
-                    action.generation,
-                    action.attempt,
-                    native_foreground=native_foreground,
-                    toolkit_focused=toolkit_focused,
-                )),
-            )
-            if not was_focused and view.external_output.focused_inside:
-                self._report_confirmed_focus(workflow_id)
-
-        scheduled_view.dialog.lifecycle.schedule(action.delay_ms, check)
+        self._popup_control(result.workflow_id, view).settle_output(result)
 
     def run(self, command_pump: Callable[[], None]) -> None:
         def tick() -> None:
@@ -468,6 +389,8 @@ class ResultDialogPresenter:
                 pass
             self._tick_job = None
         for view in list(self._views.values()):
+            if view.popup_control is not None:
+                view.popup_control.dispose()
             view.dialog.close()
         self._views.clear()
         if self._provider_settings_dialog is not None:
@@ -479,6 +402,9 @@ class ResultDialogPresenter:
         if self._shortcut_guide_dialog is not None:
             self._shortcut_guide_dialog.destroy()
             self._shortcut_guide_dialog = None
+        if self._entry_panel_dialog is not None:
+            self._entry_panel_dialog.close()
+            self._entry_panel_dialog = None
         try:
             self._root.quit()
         except tk.TclError:
@@ -498,12 +424,7 @@ class ResultDialogPresenter:
             if not view.dialog.is_alive():
                 self._close_dead_view(workflow_id, view)
                 continue
-            if view.external_output.focused_inside and not view.dialog.native_owns_foreground():
-                self._apply_transition_actions(
-                    workflow_id,
-                    view,
-                    view.external_output.focus(ForegroundLeftApplication(pinned=view.dialog.pinned)),
-                )
+            self._popup_control(workflow_id, view).observe_focus(PopupForegroundPolled())
         point = self._pointer_press_reader.poll() if self._pointer_press_reader is not None else None
         if point is not None:
             self._handle_pointer_press(*point)
@@ -534,19 +455,12 @@ class ResultDialogPresenter:
                 False,
             ))
             return
-        self._apply_transition_actions(
-            attention.workflow_id,
-            view,
-            view.external_output.attention(
-                attention.attention_id,
-                attention.message,
-                duration_ms=attention.duration_ms,
-                request_focus=attention.request_focus,
-                warning=attention.warning,
-            ),
-        )
+        self._popup_control(attention.workflow_id, view).present_attention(attention)
 
     def _handle_pointer_press(self, x: int, y: int) -> None:
+        entry_panel = getattr(self, "_entry_panel_dialog", None)
+        if entry_panel is not None and not entry_panel.contains_screen_point(x, y):
+            entry_panel.request_close()
         for workflow_id, view in tuple(self._views.items()):
             if not view.dialog.is_alive():
                 self._close_dead_view(workflow_id, view)
@@ -555,11 +469,7 @@ class ResultDialogPresenter:
                 continue
             if view.dialog.contains_screen_point(x, y):
                 continue
-            self._apply_transition_actions(
-                workflow_id,
-                view,
-                view.external_output.focus(OutsidePointerPressed(pinned=view.dialog.pinned)),
-            )
+            self._popup_control(workflow_id, view).observe_focus(PopupOutsidePointerPressed())
 
     def _apply_paste_target(self, target: PasteTarget | None) -> None:
         current = self._paste_target
@@ -567,12 +477,8 @@ class ResultDialogPresenter:
             if target.observation_sequence <= current.observation_sequence:
                 return
         self._paste_target = target
-        for view in self._views.values():
-            view.surface.set_paste_focus_state(
-                view.external_output.focused_inside,
-                target,
-                voice_draft_editing=_voice_draft_editing(view),
-            )
+        for workflow_id, view in self._views.items():
+            self._project_popup_context(workflow_id, view)
 
     def _apply(self, snapshot: SessionSnapshot) -> None:
         view = self._views.get(snapshot.session_id)
@@ -608,15 +514,7 @@ class ResultDialogPresenter:
             view.surface.set_title(snapshot.title)
             view.surface.set_source_preview(snapshot.source_preview)
             view.surface.set_model(snapshot.model)
-            view.surface.set_paste_focus_state(
-                view.external_output.focused_inside,
-                self._paste_target,
-                voice_draft_editing=(
-                    view.voice_draft_editing
-                    if snapshot.status is SessionStatus.VOICE_REVIEW
-                    else None
-                ),
-            )
+            self._project_popup_context(snapshot.session_id, view)
             view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
         guidance_key = view.step_id or ""
         if snapshot.status == SessionStatus.COMPLETED and snapshot.show_guidance_hint and guidance_key not in view.shown_guidance_keys:
@@ -768,6 +666,8 @@ class ResultDialogPresenter:
 
     def _evict_view(self, session_id: str, view: _SessionView) -> None:
         if self._views.get(session_id) is view:
+            if view.popup_control is not None:
+                view.popup_control.dispose()
             self._views.pop(session_id, None)
 
     def _close_dead_view(self, session_id: str, view: _SessionView) -> None:
@@ -789,6 +689,31 @@ class ResultDialogPresenter:
             return None
         return view
 
+    def _popup_control(self, workflow_id: str, view: _SessionView) -> PopupControl:
+        control = view.popup_control
+        if control is None:
+            control = PopupControl(
+                workflow_id,
+                view.dialog,
+                view.surface,
+                command_sink=lambda command: self._command_sink(command),
+                request_close=lambda: self._request_close(workflow_id),
+                projection_context=PopupProjectionContext(
+                    self._paste_target,
+                    _voice_draft_editing(view),
+                ),
+                diagnostics=self._focus_transition_diagnostics,
+            )
+            view.popup_control = control
+        return control
+
+    def _project_popup_context(self, workflow_id: str, view: _SessionView) -> None:
+        context = PopupProjectionContext(
+            self._paste_target,
+            _voice_draft_editing(view),
+        )
+        self._popup_control(workflow_id, view).update_projection_context(context)
+
     def _send_text_command(self, session_id: str, command_type) -> None:
         view = self._interactive_view(session_id)
         if view is not None:
@@ -798,8 +723,9 @@ class ResultDialogPresenter:
         view = self._interactive_view(session_id)
         if view is None:
             return
-        operation_id = uuid.uuid4().hex
-        view.external_output.begin("copy", operation_id)
+        operation_id = self._popup_control(session_id, view).begin_output("copy")
+        if operation_id is None:
+            return
         text = view.surface.selected_text()
         self._command_sink(CopyResult(session_id, text, operation_id))
 
@@ -810,33 +736,33 @@ class ResultDialogPresenter:
         text = view.surface.selected_text()
         operation_id = uuid.uuid4().hex
         if not view.speaking:
-            view.external_output.begin("speech", operation_id)
+            operation_id = self._popup_control(session_id, view).begin_output("speech")
+            if operation_id is None:
+                return
         self._command_sink(ToggleSpeech(session_id, text, operation_id))
 
     def _archive(self, session_id: str) -> None:
         view = self._interactive_view(session_id)
         if view is None:
             return
-        operation_id = uuid.uuid4().hex
-        view.external_output.begin("archive", operation_id)
+        operation_id = self._popup_control(session_id, view).begin_output("archive")
+        if operation_id is None:
+            return
         self._command_sink(ArchiveResult(session_id, view.surface.selected_text(), operation_id))
 
     def _paste(self, session_id: str) -> None:
         view = self._interactive_view(session_id)
         if view is None:
             return
-        operation_id = uuid.uuid4().hex
         text = view.surface.selected_text()
         if view.last_snapshot is not None and view.last_snapshot.status is SessionStatus.VOICE_REVIEW:
             text = text if text is not None else view.surface.semantic_content()
-        transition = view.external_output.begin(
+        operation_id = self._popup_control(session_id, view).begin_output(
             "paste",
-            operation_id,
             pinned=view.dialog.pinned,
         )
-        if not transition.accepted:
+        if operation_id is None:
             return
-        self._apply_transition_actions(session_id, view, transition.actions)
         self._command_sink(PasteResult(session_id, text, operation_id))
 
     def _toggle_pin(self, session_id: str) -> None:
@@ -968,30 +894,28 @@ class ResultDialogPresenter:
         ):
             capture_id = global_projection.capture_id
             phase = global_projection.capture_phase
-            level = global_projection.audio_level
             silence_detected = global_projection.silence_detected
 
         if capture_id is not None and phase is not None:
-            view.voice_level_history.append(level)
-            del view.voice_level_history[:-4]
             finalizing = phase in {
                 VoiceCapturePhase.STOP_REQUESTED,
                 VoiceCapturePhase.FINALIZING,
                 VoiceCapturePhase.CANCEL_REQUESTED,
             }
             view.surface.configure_voice_action(
-                text=(
-                    "▇▅▃▁  整理"
-                    if finalizing
-                    else _voice_waveform_text(
-                        view.voice_level_history,
-                        silence_detected=silence_detected,
-                    )
+                word=_voice_status_word(
+                    phase,
+                    silence_detected=silence_detected,
                 ),
+                level=level,
+                listening=not finalizing,
+                silence=silence_detected,
                 command=(lambda cid=capture_id: self._command_sink(StopVoiceCapture(cid))) if not finalizing else None,
                 enabled=not finalizing,
                 tooltip=(
-                    "No sound detected; click to stop Voice Input"
+                    "Finalizing Voice Input"
+                    if finalizing
+                    else "No sound detected; click to stop Voice Input"
                     if silence_detected
                     else "Click to stop Voice Input"
                 ),
@@ -1000,7 +924,6 @@ class ResultDialogPresenter:
             view.surface.set_follow_up_send_enabled(False)
             return
 
-        view.voice_level_history.clear()
         projection = global_projection
         capability = projection.capability if projection is not None else VoiceCapabilityPhase.SETUP_REQUIRED
         ready_status = snapshot.status in {SessionStatus.VOICE_REVIEW, SessionStatus.CONTEXT_QUESTION} or (
@@ -1021,7 +944,10 @@ class ResultDialogPresenter:
         else:
             tooltip = "Click to start Voice Input (Ctrl+Alt+W); audio is not saved"
         view.surface.configure_voice_action(
-            text="▁▁▁▁  語音",
+            word=_voice_status_word(None, silence_detected=False),
+            level=snapshot.voice_audio_level,
+            listening=False,
+            silence=False,
             command=(lambda sid=snapshot.session_id: self._start_popup_voice(sid)) if enabled else None,
             enabled=enabled,
             tooltip=tooltip,
@@ -1047,7 +973,8 @@ class ResultDialogPresenter:
         *,
         focus_on_show: bool = True,
     ) -> None:
-        view.external_output.focus(PopupRegistered())
+        control = self._popup_control(session_id, view)
+        control.observe_focus(PopupControlRegistered())
         dialog = view.dialog
         toggle_voice_draft_mode = lambda event, sid=session_id: self._popup_shortcut(
             event,
@@ -1078,30 +1005,23 @@ class ResultDialogPresenter:
         view.surface.bind_voice_draft_paste(
             lambda event, sid=session_id: self._paste_shortcut(event, sid)
         )
-        view.external_output.focus(PopupShown())
+        control.observe_focus(PopupControlShown())
         if focus_on_show:
             self._schedule_initial_focus(session_id, view)
 
     def _schedule_initial_focus(self, session_id: str, view: _SessionView) -> None:
         def establish_initial_focus() -> None:
-            if self._views.get(session_id) is not view or view.external_output.focused_inside:
+            control = self._popup_control(session_id, view)
+            if self._views.get(session_id) is not view or control.focused_inside:
                 return
             view.surface.focus_content()
-            native_foreground, toolkit_focused = self._focus_evidence(view)
-            self._apply_transition_actions(
-                session_id,
-                view,
-                view.external_output.focus(FocusEntered(
-                    native_foreground=native_foreground,
-                    toolkit_focused=toolkit_focused,
-                )),
-            )
+            control.observe_focus(ToolkitFocusEntered())
 
         view.dialog.lifecycle.schedule(0, establish_initial_focus)
 
     def _shortcut(self, action: Callable[[str], None], session_id: str) -> str:
         view = self._views.get(session_id)
-        if view is not None and view.external_output.focused_inside:
+        if view is not None and self._popup_control(session_id, view).focused_inside:
             action(session_id)
         return "break"
 
@@ -1126,11 +1046,7 @@ class ResultDialogPresenter:
             return
         view.voice_draft_editing = not view.voice_draft_editing
         view.surface.set_voice_draft_editing(view.voice_draft_editing)
-        view.surface.set_paste_focus_state(
-            view.external_output.focused_inside,
-            self._paste_target,
-            voice_draft_editing=view.voice_draft_editing,
-        )
+        self._project_popup_context(session_id, view)
 
     def _navigate_back(self, session_id: str) -> None:
         self._command_sink(NavigateWorkflowBack(session_id))
@@ -1143,55 +1059,19 @@ class ResultDialogPresenter:
         view = self._views.get(session_id)
         if view is None:
             return
-        native_foreground, toolkit_focused = self._focus_evidence(view)
-        self._apply_transition_actions(
-            session_id,
-            view,
-            view.external_output.focus(FocusEntered(
-                native_foreground=native_foreground,
-                toolkit_focused=toolkit_focused,
-            )),
-        )
-        if not (native_foreground and toolkit_focused):
-            return
-        self._report_confirmed_focus(session_id)
+        self._popup_control(session_id, view).observe_focus(ToolkitFocusEntered())
 
     def _pointer_pressed_inside(self, session_id: str) -> None:
         view = self._views.get(session_id)
         if view is None:
             return
-        self._apply_transition_actions(
-            session_id,
-            view,
-            view.external_output.focus(InsidePointerPressed()),
-        )
-        self._activate(session_id)
-
-    def _report_confirmed_focus(self, session_id: str) -> None:
-        self._command_sink(ControlSurfaceActivated(ControlSurfaceRef(session_id, "workflow")))
-        self._activate(session_id)
-
-    @staticmethod
-    def _focus_evidence(view: _SessionView) -> tuple[bool, bool]:
-        try:
-            focused = view.dialog.root.focus_get()
-            toolkit_focused = focused is not None and focused.winfo_toplevel() is view.dialog.root
-        except (AttributeError, tk.TclError):
-            toolkit_focused = False
-        return view.dialog.native_owns_foreground(), toolkit_focused
-
-    def _activate(self, session_id: str) -> None:
-        self._command_sink(ActivateWorkflow(session_id))
+        self._popup_control(session_id, view).observe_focus(PopupInsidePointerPressed())
 
     def _close_if_outside(self, session_id: str) -> None:
         view = self._views.get(session_id)
         if view is None:
             return
-        self._apply_transition_actions(
-            session_id,
-            view,
-            view.external_output.focus(OutsideFocusCheckRequested()),
-        )
+        self._popup_control(session_id, view).observe_focus(PopupOutsideFocusRequested())
 
 
 def _voice_draft_editing(view: _SessionView) -> bool | None:

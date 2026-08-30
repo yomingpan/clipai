@@ -8,6 +8,8 @@ from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
 ShortcutPressId = NewType("ShortcutPressId", int)
+ModifierHoldId = NewType("ModifierHoldId", int)
+EntryPanelSelectionId = NewType("EntryPanelSelectionId", str)
 ShortcutPressOutcome = Literal["released", "cancelled"]
 InterruptionScope = Literal["current", "all"]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
@@ -44,7 +46,19 @@ OutputOperationState = Literal[
 PasteDeliveryState = Literal["not_dispatched", "dispatched_unconfirmed"]
 PasteCleanupState = Literal["not_required", "restored", "external_change", "failed"]
 PasteCompletionState = Literal["failed", "cancelled", "dispatched_unconfirmed", "cleanup_failed"]
+ExternalWindowActivationState = Literal[
+    "activated",
+    "modifiers_held",
+    "target_gone",
+    "target_refused_focus",
+    "target_focus_timeout",
+    "target_changed",
+]
 ResultCompleteness = Literal["none", "partial", "complete"]
+ActionStartAdmissionState = Literal["accepted", "rejected", "blocked"]
+ActionAdmissionOrigin = Literal["shortcut", "entry_panel"]
+EntryPanelPage = Literal["root", "scene", "more"]
+EntryPanelDensity = Literal["detailed", "compact"]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
 ControlSurfaceKind = Literal["workflow", "provider_settings", "shortcut_guide", "personal_styles"]
@@ -63,6 +77,53 @@ InterruptibleOperationKind = Literal[
 class ShortcutPressRef:
     press_id: ShortcutPressId
     shortcut_id: str
+
+
+@dataclass(frozen=True)
+class EntryActionRef:
+    action_id: str
+    press_type: PressType
+
+
+@dataclass(frozen=True)
+class ActionStartAdmission:
+    state: ActionStartAdmissionState
+    reason: str = ""
+    message: str = ""
+
+    @property
+    def accepted(self) -> bool:
+        return self.state == "accepted"
+
+
+@dataclass(frozen=True)
+class EntryPanelOption:
+    slot: int | None
+    label: str
+    description: str = ""
+    action: EntryActionRef | None = None
+    category_id: str = ""
+    enabled: bool = True
+    disabled_reason: str = ""
+
+
+@dataclass(frozen=True)
+class EntryPanelSnapshot:
+    panel_id: str
+    page: EntryPanelPage
+    category_id: str = ""
+    density: EntryPanelDensity = "detailed"
+    options: tuple[EntryPanelOption, ...] = ()
+    search_text: str = ""
+    status: Literal["idle", "preparing", "error"] = "idle"
+    message: str = ""
+    selection_id: EntryPanelSelectionId | None = None
+
+
+@dataclass(frozen=True)
+class EntryPanelDecision:
+    snapshot: EntryPanelSnapshot
+    action: EntryActionRef | None = None
 
 
 @dataclass(frozen=True)
@@ -471,6 +532,7 @@ class UserPreferences:
     speech_speed: SpeechSpeed | None = None
     voice_input_enabled: bool = False
     voice_language: VoiceLanguagePreference = "zh-TW"
+    entry_panel_density: EntryPanelDensity = "detailed"
 
 
 @dataclass(frozen=True)
@@ -505,6 +567,32 @@ class SelectionCaptureOutcome:
 
 
 @dataclass(frozen=True)
+class ExternalWindowRef:
+    """Opaque identity snapshot for one non-ClipAI top-level window."""
+
+    window_token: str
+    process_id: int
+    observation_sequence: int
+
+
+@dataclass(frozen=True)
+class EntryPanelSource:
+    kind: Literal["workflow", "external", "unavailable"]
+    workflow_id: str = ""
+    external_window: ExternalWindowRef | None = None
+
+
+@dataclass(frozen=True)
+class ExternalWindowActivationOutcome:
+    state: ExternalWindowActivationState
+    message: str = ""
+
+    @property
+    def activated(self) -> bool:
+        return self.state == "activated"
+
+
+@dataclass(frozen=True)
 class PasteTarget:
     """Opaque snapshot of a non-ClipAI window that can receive paste output."""
 
@@ -513,6 +601,14 @@ class PasteTarget:
     application_name: str
     window_title: str
     observation_sequence: int
+
+    @property
+    def external_ref(self) -> ExternalWindowRef:
+        return ExternalWindowRef(
+            self.window_token,
+            self.process_id,
+            self.observation_sequence,
+        )
 
 
 @dataclass(frozen=True)

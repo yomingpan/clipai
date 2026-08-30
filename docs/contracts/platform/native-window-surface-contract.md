@@ -14,3 +14,18 @@ toolkit-owned window's native OS state.
 - No adapter method raises when the OS fact is unavailable.
 - Native pointer presses use the separately injected `PointerPressReader` and
   do not make UI a native API owner.
+
+## External target activation
+
+Application-owned top-level operations remain on `NativeWindowSurface`. An
+external source window is represented separately by an opaque immutable
+`ExternalWindowRef` captured by the foreground monitor. A platform
+`ExternalWindowActivator` validates process/window identity, requests foreground
+activation, waits for bounded foreground evidence and revalidates before
+reporting success.
+
+The activator does not read selection, clipboard or Panel state and does not
+inject Paste. Runtime captures the reference at Panel open and supplies it at
+explicit Action selection. Activation failure is typed and fail-closed: callers
+must not switch to whichever window is currently foreground. Native window token
+parsing, Win32 calls and polling remain in `platform/`.

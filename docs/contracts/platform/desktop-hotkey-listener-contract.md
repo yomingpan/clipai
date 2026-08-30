@@ -77,11 +77,13 @@ terminal lifecycle facts are never suppressed by observation state.
 ## Recovery and shutdown
 
 Before matching a normalized non-injected key-down, the module reconciles
-known pressed tokens with physical Windows state. Tokens explicitly reported
-released are stale; unknown state is preserved. Each affected active Shortcut
-Press emits one `ShortcutPressEnded(..., "cancelled")`. The revealing key may
-then participate in a fresh match, but stale recovery alone does not produce a
-rejected-attempt event.
+owned pressed tokens with physical Windows state. Owned tokens are registered
+binding tokens, modifiers, Escape and Panel digits; ordinary unbound global
+typing is never retained as shortcut state. Tokens explicitly reported released
+are stale; unknown state is preserved only for owned tokens. Each affected
+active Shortcut Press emits one `ShortcutPressEnded(..., "cancelled")`. The
+revealing key may then participate in a fresh match, but stale recovery alone
+does not produce a rejected-attempt event.
 
 `stop()` is idempotent and completely silent. It cancels timers, clears state
 and observers, stops the OS listener, and prevents keyboard or timer callbacks
@@ -110,3 +112,22 @@ These cover normalization, short/long ordering, modifier-first release, unique
 identities under held modifiers, overlapping speech composition, stale
 cancellation, timer races, observation leases, Escape separation, shutdown,
 and the guide-close regression.
+
+## Unified Entry Panel modifier hold
+
+The listener owns one generic exact-modifier hold candidate for `Ctrl+Alt`.
+Both modifiers down starts an identity-scoped 1.5 second deadline. Releasing either
+modifier or pressing a non-modifier before the deadline cancels only that
+candidate; an ordinary registered direct shortcut continues through its existing
+Shortcut Press lifecycle.
+
+At the deadline the listener must recheck the same hold identity and physical
+modifier state before emitting `OpenUnifiedEntryPanel`. Once opened while the
+modifiers remain held, top-row and numpad digits are claimed for typed Panel
+digit commands and must not also create ordinary direct Shortcut Presses. The
+claim ends when the modifier context ends.
+
+Repeated exact holds while a Panel is already open emit an open/raise intent;
+runtime decides whether to reuse the current lifecycle. Stale timers, injected
+events, shutdown and recovered pressed-state cannot emit a late open or digit.
+The listener never knows Panel category or Action IDs.

@@ -182,7 +182,7 @@ class _DeferredAttention:
     warning: bool
 
 
-class PopupExternalOutputTransitions:
+class _PopupControlState:
     """Own popup output identities, visibility policy, and focus generations."""
 
     def __init__(self) -> None:

@@ -5,6 +5,7 @@ from typing import cast
 import queue
 
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeCommand, ResultOutputRuntimeModule
+from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeCommand, EntryPanelRuntimeModule
 from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRuntimeModule, ProviderRuntimeCommand
 from ClipAI.app.runtime_personal_styles import PersonalStyleRuntimeCommand, PersonalStyleRuntimeModule
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeCommand, ShortcutGuideRuntimeModule
@@ -14,7 +15,8 @@ from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvoc
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.app.provider_execution import ProviderExecutionModule
-from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, ClosePersonalStyles, CloseProviderSettings, CloseSession, CloseShortcutGuide, ContextualSourceCaptured, ContextualSourceCaptureFailed, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, DisableVoiceInput, EnableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, ImportPersonalStyle, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenContextualQuestion, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, PasteOperationCompleted, PasteResult, PersonalStyleOperationCompleted, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, RetryVoiceInputSetup, SelectPersonalStyle, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, ValidateAndSaveProviderSettings, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired, WorkflowAttentionCompleted
+from ClipAI.core.commands import ActionFeedbackCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, CloseAbout, CloseEntryPanel, ClosePersonalStyles, CloseProviderSettings, CloseSession, CloseShortcutGuide, ContextualSourceCaptured, ContextualSourceCaptureFailed, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, DisableVoiceInput, EnableVoiceInput, EntryPanelActionSelected, EntryPanelDensityPreferencesCompleted, EntryPanelDigitPressed, EntryPanelEscape, EntryPanelInputPrepared, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, ImportPersonalStyle, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenAbout, OpenContextualQuestion, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenUnifiedEntryPanel, OpenVoicePermissionSettings, OpenVoiceSetup, PasteOperationCompleted, PasteResult, PersonalStyleOperationCompleted, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, RetryVoiceInputSetup, SelectPersonalStyle, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetEntryPanelDensity, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, ValidateAndSaveProviderSettings, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired, WorkflowAttentionCompleted, WorkflowStepAccepted
+from ClipAI.core.commands import OpenGitHub
 from ClipAI.core.models import ControlSurfaceRef, InterruptionPlan, ShortcutObservationSnapshot
 from ClipAI.core.ports import ApplicationView, ForegroundWindowMonitor, OperationTracker, RuntimeComponent, ShortcutInput, ShortcutObservationLease
 from ClipAI.services.provider_configuration import ProviderConfigurationResult
@@ -22,11 +24,11 @@ from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.user_control import UserControlCoordinator
 
 
-_WORKFLOW_COMMANDS = (StartAction, OpenContextualQuestion, SubmitContextualQuestion, ContextualSourceCaptured, ContextualSourceCaptureFailed, CloseSession, CancelSession, TogglePin, FollowUp, ActivateWorkflow, NavigateWorkflowBack, WorkflowInvocationFailed, HeadlessWorkflowFinished, WorkflowSnapshotReady, WorkflowAttentionCompleted)
+_WORKFLOW_COMMANDS = (StartAction, OpenContextualQuestion, SubmitContextualQuestion, ContextualSourceCaptured, ContextualSourceCaptureFailed, CloseSession, CancelSession, TogglePin, FollowUp, ActivateWorkflow, NavigateWorkflowBack, WorkflowInvocationFailed, HeadlessWorkflowFinished, WorkflowSnapshotReady, WorkflowAttentionCompleted, WorkflowStepAccepted)
 _OUTPUT_COMMANDS = (CopyResult, PasteResult, ArchiveResult, ToggleSpeech, SpeakSelectionOrClipboard, ExportDiagnostics)
 _PROVIDER_COMMANDS = (SelectProviderModel, SelectProvider, ReloadConfiguration, OpenProviderSettings, CloseProviderSettings, ValidateAndSaveProviderSettings, RefreshProviderModels, ProviderConfigurationResult)
 _ACTION_FEEDBACK_COMMANDS = (SubmitActionFeedback, ActionFeedbackCompleted)
-_USER_PREFERENCES_COMMANDS = (SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted, SetSpeechSpeed, SpeechSpeedPreferencesCompleted)
+_USER_PREFERENCES_COMMANDS = (SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted, SetSpeechSpeed, SpeechSpeedPreferencesCompleted, SetEntryPanelDensity, EntryPanelDensityPreferencesCompleted)
 _SHORTCUT_GUIDE_COMMANDS = (OpenShortcutGuide, CloseShortcutGuide, SelectShortcutGuideItem)
 _PERSONAL_STYLE_COMMANDS = (OpenPersonalStyles, ClosePersonalStyles, ImportPersonalStyle, SelectPersonalStyle, PersonalStyleOperationCompleted)
 _SHORTCUT_INPUT_EVENTS = (
@@ -37,6 +39,7 @@ _SHORTCUT_INPUT_EVENTS = (
     ShortcutAttemptRejected,
 )
 _VOICE_COMMANDS = (OpenVoiceSetup, OpenVoicePermissionSettings, EnableVoiceInput, RetryVoiceInputSetup, DisableVoiceInput, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved, StartPopupVoiceCapture, StopVoiceCapture, CancelVoiceCapture, VoiceCaptureWatchdogExpired, VoiceSilenceWatchdogExpired, SetVoiceLanguage, VoiceLanguagePreferenceSaved, UpdateVoiceDraft)
+_ENTRY_PANEL_COMMANDS = (OpenUnifiedEntryPanel, EntryPanelDigitPressed, EntryPanelInputPrepared, CloseEntryPanel, EntryPanelActionSelected, EntryPanelSlotSelected, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelToggleDensity, EntryPanelEscape)
 
 
 class AppRuntime:
@@ -68,6 +71,7 @@ class AppRuntime:
         user_control: UserControlCoordinator | None = None,
         voice_input: VoiceInputRuntimeModule | None = None,
         personal_styles: PersonalStyleRuntimeModule | None = None,
+        entry_panel: EntryPanelRuntimeModule | None = None,
     ) -> None:
         self._shortcuts = shortcuts
         self._view = view
@@ -86,6 +90,7 @@ class AppRuntime:
         self._user_control = user_control or UserControlCoordinator()
         self._voice_input_module = voice_input
         self._personal_styles_module = personal_styles
+        self._entry_panel_module = entry_panel
         self._workflow_module.bind_user_control(self._user_control)
         self._result_output_module.bind_user_control(self._user_control)
         self._provider_configuration_module.bind_user_control(self._user_control)
@@ -153,6 +158,8 @@ class AppRuntime:
         if self._foreground_monitor is not None:
             self._foreground_monitor.stop()
         self._workflow_module.stop()
+        if self._entry_panel_module is not None:
+            self._entry_panel_module.stop()
         if self._voice_input_module is not None:
             self._voice_input_module.stop()
         self._result_output_module.stop()
@@ -174,6 +181,12 @@ class AppRuntime:
 
     def _route(self, command: object) -> None:
         if isinstance(command, InterruptionRequested):
+            if (
+                command.scope == "current"
+                and self._entry_panel_module is not None
+                and self._entry_panel_module.request_escape()
+            ):
+                return
             self._route(InterruptCurrent() if command.scope == "current" else InterruptAll())
         elif isinstance(command, _SHORTCUT_INPUT_EVENTS):
             if isinstance(command, (ShortcutPressStarted, ShortcutPressInvoked, ShortcutPressEnded)) and self._shortcuts.is_push_to_talk(command.shortcut_id):
@@ -192,6 +205,15 @@ class AppRuntime:
                 self._workflow_module.reject_shortcut_attempt()
         elif isinstance(command, ExternalForegroundChanged):
             self._result_output_module.observe_paste_target(command.target)
+        elif isinstance(command, _ENTRY_PANEL_COMMANDS):
+            if (
+                isinstance(command, OpenUnifiedEntryPanel)
+                and self._voice_input_module is not None
+                and not self._voice_input_module.admit_entry_panel_open()
+            ):
+                return
+            if self._entry_panel_module is not None:
+                self._entry_panel_module.handle(cast(EntryPanelRuntimeCommand, command))
         elif isinstance(command, ShutdownApplication):
             self.stop()
         elif isinstance(command, ControlSurfaceActivated):
@@ -231,6 +253,12 @@ class AppRuntime:
                     self._shortcut_observation = self._listener.observe()
                     observation = self._shortcut_observation.snapshot
                 self._shortcut_guide_module.handle(command, observation)
+        elif isinstance(command, OpenAbout):
+            self._view.show_about()
+        elif isinstance(command, CloseAbout):
+            self._view.close_about()
+        elif isinstance(command, OpenGitHub):
+            self._view.open_github(command.url)
         elif isinstance(command, CloseShortcutGuide):
             self._user_control.release(ControlSurfaceRef(command.guide_id, "shortcut_guide"))
             if self._shortcut_guide_module is not None:
@@ -268,6 +296,11 @@ class AppRuntime:
                 self._user_control.release(ControlSurfaceRef(command.workflow_id, "workflow"))
         elif isinstance(command, _WORKFLOW_COMMANDS):
             self._workflow_module.handle(cast(WorkflowRuntimeCommand, command))
+            if (
+                isinstance(command, WorkflowSnapshotReady)
+                and self._entry_panel_module is not None
+            ):
+                self._entry_panel_module.refresh_availability()
         elif isinstance(command, _OUTPUT_COMMANDS):
             self._result_output_module.handle(cast(ResultOutputRuntimeCommand, command))
         elif isinstance(command, _PROVIDER_COMMANDS):
