@@ -16,7 +16,14 @@ from ClipAI.core.commands import (
 )
 from ClipAI.core.models import EntryPanelOption, EntryPanelSnapshot
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
-from ClipAI.ui.base_dialog import POPUP_FONT_SIZES, TC_FONT_FAMILY, _Tooltip
+from ClipAI.ui.base_dialog import (
+    CONTENT_COLOR,
+    MODEL_COLOR,
+    POPUP_FONT_SIZES,
+    SURFACE_BG,
+    TC_FONT_FAMILY,
+    _Tooltip,
+)
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 
@@ -89,13 +96,17 @@ class UnifiedEntryPanelDialog:
         self._snapshot: EntryPanelSnapshot | None = None
         self._search_guard = False
         self._option_buttons: list[ctk.CTkButton] = []
+        self._placed_panel_id: str | None = None
 
         self._window = ctk.CTkToplevel(master)
         self._window.withdraw()
         self._window.title("ClipAI")
         self._window.overrideredirect(True)
         self._window.attributes("-topmost", True)
-        self._window.configure(fg_color=("#F4F6F8", "#17191C"))
+        # Keep the non-client pixels behind the rounded shell in the same
+        # neutral gray as a result Popup.  A contrasting Toplevel background
+        # is visible as dark corner artefacts on some Windows compositions.
+        self._window.configure(fg_color=SURFACE_BG)
         self._window.bind("<Escape>", self._on_escape)
         self._window.bind("<KeyPress>", self._on_key)
         self._window.bind("<FocusOut>", self._on_focus_out, add="+")
@@ -113,13 +124,14 @@ class UnifiedEntryPanelDialog:
 
         self._shell = ctk.CTkFrame(
             self._window,
-            corner_radius=14,
+            corner_radius=18,
             border_width=1,
-            border_color=("#CED4DA", "#3B3F45"),
-            fg_color=("#FFFFFF", "#202327"),
+            border_color="#454545",
+            fg_color=SURFACE_BG,
         )
-        self._shell.pack(fill="both", expand=True, padx=1, pady=1)
+        self._shell.pack(fill="both", expand=True)
         self._shell.grid_columnconfigure(0, weight=1)
+        self._shell.grid_rowconfigure(1, weight=1)
 
         header = ctk.CTkFrame(self._shell, fg_color="transparent")
         header.grid(row=0, column=0, padx=16, pady=(14, 8), sticky="ew")
@@ -146,25 +158,39 @@ class UnifiedEntryPanelDialog:
             "顯示詳細說明，點擊切換精簡模式",
             self._lifecycle,
         )
-        self._escape_hint = ctk.CTkLabel(
+        self._escape_button = ctk.CTkButton(
             header,
             text="Esc 關閉",
-            text_color=("#6C757D", "#A6ABB2"),
+            width=74,
+            height=28,
+            corner_radius=7,
+            border_width=1,
+            border_color="#4A4A4A",
+            fg_color="transparent",
+            hover_color="#3A3A3A",
+            text_color=CONTENT_COLOR,
             font=ctk.CTkFont(
                 family=TC_FONT_FAMILY,
                 size=POPUP_FONT_SIZES["auxiliary"],
             ),
+            command=self._intent.escape,
         )
-        self._escape_hint.grid(row=0, column=2, sticky="e")
+        self._escape_button.grid(row=0, column=2, sticky="e")
 
-        self._body = ctk.CTkFrame(self._shell, fg_color="transparent")
+        self._body = ctk.CTkScrollableFrame(
+            self._shell,
+            corner_radius=0,
+            fg_color="transparent",
+            scrollbar_button_color="#454545",
+            scrollbar_button_hover_color="#5A5A5A",
+        )
         self._body.grid(row=1, column=0, padx=14, pady=(0, 14), sticky="nsew")
         self._body.grid_columnconfigure(0, weight=1)
 
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
         self._snapshot = snapshot
         self._intent.apply(snapshot)
-        self._escape_hint.configure(
+        self._escape_button.configure(
             text="Esc 關閉" if snapshot.page == "root" else "Esc 返回"
         )
         if snapshot.density == "compact":
@@ -178,10 +204,12 @@ class UnifiedEntryPanelDialog:
 
     def show(self, snapshot: EntryPanelSnapshot) -> None:
         self.apply(snapshot)
-        bounds = PopupLayoutPolicy().calculate(self._display_metrics.current())
-        self._window.geometry(
-            f"{max(420, bounds.width)}x{bounds.height}+{bounds.x}+{bounds.y}"
-        )
+        if self._placed_panel_id != snapshot.panel_id:
+            bounds = PopupLayoutPolicy().calculate(self._display_metrics.current())
+            self._window.geometry(
+                f"{max(420, bounds.width)}x{bounds.height}+{bounds.x}+{bounds.y}"
+            )
+            self._placed_panel_id = snapshot.panel_id
         self._window.update_idletasks()
         self._native_window_surface.hide_from_task_switcher(int(self._window.winfo_id()))
         self._window.deiconify()
@@ -211,28 +239,47 @@ class UnifiedEntryPanelDialog:
             self._search_guard = False
             row += 1
 
-        for option in snapshot.options:
-            text = self._option_text(option, snapshot)
-            button = ctk.CTkButton(
-                self._body,
-                text=text,
-                anchor="w",
-                height=40 if snapshot.density == "compact" else 52,
-                corner_radius=9,
-                border_width=1,
-                border_color=("#D7DCE1", "#41464D"),
-                fg_color=("#F8F9FA", "#292D32"),
-                hover_color=("#E9F2FA", "#263B4D"),
-                text_color=("#202428", "#F1F3F5"),
-                font=ctk.CTkFont(
-                    family=TC_FONT_FAMILY,
-                    size=POPUP_FONT_SIZES["interface"],
-                ),
-                command=lambda selected=option: self._intent.select(selected),
-                state="normal" if option.enabled else "disabled",
+        options = snapshot.options
+        if snapshot.page == "root":
+            recent, options = self._split_root_options(options)
+            if recent:
+                ctk.CTkLabel(
+                    self._body,
+                    text="最近使用",
+                    anchor="w",
+                    text_color=CONTENT_COLOR,
+                    font=ctk.CTkFont(
+                        family=TC_FONT_FAMILY,
+                        size=POPUP_FONT_SIZES["interface"],
+                        weight="bold",
+                    ),
+                ).grid(row=row, column=0, padx=2, pady=(0, 5), sticky="ew")
+                row += 1
+                recent_frame = ctk.CTkFrame(self._body, fg_color="transparent")
+                recent_frame.grid(row=row, column=0, sticky="ew")
+                for column in range(3):
+                    recent_frame.grid_columnconfigure(column, weight=1, uniform="recent")
+                for column, option in enumerate(recent):
+                    self._create_option_card(
+                        recent_frame,
+                        option,
+                        snapshot,
+                    ).grid(row=0, column=column, padx=3, sticky="nsew")
+                row += 1
+                ctk.CTkFrame(
+                    self._body,
+                    height=1,
+                    fg_color="#454545",
+                ).grid(row=row, column=0, pady=(12, 8), sticky="ew")
+                row += 1
+
+        for option in options:
+            self._create_option_card(self._body, option, snapshot).grid(
+                row=row,
+                column=0,
+                pady=3,
+                sticky="ew",
             )
-            button.grid(row=row, column=0, pady=3, sticky="ew")
-            self._option_buttons.append(button)
             row += 1
 
         if snapshot.page == "scene":
@@ -241,8 +288,8 @@ class UnifiedEntryPanelDialog:
                 text="＋ 更多功能",
                 height=34,
                 fg_color="transparent",
-                hover_color=("#ECEFF1", "#30343A"),
-                text_color=("#5D636A", "#B8BDC4"),
+                hover_color="#3A3A3A",
+                text_color=CONTENT_COLOR,
                 command=self._intent.open_more,
             ).grid(row=row, column=0, pady=(8, 0), sticky="ew")
             row += 1
@@ -254,12 +301,85 @@ class UnifiedEntryPanelDialog:
                 anchor="w",
                 justify="left",
                 wraplength=380,
-                text_color=("#9B2C2C", "#F6A9A9") if snapshot.status == "error" else ("#5D636A", "#B8BDC4"),
+                text_color="#F6A9A9" if snapshot.status == "error" else MODEL_COLOR,
                 font=ctk.CTkFont(
                     family=TC_FONT_FAMILY,
                     size=POPUP_FONT_SIZES["auxiliary"],
                 ),
             ).grid(row=row, column=0, padx=4, pady=(8, 0), sticky="ew")
+
+    @staticmethod
+    def _split_root_options(
+        options: tuple[EntryPanelOption, ...],
+    ) -> tuple[tuple[EntryPanelOption, ...], tuple[EntryPanelOption, ...]]:
+        recent = tuple(
+            option
+            for option in options
+            if option.action is not None and option.slot in {0, 1, 2}
+        )
+        return recent, tuple(option for option in options if option not in recent)
+
+    def _create_option_card(
+        self,
+        parent,
+        option: EntryPanelOption,
+        snapshot: EntryPanelSnapshot,
+    ) -> ctk.CTkFrame:
+        card = ctk.CTkFrame(
+            parent,
+            corner_radius=9,
+            border_width=1,
+            border_color="#454545",
+            fg_color="#252525",
+        )
+        card.grid_columnconfigure(0, weight=1)
+        if option.slot is None:
+            title = option.label
+        else:
+            slot = f"{option.slot:02d}" if snapshot.page == "scene" else str(option.slot)
+            title = f"{slot}  {option.label}"
+        button = ctk.CTkButton(
+            card,
+            text=title,
+            anchor="w",
+            height=32,
+            corner_radius=7,
+            fg_color="transparent",
+            hover_color="#3A3A3A",
+            text_color=CONTENT_COLOR,
+            font=ctk.CTkFont(
+                family=TC_FONT_FAMILY,
+                size=POPUP_FONT_SIZES["interface"],
+                weight="bold",
+            ),
+            command=lambda selected=option: self._intent.select(selected),
+            state="normal" if option.enabled else "disabled",
+        )
+        button.grid(row=0, column=0, padx=5, pady=(4, 0), sticky="ew")
+        self._option_buttons.append(button)
+
+        detail = option.disabled_reason or (
+            option.description if snapshot.density == "detailed" else ""
+        )
+        if detail:
+            detail_label = ctk.CTkLabel(
+                card,
+                text=detail,
+                anchor="w",
+                justify="left",
+                wraplength=360,
+                text_color="#F6A9A9" if option.disabled_reason else MODEL_COLOR,
+                font=ctk.CTkFont(
+                    family=TC_FONT_FAMILY,
+                    size=POPUP_FONT_SIZES["auxiliary"],
+                ),
+            )
+            detail_label.grid(row=1, column=0, padx=12, pady=(0, 6), sticky="ew")
+            detail_label.bind(
+                "<Button-1>",
+                lambda _event, selected=option: self._intent.select(selected),
+            )
+        return card
 
     @staticmethod
     def _option_text(option: EntryPanelOption, snapshot: EntryPanelSnapshot) -> str:
