@@ -208,12 +208,12 @@ class UnifiedEntryPanelDialog:
         self._escape_button.configure(
             text="Esc 關閉" if snapshot.page == "root" else "Esc 返回"
         )
-        if snapshot.density == "compact":
+        if snapshot.density == "detailed":
             self._density.select()
-            tooltip = "精簡模式，點擊顯示詳細說明"
+            tooltip = "詳細模式，點擊切換精簡模式"
         else:
             self._density.deselect()
-            tooltip = "顯示詳細說明，點擊切換精簡模式"
+            tooltip = "精簡模式，點擊顯示詳細說明"
         self._density_tooltip.set_text(tooltip)
         self._rebuild_body(snapshot)
 
@@ -298,7 +298,7 @@ class UnifiedEntryPanelDialog:
                 row += 1
                 divider = ctk.CTkFrame(
                     self._body,
-                    height=1,
+                    height=2,
                     corner_radius=0,
                     fg_color=_CARD_BORDER,
                 )
@@ -441,6 +441,9 @@ class UnifiedEntryPanelDialog:
             focused = False
             redraw_card()
 
+        detail = option.disabled_reason or (
+            option.description if snapshot.density == "detailed" else ""
+        )
         title_label = ctk.CTkLabel(
             card,
             text=title,
@@ -452,12 +455,15 @@ class UnifiedEntryPanelDialog:
                 weight="bold",
             ),
         )
-        title_label.grid(row=0, column=0, padx=12, pady=(7, 0), sticky="ew")
+        title_label.grid(
+            row=0,
+            column=0,
+            padx=12,
+            pady=(7, 0 if detail else 7),
+            sticky="ew",
+        )
         interactive_widgets = [card, title_label]
 
-        detail = option.disabled_reason or (
-            option.description if snapshot.density == "detailed" else ""
-        )
         if detail:
             detail_label = ctk.CTkLabel(
                 card,

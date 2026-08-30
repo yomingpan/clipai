@@ -59,6 +59,35 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         master.update_idletasks()
         assert card.cget("fg_color") == "#303030"
         assert card.cget("border_color") == ACTION_HOVER_COLOR
+
+        root_snapshot = EntryPanelSnapshot(
+            "panel-1",
+            "root",
+            density="detailed",
+            options=(
+                *(EntryPanelOption(
+                    slot,
+                    f"最近 {slot}",
+                    action=EntryActionRef("shorten_content", "short"),
+                ) for slot in range(3)),
+                *(EntryPanelOption(
+                    slot,
+                    f"情境 {slot}",
+                    category_id=f"category-{slot}",
+                ) for slot in range(3, 7)),
+            ),
+        )
+        dialog.show(root_snapshot)
+        master.update_idletasks()
+        divider = next(
+            child
+            for child in dialog._body.winfo_children()
+            if child.cget("corner_radius") == 0 and child.winfo_height() <= 3
+        )
+
+        assert dialog._density.get() == 1
+        assert divider.winfo_height() >= 2
+        assert all(card.winfo_height() >= 48 for card in dialog._option_buttons)
     finally:
         if dialog is not None:
             dialog.close()
