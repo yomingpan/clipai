@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, NewType
 
-from ClipAI.core.errors import PasteFailureReason
+from ClipAI.core.errors import ActionLanguagePackErrorCode, PasteFailureReason
 from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
@@ -205,6 +205,45 @@ class VoicePreferencesState:
     enabled: bool = False
     language: VoiceLanguagePreference = "zh-TW"
     update_pending: bool = False
+
+
+@dataclass(frozen=True)
+class ActionLanguagePackIdentity:
+    pack_id: str
+    pack_version: str
+    locale: str
+
+
+@dataclass(frozen=True)
+class ActionLanguagePackDescriptor:
+    identity: ActionLanguagePackIdentity
+    display_name: str
+
+
+@dataclass(frozen=True)
+class ActionLanguageProvenance:
+    identity: ActionLanguagePackIdentity
+    feature_contract_hash: str
+    resource_content_hash: str
+
+
+@dataclass(frozen=True)
+class ActionLanguagePackRecovery:
+    requested_pack_id: str
+    reason: ActionLanguagePackErrorCode
+    diagnostic_code: str
+
+
+@dataclass(frozen=True)
+class ActionLanguagePackSelectionState:
+    available_packs: tuple[ActionLanguagePackDescriptor, ...]
+    active_pack: ActionLanguagePackIdentity
+    selected_pack_id: str
+    pending_pack_id: str | None = None
+    operation_id: str = ""
+    restart_required: bool = False
+    recovery: ActionLanguagePackRecovery | None = None
+    message: str = ""
 
 
 @dataclass(frozen=True)

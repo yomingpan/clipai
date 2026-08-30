@@ -1,6 +1,21 @@
 from typing import Literal
 
 
+ActionLanguagePackErrorCode = Literal[
+    "registry_invalid",
+    "pack_missing",
+    "manifest_invalid",
+    "resource_path_invalid",
+    "checksum_mismatch",
+    "contract_mismatch",
+    "inventory_mismatch",
+    "feedback_contract_mismatch",
+    "prompt_template_invalid",
+    "marker_contract_mismatch",
+    "selection_save_failed",
+]
+
+
 PasteFailureReason = Literal[
     "no_target_observed",
     "target_gone",
@@ -35,6 +50,22 @@ class ClipAIError(RuntimeError):
 
 class ConfigError(ClipAIError):
     code = "config.invalid"
+
+
+class ActionLanguagePackError(ConfigError):
+    """Typed, content-safe failure raised before a language pack can be used."""
+
+    code = "action_language_pack.invalid"
+
+    def __init__(
+        self,
+        reason: ActionLanguagePackErrorCode,
+        path: str,
+        message: str,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.path = path
 
 
 class InputError(ClipAIError):
