@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from ClipAI.core.models import GuidancePreferences, ModelSelectionState, ProviderOption, ProviderSelectionState, SpeechSpeedState
+from ClipAI.core.models import ActionLanguagePackDescriptor, ActionLanguagePackIdentity, ActionLanguagePackRecovery, ActionLanguagePackSelectionState, GuidancePreferences, ModelSelectionState, ProviderOption, ProviderSelectionState, SpeechSpeedState
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceProjection
 from ClipAI.ui.tray import SHORTCUT_GUIDE_MENU_LABEL, STATUS_COLORS, TrayController, create_tray_image
 
@@ -185,6 +185,108 @@ def test_tray_provider_menu_projects_options_and_emits_selection() -> None:
     root.action.items[1].action(None, None)
     assert events == ["gemini"]
     assert tray._build_provider_menu(Pystray).text == "Provider (gemini)..."
+
+
+def _action_language_state(
+    *,
+    selected="zh-TW",
+    pending=None,
+    restart=False,
+    recovery=None,
+):
+    zh = ActionLanguagePackIdentity("zh-TW", "1.0.0", "zh-TW")
+    ja = ActionLanguagePackIdentity("ja-JP", "1.0.0", "ja-JP")
+    return ActionLanguagePackSelectionState(
+        (
+            ActionLanguagePackDescriptor(zh, "繁體中文"),
+            ActionLanguagePackDescriptor(ja, "日本語"),
+        ),
+        zh,
+        selected,
+        pending_pack_id=pending,
+        restart_required=restart,
+        recovery=recovery,
+    )
+
+
+def test_action_language_menu_checks_saved_selection_without_optimism() -> None:
+    events = []
+    tray = TrayController(
+        lambda: None,
+        action_language_selection=_action_language_state(),
+        on_select_action_language=events.append,
+    )
+
+    menu = tray._build_action_language_menu(Pystray)
+    zh, ja = menu.action.items
+    ja.action(None, None)
+
+    assert menu.text(None) == "Action Language (current: 繁體中文)"
+    assert [item.checked(None) for item in (zh, ja)] == [True, False]
+    assert events == ["ja-JP"]
+    assert [item.checked(None) for item in (zh, ja)] == [True, False]
+
+
+def test_action_language_pending_disables_all_options_and_preserves_check() -> None:
+    tray = TrayController(
+        lambda: None,
+        action_language_selection=_action_language_state(pending="ja-JP"),
+        on_select_action_language=lambda _pack_id: None,
+    )
+
+    menu = tray._build_action_language_menu(Pystray)
+
+    assert menu.text(None) == "Action Language (saving...; current: 繁體中文)"
+    assert [item.checked(None) for item in menu.action.items] == [True, False]
+    assert all(item.enabled(None) is False for item in menu.action.items)
+
+
+def test_action_language_restart_label_distinguishes_active_and_selected() -> None:
+    tray = TrayController(
+        lambda: None,
+        action_language_selection=_action_language_state(
+            selected="ja-JP",
+            restart=True,
+        ),
+        on_select_action_language=lambda _pack_id: None,
+    )
+
+    menu = tray._build_action_language_menu(Pystray)
+
+    assert menu.text(None) == (
+        "Action Language (current: 繁體中文; after restart: 日本語)"
+    )
+    assert [item.checked(None) for item in menu.action.items] == [False, True]
+
+
+def test_action_language_recovery_keeps_unavailable_requested_id_checked() -> None:
+    recovery = ActionLanguagePackRecovery(
+        "missing",
+        "pack_missing",
+        "action_language_pack.pack_missing",
+    )
+    state = _action_language_state(selected="missing", recovery=recovery)
+    state = ActionLanguagePackSelectionState(
+        (state.available_packs[0],),
+        state.active_pack,
+        state.selected_pack_id,
+        recovery=state.recovery,
+    )
+    tray = TrayController(
+        lambda: None,
+        action_language_selection=state,
+        on_select_action_language=lambda _pack_id: None,
+    )
+
+    menu = tray._build_action_language_menu(Pystray)
+    unavailable = menu.action.items[-1]
+
+    assert menu.text(None) == (
+        "Action Language (selection unavailable; current: 繁體中文)"
+    )
+    assert unavailable.text == "missing (unavailable)"
+    assert unavailable.checked is True
+    assert unavailable.enabled is False
 
 
 def test_tray_marks_custom_current_model_and_disables_during_refresh() -> None:

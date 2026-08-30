@@ -29,7 +29,7 @@ def main(*, instance_gate: ApplicationInstanceGate | None = None) -> None:
         bootstrap = bootstrap_action_language_config(
             JsonActionLanguagePackSelectionStore()
         )
-        runtime = build_runtime(bootstrap.bundle)
+        runtime = build_runtime(bootstrap)
         runtime.run_forever()
     except ConfigError as exc:
         show_startup_error(str(exc))

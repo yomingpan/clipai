@@ -7,6 +7,7 @@ from pathlib import Path
 import uuid
 
 from ClipAI.app.config_schema import ConfigBundle
+from ClipAI.app.language_pack_bootstrap import ActionLanguageBootstrapResult
 from ClipAI.core.errors import ConfigError
 from ClipAI.app.provider_configuration import AppProviderConfigurationBackend, build_provider_snapshot
 from ClipAI.app.provider_execution import ProviderExecutionModule
@@ -19,11 +20,12 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeModule
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
+from ClipAI.app.runtime_action_language import ActionLanguageRuntimeModule
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.owned_processes import AppOwnedProcessRegistry
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
-from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenAbout, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenAbout, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SelectActionLanguagePack, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -57,6 +59,7 @@ from ClipAI.services.entry_panel import EntryPanelCoordinator
 from ClipAI.services.recent_actions import RecentActionHistory
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.action_feedback import ActionFeedbackService
+from ClipAI.services.action_language_selection import ActionLanguageSelectionCoordinator
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
 from ClipAI.services.personal_styles import PersonalStyleCoordinator
 from ClipAI.services.provider_binding import ProviderRuntimeSnapshot
@@ -87,7 +90,15 @@ def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
     return any(issue.feature == "llm" for issue in bundle_issues)
 
 
-def build_runtime(bundle: ConfigBundle) -> AppRuntime:
+def build_runtime(
+    configuration: ConfigBundle | ActionLanguageBootstrapResult,
+) -> AppRuntime:
+    bootstrap = (
+        configuration
+        if isinstance(configuration, ActionLanguageBootstrapResult)
+        else None
+    )
+    bundle = bootstrap.bundle if bootstrap is not None else configuration
     configure_logging(bundle.logging)
     application_version = _application_version()
     settings_store = DotenvModelPreferenceStore()
@@ -133,6 +144,14 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         on_open_provider_settings=lambda: runtime_holder[0].enqueue(OpenProviderSettings()),
         on_open_shortcut_guide=lambda: runtime_holder[0].enqueue(OpenShortcutGuide(uuid.uuid4().hex)),
         on_open_personal_styles=lambda: runtime_holder[0].enqueue(OpenPersonalStyles()),
+        action_language_selection=(bootstrap.state if bootstrap is not None else None),
+        on_select_action_language=(
+            lambda pack_id: runtime_holder[0].enqueue(
+                SelectActionLanguagePack(pack_id, uuid.uuid4().hex)
+            )
+            if bootstrap is not None
+            else None
+        ),
         guidance_preferences=user_preferences.guidance_preferences,
         on_set_first_use_hints=lambda enabled: runtime_holder[0].enqueue(SetFirstUseHintsEnabled(enabled, uuid.uuid4().hex)),
         on_reset_first_use_hints=lambda: runtime_holder[0].enqueue(ResetFirstUseHints(uuid.uuid4().hex)),
@@ -172,6 +191,12 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
             "tts_enabled": bundle.tts.enabled,
             "voice_input_backend": bundle.voice_input.backend,
             "logging_enabled": bundle.logging.enabled,
+            "action_language_pack": bundle.action_language.identity.pack_id,
+            "action_language_pack_version": bundle.action_language.identity.pack_version,
+            "action_language_locale": bundle.action_language.identity.locale,
+            "action_language_diagnostics": (
+                list(bootstrap.diagnostic_codes) if bootstrap is not None else []
+            ),
         },
         log_path=bundle.logging.file_path,
         sensitive_values=((credential.value,) if credential and credential.value else ()),
@@ -324,6 +349,17 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         operation_tracker=operation_tracker,
         notifier=tray,
     )
+    action_language_module = (
+        ActionLanguageRuntimeModule(
+            coordinator=ActionLanguageSelectionCoordinator(bootstrap.state),
+            backend=bootstrap.selection_backend,
+            supervisor=supervisor,
+            enqueue=enqueue,
+            presenter=tray,
+        )
+        if bootstrap is not None
+        else None
+    )
     personal_styles_module = PersonalStyleRuntimeModule(
         coordinator=personal_styles,
         supervisor=supervisor,
@@ -429,6 +465,7 @@ def build_runtime(bundle: ConfigBundle) -> AppRuntime:
         voice_input=voice_input_module,
         personal_styles=personal_styles_module,
         entry_panel=entry_panel_module,
+        action_language=action_language_module,
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):
