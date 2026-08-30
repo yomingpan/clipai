@@ -18,6 +18,7 @@ from ClipAI.core.models import EntryPanelOption, EntryPanelSnapshot
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
 from ClipAI.ui.base_dialog import (
     ACTION_COLOR,
+    ACTION_HOVER_COLOR,
     CONTENT_COLOR,
     MODEL_COLOR,
     POPUP_FONT_SIZES,
@@ -30,6 +31,9 @@ from ClipAI.ui.popup_layout import PopupLayoutPolicy
 
 
 _TRANSPARENT_WINDOW_BACKGROUND = "#111111"
+_CARD_BACKGROUND = "#252525"
+_CARD_HOVER_BACKGROUND = "#303030"
+_CARD_BORDER = "#454545"
 
 
 class EntryPanelIntentAdapter:
@@ -292,11 +296,14 @@ class UnifiedEntryPanelDialog:
                         snapshot,
                     ).grid(row=0, column=column, padx=3, sticky="nsew")
                 row += 1
-                ctk.CTkFrame(
+                divider = ctk.CTkFrame(
                     self._body,
                     height=1,
-                    fg_color="#454545",
-                ).grid(row=row, column=0, pady=(12, 8), sticky="ew")
+                    corner_radius=0,
+                    fg_color=_CARD_BORDER,
+                )
+                divider.grid_propagate(False)
+                divider.grid(row=row, column=0, padx=2, pady=(13, 10), sticky="ew")
                 row += 1
 
         for option in options:
@@ -355,15 +362,69 @@ class UnifiedEntryPanelDialog:
             parent,
             corner_radius=9,
             border_width=1,
-            border_color="#454545",
-            fg_color="#252525",
+            border_color=_CARD_BORDER,
+            fg_color=_CARD_BACKGROUND,
         )
         card.grid_columnconfigure(0, weight=1)
         if option.slot is None:
             title = option.label
         else:
-            slot = f"{option.slot:02d}" if snapshot.page == "scene" else str(option.slot)
-            title = f"{slot}  {option.label}"
+            title = f"{option.slot}  {option.label}"
+
+        hovered = False
+        focused = False
+
+        def redraw_card() -> None:
+            if not option.enabled:
+                return
+            try:
+                if hovered:
+                    card.configure(
+                        fg_color=_CARD_HOVER_BACKGROUND,
+                        border_color=ACTION_HOVER_COLOR,
+                    )
+                elif focused:
+                    card.configure(
+                        fg_color=_CARD_BACKGROUND,
+                        border_color=ACTION_COLOR,
+                    )
+                else:
+                    card.configure(
+                        fg_color=_CARD_BACKGROUND,
+                        border_color=_CARD_BORDER,
+                    )
+            except tk.TclError:
+                # A projection update may destroy this card before its queued
+                # pointer-leave callback runs.
+                return
+
+        def is_pointer_over_card() -> bool:
+            try:
+                widget = card.winfo_containing(
+                    card.winfo_pointerx(),
+                    card.winfo_pointery(),
+                )
+                while widget is not None:
+                    if widget is card:
+                        return True
+                    widget = widget.master
+            except tk.TclError:
+                return False
+            return False
+
+        def show_hover(_event=None) -> None:
+            nonlocal hovered
+            hovered = True
+            redraw_card()
+
+        def clear_hover(_event=None) -> None:
+            def refresh() -> None:
+                nonlocal hovered
+                hovered = is_pointer_over_card()
+                redraw_card()
+
+            card.after_idle(refresh)
+
         def activate(_event=None) -> str:
             if option.enabled:
                 card.focus_set()
@@ -371,11 +432,14 @@ class UnifiedEntryPanelDialog:
             return "break"
 
         def show_focus(_event=None) -> None:
-            if option.enabled:
-                card.configure(border_color=ACTION_COLOR)
+            nonlocal focused
+            focused = True
+            redraw_card()
 
         def clear_focus(_event=None) -> None:
-            card.configure(border_color="#454545")
+            nonlocal focused
+            focused = False
+            redraw_card()
 
         title_label = ctk.CTkLabel(
             card,
@@ -389,13 +453,7 @@ class UnifiedEntryPanelDialog:
             ),
         )
         title_label.grid(row=0, column=0, padx=12, pady=(7, 0), sticky="ew")
-        for widget in (card, title_label):
-            widget.bind("<Button-1>", activate, add="+")
-        card.bind("<Return>", activate, add="+")
-        card.bind("<space>", activate, add="+")
-        card.bind("<FocusIn>", show_focus, add="+")
-        card.bind("<FocusOut>", clear_focus, add="+")
-        self._option_buttons.append(card)
+        interactive_widgets = [card, title_label]
 
         detail = option.disabled_reason or (
             option.description if snapshot.density == "detailed" else ""
@@ -414,7 +472,17 @@ class UnifiedEntryPanelDialog:
                 ),
             )
             detail_label.grid(row=1, column=0, padx=12, pady=(0, 6), sticky="ew")
-            detail_label.bind("<Button-1>", activate, add="+")
+            interactive_widgets.append(detail_label)
+
+        for widget in interactive_widgets:
+            widget.bind("<Enter>", show_hover, add="+")
+            widget.bind("<Leave>", clear_hover, add="+")
+            widget.bind("<Button-1>", activate, add="+")
+        card.bind("<Return>", activate, add="+")
+        card.bind("<space>", activate, add="+")
+        card.bind("<FocusIn>", show_focus, add="+")
+        card.bind("<FocusOut>", clear_focus, add="+")
+        self._option_buttons.append(card)
         return card
 
     @staticmethod

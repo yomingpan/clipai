@@ -10,6 +10,7 @@ from ClipAI.core.commands import (
     EntryPanelToggleDensity,
 )
 from ClipAI.core.models import DisplayMetrics, EntryActionRef, EntryPanelOption, EntryPanelSnapshot
+from ClipAI.ui.base_dialog import ACTION_HOVER_COLOR
 from ClipAI.ui.unified_entry_panel import EntryPanelIntentAdapter, UnifiedEntryPanelDialog
 
 
@@ -24,9 +25,9 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         def hide_from_task_switcher(self, _window_id: int) -> None:
             pass
 
-    class DisplayMetrics:
+    class MetricsReader:
         def current(self):
-            raise AssertionError("The construction path must not read display metrics")
+            return DisplayMetrics(1.0, 0, 0, 1920, 1080, 420, 320)
 
     master = ctk.CTk()
     master.withdraw()
@@ -36,8 +37,28 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
             master,
             lambda _command: None,
             NativeSurface(),
-            DisplayMetrics(),
+            MetricsReader(),
         )
+        snapshot = EntryPanelSnapshot(
+            "panel-1",
+            "scene",
+            options=(
+                EntryPanelOption(
+                    1,
+                    "測試 Action",
+                    action=EntryActionRef("shorten_content", "short"),
+                ),
+            ),
+        )
+        dialog.show(snapshot)
+        card = dialog._option_buttons[0]
+        title = next(child for child in card.winfo_children() if child.cget("text"))
+
+        assert title.cget("text") == "1  測試 Action"
+        card._canvas.event_generate("<Enter>")
+        master.update_idletasks()
+        assert card.cget("fg_color") == "#303030"
+        assert card.cget("border_color") == ACTION_HOVER_COLOR
     finally:
         if dialog is not None:
             dialog.close()
