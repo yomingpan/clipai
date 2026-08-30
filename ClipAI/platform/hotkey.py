@@ -173,6 +173,14 @@ class _HotkeyDispatcher:
         self._key_is_pressed = key_is_pressed
         self._entry_panel_enabled = entry_panel_enabled
         self._entry_panel_hold_sec = entry_panel_hold_sec
+        self._tracked_tokens = frozenset(
+            {
+                *MODIFIER_KEYS,
+                "esc",
+                *(token for _, tokens in self._hotkeys for token in tokens),
+                *("0123456789" if entry_panel_enabled else ""),
+            }
+        )
         self._pressed: set[str] = set()
         self._active: dict[str, _HotkeyState] = {}
         self._escape: _HotkeyState | None = None
@@ -403,6 +411,21 @@ class _HotkeyDispatcher:
             if self._stopped:
                 return
             stale_tokens = self._discard_stale_pressed_state()
+            if token not in self._tracked_tokens:
+                # The global hook observes ordinary typing too. Retaining an
+                # unbound character after its release is missed can poison the
+                # exact Ctrl+Alt entry hold indefinitely because Windows cannot
+                # report the physical state of every printable character.
+                # It still cancels a pending hold and reports an invalid attempt
+                # under modifiers, but is not part of owned shortcut state.
+                self._update_entry_hold_on_press(token)
+                if (
+                    not stale_tokens
+                    and (self._observers or not self._pressed.isdisjoint(MODIFIER_KEYS))
+                ):
+                    self._emit(ShortcutAttemptRejected())
+                self._report_key_state()
+                return
             if token == "esc":
                 if self._escape is not None:
                     return
@@ -502,6 +525,8 @@ class _HotkeyDispatcher:
         events: list[ShortcutInputEvent] = []
         with self._lock:
             if self._stopped:
+                return
+            if token not in self._tracked_tokens:
                 return
             if token == "esc":
                 state, self._escape = self._escape, None

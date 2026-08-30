@@ -10,8 +10,15 @@ from ClipAI.platform.hotkey import create_hotkey_dispatcher
 
 
 class Key:
-    def __init__(self, name: str | None = None, *, vk: int | None = None) -> None:
+    def __init__(
+        self,
+        name: str | None = None,
+        *,
+        char: str | None = None,
+        vk: int | None = None,
+    ) -> None:
         self.name = name
+        self.char = char
         self.vk = vk
 
 
@@ -140,6 +147,30 @@ def test_hold_deadline_rechecks_physical_modifier_state() -> None:
     Timer.timers[0].callback()
 
     assert events == []
+
+
+def test_unbound_stale_characters_do_not_block_a_later_panel_hold() -> None:
+    Timer.timers.clear()
+    events = []
+    physical = {"ctrl": True, "alt": True}
+    dispatcher = create_hotkey_dispatcher(
+        {},
+        events.append,
+        timer_factory=Timer,
+        key_is_pressed=physical.get,
+        entry_panel_enabled=True,
+    )
+
+    # Matches the incident log: the global hook saw normal characters but
+    # missed their releases. Windows cannot query these character states.
+    dispatcher.on_press(Key(char="+"))
+    dispatcher.on_press(Key(char=":"))
+    dispatcher.on_press(Key(char="v"))
+    dispatcher.on_press(Key("ctrl"))
+    dispatcher.on_press(Key("alt"))
+    Timer.timers[0].fire()
+
+    assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
 
 
 def test_numpad_digit_is_claimed_by_open_panel_hold() -> None:

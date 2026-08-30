@@ -77,11 +77,13 @@ terminal lifecycle facts are never suppressed by observation state.
 ## Recovery and shutdown
 
 Before matching a normalized non-injected key-down, the module reconciles
-known pressed tokens with physical Windows state. Tokens explicitly reported
-released are stale; unknown state is preserved. Each affected active Shortcut
-Press emits one `ShortcutPressEnded(..., "cancelled")`. The revealing key may
-then participate in a fresh match, but stale recovery alone does not produce a
-rejected-attempt event.
+owned pressed tokens with physical Windows state. Owned tokens are registered
+binding tokens, modifiers, Escape and Panel digits; ordinary unbound global
+typing is never retained as shortcut state. Tokens explicitly reported released
+are stale; unknown state is preserved only for owned tokens. Each affected
+active Shortcut Press emits one `ShortcutPressEnded(..., "cancelled")`. The
+revealing key may then participate in a fresh match, but stale recovery alone
+does not produce a rejected-attempt event.
 
 `stop()` is idempotent and completely silent. It cancels timers, clears state
 and observers, stops the OS listener, and prevents keyboard or timer callbacks
