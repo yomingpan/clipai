@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
+from ClipAI.core.errors import ActionLanguagePackErrorCode
 from ClipAI.core.models import EntryActionRef, EntryPanelDensity, EntryPanelSelectionId, FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
 from ClipAI.core.models import ControlSurfaceRef
 from ClipAI.core.voice import VoiceCaptureId, VoiceDisableId, VoiceEngineEvent, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
@@ -344,6 +345,19 @@ class ReloadConfiguration:
 
 
 @dataclass(frozen=True)
+class SelectActionLanguagePack:
+    pack_id: str
+    operation_id: str = ""
+
+
+@dataclass(frozen=True)
+class ActionLanguagePackSelectionCompleted:
+    operation_id: str
+    pack_id: str
+    error: ActionLanguagePackErrorCode | None = None
+
+
+@dataclass(frozen=True)
 class OpenProviderSettings:
     provider: str | None = None
 
@@ -516,4 +530,4 @@ class UpdateVoiceDraft:
     text: str
 
 
-AppCommand: TypeAlias = ShortcutInputEvent | EntryPanelInputPrepared | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelEscape | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft
+AppCommand: TypeAlias = ShortcutInputEvent | EntryPanelInputPrepared | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelEscape | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

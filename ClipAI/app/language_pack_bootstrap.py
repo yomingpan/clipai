@@ -9,6 +9,9 @@ from ClipAI.app.language_pack_loader import (
     ActionLanguagePackLoader,
     load_feature_skeleton,
 )
+from ClipAI.app.language_pack_selection_backend import (
+    AppActionLanguageSelectionBackend,
+)
 from ClipAI.core.errors import ActionLanguagePackError, ActionLanguagePackErrorCode
 from ClipAI.core.models import (
     ActionLanguagePackRecovery,
@@ -22,6 +25,7 @@ from ClipAI.services.action_language_packs import CompiledActionLanguagePack
 class ActionLanguageBootstrapResult:
     bundle: ConfigBundle
     state: ActionLanguagePackSelectionState
+    selection_backend: AppActionLanguageSelectionBackend
     diagnostic_codes: tuple[str, ...] = ()
 
 
@@ -96,5 +100,10 @@ def bootstrap_action_language_config(
     return ActionLanguageBootstrapResult(
         bundle=bundle,
         state=state,
+        selection_backend=AppActionLanguageSelectionBackend(
+            loader,
+            registry,
+            selection_store,
+        ),
         diagnostic_codes=tuple(diagnostics),
     )

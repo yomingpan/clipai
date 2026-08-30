@@ -10,7 +10,7 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectActionLanguagePack, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ActionInvocation, ControlSurfaceRef, EntryActionRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -572,7 +572,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, personal_styles=None, entry_panel=None, recent_actions=None, recent_action_sink=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, personal_styles=None, entry_panel=None, recent_actions=None, recent_action_sink=None, action_language=None):
     action = ActionDefinition(
         "a",
         "Action",
@@ -708,10 +708,31 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         tray_factory=Tray if with_tray else None,
         operation_tracker=operation_tracker,
         entry_panel=entry_panel,
+        action_language=action_language,
     )
     runtime_holder.append(runtime)
     runtime._provider_backend = backend
     return runtime, view, supervisor, outputs, listener
+
+
+def test_runtime_dispatches_action_language_commands_to_its_module() -> None:
+    class ActionLanguageModule:
+        def __init__(self) -> None:
+            self.commands = []
+
+        def handle(self, command) -> None:
+            self.commands.append(command)
+
+    module = ActionLanguageModule()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        action_language=module
+    )
+    command = SelectActionLanguagePack("ja-JP", "operation-1")
+
+    runtime.enqueue(command)
+    runtime.drain_commands()
+
+    assert module.commands == [command]
 
 
 def workflow(view: FakeView, workflow_id: str):
