@@ -68,3 +68,10 @@ you see farther and think more clearly—while you keep your hands on the wheel.
 ClipAI can switch providers and models from the system tray. See
 [Provider and model settings](docs/PROVIDER_SETTINGS.md) for `.env`, API key,
 custom gateway, reload, and model refresh behavior.
+
+## Action Language
+
+Action content can use Traditional Chinese or Japanese without changing the UI,
+provider, Voice Input, or TTS language. See
+[Action Language Packs](docs/ACTION_LANGUAGE_PACKS.md) for Tray switching,
+restart, validation, and fallback behavior.

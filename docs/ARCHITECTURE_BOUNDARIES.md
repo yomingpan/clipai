@@ -56,6 +56,12 @@ tests/              # Unit sims 與 integration tests
 - 最近使用由 `RecentActionHistory` 擁有，只接收 `WorkflowController` 已接受的
   successful step 所解析出的 `action_id + press_type`；不得由 provider completion、
   Workflow snapshot revision、Popup visibility 或 operation tracker 推導成功。
+- Action Language Pack 的 canonical feature skeleton 只擁有不可翻譯行為；pure
+  compiler 擁有完整性與相容性規則，app loader 擁有 filesystem 驗證，bootstrap
+  擁有啟動時 resolve/fallback，`ActionLanguageSelectionCoordinator` 擁有
+  restart-only selection lifecycle。Workflow、Provider、Voice Input 與 Speech/TTS
+  不得選 pack 或依 locale 分支。完整規則見
+  `docs/contracts/services/action-language-pack-contract.md`。
 
 ## Core
 

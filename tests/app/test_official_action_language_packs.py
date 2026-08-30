@@ -28,6 +28,22 @@ def _feedback_reason_ids(action: ActionDefinition) -> tuple[str, ...] | None:
     return tuple(reason.id for reason in action.feedback_contract.reasons)
 
 
+def _behavior(action: ActionDefinition) -> tuple[object, ...]:
+    return (
+        action.stream,
+        action.input_mode,
+        action.output_mode,
+        action.temperature,
+        action.output_profile,
+        action.external_fallback,
+        action.personal_style_mode,
+        tuple(
+            (press_type, variant.output_profile)
+            for press_type, variant in action.press_variants.items()
+        ),
+    )
+
+
 def test_japanese_candidate_compiles_as_one_complete_pack() -> None:
     pack = _load("ja-JP")
 
@@ -84,12 +100,19 @@ def test_official_pack_candidates_share_exact_behavior_topology() -> None:
         japanese.action_definitions,
         strict=True,
     ):
+        assert _behavior(ja_action) == _behavior(zh_action)
         assert tuple(ja_action.press_variants) == tuple(zh_action.press_variants)
         assert _feedback_reason_ids(ja_action) == _feedback_reason_ids(zh_action)
         for press_type in ja_action.press_variants:
             assert _feedback_reason_ids(
                 ja_action.press_variants[press_type]
             ) == _feedback_reason_ids(zh_action.press_variants[press_type])
+    for zh_profile, ja_profile in zip(
+        traditional_chinese.output_profiles,
+        japanese.output_profiles,
+        strict=True,
+    ):
+        assert ja_profile.presentation == zh_profile.presentation
 
 
 def test_language_pack_content_changes_action_version_identity() -> None:

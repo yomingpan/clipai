@@ -75,6 +75,18 @@ def test_missing_selection_bootstraps_default_without_rewriting_store(tmp_path) 
     assert saves == []
 
 
+def test_valid_selected_pack_becomes_the_one_active_catalog(tmp_path) -> None:
+    config_dir = _copy_config(tmp_path)
+
+    result = _bootstrap(config_dir, SelectionStore("ja-JP"))
+
+    assert result.bundle.action_language.identity.pack_id == "ja-JP"
+    assert result.state.active_pack.pack_id == "ja-JP"
+    assert result.state.selected_pack_id == "ja-JP"
+    assert result.state.recovery is None
+    assert result.bundle.actions.get("translate_to_english").name == "英語に翻訳"
+
+
 def test_missing_selected_pack_falls_back_without_changing_selection(tmp_path) -> None:
     config_dir = _copy_config(tmp_path)
 

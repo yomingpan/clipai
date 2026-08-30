@@ -70,6 +70,12 @@ python scripts/run_unit_tests.py
 
 GitHub Windows CI 必須在 Python 3.10、3.11、3.12、3.13 執行 constrained clean install、compile、unit tests 與 architecture tests。排程工作另測未鎖定依賴，但不得影響正式安裝 constraints。
 
+Action Language Pack 的 machine gate 必須執行 strict loader/compiler、`zh-TW`
+baseline、跨 pack Action/variant/profile/feedback topology、固定輸出語言、selection
+lifecycle、bootstrap fallback、Tray truth 與 architecture boundary 測試。Registry
+中的每個 pack 都必須由 `scripts/validate_language_packs.py` 原子驗證；不得只測目前
+selected pack。逐項語言品質審查是額外 release gate，不由 snapshot 測試取代。
+
 ### Integration Tests
 
 這是手動觸發的真實世界測試。
