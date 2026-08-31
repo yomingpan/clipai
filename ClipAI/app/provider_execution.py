@@ -23,6 +23,7 @@ class ProviderExecutionModule:
     def __init__(self, lifecycle: AsyncLifecycle | None = None) -> None:
         self._loop = asyncio.new_event_loop()
         self._lifecycle = lifecycle
+        self._lifecycle_start: asyncio.Task[None] | None = None
         self._tasks: dict[str, Future[Any]] = {}
         self._loop_tasks: dict[str, asyncio.Task[Any]] = {}
         self._cancellation_requested: set[asyncio.Task[Any]] = set()
@@ -55,6 +56,7 @@ class ProviderExecutionModule:
                         self._loop_tasks[operation_id] = task
                 try:
                     try:
+                        await self._await_lifecycle_start()
                         result = await work()
                     except asyncio.CancelledError:
                         if not self._is_closed():
@@ -113,10 +115,24 @@ class ProviderExecutionModule:
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
         if self._lifecycle is not None:
-            self._loop.run_until_complete(self._lifecycle.start())
+            self._lifecycle_start = self._loop.create_task(self._lifecycle.start())
         self._ready.set()
         self._loop.run_forever()
         self._loop.close()
+
+    async def _await_lifecycle_start(self) -> None:
+        if self._lifecycle is None:
+            return
+        start = self._lifecycle_start
+        if start is None:
+            start = self._loop.create_task(self._lifecycle.start())
+            self._lifecycle_start = start
+        try:
+            await asyncio.shield(start)
+        except BaseException:
+            if start.done() and self._lifecycle_start is start:
+                self._lifecycle_start = None
+            raise
 
     async def _close_lifecycle(self) -> None:
         if self._lifecycle is not None:
