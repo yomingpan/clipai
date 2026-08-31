@@ -27,6 +27,7 @@ from ClipAI.ui.base_dialog import (
     _Tooltip,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
+from ClipAI.ui.window_drag import WindowDragController
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 
 
@@ -151,7 +152,7 @@ class UnifiedEntryPanelDialog:
         header = ctk.CTkFrame(self._shell, fg_color="transparent")
         header.grid(row=0, column=0, padx=16, pady=(14, 8), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
+        title_label = ctk.CTkLabel(
             header,
             text="ClipAI",
             anchor="w",
@@ -160,7 +161,8 @@ class UnifiedEntryPanelDialog:
                 size=POPUP_FONT_SIZES["interface"],
                 weight="bold",
             ),
-        ).grid(row=0, column=0, sticky="w")
+        )
+        title_label.grid(row=0, column=0, sticky="w")
         self._density = ctk.CTkSwitch(
             header,
             text="",
@@ -201,6 +203,8 @@ class UnifiedEntryPanelDialog:
         )
         self._body.grid(row=1, column=0, padx=14, pady=(0, 14), sticky="nsew")
         self._body.grid_columnconfigure(0, weight=1)
+        self._drag_controller = WindowDragController(self._window)
+        self._drag_controller.bind(header, title_label)
 
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
         self._snapshot = snapshot
@@ -231,6 +235,11 @@ class UnifiedEntryPanelDialog:
         self._lifecycle.focus(self._first_focus_target())
 
     def close(self) -> None:
+        self._snapshot = None
+        try:
+            self._window.withdraw()
+        except tk.TclError:
+            pass
         self._lifecycle.close()
 
     def request_close(self) -> None:

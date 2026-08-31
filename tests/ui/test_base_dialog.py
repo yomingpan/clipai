@@ -829,14 +829,20 @@ def test_result_surface_escape_defers_to_the_global_gesture_owner() -> None:
     assert events == []
 
 
-def test_drag_position_calculation_uses_recorded_offsets() -> None:
-    class DialogLike:
-        _drag_offset_x = 12
-        _drag_offset_y = 5
+def test_base_dialog_delegates_drag_binding_to_shared_controller() -> None:
+    calls = []
 
-    from ClipAI.ui.base_dialog import BaseDialog
+    class DragController:
+        def bind(self, *widgets) -> None:
+            calls.append(widgets)
 
-    assert BaseDialog.calculate_drag_position(DialogLike(), 100, 80) == (88, 75)
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog._drag_controller = DragController()
+    handles = (object(), object())
+
+    dialog.enable_drag(*handles)
+
+    assert calls == [handles]
 
 
 def test_standard_result_actions_expose_trusted_slots_in_order() -> None:

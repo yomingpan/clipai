@@ -17,8 +17,10 @@ then requests admission through the existing Workflow runtime.
 - `EntryPanelRuntimeModule` owns the one live Panel lifecycle ID, captured source
   reference, selection-preparation scheduling/cancellation and the transition to
   Workflow admission.
-- `UnifiedEntryPanelDialog` owns only toolkit widgets, focus evidence, placement
-  and mechanical rendering. Every user operation emits a typed command.
+- `UnifiedEntryPanelDialog` owns only toolkit widgets, focus evidence, placement,
+  hide-before-destroy teardown and mechanical rendering. Header dragging reuses
+  the UI-layer window drag controller; every semantic user operation emits a
+  typed command.
 - `EntryPanelCatalog` owns validated presentation metadata：category slot/ID、
   flagship limit、candidate uniqueness 與 existing `action_id + press_type`
   membership，並提供其 lookup indexes。Canonical config adapter 提供 IA shape；

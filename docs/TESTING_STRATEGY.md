@@ -338,14 +338,15 @@ Recipe 回饋與使用引導應測：
   search、density、Esc、disabled reason 與 numeric resolution，不讀 private state。
 - Runtime tests 必須以 Panel lifecycle ID 加 selection-preparation ID 驗證 close、
   reopen、replace、cancel 與 late completion；舊 completion 不得啟動 Action。
-- Hotkey tests 覆蓋 1499/1500 ms、deadline physical-state recheck、提前 release、
+- Hotkey tests 覆蓋單按 Alt 的 499/500 ms、deadline physical-state recheck、提前 release、
   direct digit coexistence、Panel-open digit claim、top-row/numpad、injected event、
   stale timer、repeated hold、shutdown 與 no-double-invoke。
 - Recent tests 只接受 `WorkflowController` 已接受 step 的最小 identity，涵蓋
   dedupe、press-type replay、follow-up root、headless direct Action、synthetic
   exclusion、corrupt/restart/write failure 與 persisted privacy shape。
 - UI tests 驗證 shared root、build-before-show、keyboard/mouse equivalence、Esc
-  stack、tooltip focus、click outside、header non-overlap 與 action lifecycle feedback；
+  stack、tooltip focus、click outside、header non-overlap、header drag、
+  hide-before-destroy 與 action lifecycle feedback；
   不 mock 內部 widget helper。
 - Windows smoke 必須驗證 external target restore → action-time selection capture →
   typed Workflow admission，以及 multi-monitor/DPI、IME、top-row/numpad 與 cursor

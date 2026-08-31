@@ -51,6 +51,19 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
             ),
         )
         dialog.show(snapshot)
+        header = dialog._shell.winfo_children()[0]
+        title_label = header.winfo_children()[0]
+        master.update()
+
+        for handle in (header._canvas, title_label._canvas):
+            before = (dialog._window.winfo_x(), dialog._window.winfo_y())
+            handle.event_generate("<ButtonPress-1>", x=5, y=5)
+            handle.event_generate("<B1-Motion>", x=35, y=25)
+            master.update()
+            assert (dialog._window.winfo_x(), dialog._window.winfo_y()) == (
+                before[0] + 30,
+                before[1] + 20,
+            )
         card = dialog._option_buttons[0]
         title = next(child for child in card.winfo_children() if child.cget("text"))
 
@@ -209,3 +222,25 @@ def test_show_places_a_panel_once_and_keeps_that_position_for_projection_updates
 
     assert dialog._display_metrics.calls == 1
     assert len(dialog._window.geometry_calls) == 1
+
+
+def test_close_hides_panel_before_destroying_its_toolkit_lifecycle() -> None:
+    events: list[str] = []
+
+    class Window:
+        def withdraw(self) -> None:
+            events.append("hidden")
+
+    class Lifecycle:
+        def close(self) -> None:
+            events.append("destroyed")
+
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog._window = Window()
+    dialog._lifecycle = Lifecycle()
+    dialog._snapshot = object()
+
+    dialog.close()
+
+    assert events == ["hidden", "destroyed"]
+    assert dialog._snapshot is None

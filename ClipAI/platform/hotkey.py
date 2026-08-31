@@ -13,7 +13,7 @@ from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_key_is_pressed
 logger = logging.getLogger("clipai.hotkey")
 
 LONG_PRESS_SEC = 0.5
-ENTRY_PANEL_HOLD_SEC = 1.5
+ENTRY_PANEL_HOLD_SEC = LONG_PRESS_SEC
 
 _SHIFTED_DIGIT_MAP = {
     "!": "1",
@@ -255,12 +255,24 @@ class _HotkeyDispatcher:
         if not self._entry_panel_enabled:
             return
         state = self._entry_hold
-        if state is not None and not state.opened and token not in {"ctrl", "alt"}:
-            if state.timer is not None:
-                state.timer.cancel()
-            self._entry_hold = None
+        if state is not None:
+            if not state.opened:
+                if token != "alt":
+                    if state.timer is not None:
+                        state.timer.cancel()
+                    self._entry_hold = None
+                return
+            digit_claim = (
+                token in set("0123456789")
+                and "alt" in self._pressed
+            )
+            modifier_joined = token in MODIFIER_KEYS and "alt" in self._pressed
+            if not digit_claim and not modifier_joined:
+                if state.timer is not None:
+                    state.timer.cancel()
+                self._entry_hold = None
             return
-        if self._entry_hold is not None or self._pressed != {"ctrl", "alt"}:
+        if self._pressed != {"alt"}:
             return
         self._timer_generation += 1
         self._hold_generation += 1
@@ -280,10 +292,10 @@ class _HotkeyDispatcher:
                     or current is None
                     or current.hold_id != hold_id
                     or current.timer_generation != timer_generation
-                    or self._pressed != {"ctrl", "alt"}
+                    or self._pressed != {"alt"}
                     or (
                         self._key_is_pressed is not None
-                        and any(self._key_is_pressed(modifier) is False for modifier in ("ctrl", "alt"))
+                        and self._key_is_pressed("alt") is False
                     )
                 ):
                     return
@@ -297,7 +309,7 @@ class _HotkeyDispatcher:
 
     def _release_entry_hold(self, token: str) -> None:
         state = self._entry_hold
-        if state is None or token not in {"ctrl", "alt"}:
+        if state is None or token != "alt":
             return
         if state.timer is not None:
             state.timer.cancel()
@@ -414,7 +426,7 @@ class _HotkeyDispatcher:
             if token not in self._tracked_tokens:
                 # The global hook observes ordinary typing too. Retaining an
                 # unbound character after its release is missed can poison the
-                # exact Ctrl+Alt entry hold indefinitely because Windows cannot
+                # exact Alt entry hold indefinitely because Windows cannot
                 # report the physical state of every printable character.
                 # It still cancels a pending hold and reports an invalid attempt
                 # under modifiers, but is not part of owned shortcut state.

@@ -91,7 +91,7 @@ Protected behavior:
 
 | State or decision | Single owner |
 |---|---|
-| Physical `Ctrl+Alt` hold, deadline and claimed digits | platform hotkey listener |
+| Physical `Alt` hold, deadline and claimed digits | platform hotkey listener |
 | Entry catalog validation and key-to-candidate resolution | `EntryPanelCatalog` / `EntryPanelCoordinator` in services |
 | Panel lifecycle, launch source and active selection-preparation identity | `EntryPanelRuntimeModule` in app |
 | Panel widgets, focus evidence, placement and rendering | `UnifiedEntryPanelDialog` in UI |
@@ -321,8 +321,8 @@ deterministic; architecture and pure unit suites pass.
 
 6. `feat: add modifier-hold entry gesture`
 
-   Extend the existing listener with identity-scoped 1.5 second hold and digit
-   claim. Preserve ordinary shortcut bindings. Add 1499/1500 ms, release, stale,
+   Extend the existing listener with identity-scoped exact-Alt 500 ms hold and
+   digit claim. Preserve ordinary shortcut bindings. Add 499/500 ms, release, stale,
    injected, shutdown, repeated hold, top-row/numpad and no-double-invoke tests.
 7. `refactor: generalize external target activation`
 
@@ -413,7 +413,7 @@ activation ports, existing Workflow admission, and a minimal recent Action
 aggregate.
 
 **Alternatives:** Extending `PopupControl`, calling Action execution from UI,
-registering `Ctrl+Alt` as an ordinary shortcut and creating a second Tk/WebView
+registering modifier-only `Alt` as an ordinary shortcut and creating a second Tk/WebView
 runtime are rejected because they duplicate an existing owner.
 
 **Consequences:** More contracts and tests precede visible UI. In return, Action

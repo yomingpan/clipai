@@ -115,17 +115,18 @@ and the guide-close regression.
 
 ## Unified Entry Panel modifier hold
 
-The listener owns one generic exact-modifier hold candidate for `Ctrl+Alt`.
-Both modifiers down starts an identity-scoped 1.5 second deadline. Releasing either
-modifier or pressing a non-modifier before the deadline cancels only that
-candidate; an ordinary registered direct shortcut continues through its existing
-Shortcut Press lifecycle.
+The listener owns one generic exact-modifier hold candidate for `Alt` alone.
+Pressing Alt with no other held key starts an identity-scoped 500 ms deadline.
+Releasing Alt, pressing another modifier, or pressing a non-modifier before the
+deadline cancels only that candidate; an ordinary registered direct shortcut
+continues through its existing Shortcut Press lifecycle.
 
 At the deadline the listener must recheck the same hold identity and physical
-modifier state before emitting `OpenUnifiedEntryPanel`. Once opened while the
-modifiers remain held, top-row and numpad digits are claimed for typed Panel
-digit commands and must not also create ordinary direct Shortcut Presses. The
-claim ends when the modifier context ends.
+Alt state before emitting `OpenUnifiedEntryPanel`. Once opened while Alt remains
+held, top-row and numpad digits are claimed for typed Panel digit commands
+and must not also create ordinary direct Shortcut Presses. The claim ends when
+Alt is released; adding another modifier after the Panel opened does not allow a
+digit to double-dispatch as a direct Shortcut Press.
 
 Repeated exact holds while a Panel is already open emit an open/raise intent;
 runtime decides whether to reuse the current lifecycle. Stale timers, injected

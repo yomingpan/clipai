@@ -14,6 +14,7 @@ from ClipAI.core.ports import NativeWindowSurface
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
+from ClipAI.ui.window_drag import WindowDragController
 
 DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
@@ -664,8 +665,6 @@ class BaseDialog:
         self.width = width
         self.height = height
         self.pinned = False
-        self._drag_offset_x = 0
-        self._drag_offset_y = 0
         self._on_close_request = on_close_request
         self._native_window_surface = native_window_surface
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
@@ -733,6 +732,7 @@ class BaseDialog:
                 owns_mainloop=master is None,
                 window_activator=self._activate_native_window,
             )
+            self._drag_controller = WindowDragController(self.root)
             self._flash_controller = SurfaceFlashController(
                 colors=self._state_colors,
                 apply_color=self._painter.draw,
@@ -861,20 +861,7 @@ class BaseDialog:
         return "break"
 
     def enable_drag(self, *widgets) -> None:
-        for widget in widgets:
-            widget.bind("<ButtonPress-1>", self._start_drag)
-            widget.bind("<B1-Motion>", self._drag_window)
-
-    def _start_drag(self, event) -> None:
-        self._drag_offset_x = event.x_root - self.root.winfo_x()
-        self._drag_offset_y = event.y_root - self.root.winfo_y()
-
-    def _drag_window(self, event) -> None:
-        x, y = self.calculate_drag_position(event.x_root, event.y_root)
-        self.root.geometry(f"+{x}+{y}")
-
-    def calculate_drag_position(self, x_root: int, y_root: int) -> tuple[int, int]:
-        return x_root - self._drag_offset_x, y_root - self._drag_offset_y
+        self._drag_controller.bind(*widgets)
 
     def resize(self, width: int, height: int, *, x: int | None = None, y: int | None = None) -> None:
         if width == self.width and height == self.height and x is None and y is None:

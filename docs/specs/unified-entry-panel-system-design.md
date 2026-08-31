@@ -53,7 +53,7 @@ stack.
   capture is protected by the single clipboard transaction coordinator.
 - The existing hotkey implementation is deliberately stateful and hardened
   around timer identity, release semantics, stale physical-state recovery and
-  shutdown. A modifier-only `Ctrl+Alt` is not a normal shortcut binding.
+  shutdown. A modifier-only `Alt` hold is not a normal shortcut binding.
 - Only an immutable successful step accepted by `WorkflowController.complete`
   is a valid signal for recent actions. Provider completion, operation-tracker
   success, view visibility and snapshot revisions are all too early or too
@@ -102,7 +102,7 @@ Key source material:
 ## Target architecture
 
 ```text
-physical Ctrl+Alt hold
+physical Alt hold
         │  (platform owns physical state, timer, key claim)
         ▼
 OpenUnifiedEntryPanel typed command
@@ -133,10 +133,10 @@ UnifiedEntryPanelDialog
 
 | Component | Layer | Responsibility | Must not own |
 |---|---|---|---|
-| Generic modifier-hold gesture | platform + typed core command | Exact Ctrl+Alt recognition, 1.5 second timer, physical-state recheck and numeric-key claim. | Panel UI, action execution, clipboard. |
+| Generic modifier-hold gesture | platform + typed core command | Exact Alt-only recognition, 500 ms timer, physical-state recheck and numeric-key claim. | Panel UI, action execution, clipboard. |
 | `EntryPanelRuntimeModule` | app | Compose launch lifecycle, source snapshot, panel coordinator and action admission. | Workflow state, provider task, raw native UI handles. |
 | `EntryPanelCoordinator` | services | Own the immutable Panel projection and pure navigation, search, density, disabled-state and numeric-key transitions. | Toolkit state, external focus, Action execution or persistence. |
-| `UnifiedEntryPanelDialog` | ui | Render/filter/navigate; native placement/focus; emit typed UI commands. | Services, platform APIs, clipboard, provider. |
+| `UnifiedEntryPanelDialog` | ui | Render/filter/navigate; native placement/focus; shared header drag; hide-before-destroy; emit typed UI commands. | Services, platform APIs, clipboard, provider. |
 | `EntryPanelCatalog` | services/config composition | Validated panel IA: category, order, copy, flagship selection. | Action execution semantics or prompts. |
 | `ExternalWindowRef` + activator port | core/platform | Opaque external target reference and safe restore/validate operation. | Panel policy or duplicate paste ownership. |
 | `RecentActionHistory` + store | services/platform persistence | Top-three replay references from accepted steps; non-blocking durable write. | Workflow history, preferences or analytics. |
@@ -146,28 +146,28 @@ UnifiedEntryPanelDialog
 ### 1. Modifier-hold hotkey, not a normal shortcut
 
 Extend the platform listener with a reusable `modifier_hold` gesture contract
-for the exact physical `Ctrl+Alt` chord. Do **not** add `ctrl+alt` as an
+for the exact physical `Alt` hold. Do **not** add modifier-only `alt` as an
 ordinary `ShortcutCatalog` binding: ordinary bindings expect a trigger token;
-modifier-only release and digit input would otherwise race the existing short
+Alt release and digit input would otherwise race the existing short
 press/direct shortcut paths.
 
 Required behavior:
 
-1. Both modifiers down creates a press identity and starts the 1.5 second timer.
-2. Releasing either modifier before the deadline cancels; there is no short
+1. Alt down with no other held key creates a hold identity and starts the 500 ms timer.
+2. Releasing Alt or adding another modifier before the deadline cancels; there is no short
    invoke.
 3. A non-modifier before the deadline cancels only the entry candidate; normal
    direct shortcuts retain their existing behavior.
 4. At the deadline, recheck the same press identity and actual physical state.
    Only then emit `OpenUnifiedEntryPanel`.
-5. Once opened with modifiers still held, the platform claims top-row digits
-   and numpad digits for the Panel until the chord is released. This prevents a
-   competing direct shortcut.
-6. Stale recovery and shutdown are identity-scoped. Repeated Ctrl+Alt while a
+5. Once opened with Alt still held, the platform claims top-row digits and
+   numpad digits for the Panel until Alt is released. A later modifier press
+   does not allow the same digit to dispatch a competing direct shortcut.
+6. Stale recovery and shutdown are identity-scoped. Repeated Alt holds while a
    Panel is open raises the existing Panel; it does not reset/capture a new
    source.
 
-The existing Keyboard Shortcut guide receives the long `Ctrl+Alt` description;
+The existing Keyboard Shortcut guide receives the long `Alt` description;
 the Panel itself does not show an extra shortcut-guide entry.
 
 ### 2. Action catalog versus entry catalog
@@ -338,7 +338,7 @@ preferences) or `WorkflowController` history (per-workflow accepted steps).
 
 | Scenario | Required behavior |
 |---|---|
-| Repeated Ctrl+Alt while Panel is open | Bring Panel forward; no new source snapshot, capture or action. |
+| Repeated Alt hold while Panel is open | Bring Panel forward; no new source snapshot, capture or action. |
 | Modifier released early / non-modifier pressed early | Cancel only the hold candidate; never emit a short action. |
 | External target restore/capture failure | Keep Panel, show error, no action and no stale-clipboard fallback. |
 | Known unavailable action | Visible, disabled and explanatory; never hidden. |
@@ -358,10 +358,10 @@ Privacy boundaries:
 
 ### Platform and runtime tests
 
-- Ctrl+Alt at 1499 ms and 1500 ms; release-before-deadline; physical-state
+- Alt alone at 499 ms and 500 ms; release-before-deadline; physical-state
   recheck; stale timer; injected event; shutdown; direct digit coexistence; no
   double invoke.
-- Panel-open repeated hold; top-row/numpad claim while modifiers remain held.
+- Panel-open repeated hold; top-row/numpad claim while Alt remains held.
 - Voice listening/finalizing blocked; provider-response disabled state; direct
   shortcut behavior unchanged.
 - All PRD action IDs compile in `entry_panel.yaml`; invalid/missing/duplicate
@@ -377,6 +377,7 @@ Privacy boundaries:
 ### UI and desktop integration tests
 
 - One Tk root/mainloop; no blank shell; focus handoff with existing Popup.
+- Header drag uses the shared UI drag controller; closing hides the Panel before toolkit teardown and produces no extra visible frame.
 - Multi-monitor and DPI placement; work-area collision/quadrant flip; cursor
   preservation.
 - Keyboard-only navigation, search, More/Esc behavior, disabled reason,
@@ -403,7 +404,7 @@ shortcuts and existing workflow behavior remain independently functional.
 |---|---|
 | Add the Panel to `PopupControl` | It is already coupled to workflow/paste/output identities; the new surface would leak external-target and navigation policy into it. |
 | Call `ActionExecutor` or provider directly from UI | Duplicates admission/cancellation/lifecycle and violates UI adapter boundaries. |
-| Register `Ctrl+Alt` as an ordinary shortcut | Modifier-only semantics conflict with existing trigger-token, release and digit paths. |
+| Register modifier-only `Alt` as an ordinary shortcut | Modifier-only semantics conflict with existing trigger-token, release and digit paths. |
 | Derive recent actions from snapshots / put them in preferences | Neither is the precise success signal or appropriate owner for behavior history. |
 | Build a WebView or second Tk root | Adds a second UI runtime and focus model without solving the source/action ownership problem. |
 

@@ -43,7 +43,45 @@ class Timer:
             self.callback()
 
 
-def test_exact_ctrl_alt_hold_opens_entry_panel_at_deadline() -> None:
+def test_exact_alt_hold_opens_entry_panel_at_500_ms_deadline() -> None:
+    Timer.timers.clear()
+    events = []
+    dispatcher = create_hotkey_dispatcher(
+        {},
+        events.append,
+        modifier_mode="ctrl_alt",
+        timer_factory=Timer,
+        entry_panel_enabled=True,
+    )
+
+    dispatcher.on_press(Key("alt"))
+    assert Timer.timers[0].delay == 0.5
+    Timer.timers[0].fire()
+
+    assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
+
+
+def test_ctrl_alt_chord_does_not_open_entry_panel() -> None:
+    Timer.timers.clear()
+    events = []
+    dispatcher = create_hotkey_dispatcher(
+        {},
+        events.append,
+        modifier_mode="ctrl_alt",
+        timer_factory=Timer,
+        entry_panel_enabled=True,
+    )
+
+    dispatcher.on_press(Key("alt"))
+    timer = Timer.timers[0]
+    dispatcher.on_press(Key("ctrl"))
+    timer.callback()
+
+    assert timer.cancelled is True
+    assert events == []
+
+
+def test_ctrl_then_alt_never_starts_the_exact_alt_hold() -> None:
     Timer.timers.clear()
     events = []
     dispatcher = create_hotkey_dispatcher(
@@ -56,10 +94,9 @@ def test_exact_ctrl_alt_hold_opens_entry_panel_at_deadline() -> None:
 
     dispatcher.on_press(Key("ctrl"))
     dispatcher.on_press(Key("alt"))
-    assert Timer.timers[0].delay == 1.5
-    Timer.timers[0].fire()
 
-    assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
+    assert Timer.timers == []
+    assert events == []
 
 
 def test_digit_after_panel_open_is_claimed_instead_of_invoking_direct_shortcut() -> None:
@@ -72,7 +109,6 @@ def test_digit_after_panel_open_is_claimed_instead_of_invoking_direct_shortcut()
         timer_factory=Timer,
         entry_panel_enabled=True,
     )
-    dispatcher.on_press(Key("ctrl"))
     dispatcher.on_press(Key("alt"))
     Timer.timers[0].fire()
 
@@ -85,7 +121,30 @@ def test_digit_after_panel_open_is_claimed_instead_of_invoking_direct_shortcut()
     assert len(Timer.timers) == 1
 
 
-def test_digit_before_hold_deadline_preserves_direct_shortcut() -> None:
+def test_open_panel_keeps_digit_claim_when_ctrl_joins_held_alt() -> None:
+    Timer.timers.clear()
+    events = []
+    dispatcher = create_hotkey_dispatcher(
+        {"english": {"hotkey": "ctrl+alt+8"}},
+        events.append,
+        modifier_mode="ctrl_alt",
+        timer_factory=Timer,
+        entry_panel_enabled=True,
+    )
+    dispatcher.on_press(Key("alt"))
+    Timer.timers[0].fire()
+
+    dispatcher.on_press(Key("ctrl"))
+    dispatcher.on_press(Key("8"))
+
+    assert events == [
+        OpenUnifiedEntryPanel(ModifierHoldId(1)),
+        EntryPanelDigitPressed(ModifierHoldId(1), "8"),
+    ]
+    assert len(Timer.timers) == 1
+
+
+def test_ctrl_alt_digit_preserves_direct_shortcut_without_starting_panel_hold() -> None:
     Timer.timers.clear()
     events = []
     dispatcher = create_hotkey_dispatcher(
@@ -97,6 +156,7 @@ def test_digit_before_hold_deadline_preserves_direct_shortcut() -> None:
     )
     dispatcher.on_press(Key("ctrl"))
     dispatcher.on_press(Key("alt"))
+    assert Timer.timers == []
 
     dispatcher.on_press(Key("8"))
     dispatcher.on_release(Key("8"))
@@ -118,7 +178,6 @@ def test_release_before_deadline_invalidates_even_queued_timer_callback() -> Non
         timer_factory=Timer,
         entry_panel_enabled=True,
     )
-    dispatcher.on_press(Key("ctrl"))
     dispatcher.on_press(Key("alt"))
     timer = Timer.timers[0]
 
@@ -132,7 +191,7 @@ def test_release_before_deadline_invalidates_even_queued_timer_callback() -> Non
 def test_hold_deadline_rechecks_physical_modifier_state() -> None:
     Timer.timers.clear()
     events = []
-    physical = {"ctrl": True, "alt": True}
+    physical = {"alt": True}
     dispatcher = create_hotkey_dispatcher(
         {},
         events.append,
@@ -140,7 +199,6 @@ def test_hold_deadline_rechecks_physical_modifier_state() -> None:
         key_is_pressed=physical.get,
         entry_panel_enabled=True,
     )
-    dispatcher.on_press(Key("ctrl"))
     dispatcher.on_press(Key("alt"))
 
     physical["alt"] = False
@@ -152,7 +210,7 @@ def test_hold_deadline_rechecks_physical_modifier_state() -> None:
 def test_unbound_stale_characters_do_not_block_a_later_panel_hold() -> None:
     Timer.timers.clear()
     events = []
-    physical = {"ctrl": True, "alt": True}
+    physical = {"alt": True}
     dispatcher = create_hotkey_dispatcher(
         {},
         events.append,
@@ -166,7 +224,6 @@ def test_unbound_stale_characters_do_not_block_a_later_panel_hold() -> None:
     dispatcher.on_press(Key(char="+"))
     dispatcher.on_press(Key(char=":"))
     dispatcher.on_press(Key(char="v"))
-    dispatcher.on_press(Key("ctrl"))
     dispatcher.on_press(Key("alt"))
     Timer.timers[0].fire()
 
@@ -182,7 +239,6 @@ def test_numpad_digit_is_claimed_by_open_panel_hold() -> None:
         timer_factory=Timer,
         entry_panel_enabled=True,
     )
-    dispatcher.on_press(Key("ctrl"))
     dispatcher.on_press(Key("alt"))
     Timer.timers[0].fire()
 
@@ -201,7 +257,6 @@ def test_shutdown_cancels_panel_hold_and_blocks_late_callback() -> None:
         timer_factory=Timer,
         entry_panel_enabled=True,
     )
-    dispatcher.on_press(Key("ctrl"))
     dispatcher.on_press(Key("alt"))
     timer = Timer.timers[0]
 
