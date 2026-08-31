@@ -16,6 +16,7 @@ from ClipAI.core.models import (
     ActionLanguageProvenance,
     ActionVersionContext,
     ActionVariant,
+    EntryActionRef,
     ExternalFallback,
     FeedbackReason,
     InputMode,
@@ -29,7 +30,7 @@ from ClipAI.core.models import (
 
 MarkerKind = Literal["localized", "control_token"]
 SUPPORTED_MANIFEST_SCHEMA_VERSION = 1
-FEATURE_CONTRACT_VERSION = 1
+FEATURE_CONTRACT_VERSION = 2
 _SEMVER = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
@@ -77,10 +78,33 @@ class OutputProfileSkeleton:
 
 
 @dataclass(frozen=True)
+class EntryPanelCandidateSkeleton:
+    action_id: str
+    press_type: PressType
+
+    @property
+    def identity(self) -> str:
+        return f"{self.action_id}:{self.press_type}"
+
+    @property
+    def action(self) -> EntryActionRef:
+        return EntryActionRef(self.action_id, self.press_type)
+
+
+@dataclass(frozen=True)
+class EntryPanelCategorySkeleton:
+    category_id: str
+    slot: int
+    flagship: tuple[EntryPanelCandidateSkeleton, ...]
+    advanced: tuple[EntryPanelCandidateSkeleton, ...]
+
+
+@dataclass(frozen=True)
 class FeatureSkeleton:
     actions: tuple[ActionSkeleton, ...]
     shortcuts: tuple[ShortcutDefinition, ...]
     output_profiles: tuple[OutputProfileSkeleton, ...]
+    entry_panel_categories: tuple[EntryPanelCategorySkeleton, ...] = ()
     contract_version: int = FEATURE_CONTRACT_VERSION
 
 
@@ -142,10 +166,27 @@ class LocalizedOutputProfile:
 
 
 @dataclass(frozen=True)
+class LocalizedEntryPanelCandidate:
+    action_id: str
+    press_type: PressType
+    label: str
+    description: str
+
+    @property
+    def identity(self) -> str:
+        return f"{self.action_id}:{self.press_type}"
+
+    @property
+    def action(self) -> EntryActionRef:
+        return EntryActionRef(self.action_id, self.press_type)
+
+
+@dataclass(frozen=True)
 class ActionLanguageResources:
     default_system_prompt: str
     actions: tuple[LocalizedAction, ...]
     output_profiles: tuple[LocalizedOutputProfile, ...]
+    entry_panel_candidates: tuple[LocalizedEntryPanelCandidate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -155,6 +196,7 @@ class CompiledActionLanguagePack:
     default_system_prompt: str
     action_definitions: tuple[ActionDefinition, ...]
     output_profiles: tuple[OutputProfile, ...]
+    entry_panel_candidates: tuple[LocalizedEntryPanelCandidate, ...]
     version_context: ActionVersionContext
 
 
@@ -215,6 +257,27 @@ def feature_contract_hash(skeleton: FeatureSkeleton) -> str:
             }
             for profile in skeleton.output_profiles
         ],
+        "entry_panel_categories": [
+            {
+                "category_id": category.category_id,
+                "slot": category.slot,
+                "flagship": [
+                    {
+                        "action_id": candidate.action_id,
+                        "press_type": candidate.press_type,
+                    }
+                    for candidate in category.flagship
+                ],
+                "advanced": [
+                    {
+                        "action_id": candidate.action_id,
+                        "press_type": candidate.press_type,
+                    }
+                    for candidate in category.advanced
+                ],
+            }
+            for category in skeleton.entry_panel_categories
+        ],
     }
     return _hash_payload(payload)
 
@@ -253,6 +316,15 @@ def compile_pack(
         path="resources.output_profiles",
         reason="inventory_mismatch",
     )
+    candidate_skeletons = _entry_panel_candidates(skeleton)
+    localized_candidates = _exact_index(
+        resources.entry_panel_candidates,
+        expected=tuple(candidate.identity for candidate in candidate_skeletons),
+        path="resources.entry_panel.candidates",
+        reason="inventory_mismatch",
+        key="identity",
+        ordered=True,
+    )
 
     definitions = tuple(
         _compile_action(action, localized_actions[action.id])
@@ -262,6 +334,14 @@ def compile_pack(
         _compile_profile(profile, localized_profiles[profile.id])
         for profile in skeleton.output_profiles
     )
+    candidates = tuple(
+        localized_candidates[candidate.identity]
+        for candidate in candidate_skeletons
+    )
+    for candidate in candidates:
+        path = f"resources.entry_panel.candidates.{candidate.identity}"
+        _validate_localized_text(candidate.label, f"{path}.label")
+        _validate_localized_text(candidate.description, f"{path}.description")
     profile_ids = {profile.id for profile in profiles}
     for action in definitions:
         referenced = {
@@ -295,6 +375,7 @@ def compile_pack(
         default_system_prompt=resources.default_system_prompt,
         action_definitions=definitions,
         output_profiles=profiles,
+        entry_panel_candidates=candidates,
         version_context=ActionVersionContext(
             provenance=provenance,
             output_profiles=profiles,
@@ -559,6 +640,19 @@ def _validate_skeleton(skeleton: FeatureSkeleton) -> None:
                     f"skeleton.output_profiles.{profile.id}.markers.{marker.marker_id}",
                     "localized marker literal must come from the language pack",
                 )
+    candidates = _entry_panel_candidates(skeleton)
+    _require_unique(
+        tuple(candidate.identity for candidate in candidates),
+        "skeleton.entry_panel.candidates",
+        "inventory_mismatch",
+    )
+    for candidate in candidates:
+        if candidate.action_id not in action_ids:
+            _fail(
+                "contract_mismatch",
+                f"skeleton.entry_panel.candidates.{candidate.identity}",
+                "entry panel candidate references an unknown action",
+            )
 
 
 def _validate_prompt(prompt: str, variables: tuple[str, ...], path: str) -> None:
@@ -712,6 +806,18 @@ def _resource_content_hash(resources: ActionLanguageResources) -> str:
                 key=lambda item: item.id,
             )
         ],
+        "entry_panel_candidates": [
+            {
+                "action_id": candidate.action_id,
+                "press_type": candidate.press_type,
+                "label": candidate.label,
+                "description": candidate.description,
+            }
+            for candidate in sorted(
+                resources.entry_panel_candidates,
+                key=lambda item: item.identity,
+            )
+        ],
     }
     return _hash_payload(payload)
 
@@ -727,6 +833,16 @@ def _feedback_payload(feedback: LocalizedFeedback | None) -> object:
             for reason in feedback.reasons
         ],
     }
+
+
+def _entry_panel_candidates(
+    skeleton: FeatureSkeleton,
+) -> tuple[EntryPanelCandidateSkeleton, ...]:
+    return tuple(
+        candidate
+        for category in skeleton.entry_panel_categories
+        for candidate in (*category.flagship, *category.advanced)
+    )
 
 
 def _hash_payload(payload: object) -> str:

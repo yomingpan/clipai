@@ -72,7 +72,8 @@ GitHub Windows CI 必須在 Python 3.10、3.11、3.12、3.13 執行 constrained 
 
 Action Language Pack 的 machine gate 必須執行 strict loader/compiler、`zh-TW`
 baseline、跨 pack Action/variant/profile/feedback topology、固定輸出語言、selection
-lifecycle、bootstrap fallback、Tray truth 與 architecture boundary 測試。Registry
+lifecycle、Entry Panel candidate topology/copy、bootstrap atomic fallback、Tray truth
+與 architecture boundary 測試。Registry
 中的每個 pack 都必須由 `scripts/validate_language_packs.py` 原子驗證；不得只測目前
 selected pack。逐項語言品質審查是額外 release gate，不由 snapshot 測試取代。
 
@@ -329,6 +330,10 @@ Recipe 回饋與使用引導應測：
 - Catalog tests 以 PRD literal 驗證 `0`–`2` recent、`3`–`6` root category、
   `1`–`4` flagship 與 More 無數字；未知 Action/press type、重複候選、重複 slot、
   多於四個 flagship 與未知欄位都必須 fail closed。
+- Language Pack tests 必須驗證每個 canonical `action_id + press_type` 都有 exact、
+  非空 candidate `label/description`；`zh-TW` 保持 baseline，`ja-JP` 的 Recent、
+  scene、More/search 使用日文 projection。selected pack 的 candidate resource
+  無效時必須整包 fallback default，不得混用兩包。
 - Coordinator tests 只經 public transition interface 驗證 root、scene、More、
   search、density、Esc、disabled reason 與 numeric resolution，不讀 private state。
 - Runtime tests 必須以 Panel lifecycle ID 加 selection-preparation ID 驗證 close、

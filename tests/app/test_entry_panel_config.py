@@ -5,13 +5,26 @@ import pytest
 from ClipAI.app.config_loader import load_config_bundle, load_entry_panel_catalog
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.models import EntryActionRef
+from ClipAI.services.action_language_packs import LocalizedEntryPanelCandidate
+
+
+def _presentation(
+    action_id: str,
+    press_type: str = "short",
+) -> LocalizedEntryPanelCandidate:
+    return LocalizedEntryPanelCandidate(
+        action_id,
+        press_type,
+        f"{action_id} localized",
+        f"{action_id} localized description",
+    )
 
 
 def test_entry_panel_catalog_compiles_configured_category_and_candidate(tmp_path: Path) -> None:
     path = tmp_path / "entry_panel.yaml"
     path.write_text(
         """
-schema_version: 1
+schema_version: 2
 categories:
   - id: understand
     slot: 3
@@ -20,8 +33,6 @@ categories:
     flagship:
       - action_id: english_companion
         press_type: long
-        label: English Companion
-        description: 理解英文
     advanced: []
 """.strip(),
         encoding="utf-8",
@@ -30,6 +41,7 @@ categories:
     catalog = load_entry_panel_catalog(
         path,
         actions=load_config_bundle().actions,
+        candidate_presentations=(_presentation("english_companion", "long"),),
     )
 
     category = catalog.category_for_slot(3)
@@ -41,7 +53,7 @@ def test_entry_panel_catalog_rejects_duplicate_root_slots(tmp_path: Path) -> Non
     path = tmp_path / "entry_panel.yaml"
     path.write_text(
         """
-schema_version: 1
+schema_version: 2
 categories:
   - id: understand
     slot: 3
@@ -60,13 +72,17 @@ categories:
     )
 
     with pytest.raises(ConfigError, match="duplicate category slot: 3"):
-        load_entry_panel_catalog(path, actions=load_config_bundle().actions)
+        load_entry_panel_catalog(
+            path,
+            actions=load_config_bundle().actions,
+            candidate_presentations=(),
+        )
 
 
 def test_entry_panel_catalog_limits_scene_to_four_flagships(tmp_path: Path) -> None:
     path = tmp_path / "entry_panel.yaml"
     candidates = "\n".join(
-        f"      - action_id: {action_id}\n        press_type: short\n        label: {action_id}\n        description: item"
+        f"      - action_id: {action_id}\n        press_type: short"
         for action_id in (
             "english_companion",
             "reading_friction",
@@ -77,7 +93,7 @@ def test_entry_panel_catalog_limits_scene_to_four_flagships(tmp_path: Path) -> N
     )
     path.write_text(
         "\n".join((
-            "schema_version: 1",
+            "schema_version: 2",
             "categories:",
             "  - id: understand",
             "    slot: 3",
@@ -91,14 +107,27 @@ def test_entry_panel_catalog_limits_scene_to_four_flagships(tmp_path: Path) -> N
     )
 
     with pytest.raises(ConfigError, match="flagship must contain at most 4 candidates"):
-        load_entry_panel_catalog(path, actions=load_config_bundle().actions)
+        load_entry_panel_catalog(
+            path,
+            actions=load_config_bundle().actions,
+            candidate_presentations=tuple(
+                _presentation(action_id)
+                for action_id in (
+                    "english_companion",
+                    "reading_friction",
+                    "explain_like_friend",
+                    "article_structure",
+                    "extract_keywords",
+                )
+            ),
+        )
 
 
 def test_entry_panel_catalog_rejects_duplicate_action_reference(tmp_path: Path) -> None:
     path = tmp_path / "entry_panel.yaml"
     path.write_text(
         """
-schema_version: 1
+schema_version: 2
 categories:
   - id: understand
     slot: 3
@@ -107,26 +136,53 @@ categories:
     flagship:
       - action_id: english_companion
         press_type: short
-        label: English Companion
-        description: 理解英文
     advanced:
       - action_id: english_companion
         press_type: short
-        label: English Companion
-        description: 理解英文
 """.strip(),
         encoding="utf-8",
     )
 
     with pytest.raises(ConfigError, match="duplicate entry action: english_companion/short"):
-        load_entry_panel_catalog(path, actions=load_config_bundle().actions)
+        load_entry_panel_catalog(
+            path,
+            actions=load_config_bundle().actions,
+            candidate_presentations=(_presentation("english_companion"),),
+        )
+
+
+def test_entry_panel_skeleton_rejects_legacy_candidate_copy(tmp_path: Path) -> None:
+    path = tmp_path / "entry_panel.yaml"
+    path.write_text(
+        """
+schema_version: 2
+categories:
+  - id: understand
+    slot: 3
+    label: 看得懂
+    description: 理解
+    flagship:
+      - action_id: english_companion
+        press_type: short
+        label: 不得保留在 skeleton
+    advanced: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="label is not a supported setting"):
+        load_entry_panel_catalog(
+            path,
+            actions=load_config_bundle().actions,
+            candidate_presentations=(_presentation("english_companion"),),
+        )
 
 
 def test_entry_panel_catalog_reserves_root_slots_three_through_six(tmp_path: Path) -> None:
     path = tmp_path / "entry_panel.yaml"
     path.write_text(
         """
-schema_version: 1
+schema_version: 2
 categories:
   - id: invalid
     slot: 2
@@ -139,14 +195,18 @@ categories:
     )
 
     with pytest.raises(ConfigError, match="slot must be one of: 3, 4, 5, 6"):
-        load_entry_panel_catalog(path, actions=load_config_bundle().actions)
+        load_entry_panel_catalog(
+            path,
+            actions=load_config_bundle().actions,
+            candidate_presentations=(),
+        )
 
 
 def test_entry_panel_catalog_rejects_duplicate_category_ids(tmp_path: Path) -> None:
     path = tmp_path / "entry_panel.yaml"
     path.write_text(
         """
-schema_version: 1
+schema_version: 2
 categories:
   - id: understand
     slot: 3
@@ -165,14 +225,15 @@ categories:
     )
 
     with pytest.raises(ConfigError, match="duplicate category id: understand"):
-        load_entry_panel_catalog(path, actions=load_config_bundle().actions)
+        load_entry_panel_catalog(
+            path,
+            actions=load_config_bundle().actions,
+            candidate_presentations=(),
+        )
 
 
 def test_product_entry_panel_catalog_matches_prd_order() -> None:
-    catalog = load_entry_panel_catalog(
-        "config/entry_panel.yaml",
-        actions=load_config_bundle().actions,
-    )
+    catalog = load_config_bundle().entry_panel
 
     expected = {
         3: (
@@ -226,4 +287,4 @@ def test_config_bundle_exposes_disabled_entry_panel_catalog() -> None:
 
     assert bundle.app.entry_panel_enabled is True
     assert bundle.entry_panel.category_for_slot(3).category_id == "understand"
-    assert bundle.schema_versions.entry_panel == 1
+    assert bundle.schema_versions.entry_panel == 2

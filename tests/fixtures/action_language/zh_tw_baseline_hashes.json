@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "inventory": {
     "actions": 27,
     "explicit_variants": [
@@ -12,7 +12,8 @@
     ],
     "output_profiles": 10,
     "shortcuts": 30,
-    "start_action_shortcuts": 27
+    "start_action_shortcuts": 27,
+    "entry_panel_candidates": 27
   },
   "default_system_prompt": "sha256:cc82d8e411e8fdbea01e7b3e367d4632ce6ed712a05b0dc3b292e8be953e0394",
   "resolved_actions": {
@@ -83,5 +84,34 @@
     "session_handoff": "sha256:bd008a8518ed9802b1b0f183cfa8637efffdbce2b1e141d3645f45b8dc4cdd4e",
     "score_compact": "sha256:15018c5ad770219dd48501bb9c49cbaed347956e9dd94859cf5c0f9eed248cf1"
   },
-  "shortcut_matrix": "sha256:225d94448c7f39e988ef20f3d139a9f43f05a03bfa32fc037650bbba67d520a5"
+  "shortcut_matrix": "sha256:225d94448c7f39e988ef20f3d139a9f43f05a03bfa32fc037650bbba67d520a5",
+  "entry_panel_candidates": {
+    "translate_to_traditional_chinese:short": "sha256:3f2b79ca74b9bf97fd16d0e8d27f58bb00654fb39fdffcf07d3794ce3ec2672a",
+    "english_companion:short": "sha256:2a6f804cbd2cf280ba5a47c4d690caf8faea6c1819910f5ee72de2ccab875410",
+    "explain_like_friend:short": "sha256:3389b48879f6b3756b00ab7e4fb1b5bf25c456ff0611373a7e90080040326143",
+    "reading_friction:short": "sha256:2e6dfb85bdb8e4521a400dc5232f414ad6d9ea75367e87ae43182b21e5b0fdf8",
+    "article_structure:short": "sha256:49fa176f835aa61aae239952fbd62de84bdc0d427734aa4b3943ddc047b9c45b",
+    "extract_keywords:short": "sha256:f2a6e9f53a58a694db44cbeab9516c1c65a9fe27a41c59f3371c1c81079be2db",
+    "translate_to_english:short": "sha256:66bdacdec578c557e7b6c75ce4f49ba91bd37c6479b1719fdf3b7dd944136b93",
+    "shorten_content:short": "sha256:0272148c70e09ebb4053c58b0ebca5bac801204ae1624caa02e89ddb7274a2e7",
+    "personal_style_informal:short": "sha256:77706afb79150dd210f46f353649c3b4dcedf9ad476942dfde9673ca302eb8a7",
+    "intent_preserving_dictation_editor:short": "sha256:703c29eb7a4482ab6affad8e61611363b544e2aaa61d8776e7407bd2df52acdf",
+    "expression_retrieval:short": "sha256:799248074ce78c3e6e4f106683697a1f1a3ac838ad5eadd9d7cd30a67a36b834",
+    "personal_style_oral:short": "sha256:0cdb797ac49b45204c0e12c998d1314e8e3488d7e4d14f5f56f25b65f4900847",
+    "personal_style_presentation:short": "sha256:507d3b6777ed17f47296ec19a3cc96675d0979a7009a42c9de5fa602a2c21714",
+    "pyramid_position:short": "sha256:ff153120d802cf05c6676f8c4cf8cbf38c84babeb432a0fb5c90db5960b210ee",
+    "critical_thinking:short": "sha256:7144abac623cfd826985dbda195d25792d2f1ac4c04cdd5cf2f0eeee59215a4c",
+    "tradeoff_perspective:short": "sha256:0e8c5476981ab617c9a33cbcd6db759d338002b879ad89abe1fa00207359922f",
+    "reflective_question:short": "sha256:bbf59ed2441ceaae24d91a3f32d9cee5bef4991bebf66fd44188711fd4498769",
+    "name_idea:short": "sha256:0bd3bf5fa6e5d4d2c7f7469b8726102a69a394b32ccca49b2ad6577c758f55f6",
+    "name_concept_carefully:short": "sha256:4e9bf4a6c09b3c2fd112f296e5ad7f35543029bea0d86f4f6291c2d8d9990a74",
+    "illuminate_essence:short": "sha256:ee955548bec783811f6b01ab015b3cd8b3dcd5e1e4402eed32011369fecbf63e",
+    "temporary_viewpoint:short": "sha256:9d92e9cf843c3f5e323cca7c899bf858fc9f7ed988fdcdd7b7fab55a7c7543c0",
+    "mece_decomposition:short": "sha256:dfc220d10b17bebf3bda09769125df01f8e3db21487d06f75017c02f2e965fe5",
+    "minimum_action:short": "sha256:e3e49e97db3d5158011313c530ab4c77fd60eeb927a05487600efacac8a5d9ba",
+    "structure_score_prompt:short": "sha256:43bd269415f716becf443984f08331e11b0350ca37cd83191dce3dce0a33ab15",
+    "extract_screenshot_text:short": "sha256:fab7e4655131b01da72ae72b8f9b6a85a84cc6fe9900e70829cbe2d8593112aa",
+    "session_handoff:short": "sha256:5e702c523ee8002b366d352941a0d43136dba41435e94bc9ff6a3d65db3c7952",
+    "command_copilot:short": "sha256:2b8479abeec43a7b44c66787c1d5256d2342fcda89e8fb8666f0298fbd0b8afc"
+  }
 }

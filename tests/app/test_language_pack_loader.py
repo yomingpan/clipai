@@ -85,6 +85,24 @@ def _build_valid_config(root: Path) -> Path:
             ],
         },
     )
+    _write_yaml(
+        config / "entry_panel.yaml",
+        {
+            "schema_version": 2,
+            "categories": [
+                {
+                    "id": "understand",
+                    "slot": 3,
+                    "label": "看得懂",
+                    "description": "理解內容",
+                    "flagship": [
+                        {"action_id": "explain", "press_type": "short"},
+                    ],
+                    "advanced": [],
+                },
+            ],
+        },
+    )
     pack = config / "language_packs" / "zh-TW"
     resources = {
         "app": {
@@ -125,6 +143,17 @@ def _build_valid_config(root: Path) -> Path:
                     "markers": {"heading": "## 解釋"},
                 },
             },
+        },
+        "entry_panel": {
+            "schema_version": 1,
+            "candidates": [
+                {
+                    "action_id": "explain",
+                    "press_type": "short",
+                    "label": "快速解釋",
+                    "description": "用清楚的方式說明內容。",
+                },
+            ],
         },
     }
     resource_entries: dict[str, dict[str, str]] = {}
@@ -196,6 +225,37 @@ def test_loader_validates_and_compiles_every_official_pack(tmp_path: Path) -> No
         "## 解釋",
         "[[SCROLL_BREAK]]",
     )
+    assert packs[0].entry_panel_candidates[0].label == "快速解釋"
+
+
+@pytest.mark.parametrize("mutation", ("missing", "extra"))
+def test_manifest_requires_exact_entry_panel_resource_set(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    config = _build_valid_config(tmp_path)
+    manifest_path = config / "language_packs" / "zh-TW" / "manifest.yaml"
+    manifest = _load_yaml(manifest_path)
+    if mutation == "missing":
+        del manifest["resources"]["entry_panel"]
+    else:
+        manifest["resources"]["extra"] = manifest["resources"]["app"].copy()
+    _write_yaml(manifest_path, manifest)
+
+    _assert_failure(config, "manifest_invalid")
+
+
+def test_entry_panel_resource_inventory_is_checked_against_canonical_refs(
+    tmp_path: Path,
+) -> None:
+    config = _build_valid_config(tmp_path)
+    path = config / "language_packs" / "zh-TW" / "entry_panel.yaml"
+    payload = _load_yaml(path)
+    payload["candidates"] = []
+    _write_yaml(path, payload)
+    _refresh_checksum(config, "entry_panel")
+
+    _assert_failure(config, "inventory_mismatch")
 
 
 def test_registry_order_is_preserved_as_product_order(tmp_path: Path) -> None:

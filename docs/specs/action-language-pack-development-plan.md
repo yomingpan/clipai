@@ -1,5 +1,7 @@
 # ClipAI Action Language Pack 架構執行規劃
 
+> 歷史範圍註記：本文件記錄最初 Phase 1，當時刻意排除 Entry Panel。後續已由 `docs/specs/action-language-pack-entry-panel-extension-plan.md` 擴充 candidate Action 文案；目前正式 ownership 以 contracts 與 architecture boundaries 為準。
+
 > 狀態：已完成 repo 調查與產品決策訪談，可直接進入實作
 > 架構分類：**Yellow**
 > 主要建議：**在既有 config composition seam 進行可逆的增量遷移，不重寫 Runtime**

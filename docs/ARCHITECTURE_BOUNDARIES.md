@@ -57,10 +57,12 @@ tests/              # Unit sims 與 integration tests
   successful step 所解析出的 `action_id + press_type`；不得由 provider completion、
   Workflow snapshot revision、Popup visibility 或 operation tracker 推導成功。
 - Action Language Pack 的 canonical feature skeleton 只擁有不可翻譯行為；pure
-  compiler 擁有完整性與相容性規則，app loader 擁有 filesystem 驗證，bootstrap
-  擁有啟動時 resolve/fallback，`ActionLanguageSelectionCoordinator` 擁有
+  compiler 擁有完整性與相容性規則，包括 Entry Panel ordered Action refs 與
+  pack candidate `label/description` 的 exact coverage；app loader 擁有 filesystem
+  驗證，bootstrap 擁有啟動時 resolve/fallback，`ActionLanguageSelectionCoordinator` 擁有
   restart-only selection lifecycle。Workflow、Provider、Voice Input 與 Speech/TTS
-  不得選 pack 或依 locale 分支。完整規則見
+  不得選 pack 或依 locale 分支。Entry Panel coordinator/runtime/UI 只消費已組裝
+  projection，不得讀 pack identity。完整規則見
   `docs/contracts/services/action-language-pack-contract.md`。
 
 ## Core
@@ -302,8 +304,9 @@ UI 只負責：
 
 目標是避免把產品行為硬寫進程式。程式可以定義 schema、預設值、validation，但可調整內容應盡量外部化。
 
-`config/entry_panel.yaml` 只擁有 Entry Panel 的 category、顯示順序、文案與
-`action_id + press_type` 候選人。Action prompt、input/output mode、provider、
+`config/entry_panel.yaml` 只擁有 Entry Panel 的 category、顯示順序、category
+文案與 `action_id + press_type` 候選人；candidate `label/description` 由 active
+Action Language Pack 完整提供。Action prompt、input/output mode、provider、
 Personal Style 與可執行性仍由既有 owner 決定；UI 不得依 action ID 寫分支。
 
 ### Prompts

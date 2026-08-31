@@ -31,11 +31,13 @@ def test_execution_and_device_modules_do_not_import_language_pack_owners() -> No
         Path(path)
         for path in (
             "ClipAI/services/workflow_controller.py",
+            "ClipAI/services/entry_panel.py",
             "ClipAI/services/prompt_builder.py",
             "ClipAI/services/voice_input.py",
             "ClipAI/services/speech_coordinator.py",
             "ClipAI/app/provider_execution.py",
             "ClipAI/app/runtime_workflows.py",
+            "ClipAI/app/runtime_entry_panel.py",
             "ClipAI/app/runtime_voice_input.py",
             "ClipAI/app/speech_execution.py",
         )

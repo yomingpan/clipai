@@ -44,6 +44,7 @@ def bootstrap_action_language_config(
         actions_path=actions_path,
         shortcuts_path=shortcuts_path,
         output_profiles_path=output_profiles_path,
+        entry_panel_path=entry_panel_path,
     )
     loader = ActionLanguagePackLoader(config_dir, skeleton)
     registry = loader.load_registry()

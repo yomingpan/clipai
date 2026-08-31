@@ -12,9 +12,12 @@ from ClipAI.services.action_language_packs import (
     ActionLanguageResources,
     ActionSkeleton,
     ActionVariantSkeleton,
+    EntryPanelCandidateSkeleton,
+    EntryPanelCategorySkeleton,
     FeatureSkeleton,
     LocalizedAction,
     LocalizedActionVariant,
+    LocalizedEntryPanelCandidate,
     LocalizedFeedback,
     LocalizedMarker,
     LocalizedOutputProfile,
@@ -69,6 +72,14 @@ def _valid_contract() -> tuple[
                 ),
             ),
         ),
+        entry_panel_categories=(
+            EntryPanelCategorySkeleton(
+                category_id="understand",
+                slot=3,
+                flagship=(EntryPanelCandidateSkeleton("explain", "short"),),
+                advanced=(),
+            ),
+        ),
     )
     manifest = ActionLanguagePackManifest(
         schema_version=1,
@@ -111,6 +122,14 @@ def _valid_contract() -> tuple[
                 id="structured",
                 instruction="使用指定段落。",
                 markers=(LocalizedMarker("heading", "## 解釋"),),
+            ),
+        ),
+        entry_panel_candidates=(
+            LocalizedEntryPanelCandidate(
+                "explain",
+                "short",
+                "快速解釋",
+                "用清楚的方式說明內容。",
             ),
         ),
     )
@@ -165,6 +184,42 @@ def test_valid_pack_compiles_complete_existing_domain_models() -> None:
     assert compiled.output_profiles[1].required_markers == (
         "## 解釋",
         "[[SCROLL_BREAK]]",
+    )
+    assert compiled.entry_panel_candidates == resources.entry_panel_candidates
+
+
+@pytest.mark.parametrize("kind", ("missing", "extra", "duplicate"))
+def test_entry_panel_candidate_inventory_must_match_exactly(kind: str) -> None:
+    skeleton, manifest, resources = _valid_contract()
+    candidate = resources.entry_panel_candidates[0]
+    if kind == "missing":
+        candidates = ()
+    elif kind == "extra":
+        candidates = (
+            *resources.entry_panel_candidates,
+            replace(candidate, action_id="extra"),
+        )
+    else:
+        candidates = (*resources.entry_panel_candidates, candidate)
+
+    _assert_failure(
+        skeleton,
+        manifest,
+        replace(resources, entry_panel_candidates=candidates),
+        "inventory_mismatch",
+    )
+
+
+@pytest.mark.parametrize("field", ("label", "description"))
+def test_entry_panel_candidate_copy_must_be_nonempty(field: str) -> None:
+    skeleton, manifest, resources = _valid_contract()
+    candidate = replace(resources.entry_panel_candidates[0], **{field: "  "})
+
+    _assert_failure(
+        skeleton,
+        manifest,
+        replace(resources, entry_panel_candidates=(candidate,)),
+        "inventory_mismatch",
     )
 
 
@@ -424,6 +479,13 @@ def test_contract_hash_is_deterministic_and_sequence_sensitive() -> None:
     assert feature_contract_hash(skeleton) != feature_contract_hash(
         replace(skeleton, shortcuts=tuple(reversed(skeleton.shortcuts)))
     )
+    changed_panel = replace(
+        skeleton,
+        entry_panel_categories=(
+            replace(skeleton.entry_panel_categories[0], slot=4),
+        ),
+    )
+    assert feature_contract_hash(skeleton) != feature_contract_hash(changed_panel)
 
 
 def test_resource_mapping_order_does_not_change_provenance_hash() -> None:
@@ -437,4 +499,20 @@ def test_resource_mapping_order_does_not_change_provenance_hash() -> None:
     assert (
         compile_pack(skeleton, manifest, reordered).provenance.resource_content_hash
         == compiled.provenance.resource_content_hash
+    )
+
+
+def test_entry_panel_copy_changes_pack_provenance_hash() -> None:
+    skeleton, manifest, resources = _valid_contract()
+    compiled = compile_pack(skeleton, manifest, resources)
+    changed = replace(
+        resources,
+        entry_panel_candidates=(
+            replace(resources.entry_panel_candidates[0], label="別的標題"),
+        ),
+    )
+
+    assert (
+        compile_pack(skeleton, manifest, changed).provenance.resource_content_hash
+        != compiled.provenance.resource_content_hash
     )

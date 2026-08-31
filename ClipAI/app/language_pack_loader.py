@@ -25,9 +25,12 @@ from ClipAI.services.action_language_packs import (
     ActionSkeleton,
     ActionVariantSkeleton,
     CompiledActionLanguagePack,
+    EntryPanelCandidateSkeleton,
+    EntryPanelCategorySkeleton,
     FeatureSkeleton,
     LocalizedAction,
     LocalizedActionVariant,
+    LocalizedEntryPanelCandidate,
     LocalizedFeedback,
     LocalizedMarker,
     LocalizedOutputProfile,
@@ -41,6 +44,7 @@ MAX_LANGUAGE_PACK_FILE_BYTES = 2 * 1024 * 1024
 LANGUAGE_PACK_REGISTRY_SCHEMA_VERSION = 1
 ACTION_SKELETON_SCHEMA_VERSION = 11
 OUTPUT_PROFILE_SKELETON_SCHEMA_VERSION = 2
+ENTRY_PANEL_SKELETON_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -156,6 +160,7 @@ def load_feature_skeleton(
     actions_path: str | Path | None = None,
     shortcuts_path: str | Path | None = None,
     output_profiles_path: str | Path | None = None,
+    entry_panel_path: str | Path | None = None,
 ) -> FeatureSkeleton:
     root = Path(config_dir)
     actions = _parse_action_skeleton(Path(actions_path) if actions_path is not None else root / "actions.yaml")
@@ -165,7 +170,17 @@ def load_feature_skeleton(
         if output_profiles_path is not None
         else root / "output_profiles.yaml"
     )
-    return FeatureSkeleton(actions=actions, shortcuts=shortcuts, output_profiles=profiles)
+    entry_panel_categories = _parse_entry_panel_skeleton(
+        Path(entry_panel_path)
+        if entry_panel_path is not None
+        else root / "entry_panel.yaml"
+    )
+    return FeatureSkeleton(
+        actions=actions,
+        shortcuts=shortcuts,
+        output_profiles=profiles,
+        entry_panel_categories=entry_panel_categories,
+    )
 
 
 def validate_official_language_packs(
@@ -199,7 +214,7 @@ def _parse_manifest(path: Path) -> _ParsedManifest:
         "manifest_invalid",
     )
     resources = _mapping(payload.get("resources"), "manifest.resources", "manifest_invalid")
-    required = {"app", "actions", "output_profiles"}
+    required = {"app", "actions", "output_profiles", "entry_panel"}
     if set(resources) != required:
         _fail(
             "manifest_invalid",
@@ -207,7 +222,7 @@ def _parse_manifest(path: Path) -> _ParsedManifest:
             "manifest must declare exactly the supported resources",
         )
     references: dict[str, _ResourceReference] = {}
-    for name in ("app", "actions", "output_profiles"):
+    for name in ("app", "actions", "output_profiles", "entry_panel"):
         resource_path = f"manifest.resources.{name}"
         data = _mapping(resources[name], resource_path, "manifest_invalid")
         _reject_unknown(data, {"path", "sha256"}, resource_path, "manifest_invalid")
@@ -298,6 +313,27 @@ def _parse_resources(payloads: dict[str, dict[str, Any]]) -> ActionLanguageResou
         _parse_localized_profile(profile_id, value)
         for profile_id, value in profile_map.items()
     )
+    entry_panel = payloads["entry_panel"]
+    _schema(entry_panel, 1, "resources.entry_panel")
+    _reject_unknown(
+        entry_panel,
+        {"schema_version", "candidates"},
+        "resources.entry_panel",
+        "inventory_mismatch",
+    )
+    localized_candidates = tuple(
+        _parse_localized_entry_panel_candidate(
+            value,
+            f"resources.entry_panel.candidates[{index}]",
+        )
+        for index, value in enumerate(
+            _list(
+                entry_panel.get("candidates"),
+                "resources.entry_panel.candidates",
+                "inventory_mismatch",
+            )
+        )
+    )
     return ActionLanguageResources(
         default_system_prompt=_text(
             app.get("default_system_prompt"),
@@ -307,6 +343,7 @@ def _parse_resources(payloads: dict[str, dict[str, Any]]) -> ActionLanguageResou
         ),
         actions=localized_actions,
         output_profiles=localized_profiles,
+        entry_panel_candidates=localized_candidates,
     )
 
 
@@ -420,6 +457,45 @@ def _parse_localized_profile(profile_id: str, value: Any) -> LocalizedOutputProf
                 _text(literal, f"{path}.markers.{marker_id}", "marker_contract_mismatch", preserve=True),
             )
             for marker_id, literal in markers.items()
+        ),
+    )
+
+
+def _parse_localized_entry_panel_candidate(
+    value: Any,
+    path: str,
+) -> LocalizedEntryPanelCandidate:
+    data = _mapping(value, path, "inventory_mismatch")
+    _reject_unknown(
+        data,
+        {"action_id", "press_type", "label", "description"},
+        path,
+        "inventory_mismatch",
+    )
+    press_type = _choice(
+        data.get("press_type"),
+        {"short", "long"},
+        f"{path}.press_type",
+        "inventory_mismatch",
+    )
+    return LocalizedEntryPanelCandidate(
+        action_id=_text(
+            data.get("action_id"),
+            f"{path}.action_id",
+            "inventory_mismatch",
+        ),
+        press_type=cast(PressType, press_type),
+        label=_text(
+            data.get("label"),
+            f"{path}.label",
+            "inventory_mismatch",
+            preserve=True,
+        ),
+        description=_text(
+            data.get("description"),
+            f"{path}.description",
+            "inventory_mismatch",
+            preserve=True,
         ),
     )
 
@@ -542,6 +618,99 @@ def _parse_output_profile_skeleton(path: Path) -> tuple[OutputProfileSkeleton, .
             markers=markers,
         ))
     return tuple(profiles)
+
+
+def _parse_entry_panel_skeleton(
+    path: Path,
+) -> tuple[EntryPanelCategorySkeleton, ...]:
+    payload = _read_yaml(path, reason="contract_mismatch")
+    _schema(
+        payload,
+        ENTRY_PANEL_SKELETON_SCHEMA_VERSION,
+        "skeleton.entry_panel",
+    )
+    _reject_unknown(
+        payload,
+        {"schema_version", "categories"},
+        "skeleton.entry_panel",
+        "contract_mismatch",
+    )
+    raw_categories = _list(
+        payload.get("categories"),
+        "skeleton.entry_panel.categories",
+        "contract_mismatch",
+    )
+    categories: list[EntryPanelCategorySkeleton] = []
+    for index, value in enumerate(raw_categories):
+        category_path = f"skeleton.entry_panel.categories[{index}]"
+        data = _mapping(value, category_path, "contract_mismatch")
+        _reject_unknown(
+            data,
+            {"id", "slot", "label", "description", "flagship", "advanced"},
+            category_path,
+            "contract_mismatch",
+        )
+        _text(data.get("label"), f"{category_path}.label", "contract_mismatch")
+        _text(
+            data.get("description"),
+            f"{category_path}.description",
+            "contract_mismatch",
+        )
+        categories.append(
+            EntryPanelCategorySkeleton(
+                category_id=_text(
+                    data.get("id"),
+                    f"{category_path}.id",
+                    "contract_mismatch",
+                ),
+                slot=_integer(
+                    data.get("slot"),
+                    f"{category_path}.slot",
+                    "contract_mismatch",
+                ),
+                flagship=_parse_entry_panel_candidate_skeletons(
+                    data.get("flagship"),
+                    f"{category_path}.flagship",
+                ),
+                advanced=_parse_entry_panel_candidate_skeletons(
+                    data.get("advanced"),
+                    f"{category_path}.advanced",
+                ),
+            )
+        )
+    return tuple(categories)
+
+
+def _parse_entry_panel_candidate_skeletons(
+    value: Any,
+    path: str,
+) -> tuple[EntryPanelCandidateSkeleton, ...]:
+    candidates: list[EntryPanelCandidateSkeleton] = []
+    for index, item in enumerate(_list(value, path, "contract_mismatch")):
+        candidate_path = f"{path}[{index}]"
+        data = _mapping(item, candidate_path, "contract_mismatch")
+        _reject_unknown(
+            data,
+            {"action_id", "press_type"},
+            candidate_path,
+            "contract_mismatch",
+        )
+        press_type = _choice(
+            data.get("press_type"),
+            {"short", "long"},
+            f"{candidate_path}.press_type",
+        )
+        candidates.append(
+            EntryPanelCandidateSkeleton(
+                action_id=_text(
+                    data.get("action_id"),
+                    f"{candidate_path}.action_id",
+                    "contract_mismatch",
+                ),
+                press_type=cast(PressType, press_type),
+            )
+        )
+    return tuple(candidates)
 
 
 def _parse_marker_skeleton(value: Any, path: str) -> OutputMarkerSkeleton:

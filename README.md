@@ -71,7 +71,7 @@ custom gateway, reload, and model refresh behavior.
 
 ## Action Language
 
-Action content can use Traditional Chinese or Japanese without changing the UI,
-provider, Voice Input, or TTS language. See
+Action content and Unified Entry Panel Action cards can use Traditional Chinese
+or Japanese without changing the surrounding UI, provider, Voice Input, or TTS language. See
 [Action Language Packs](docs/ACTION_LANGUAGE_PACKS.md) for Tray switching,
 restart, validation, and fallback behavior.

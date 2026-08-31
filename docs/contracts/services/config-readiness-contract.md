@@ -1,6 +1,6 @@
 # Config And Readiness Contract
 
-- App config currently uses schema v2, the canonical Action skeleton uses schema v11, shortcuts use schema v1, output-profile skeleton uses schema v2, entry-panel config uses schema v1, and Action Language Pack registry/manifest/resources use their own schema v1 contracts. Each loader owns its supported version instead of relying on one global catalog version.
+- App config currently uses schema v2, the canonical Action skeleton uses schema v11, shortcuts use schema v1, output-profile skeleton uses schema v2, entry-panel config uses schema v2, and Action Language Pack registry/manifest/resources use their own schema v1 contracts. Each loader owns its supported version instead of relying on one global catalog version.
 - Missing or unsupported versions are rejected. User files are never rewritten implicitly.
 - Future schema versions are rejected with file and version information.
 - Only the composition root reads environment variables. Provider credentials are injected and their values never appear in repr, logs, or diagnostics.

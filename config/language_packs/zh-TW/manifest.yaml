@@ -2,8 +2,8 @@ schema_version: 1
 pack_id: zh-TW
 locale: zh-TW
 display_name: 繁體中文
-pack_version: 1.0.0
-feature_contract_hash: sha256:f439d77740d5812586cb6d0dc3c99d97c01cc4ad5c652e101dc44e04508ef9fe
+pack_version: 1.1.0
+feature_contract_hash: sha256:f842434df069c3bf2da9e17c6c708a30d288a5a667a3ca9029a2d8a1343203d3
 resources:
   app:
     path: app.yaml
@@ -14,3 +14,6 @@ resources:
   output_profiles:
     path: output_profiles.yaml
     sha256: d3edc7646e3ba82e9dd2f41f096f027f1e8cf0658cbbfdf35a222b39f2b2891c
+  entry_panel:
+    path: entry_panel.yaml
+    sha256: 2ed36ca37c22ce834d889a1ee285f803156188a3d033d63d75cfd2c249a2fc1c

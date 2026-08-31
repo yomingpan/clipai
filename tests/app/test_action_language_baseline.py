@@ -68,7 +68,7 @@ def _current_baseline() -> dict[str, Any]:
     shortcuts = [asdict(shortcut) for shortcut in bundle.shortcuts.definitions()]
 
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "inventory": {
             "actions": len(action_ids),
             "explicit_variants": explicit_variants,
@@ -76,6 +76,10 @@ def _current_baseline() -> dict[str, Any]:
             "shortcuts": len(shortcuts),
             "start_action_shortcuts": sum(
                 shortcut["command"] == "start_action" for shortcut in shortcuts
+            ),
+            "entry_panel_candidates": sum(
+                len(category.flagship) + len(category.advanced)
+                for category in bundle.entry_panel.categories
             ),
         },
         "default_system_prompt": _digest(bundle.app.system_prompt),
@@ -91,6 +95,16 @@ def _current_baseline() -> dict[str, Any]:
             for profile_id in profile_ids
         },
         "shortcut_matrix": _digest(shortcuts),
+        "entry_panel_candidates": {
+            f"{candidate.action.action_id}:{candidate.action.press_type}": _digest(
+                {
+                    "label": candidate.label,
+                    "description": candidate.description,
+                }
+            )
+            for category in bundle.entry_panel.categories
+            for candidate in (*category.flagship, *category.advanced)
+        },
     }
 
 
@@ -114,6 +128,10 @@ def test_action_language_inventory_and_prompt_contract_are_frozen() -> None:
         for shortcut in shortcut_payload["shortcuts"]
     ) == 27
     assert len(profile_payload["profiles"]) == 10
+    assert sum(
+        len(category.flagship) + len(category.advanced)
+        for category in load_config_bundle().entry_panel.categories
+    ) == 27
 
     localized_actions = language_payload["actions"].values()
     prompts = [action["prompt"] for action in localized_actions]

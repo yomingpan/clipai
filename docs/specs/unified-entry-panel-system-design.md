@@ -108,7 +108,9 @@ physical Ctrl+Alt hold
 OpenUnifiedEntryPanel typed command
         ▼
 EntryPanelRuntimeModule ──────── EntryPanelCatalog ← config/entry_panel.yaml
-  │ launch/source/selection identity              (IA and copy only)
+  │ launch/source/selection identity              (IA/category copy/Action refs)
+  │                                      ← active Action Language Pack
+  │                                         (candidate label/description)
   ├── EntryPanelCoordinator (pure navigation/search/density transitions)
   │ external target restore + action-time capture, scoped by selection ID
   ▼
@@ -170,15 +172,17 @@ the Panel itself does not show an extra shortcut-guide entry.
 
 ### 2. Action catalog versus entry catalog
 
-Keep `ActionCatalog` execution-only. Add `config/entry_panel.yaml`, compiled
-during app composition into `EntryPanelCatalog`; the catalog implementation
-owns semantic validity and lookup indexes while the config adapter owns YAML
-shape and error-path translation.
+Keep `ActionCatalog` execution-only. `config/entry_panel.yaml` is compiled
+during app composition with the active Action Language Pack's exact candidate
+presentation into `EntryPanelCatalog`; the catalog implementation owns semantic
+validity and lookup indexes while adapters own YAML shape, checksums and
+error-path translation.
 
-The file owns categories, visual order, concise descriptions and up to four
+The canonical file owns categories, visual order, category copy and up to four
 flagship candidates per scene. Each candidate is an explicit
 `action_id + press_type` reference, so press-variant semantics are not guessed
-by the UI. It does **not** duplicate prompts, input modes, provider choices,
+by the UI. Candidate `label/description` come from the active pack as one
+exact, restart-only resource. The canonical file does **not** duplicate prompts, input modes, provider choices,
 keyboard mappings or availability logic. Validation fails application startup
 when an action/variant is unknown, repeated across a location, a category is
 invalid, or a flagship limit is exceeded. The digit assignments are structural

@@ -9,7 +9,7 @@ import yaml
 
 from ClipAI.app.language_pack_bootstrap import bootstrap_action_language_config
 from ClipAI.core.errors import ActionLanguagePackError
-from ClipAI.core.models import ActionLanguagePackSelectionRead
+from ClipAI.core.models import ActionLanguagePackSelectionRead, EntryActionRef
 
 
 @dataclass
@@ -85,6 +85,12 @@ def test_valid_selected_pack_becomes_the_one_active_catalog(tmp_path) -> None:
     assert result.state.selected_pack_id == "ja-JP"
     assert result.state.recovery is None
     assert result.bundle.actions.get("translate_to_english").name == "英語に翻訳"
+    assert (
+        result.bundle.entry_panel.candidate_for_action(
+            EntryActionRef("translate_to_english", "short")
+        ).label
+        == "英語に翻訳"
+    )
 
 
 def test_missing_selected_pack_falls_back_without_changing_selection(tmp_path) -> None:
@@ -124,6 +130,23 @@ def test_invalid_selected_pack_falls_back_as_one_complete_default_catalog(
     assert result.state.recovery.reason == "manifest_invalid"
     assert result.bundle.action_language.identity.pack_id == "zh-TW"
     assert result.bundle.actions.get("english_companion").name == "English Companion"
+    assert result.bundle.entry_panel.categories[0].flagship[0].label == "翻譯成繁體中文"
+
+
+def test_invalid_selected_entry_panel_resource_falls_back_without_mixing_packs(
+    tmp_path: Path,
+) -> None:
+    config_dir = _copy_config(tmp_path)
+    entry_panel = config_dir / "language_packs" / "ja-JP" / "entry_panel.yaml"
+    entry_panel.write_text("schema_version: 1\ncandidates: []\n", encoding="utf-8")
+
+    result = _bootstrap(config_dir, SelectionStore("ja-JP"))
+
+    assert result.state.recovery is not None
+    assert result.state.recovery.reason == "checksum_mismatch"
+    assert result.bundle.action_language.identity.pack_id == "zh-TW"
+    assert result.bundle.actions.get("translate_to_english").name == "Translate to English"
+    assert result.bundle.entry_panel.categories[0].flagship[0].label == "翻譯成繁體中文"
 
 
 def test_invalid_default_pack_remains_a_fatal_startup_error(tmp_path) -> None:
@@ -135,6 +158,17 @@ def test_invalid_default_pack_remains_a_fatal_startup_error(tmp_path) -> None:
         _bootstrap(config_dir, SelectionStore())
 
     assert caught.value.reason == "manifest_invalid"
+
+
+def test_invalid_default_entry_panel_resource_remains_fatal(tmp_path) -> None:
+    config_dir = _copy_config(tmp_path)
+    entry_panel = config_dir / "language_packs" / "zh-TW" / "entry_panel.yaml"
+    entry_panel.write_text("schema_version: 1\ncandidates: []\n", encoding="utf-8")
+
+    with pytest.raises(ActionLanguagePackError) as caught:
+        _bootstrap(config_dir, SelectionStore())
+
+    assert caught.value.reason == "checksum_mismatch"
 
 
 def test_corrupt_selection_diagnostic_uses_default_without_recovery(tmp_path) -> None:

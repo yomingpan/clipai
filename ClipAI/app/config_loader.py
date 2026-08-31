@@ -13,7 +13,7 @@ from ClipAI.core.errors import ConfigError
 from ClipAI.core.models import EntryActionRef, PressType, ShortcutCommandKind, ShortcutDefinition
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
-from ClipAI.services.action_language_packs import CompiledActionLanguagePack
+from ClipAI.services.action_language_packs import CompiledActionLanguagePack, LocalizedEntryPanelCandidate
 from ClipAI.services.entry_panel import EntryPanelCandidate, EntryPanelCatalog, EntryPanelCategory
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -24,6 +24,7 @@ CURRENT_SCHEMA_VERSION = 1
 APP_CONFIG_SCHEMA_VERSION = 2
 ACTIONS_SCHEMA_VERSION = 11
 OUTPUT_PROFILES_SCHEMA_VERSION = 2
+ENTRY_PANEL_SCHEMA_VERSION = 2
 
 
 def load_config_bundle(
@@ -44,6 +45,7 @@ def load_config_bundle(
             actions_path=actions_path,
             shortcuts_path=shortcuts_path,
             output_profiles_path=output_profiles_path,
+            entry_panel_path=entry_panel_path,
         )
         language_pack_loader = ActionLanguagePackLoader(config_dir, skeleton)
         language_pack_registry = language_pack_loader.load_registry()
@@ -58,7 +60,11 @@ def load_config_bundle(
         version_context=compiled_pack.version_context,
     )
     shortcuts = load_shortcut_catalog(shortcuts_path, actions=actions)
-    entry_panel = load_entry_panel_catalog(entry_panel_path, actions=actions)
+    entry_panel = load_entry_panel_catalog(
+        entry_panel_path,
+        actions=actions,
+        candidate_presentations=compiled_pack.entry_panel_candidates,
+    )
     return ConfigBundle(
         app=app,
         runtime=runtime,
@@ -79,7 +85,10 @@ def load_config_bundle(
                 max_version=OUTPUT_PROFILES_SCHEMA_VERSION,
             ),
             shortcuts=_read_schema_version(shortcuts_path),
-            entry_panel=_read_schema_version(entry_panel_path),
+            entry_panel=_read_schema_version(
+                entry_panel_path,
+                max_version=ENTRY_PANEL_SCHEMA_VERSION,
+            ),
             action_language_registry=1,
             action_language_manifest=1,
             action_language_resources=1,
@@ -209,10 +218,20 @@ def load_shortcut_catalog(path: str | Path, *, actions: ActionCatalog) -> Shortc
     return ShortcutCatalog(shortcuts)
 
 
-def load_entry_panel_catalog(path: str | Path, *, actions: ActionCatalog) -> EntryPanelCatalog:
+def load_entry_panel_catalog(
+    path: str | Path,
+    *,
+    actions: ActionCatalog,
+    candidate_presentations: tuple[LocalizedEntryPanelCandidate, ...],
+) -> EntryPanelCatalog:
     payload = _load_yaml_mapping(path)
-    _schema_version(payload, path)
+    _schema_version(payload, path, max_version=ENTRY_PANEL_SCHEMA_VERSION)
     _reject_unknown(payload, {"schema_version", "categories"}, "entry_panel")
+    presentations_by_action = {
+        candidate.action: candidate for candidate in candidate_presentations
+    }
+    if len(presentations_by_action) != len(candidate_presentations):
+        raise ConfigError("entry panel localized candidates must be unique")
     raw_categories = payload.get("categories")
     if not isinstance(raw_categories, list):
         raise ConfigError("entry_panel.categories must be a list")
@@ -223,41 +242,71 @@ def load_entry_panel_catalog(path: str | Path, *, actions: ActionCatalog) -> Ent
         _reject_unknown(data, {"id", "slot", "label", "description", "flagship", "advanced"}, category_path)
         slot = _integer(data.get("slot"), f"{category_path}.slot", default=0)
         category_id = _string(data.get("id"), f"{category_path}.id")
-        flagship = _parse_entry_panel_candidates(data.get("flagship"), f"{category_path}.flagship")
-        advanced = _parse_entry_panel_candidates(data.get("advanced"), f"{category_path}.advanced")
+        flagship_refs = _parse_entry_panel_candidate_refs(data.get("flagship"), f"{category_path}.flagship")
+        advanced_refs = _parse_entry_panel_candidate_refs(data.get("advanced"), f"{category_path}.advanced")
         categories.append(EntryPanelCategory(
             category_id=category_id,
             slot=slot,
             label=_string(data.get("label"), f"{category_path}.label"),
             description=_string(data.get("description"), f"{category_path}.description"),
-            flagship=flagship,
-            advanced=advanced,
+            flagship=tuple(
+                _entry_panel_candidate(action, presentations_by_action)
+                for action in flagship_refs
+            ),
+            advanced=tuple(
+                _entry_panel_candidate(action, presentations_by_action)
+                for action in advanced_refs
+            ),
         ))
+    configured_actions = tuple(
+        candidate.action
+        for category in categories
+        for candidate in (*category.flagship, *category.advanced)
+    )
+    localized_actions = tuple(presentations_by_action)
+    if set(configured_actions) != set(localized_actions):
+        raise ConfigError(
+            "entry panel localized candidate inventory does not match configured actions"
+        )
     try:
         return EntryPanelCatalog(tuple(categories), actions=actions)
     except ValueError as error:
         raise ConfigError(str(error)) from error
 
 
-def _parse_entry_panel_candidates(
+def _parse_entry_panel_candidate_refs(
     value: Any,
     path: str,
-) -> tuple[EntryPanelCandidate, ...]:
+) -> tuple[EntryActionRef, ...]:
     if not isinstance(value, list):
         raise ConfigError(f"{path} must be a list")
-    candidates: list[EntryPanelCandidate] = []
+    candidates: list[EntryActionRef] = []
     for index, item in enumerate(value):
         candidate_path = f"{path}[{index}]"
         data = _mapping(item, candidate_path)
-        _reject_unknown(data, {"action_id", "press_type", "label", "description"}, candidate_path)
+        _reject_unknown(data, {"action_id", "press_type"}, candidate_path)
         action_id = _string(data.get("action_id"), f"{candidate_path}.action_id")
         press_type = cast(PressType, _choice(data.get("press_type"), f"{candidate_path}.press_type", {"short", "long"}, "short"))
-        candidates.append(EntryPanelCandidate(
-            EntryActionRef(action_id, press_type),
-            _string(data.get("label"), f"{candidate_path}.label"),
-            _string(data.get("description"), f"{candidate_path}.description"),
-        ))
+        candidates.append(EntryActionRef(action_id, press_type))
     return tuple(candidates)
+
+
+def _entry_panel_candidate(
+    action: EntryActionRef,
+    presentations: dict[EntryActionRef, LocalizedEntryPanelCandidate],
+) -> EntryPanelCandidate:
+    try:
+        presentation = presentations[action]
+    except KeyError as exc:
+        raise ConfigError(
+            "entry panel localized candidate is missing: "
+            f"{action.action_id}/{action.press_type}"
+        ) from exc
+    return EntryPanelCandidate(
+        action,
+        presentation.label,
+        presentation.description,
+    )
 
 
 def _parse_gemini(data: dict[str, Any]) -> GeminiSettings:

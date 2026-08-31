@@ -48,6 +48,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.schema_versions.actions == 11
     assert bundle.schema_versions.output_profiles == 2
     assert bundle.schema_versions.shortcuts == 1
+    assert bundle.schema_versions.entry_panel == 2
     assert bundle.schema_versions.action_language_registry == 1
     assert bundle.schema_versions.action_language_manifest == 1
     assert bundle.schema_versions.action_language_resources == 1

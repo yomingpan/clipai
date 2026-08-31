@@ -39,9 +39,11 @@ has closed or reopened.
 - `WorkflowController` emits a minimal accepted-step identity only after it
   accepts the active invocation. `RecentActionHistory` owns unique top-three
   Action references; its platform store persists only Action ID and press type.
-- Categories, ordering, copy and candidate `action_id + press_type` references
-  are loaded from `config/entry_panel.yaml`. Execution semantics remain in
-  `ActionCatalog`.
+- Categories, ordering and candidate `action_id + press_type` references are
+  loaded from `config/entry_panel.yaml`. Candidate Action `label/description`
+  are joined from the already compiled active Action Language Pack during app
+  composition. Execution semantics remain in `ActionCatalog`; coordinator and
+  UI do not inspect locale or pack identity.
 
 ## Enforced boundaries
 

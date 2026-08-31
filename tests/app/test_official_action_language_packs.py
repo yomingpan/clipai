@@ -6,7 +6,9 @@ from ClipAI.app.language_pack_loader import (
     load_feature_skeleton,
     validate_official_language_packs,
 )
-from ClipAI.core.models import ActionDefinition
+from ClipAI.app.config_loader import load_config_bundle
+from ClipAI.core.models import ActionDefinition, EntryActionRef
+from ClipAI.services.entry_panel import EntryPanelCoordinator
 
 
 def _load(pack_id: str):
@@ -52,6 +54,8 @@ def test_japanese_candidate_compiles_as_one_complete_pack() -> None:
     assert pack.descriptor.display_name == "日本語"
     assert len(pack.action_definitions) == 27
     assert len(pack.output_profiles) == 10
+    assert len(pack.entry_panel_candidates) == 27
+    assert pack.entry_panel_candidates[0].label == "繁体字中国語に翻訳"
 
 
 def test_official_registry_releases_both_complete_packs_in_product_order() -> None:
@@ -95,6 +99,11 @@ def test_official_pack_candidates_share_exact_behavior_topology() -> None:
     assert tuple(profile.id for profile in japanese.output_profiles) == tuple(
         profile.id for profile in traditional_chinese.output_profiles
     )
+    assert tuple(
+        candidate.action for candidate in japanese.entry_panel_candidates
+    ) == tuple(
+        candidate.action for candidate in traditional_chinese.entry_panel_candidates
+    )
     for zh_action, ja_action in zip(
         traditional_chinese.action_definitions,
         japanese.action_definitions,
@@ -124,3 +133,23 @@ def test_language_pack_content_changes_action_version_identity() -> None:
         != japanese.provenance.resource_content_hash
     )
     assert traditional_chinese.version_context != japanese.version_context
+
+
+def test_japanese_pack_projects_entry_panel_recents_scenes_and_search() -> None:
+    bundle = load_config_bundle(action_language_pack=_load("ja-JP"))
+    panel = EntryPanelCoordinator(bundle.entry_panel)
+
+    root = panel.open(
+        "panel-ja",
+        recent=(EntryActionRef("shorten_content", "short"),),
+    )
+    assert root.options[0].label == "内容を短くする"
+
+    scene = panel.select_digit("5").snapshot
+    assert scene.options[0].label == "ピラミッドで立場を整理"
+
+    panel.open_more()
+    search = panel.set_search("概念")
+    assert tuple(option.action.action_id for option in search.options) == (
+        "name_concept_carefully",
+    )

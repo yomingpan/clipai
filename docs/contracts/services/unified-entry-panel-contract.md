@@ -21,8 +21,9 @@ then requests admission through the existing Workflow runtime.
   and mechanical rendering. Every user operation emits a typed command.
 - `EntryPanelCatalog` owns validated presentation metadata：category slot/ID、
   flagship limit、candidate uniqueness 與 existing `action_id + press_type`
-  membership，並提供其 lookup indexes。config adapter 只負責 YAML shape 與
-  error-path translation。
+  membership，並提供其 lookup indexes。Canonical config adapter 提供 IA shape；
+  active Action Language Pack 提供 exact candidate `label/description`；app
+  composition 只在兩者完整吻合後建立 catalog。
 - `RecentActionHistory` owns the unique most-recent-first top three references.
 
 ## Legal lifecycle
@@ -61,8 +62,9 @@ blocked admission keeps the same Panel and projects the authoritative reason.
 
 ## Catalog and numeric rules
 
-- Candidate order, category copy, descriptions and flagship/advanced membership
-  come from `config/entry_panel.yaml`.
+- Candidate order、category copy 與 flagship/advanced membership 來自
+  `config/entry_panel.yaml`。Candidate Action `label/description` 來自 process
+  啟動時選定且完整驗證的 Action Language Pack。
 - Recent slots are `0`–`2`, root category slots are `3`–`6`, and scene flagship
   slots are `1`–`4`. More/search has no digit mapping.
 - Each candidate explicitly names Action ID and press type. The catalog rejects
@@ -72,6 +74,9 @@ blocked admission keeps the same Panel and projects the authoritative reason.
   remain in `ActionCatalog` and authoritative capability owners.
 - Configuration change affects the next Panel; an admitted invocation retains
   its already captured Action definition, input and provider binding.
+- Action Language selection is restart-only. Persisting a next-start pack does
+  not mutate the current Panel catalog; after restart, Recent references are
+  re-projected through the new active pack without persisting localized text.
 
 ## Recent success
 

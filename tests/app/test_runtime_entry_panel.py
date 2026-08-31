@@ -1,4 +1,4 @@
-from ClipAI.app.config_loader import load_config_bundle, load_entry_panel_catalog
+from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
 from ClipAI.core.commands import EntryPanelToggleDensity, SetEntryPanelDensity
 from ClipAI.core.models import (
@@ -84,11 +84,9 @@ def make_module(
     foreground_workflow_id=None,
     workflow_context=None,
 ):
-    actions = load_config_bundle().actions
-    coordinator = EntryPanelCoordinator(load_entry_panel_catalog(
-        "config/entry_panel.yaml",
-        actions=actions,
-    ))
+    bundle = load_config_bundle()
+    actions = bundle.actions
+    coordinator = EntryPanelCoordinator(bundle.entry_panel)
     presenter = Presenter()
     supervisor = Supervisor()
     workflows = Workflows(foreground_workflow_id=foreground_workflow_id)
