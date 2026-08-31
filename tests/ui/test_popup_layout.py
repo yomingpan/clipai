@@ -1,7 +1,16 @@
 import pytest
 
-from ClipAI.core.models import DisplayMetrics
-from ClipAI.ui.popup_layout import PopupLayoutPolicy
+from ClipAI.core.models import DisplayMetrics, PopupBounds
+from ClipAI.ui.popup_layout import PopupLayoutPolicy, popup_bounds_from_tk_geometry
+
+
+def test_tk_geometry_preserves_logical_size_and_physical_position() -> None:
+    assert popup_bounds_from_tk_geometry("440x330-120+95") == PopupBounds(
+        -120,
+        95,
+        440,
+        330,
+    )
 
 
 @pytest.mark.parametrize("scale", [1.0, 1.25, 1.5, 1.75, 2.0])

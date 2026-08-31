@@ -95,6 +95,10 @@ class EntryPanelRuntimeModule:
         self._task_id: str | None = None
         self._hold_id: ModifierHoldId | None = None
 
+    @property
+    def active_hold_id(self) -> ModifierHoldId | None:
+        return self._hold_id
+
     def open(self, hold_id: ModifierHoldId | None = None) -> EntryPanelSnapshot:
         current = self._coordinator.snapshot
         if current is not None:
@@ -173,6 +177,8 @@ class EntryPanelRuntimeModule:
         current = self._coordinator.snapshot
         if current is None:
             return
+        if current.status == "preparing" or current.selection_id is not None:
+            return
         reason = self._workflows.entry_panel_action_block_reason(action)
         if reason:
             self._presenter.present_entry_panel(self._coordinator.show_error(reason))
@@ -235,7 +241,20 @@ class EntryPanelRuntimeModule:
             admission_origin="entry_panel",
         )
         if admission.accepted:
-            self.close(command.panel_id)
+            if admission.workflow_id is None:
+                self._presenter.present_entry_panel(
+                    self._coordinator.show_error(
+                        "The admitted Workflow could not be identified."
+                    )
+                )
+                return
+            self._coordinator.close()
+            self._source = None
+            self._hold_id = None
+            self._presenter.transition_entry_panel_to_popup(
+                command.panel_id,
+                admission.workflow_id,
+            )
             return
         message = admission.message or "This Action cannot start right now."
         self._presenter.present_entry_panel(self._coordinator.show_error(message))

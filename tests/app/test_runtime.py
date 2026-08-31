@@ -286,6 +286,7 @@ class FakePasteOperations:
 class Listener:
     def __init__(self) -> None:
         self.stopped = False
+        self.settled_entry_panel_holds = []
 
     def stop(self) -> None:
         self.stopped = True
@@ -298,6 +299,9 @@ class Listener:
                 pass
 
         return Lease()
+
+    def settle_entry_panel_hold(self, hold_id) -> None:
+        self.settled_entry_panel_holds.append(hold_id)
 
 
 class Monitor:

@@ -151,6 +151,9 @@ class HotkeyListener:
     def observe(self) -> _ShortcutObservationLease:
         return self._dispatcher.observe()
 
+    def settle_entry_panel_hold(self, hold_id: ModifierHoldId) -> None:
+        self._dispatcher.settle_entry_panel_hold(hold_id)
+
 
 class _HotkeyDispatcher:
     def __init__(
@@ -230,6 +233,18 @@ class _HotkeyDispatcher:
         with self._lock:
             self._observers.discard(token)
 
+    def settle_entry_panel_hold(self, hold_id: ModifierHoldId) -> None:
+        """End one consumed Panel hold without guessing from Alt auto-repeat."""
+        with self._lock:
+            state = self._entry_hold
+            if state is None or state.hold_id != hold_id:
+                return
+            if state.timer is not None:
+                state.timer.cancel()
+            self._entry_hold = None
+            self._pressed.discard("alt")
+            self._report_key_state()
+
     def stop(self) -> None:
         with self._lock:
             if self._stopped:
@@ -293,10 +308,6 @@ class _HotkeyDispatcher:
                     or current.hold_id != hold_id
                     or current.timer_generation != timer_generation
                     or self._pressed != {"alt"}
-                    or (
-                        self._key_is_pressed is not None
-                        and self._key_is_pressed("alt") is False
-                    )
                 ):
                     return
                 current.opened = True
@@ -373,6 +384,11 @@ class _HotkeyDispatcher:
             for token in self._pressed
             if self._key_is_pressed(token) is False
         }
+        # Windows can report Alt as released while its low-level hook is still
+        # delivering the press lifecycle. A live Entry Panel hold therefore
+        # owns Alt until the listener observes a semantic transition itself.
+        if self._entry_hold is not None:
+            stale_tokens.discard("alt")
         if not stale_tokens:
             return set()
 
@@ -481,6 +497,9 @@ class _HotkeyDispatcher:
                 self._emit(InterruptionRequested("current"))
                 return
             if token in self._pressed:
+                # Windows emits repeated Alt key-down callbacks while one
+                # physical hold remains active. Only an observed release or an
+                # identity-scoped Panel settlement may start a new hold.
                 return
             self._pressed.add(token)
             self._update_entry_hold_on_press(token)

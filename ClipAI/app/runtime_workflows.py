@@ -525,8 +525,12 @@ class WorkflowRuntimeModule:
                 )
         command = StartAction(action_id, press_type, result_route)
         if result_route == "speech":
-            self._start_headless_action(action, command, input_target=input_target)
-            return ActionStartAdmission("accepted")
+            workflow_id = self._start_headless_action(
+                action,
+                command,
+                input_target=input_target,
+            )
+            return ActionStartAdmission("accepted", workflow_id=workflow_id)
         target = input_target or self._input_targets.resolve(
             self._foreground_context(),
             action.external_fallback,
@@ -623,7 +627,7 @@ class WorkflowRuntimeModule:
             invocation.invocation_id,
             lambda: self._execute_action.execute_invocation(action, invocation, controller, binding=record.binding),
         )
-        return ActionStartAdmission("accepted")
+        return ActionStartAdmission("accepted", workflow_id=workflow_id)
 
     def _start_headless_action(
         self,
@@ -631,7 +635,7 @@ class WorkflowRuntimeModule:
         command: StartAction,
         *,
         input_target: InputTarget | None = None,
-    ) -> None:
+    ) -> str:
         context = self._foreground_context()
         target = input_target or self._input_targets.resolve(context, action.external_fallback)
         workflow_id = uuid.uuid4().hex
@@ -662,6 +666,7 @@ class WorkflowRuntimeModule:
                 self._enqueue(HeadlessWorkflowFinished(workflow_id))
 
         self._submit_invocation(workflow_id, invocation.invocation_id, execute)
+        return workflow_id
 
     def _cancel_headless_workflows(self) -> None:
         workflow_ids = tuple(

@@ -133,7 +133,7 @@ UnifiedEntryPanelDialog
 
 | Component | Layer | Responsibility | Must not own |
 |---|---|---|---|
-| Generic modifier-hold gesture | platform + typed core command | Exact Alt-only recognition, 500 ms timer, physical-state recheck and numeric-key claim. | Panel UI, action execution, clipboard. |
+| Generic modifier-hold gesture | platform + typed core command | Exact Alt-only recognition, 500 ms identity/listener-state recheck, auto-repeat suppression, lifecycle settlement and numeric-key claim. | Panel UI, action execution, clipboard. |
 | `EntryPanelRuntimeModule` | app | Compose launch lifecycle, source snapshot, panel coordinator and action admission. | Workflow state, provider task, raw native UI handles. |
 | `EntryPanelCoordinator` | services | Own the immutable Panel projection and pure navigation, search, density, disabled-state and numeric-key transitions. | Toolkit state, external focus, Action execution or persistence. |
 | `UnifiedEntryPanelDialog` | ui | Render/filter/navigate; native placement/focus; shared header drag; hide-before-destroy; emit typed UI commands. | Services, platform APIs, clipboard, provider. |
@@ -158,14 +158,17 @@ Required behavior:
    invoke.
 3. A non-modifier before the deadline cancels only the entry candidate; normal
    direct shortcuts retain their existing behavior.
-4. At the deadline, recheck the same press identity and actual physical state.
-   Only then emit `OpenUnifiedEntryPanel`.
+4. At the deadline, recheck the same hold identity and listener-owned exact-Alt
+   state. Windows physical polling remains recovery-only because its low-level
+   Alt result can be transiently false. Only then emit `OpenUnifiedEntryPanel`.
 5. Once opened with Alt still held, the platform claims top-row digits and
    numpad digits for the Panel until Alt is released. A later modifier press
    does not allow the same digit to dispatch a competing direct shortcut.
-6. Stale recovery and shutdown are identity-scoped. Repeated Alt holds while a
-   Panel is open raises the existing Panel; it does not reset/capture a new
-   source.
+6. Stale recovery and shutdown are identity-scoped. Alt auto-repeat stays in the
+   same hold. When the consumed Panel lifecycle ends, runtime settles that exact
+   hold identity so a missing release cannot poison the next real hold. Repeated
+   complete Alt holds while a Panel is open raise the existing Panel; they do
+   not reset/capture a new source.
 
 The existing Keyboard Shortcut guide receives the long `Alt` description;
 the Panel itself does not show an extra shortcut-guide entry.
@@ -208,14 +211,18 @@ activation and selection capture are blocking work. `EntryPanelRuntimeModule`
 allocates one `EntryPanelSelectionId`, projects `preparing`, and schedules the
 work through `TaskSupervisor`'s interactive lane. Completion returns through
 the typed command queue with the same Panel lifecycle ID and selection ID. A
-closed/reopened Panel, a second selection, cancellation or shutdown invalidates
-the old identity; its late completion cannot start an Action or close the new
-Panel. The existing clipboard transaction coordinator remains responsible for
-safe restoration even when preparation becomes stale.
+closed/reopened Panel, cancellation or shutdown invalidates the old identity;
+its late completion cannot start an Action or close the new Panel. While one
+selection is preparing, repeated click/Enter intents are ignored and cannot
+allocate a second identity or task. The existing clipboard transaction
+coordinator remains responsible for safe restoration even when preparation
+becomes stale.
 
-`ActionStartAdmission` is the single synchronous fact used to close the Panel:
+`ActionStartAdmission` is the single synchronous fact used to begin Panel
+closure, and an accepted result carries the authoritative Workflow identity:
 
-- `accepted`: close Panel and let existing workflow/provider lifecycle run.
+- `accepted`: request an identity-scoped visual handoff and let the existing
+  workflow/provider lifecycle run; presenter controls the atomic visual swap.
 - `rejected`: keep Panel visible and show the reason.
 - `blocked`: retain Panel with an explicit busy/voice message, as applicable.
 
@@ -253,7 +260,7 @@ select Action → Panel pending → restore/validate external target
               → InputResolver captures selection (clipboard fallback only inside its existing contract)
               → typed preparation completion with matching selection ID
               → explicit InputDocument/InputTarget → action admission
-              → close Panel only if accepted
+              → accepted Workflow identity → visual handoff
 ```
 
 The explicit document prevents the workflow from capturing a second time after
@@ -276,6 +283,16 @@ Small reusable UI extraction: the presenter currently has a Popup-specific
 focus-hold behavior for the shortcut guide. Extract an owned-control-surface
 handoff capability rather than adding another private `_hold_*` special case.
 Build the Panel content before deiconifying to prevent an empty shell flash.
+
+Panel and Popup share the injected `PopupLayoutPolicy`. When a focused Popup is
+the source, the Panel opens at that Popup's actual bounds. After accepted
+admission, the identity-matched Popup either keeps its existing bounds or is
+built withdrawn at the Panel's current user-adjusted bounds. UI hides the Panel,
+reveals the completed Popup and destroys the Panel in the same turn; failed
+reveal restores the same Panel. Panel and Popup bounds retain physical screen
+position with toolkit-logical width/height, so DPI is applied exactly once. UI
+never caches an unscoped last position or infers the transition from
+closure/focus.
 
 UI behavior confirmed for the first release:
 
@@ -358,9 +375,10 @@ Privacy boundaries:
 
 ### Platform and runtime tests
 
-- Alt alone at 499 ms and 500 ms; release-before-deadline; physical-state
-  recheck; stale timer; injected event; shutdown; direct digit coexistence; no
-  double invoke.
+- Alt alone at 499 ms and 500 ms; release-before-deadline; hold-identity and
+  listener-state recheck; Alt auto-repeat suppression; lifecycle settlement
+  after a missed release; stale timer; injected event; shutdown; direct digit
+  coexistence; no double invoke.
 - Panel-open repeated hold; top-row/numpad claim while Alt remains held.
 - Voice listening/finalizing blocked; provider-response disabled state; direct
   shortcut behavior unchanged.
@@ -369,14 +387,16 @@ Privacy boundaries:
 - Popup source reuse; external target restore; capture at action intent;
   restore/capture failure; explicit input target prevents duplicate capture;
   closed/reopened/newer Panel rejects late preparation completion.
-- `ActionStartAdmission` drives close/reject state; existing provider and
-  workflow tests remain green.
+- `ActionStartAdmission` drives identity-scoped handoff/reject state; existing
+  provider and workflow tests remain green.
 - Recent ordering, dedupe, press-type replay, root-follow-up behavior,
   headless/synthetic policy, persistence failure and restart recovery.
 
 ### UI and desktop integration tests
 
-- One Tk root/mainloop; no blank shell; focus handoff with existing Popup.
+- One Tk root/mainloop; no blank shell; exact logical-size/physical-position
+  Panel/Popup bounds and hide-Panel → reveal-Popup → destroy-Panel handoff for
+  new and reused Popups.
 - Header drag uses the shared UI drag controller; closing hides the Panel before toolkit teardown and produces no extra visible frame.
 - Multi-monitor and DPI placement; work-area collision/quadrant flip; cursor
   preservation.

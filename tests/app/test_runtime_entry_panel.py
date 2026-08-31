@@ -15,9 +15,13 @@ from ClipAI.services.entry_panel import EntryPanelCoordinator
 class Presenter:
     def __init__(self) -> None:
         self.snapshots = []
+        self.popup_transitions = []
 
     def present_entry_panel(self, snapshot) -> None:
         self.snapshots.append(snapshot)
+
+    def transition_entry_panel_to_popup(self, panel_id, workflow_id) -> None:
+        self.popup_transitions.append((panel_id, workflow_id))
 
 
 class Supervisor:
@@ -51,7 +55,7 @@ class Workflows:
         admission_origin="shortcut",
     ):
         self.starts.append((action_id, press_type, result_route, input_target, admission_origin))
-        return ActionStartAdmission("accepted")
+        return ActionStartAdmission("accepted", workflow_id="workflow-1")
 
     def entry_panel_action_block_reason(self, _action):
         return self.block_reason
@@ -127,7 +131,21 @@ def test_external_action_restores_exact_source_then_admits_prepared_input() -> N
     assert workflows.starts[-1][3].document.text == "selected at intent"
     assert workflows.starts[-1][4] == "entry_panel"
     assert coordinator.snapshot is None
-    assert presenter.snapshots[-1] is None
+    assert presenter.popup_transitions == [(pending.panel_id, "workflow-1")]
+
+
+def test_repeated_action_selection_does_not_start_a_second_preparation() -> None:
+    module, coordinator, _presenter, supervisor, _workflows, _activator, _inputs, _commands, _external = make_module()
+    module.open()
+    action = EntryActionRef("shorten_content", "short")
+
+    module.select_action(action)
+    first_selection = coordinator.snapshot.selection_id
+    module.select_action(action)
+
+    assert coordinator.snapshot.selection_id == first_selection
+    assert len(supervisor.work) == 1
+    assert supervisor.cancelled == []
 
 
 def test_closed_panel_ignores_late_input_preparation_completion() -> None:
@@ -171,11 +189,11 @@ def test_popup_source_reuses_current_semantic_selection_without_external_capture
         "full result",
         "selected popup text",
     )
-    module, coordinator, _presenter, supervisor, workflows, activator, inputs, commands, _external = make_module(
+    module, coordinator, presenter, supervisor, workflows, activator, inputs, commands, _external = make_module(
         foreground_workflow_id="workflow-1",
         workflow_context=context,
     )
-    module.open()
+    panel_id = module.open().panel_id
 
     module.select_action(EntryActionRef("shorten_content", "short"))
     module.handle(commands.pop())
@@ -190,6 +208,7 @@ def test_popup_source_reuses_current_semantic_selection_without_external_capture
     assert inputs.documents == []
     assert supervisor.work == {}
     assert coordinator.snapshot is None
+    assert presenter.popup_transitions == [(panel_id, "workflow-1")]
 
 
 def test_known_runtime_unavailability_keeps_actions_visible_and_disabled() -> None:

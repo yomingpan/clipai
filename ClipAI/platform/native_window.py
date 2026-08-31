@@ -8,8 +8,9 @@ from typing import Any
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_APPWINDOW = 0x00040000
-SW_RESTORE = 9
 SW_SHOWNOACTIVATE = 4
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
 WM_SETICON = 0x0080
 ICON_SMALL = 0
 ICON_BIG = 1
@@ -56,8 +57,18 @@ class WindowsNativeWindowSurface:
                 and foreground_thread != current_thread
                 and self._user32.AttachThreadInput(current_thread, foreground_thread, True)
             )
-            self._user32.ShowWindow(hwnd, SW_RESTORE)
-            self._user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0043)
+            # Tk has already deiconified the window before it asks for native
+            # activation. Re-showing it here produces a second visible frame
+            # on Windows, which is especially noticeable for the Entry Panel.
+            self._user32.SetWindowPos(
+                hwnd,
+                -1,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOMOVE,
+            )
             self._user32.BringWindowToTop(hwnd)
             self._user32.SetForegroundWindow(hwnd)
             self._user32.SetActiveWindow(hwnd)

@@ -38,12 +38,27 @@ closed → open(root) → navigating/searching/density toggle
 ```
 
 Opening, rendering, focus, navigation and density changes never imply Action
-execution. While preparing, another selection replaces the old identity and a
-close invalidates it. Only a completion matching both Panel lifecycle ID and
-selection ID may call Workflow admission.
+execution. While preparing, another selection is ignored; it cannot replace the
+active identity or schedule another preparation. A close invalidates that
+identity. Only a completion matching both Panel lifecycle ID and selection ID
+may call Workflow admission.
 
 The Panel closes only after `ActionStartAdmission.accepted`. A rejected or
 blocked admission keeps the same Panel and projects the authoritative reason.
+An accepted admission identifies its Workflow. Runtime requests a visual
+handoff with both Panel and Workflow identities; a stale or unrelated Popup
+projection cannot consume it.
+
+During that handoff, the Panel remains visible while a new Popup is constructed
+withdrawn at the Panel's actual outer bounds. UI then hides the Panel, reveals
+the completed Popup and destroys the Panel in the same turn, so the two surfaces
+never overlap visibly. Reveal failure restores the same Panel and keeps the
+handoff retryable. If admission reuses an existing Popup, UI updates it behind
+the Panel and closes the Panel without changing the Popup geometry. `PopupBounds`
+stores physical screen position with toolkit-logical width/height; physical
+widget dimensions must not be fed back as logical geometry. This is presentation
+actuation only and does not merge Panel navigation with `PopupControl` or
+Workflow state.
 
 ## Input source
 

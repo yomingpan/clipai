@@ -10,7 +10,7 @@ from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
 import ClipAI.ui.base_dialog as base_dialog_module
 
-from ClipAI.core.models import PasteTarget
+from ClipAI.core.models import PasteTarget, PopupBounds
 from ClipAI.ui.base_dialog import (
     ACTION_ICON_FONT_FAMILY,
     ACTION_COLOR,
@@ -661,6 +661,43 @@ def test_dialog_resize_only_requests_logical_window_geometry() -> None:
 
     assert dialog.root.geometry_call == "500x400+10+20"
     assert (dialog.width, dialog.height) == (500, 400)
+
+
+def test_withdrawn_dialog_can_be_revealed_after_content_is_built() -> None:
+    events: list[str] = []
+
+    class Root:
+        def update_idletasks(self) -> None:
+            events.append("layout")
+
+        def deiconify(self) -> None:
+            events.append("shown")
+
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog.root = Root()
+
+    assert dialog.show() is True
+    assert events == ["layout", "shown"]
+
+
+def test_current_bounds_preserves_toolkit_logical_size() -> None:
+    class Root:
+        def update_idletasks(self) -> None:
+            pass
+
+        def geometry(self) -> str:
+            return "400x320+120+80"
+
+        def winfo_width(self) -> int:
+            return 600
+
+        def winfo_height(self) -> int:
+            return 480
+
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog.root = Root()
+
+    assert dialog.current_bounds() == PopupBounds(120, 80, 400, 320)
 
 
 def test_dialog_is_alive_requires_valid_open_existing_root() -> None:

@@ -53,6 +53,13 @@ tests/              # Unit sims 與 integration tests
   不得在 admission 時以目前 Foreground Workflow 取代來源 identity。UI 不得讀
   clipboard、native handle、provider 或 Workflow state，也不得從 render 或
   focus 推導 Action intent。
+- Entry Panel 到結果 Popup 的視覺交接必須同時帶 Panel lifecycle ID 與已接受的
+  Workflow ID。`ResultDialogPresenter` 只負責沿用 Panel 實際 bounds、withdrawn
+  build、同一 UI turn hide Panel → reveal Popup → destroy Panel；任一瞬間只能有一個
+  surface 可見，既有 Popup 不得重新定位。Bounds 的螢幕位置是 physical pixels，
+  CustomTkinter width/height 是 toolkit-logical units。不得由 Panel
+  close、focus、游標位置或任意 Workflow snapshot 猜測交接，也不得保留未具名的
+  「上一次 Panel 位置」供日後 Popup 使用。
 - 最近使用由 `RecentActionHistory` 擁有，只接收 `WorkflowController` 已接受的
   successful step 所解析出的 `action_id + press_type`；不得由 provider completion、
   Workflow snapshot revision、Popup visibility 或 operation tracker 推導成功。

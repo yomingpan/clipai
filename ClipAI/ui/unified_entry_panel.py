@@ -14,7 +14,7 @@ from ClipAI.core.commands import (
     EntryPanelSlotSelected,
     EntryPanelToggleDensity,
 )
-from ClipAI.core.models import EntryPanelOption, EntryPanelSnapshot
+from ClipAI.core.models import EntryPanelOption, EntryPanelSnapshot, PopupBounds
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
 from ClipAI.ui.base_dialog import (
     ACTION_COLOR,
@@ -28,7 +28,7 @@ from ClipAI.ui.base_dialog import (
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.window_drag import WindowDragController
-from ClipAI.ui.popup_layout import PopupLayoutPolicy
+from ClipAI.ui.popup_layout import PopupLayoutPolicy, popup_bounds_from_tk_geometry
 
 
 _TRANSPARENT_WINDOW_BACKGROUND = "#111111"
@@ -43,15 +43,19 @@ class EntryPanelIntentAdapter:
     def __init__(self, command_sink: Callable[[object], None]) -> None:
         self._command_sink = command_sink
         self._snapshot: EntryPanelSnapshot | None = None
+        self._selection_pending = False
 
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
+        if snapshot != self._snapshot:
+            self._selection_pending = snapshot.status == "preparing"
         self._snapshot = snapshot
 
     def select(self, option: EntryPanelOption) -> None:
         snapshot = self._snapshot
-        if snapshot is None or not option.enabled:
+        if snapshot is None or not option.enabled or self._selection_pending:
             return
         if option.action is not None:
+            self._selection_pending = True
             self._command_sink(
                 EntryPanelActionSelected(snapshot.panel_id, option.action)
             )
@@ -98,9 +102,11 @@ class UnifiedEntryPanelDialog:
         command_sink: Callable[[object], None],
         native_window_surface: NativeWindowSurface,
         display_metrics: DisplayMetricsReader,
+        layout_policy: PopupLayoutPolicy | None = None,
     ) -> None:
         self._native_window_surface = native_window_surface
         self._display_metrics = display_metrics
+        self._layout_policy = layout_policy or PopupLayoutPolicy()
         self._intent = EntryPanelIntentAdapter(command_sink)
         self._snapshot: EntryPanelSnapshot | None = None
         self._search_guard = False
@@ -221,25 +227,57 @@ class UnifiedEntryPanelDialog:
         self._density_tooltip.set_text(tooltip)
         self._rebuild_body(snapshot)
 
-    def show(self, snapshot: EntryPanelSnapshot) -> None:
-        self.apply(snapshot)
+    def show(
+        self,
+        snapshot: EntryPanelSnapshot,
+        *,
+        anchor: PopupBounds | None = None,
+    ) -> None:
+        if snapshot != getattr(self, "_snapshot", None):
+            self.apply(snapshot)
         if self._placed_panel_id != snapshot.panel_id:
-            bounds = PopupLayoutPolicy().calculate(self._display_metrics.current())
+            layout_policy = getattr(self, "_layout_policy", None) or PopupLayoutPolicy()
+            bounds = anchor or layout_policy.calculate(
+                self._display_metrics.current()
+            )
             self._window.geometry(
-                f"{max(420, bounds.width)}x{bounds.height}+{bounds.x}+{bounds.y}"
+                f"{bounds.width}x{bounds.height}+{bounds.x}+{bounds.y}"
             )
             self._placed_panel_id = snapshot.panel_id
         self._window.update_idletasks()
         self._native_window_surface.hide_from_task_switcher(int(self._window.winfo_id()))
-        self._window.deiconify()
-        self._lifecycle.focus(self._first_focus_target())
+        self.reveal()
 
-    def close(self) -> None:
-        self._snapshot = None
+    def hide(self) -> None:
         try:
             self._window.withdraw()
         except tk.TclError:
             pass
+
+    def reveal(self) -> None:
+        try:
+            self._window.deiconify()
+        except tk.TclError:
+            return
+        self._lifecycle.focus(self._first_focus_target())
+
+    def current_bounds(self) -> PopupBounds | None:
+        """Capture the actual user-adjusted outer bounds for Popup handoff."""
+        try:
+            self._window.update_idletasks()
+            return popup_bounds_from_tk_geometry(
+                str(self._window.geometry())
+            )
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            return None
+
+    def presents(self, panel_id: str) -> bool:
+        snapshot = self._snapshot
+        return snapshot is not None and snapshot.panel_id == panel_id
+
+    def close(self) -> None:
+        self._snapshot = None
+        self.hide()
         self._lifecycle.close()
 
     def request_close(self) -> None:

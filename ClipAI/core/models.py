@@ -90,6 +90,11 @@ class ActionStartAdmission:
     state: ActionStartAdmissionState
     reason: str = ""
     message: str = ""
+    workflow_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.state == "accepted" and not self.workflow_id:
+            raise ValueError("accepted Action admission requires workflow_id")
 
     @property
     def accepted(self) -> bool:
@@ -752,6 +757,8 @@ class DisplayMetrics:
 
 @dataclass(frozen=True)
 class PopupBounds:
+    """Physical screen position with toolkit-logical width and height."""
+
     x: int
     y: int
     width: int

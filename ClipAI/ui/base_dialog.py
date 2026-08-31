@@ -9,10 +9,11 @@ from typing import Callable, Literal, Mapping, Protocol
 import customtkinter as ctk
 from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
-from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PresentationDocument
+from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PopupBounds, PresentationDocument
 from ClipAI.core.ports import NativeWindowSurface
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
+from ClipAI.ui.popup_layout import popup_bounds_from_tk_geometry
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
 from ClipAI.ui.window_drag import WindowDragController
 
@@ -656,6 +657,7 @@ class BaseDialog:
         minimum_width: int | None = None,
         minimum_height: int | None = None,
         hide_from_task_switcher: bool = False,
+        show_on_create: bool = True,
         on_close_request: Callable[[], None] | None = None,
         native_window_surface: NativeWindowSurface | None = None,
     ) -> None:
@@ -694,7 +696,8 @@ class BaseDialog:
                 self._position_window(width, height, position)
             self.root.update_idletasks()
             _resample_window_dpi_scaling(self.root)
-            self.root.deiconify()
+            if show_on_create:
+                self.root.deiconify()
 
             self.canvas = tk.Canvas(
                 self.root,
@@ -775,6 +778,24 @@ class BaseDialog:
             return bool(self.root.winfo_viewable())
         except (AttributeError, tk.TclError):
             return False
+
+    def show(self) -> bool:
+        """Reveal a fully built dialog after a withdrawn construction."""
+        try:
+            self.root.update_idletasks()
+            self.root.deiconify()
+        except tk.TclError:
+            return False
+        return True
+
+    def current_bounds(self) -> PopupBounds | None:
+        try:
+            self.root.update_idletasks()
+            return popup_bounds_from_tk_geometry(
+                str(self.root.geometry())
+            )
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            return None
 
     def flash(self, state: DialogState) -> None:
         self._flash_controller.flash(state)

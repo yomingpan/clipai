@@ -24,3 +24,13 @@ def test_action_start_admission_carries_authoritative_rejection() -> None:
     assert admission.accepted is False
     assert admission.reason == "voice_active"
     assert admission.message == "請先停止語音輸入"
+
+
+def test_accepted_action_admission_identifies_the_authoritative_workflow() -> None:
+    admission = ActionStartAdmission("accepted", workflow_id="workflow-1")
+
+    assert admission.accepted is True
+    assert admission.workflow_id == "workflow-1"
+
+    with pytest.raises(ValueError, match="requires workflow_id"):
+        ActionStartAdmission("accepted")

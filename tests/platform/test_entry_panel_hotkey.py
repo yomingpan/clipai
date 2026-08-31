@@ -1,3 +1,6 @@
+import ctypes
+from types import SimpleNamespace
+
 from ClipAI.core.commands import (
     EntryPanelDigitPressed,
     OpenUnifiedEntryPanel,
@@ -6,6 +9,7 @@ from ClipAI.core.commands import (
     ShortcutPressStarted,
 )
 from ClipAI.core.models import ModifierHoldId
+from ClipAI.platform import keyboard_state
 from ClipAI.platform.hotkey import create_hotkey_dispatcher
 
 
@@ -57,6 +61,37 @@ def test_exact_alt_hold_opens_entry_panel_at_500_ms_deadline() -> None:
     dispatcher.on_press(Key("alt"))
     assert Timer.timers[0].delay == 0.5
     Timer.timers[0].fire()
+
+    assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
+
+
+def test_repeated_side_alt_keydown_preserves_hold_until_deadline(monkeypatch) -> None:
+    class FakeUser32:
+        def GetAsyncKeyState(self, virtual_key: int) -> int:
+            return 0x8000 if virtual_key == 0xA4 else 0
+
+    monkeypatch.setattr(keyboard_state.sys, "platform", "win32")
+    monkeypatch.setattr(
+        ctypes,
+        "windll",
+        SimpleNamespace(user32=FakeUser32()),
+        raising=False,
+    )
+    Timer.timers.clear()
+    events = []
+    dispatcher = create_hotkey_dispatcher(
+        {},
+        events.append,
+        timer_factory=Timer,
+        key_is_pressed=keyboard_state.windows_key_is_pressed,
+        entry_panel_enabled=True,
+    )
+
+    dispatcher.on_press(Key("alt"))
+    timer = Timer.timers[0]
+    for _ in range(3):
+        dispatcher.on_press(Key("alt"))
+    timer.fire()
 
     assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
 
@@ -188,23 +223,108 @@ def test_release_before_deadline_invalidates_even_queued_timer_callback() -> Non
     assert events == []
 
 
-def test_hold_deadline_rechecks_physical_modifier_state() -> None:
+def test_hold_deadline_uses_listener_alt_state_when_windows_poll_is_false() -> None:
     Timer.timers.clear()
     events = []
-    physical = {"alt": True}
     dispatcher = create_hotkey_dispatcher(
         {},
         events.append,
         timer_factory=Timer,
-        key_is_pressed=physical.get,
+        # Windows can report a false negative for Alt from inside its
+        # low-level keyboard hook. The listener's matching press/release
+        # lifecycle remains authoritative for this non-side-effecting open.
+        key_is_pressed=lambda _token: False,
         entry_panel_enabled=True,
     )
     dispatcher.on_press(Key("alt"))
 
-    physical["alt"] = False
     Timer.timers[0].callback()
 
-    assert events == []
+    assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
+
+
+def test_repeated_alt_keydown_preserves_hold_when_windows_poll_is_false() -> None:
+    Timer.timers.clear()
+    events = []
+    dispatcher = create_hotkey_dispatcher(
+        {},
+        events.append,
+        timer_factory=Timer,
+        key_is_pressed=lambda _token: False,
+        entry_panel_enabled=True,
+    )
+
+    dispatcher.on_press(Key("alt"))
+    timer = Timer.timers[0]
+    for _ in range(5):
+        dispatcher.on_press(Key("alt"))
+    timer.fire()
+
+    assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
+
+
+def test_alt_auto_repeat_after_panel_open_does_not_start_a_second_hold() -> None:
+    Timer.timers.clear()
+    events = []
+    dispatcher = create_hotkey_dispatcher(
+        {},
+        events.append,
+        timer_factory=Timer,
+        key_is_pressed=lambda _token: False,
+        entry_panel_enabled=True,
+    )
+
+    dispatcher.on_press(Key("alt"))
+    Timer.timers[0].fire()
+    for _ in range(5):
+        dispatcher.on_press(Key("alt"))
+
+    assert len(Timer.timers) == 1
+    assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
+
+
+def test_panel_settlement_allows_fresh_hold_after_a_missing_release() -> None:
+    Timer.timers.clear()
+    events = []
+    dispatcher = create_hotkey_dispatcher(
+        {},
+        events.append,
+        timer_factory=Timer,
+        key_is_pressed=lambda _token: False,
+        entry_panel_enabled=True,
+    )
+
+    dispatcher.on_press(Key("alt"))
+    Timer.timers[0].fire()
+    dispatcher.settle_entry_panel_hold(ModifierHoldId(1))
+    dispatcher.on_press(Key("alt"))
+    Timer.timers[1].fire()
+
+    assert events == [
+        OpenUnifiedEntryPanel(ModifierHoldId(1)),
+        OpenUnifiedEntryPanel(ModifierHoldId(2)),
+    ]
+
+
+def test_open_panel_keeps_alt_digit_claim_when_windows_poll_is_false() -> None:
+    Timer.timers.clear()
+    events = []
+    dispatcher = create_hotkey_dispatcher(
+        {},
+        events.append,
+        timer_factory=Timer,
+        key_is_pressed=lambda _token: False,
+        entry_panel_enabled=True,
+    )
+
+    dispatcher.on_press(Key("alt"))
+    Timer.timers[0].fire()
+    dispatcher.on_press(Key("8"))
+
+    assert events == [
+        OpenUnifiedEntryPanel(ModifierHoldId(1)),
+        EntryPanelDigitPressed(ModifierHoldId(1), "8"),
+    ]
 
 
 def test_unbound_stale_characters_do_not_block_a_later_panel_hold() -> None:

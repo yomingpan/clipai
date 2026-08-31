@@ -217,7 +217,14 @@ class AppRuntime:
             ):
                 return
             if self._entry_panel_module is not None:
+                active_hold_id = self._entry_panel_module.active_hold_id
                 self._entry_panel_module.handle(cast(EntryPanelRuntimeCommand, command))
+                if (
+                    active_hold_id is not None
+                    and self._entry_panel_module.active_hold_id is None
+                    and self._listener is not None
+                ):
+                    self._listener.settle_entry_panel_hold(active_hold_id)
         elif isinstance(command, ShutdownApplication):
             self.stop()
         elif isinstance(command, ControlSurfaceActivated):

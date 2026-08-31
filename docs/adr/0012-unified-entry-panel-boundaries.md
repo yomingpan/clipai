@@ -25,12 +25,26 @@ has closed or reopened.
   initial density comes from the existing persisted user-preferences owner.
 - `EntryPanelRuntimeModule` owns Panel membership, launch/source identity and
   one active input-preparation identity. Only matching completion can request
-  Workflow admission.
+  Workflow admission. A second Action intent while preparation is active is
+  ignored rather than replacing that identity.
 - `UnifiedEntryPanelDialog` is an independent UI adapter on the existing Tk root.
   It renders projections and emits typed intents; it does not call services,
   platform adapters or providers.
+- Accepted Action admission returns the authoritative Workflow identity.
+  `EntryPanelRuntimeModule` uses that identity with the Panel lifecycle identity
+  to request one explicit visual handoff; UI never infers a handoff from focus,
+  closure, cursor movement or an unrelated Workflow snapshot.
+- `ResultDialogPresenter` owns only the cross-surface actuation of that handoff:
+  capture the Panel's actual outer bounds, build a new Popup while withdrawn,
+  hide the Panel, reveal the Popup, then destroy the Panel in the same UI turn.
+  If reveal fails, it restores the same Panel for retry. Reused Popups keep their
+  existing bounds. Bounds use physical screen position and toolkit-logical size;
+  navigation and Workflow/Popup state ownership do not move.
 - The platform hotkey listener owns the exact `Alt` 500 ms hold and digit
-  claim. It emits typed facts and never resolves Action IDs.
+  claim. Alt auto-repeat remains part of the same physical hold. Runtime settles
+  the consumed hold by identity when the Panel lifecycle ends, so a missed OS
+  release cannot block the next real hold. The listener emits typed facts and
+  never resolves Action IDs.
 - External target validation/activation remains a platform capability behind an
   opaque core port. Selection capture reuses `InputResolver` and the one
   `ClipboardTransactionCoordinator`.
@@ -61,6 +75,9 @@ has closed or reopened.
 ## Alternatives rejected
 
 - Extending `PopupControl` merges entry navigation with Workflow actuation.
+- Closing the Panel before the identity-matched Popup is fully built creates a
+  visible gap; revealing both surfaces creates a double flash; caching unscoped
+  "last Panel bounds" can move a later unrelated Popup and is therefore rejected.
 - Calling `ActionExecutor` from UI bypasses Workflow admission and cancellation.
 - Registering modifier-only `Alt` as an ordinary shortcut conflicts with
   trigger-token and direct digit semantics.

@@ -5,7 +5,7 @@ import inspect
 from dataclasses import replace
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
-from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, WorkflowAttention
+from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, PopupBounds, WorkflowAttention
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.ui.base_dialog import BaseResultSurface, _VoiceWaveIndicator
@@ -1288,6 +1288,105 @@ def test_outside_pointer_press_closes_the_unified_entry_panel() -> None:
     presenter._handle_pointer_press(100, 100)
 
     assert panel.close_requests == 1
+
+
+def test_entry_panel_transition_is_identity_scoped_and_keeps_panel_visible() -> None:
+    class EntryPanel:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def presents(self, panel_id: str) -> bool:
+            return panel_id == "panel-1"
+
+        def current_bounds(self) -> PopupBounds:
+            return PopupBounds(120, 80, 400, 320)
+
+        def close(self) -> None:
+            self.closed = True
+
+    presenter, _events = presenter_with_selection(None)
+    panel = EntryPanel()
+    presenter._entry_panel_dialog = panel
+    presenter._entry_panel_transition = None
+
+    presenter.transition_entry_panel_to_popup("stale-panel", "s1")
+    assert presenter._entry_panel_transition is None
+
+    presenter.transition_entry_panel_to_popup("panel-1", "s1")
+
+    assert panel.closed is False
+    assert presenter._entry_panel_transition_bounds("other-workflow") is None
+    assert presenter._entry_panel_transition_bounds("s1") == PopupBounds(
+        120, 80, 400, 320
+    )
+
+
+def test_ready_popup_replaces_hidden_entry_panel_in_one_transition() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.show = lambda: events.append("popup:shown") or True
+    view.dialog.lifecycle.schedule = lambda _delay, _callback: None
+
+    class EntryPanel:
+        def presents(self, panel_id: str) -> bool:
+            return panel_id == "panel-1"
+
+        def hide(self) -> None:
+            events.append("panel:hidden")
+
+        def reveal(self) -> None:
+            events.append("panel:revealed")
+
+        def close(self) -> None:
+            events.append("panel:closed")
+
+    presenter._entry_panel_dialog = EntryPanel()
+    presenter.transition_entry_panel_to_popup("panel-1", "s1")
+
+    presenter._complete_entry_panel_transition("s1", view, reveal_popup=True)
+
+    assert events[:3] == ["panel:hidden", "popup:shown", "panel:closed"]
+    assert presenter._entry_panel_dialog is None
+    assert presenter._entry_panel_transition is None
+
+
+def test_failed_popup_reveal_keeps_the_panel_and_transition_for_retry() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    outcomes = iter((False, True))
+    view.dialog.show = lambda: events.append("popup:reveal") or next(outcomes)
+    view.dialog.lifecycle.schedule = lambda _delay, _callback: None
+
+    class EntryPanel:
+        def presents(self, panel_id: str) -> bool:
+            return panel_id == "panel-1"
+
+        def hide(self) -> None:
+            events.append("panel:hidden")
+
+        def reveal(self) -> None:
+            events.append("panel:revealed")
+
+        def close(self) -> None:
+            events.append("panel:closed")
+
+    panel = EntryPanel()
+    presenter._entry_panel_dialog = panel
+    presenter.transition_entry_panel_to_popup("panel-1", "s1")
+
+    presenter._complete_entry_panel_transition("s1", view, reveal_popup=True)
+    assert presenter._entry_panel_dialog is panel
+    assert "panel:closed" not in events
+
+    presenter._complete_entry_panel_transition("s1", view, reveal_popup=True)
+    assert events == [
+        "panel:hidden",
+        "popup:reveal",
+        "panel:revealed",
+        "panel:hidden",
+        "popup:reveal",
+        "panel:closed",
+    ]
 
 
 def test_dead_popup_emits_close_intent_before_view_is_evicted() -> None:
