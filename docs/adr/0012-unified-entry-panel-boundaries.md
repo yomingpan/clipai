@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted.
+Superseded in part by ADR-0013.
+
+ADR-0012 remains authoritative for Panel navigation, Workflow admission,
+recent-action history, configuration and semantic ownership. ADR-0013 replaces
+its decisions to use two independent visible `CTkToplevel` surfaces and to
+defer external input preparation until Action selection.
 
 ## Context
 
