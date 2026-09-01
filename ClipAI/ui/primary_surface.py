@@ -130,6 +130,9 @@ class PrimarySurfaceHost:
         self._mounted = (lease, view)
         return True
 
+    def is_mounted(self, lease: PrimarySurfaceLease) -> bool:
+        return self._mounted is not None and self._mounted[0] == lease
+
     def replace(
         self,
         active_lease: PrimarySurfaceLease,

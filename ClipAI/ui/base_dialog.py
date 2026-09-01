@@ -663,6 +663,7 @@ class BaseDialog:
         native_window_surface: NativeWindowSurface | None = None,
         primary_surface_host: PrimarySurfaceHost | None = None,
         primary_surface_lease: PrimarySurfaceLease | None = None,
+        mount_primary_content: bool = True,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
@@ -758,7 +759,7 @@ class BaseDialog:
             self.root.protocol("WM_DELETE_WINDOW", self.request_close)
             self.root.bind("<Escape>", lambda _event: self.request_close())
             self.enable_drag(self.canvas, self.surface)
-            if primary_surface_host is not None:
+            if primary_surface_host is not None and mount_primary_content:
                 assert primary_surface_lease is not None
                 if not primary_surface_host.mount(primary_surface_lease, self):
                     raise RuntimeError("primary surface content could not be mounted")
@@ -795,10 +796,25 @@ class BaseDialog:
         return left <= x < left + width and top <= y < top + height
 
     def is_visible(self) -> bool:
+        if not self.is_primary_content_mounted():
+            return False
         try:
             return bool(self.root.winfo_viewable())
         except (AttributeError, tk.TclError):
             return False
+
+    @property
+    def primary_surface_host(self) -> PrimarySurfaceHost | None:
+        return self._primary_surface_host
+
+    @property
+    def primary_surface_lease(self) -> PrimarySurfaceLease | None:
+        return self._primary_surface_lease
+
+    def is_primary_content_mounted(self) -> bool:
+        host = getattr(self, "_primary_surface_host", None)
+        lease = getattr(self, "_primary_surface_lease", None)
+        return host is None or (lease is not None and host.is_mounted(lease))
 
     def show(self) -> bool:
         """Reveal a fully built dialog after a withdrawn construction."""
@@ -931,8 +947,10 @@ class BaseDialog:
         except (AttributeError, TypeError, ValueError, tk.TclError):
             return False
 
-    def request_close(self) -> str:
+    def request_close(self) -> str | None:
         """Emit the semantic close request; only the presenter destroys views."""
+        if not self.is_primary_content_mounted():
+            return None
         if self._on_close_request is not None:
             self._on_close_request()
         else:
@@ -1721,7 +1739,10 @@ class BaseResultSurface:
             self.dialog.lifecycle.cancel(self._feedback_success_job)
             self._feedback_success_job = None
 
-    def _handle_escape(self, _event=None) -> str:
+    def _handle_escape(self, _event=None) -> str | None:
+        is_mounted = getattr(self.dialog, "is_primary_content_mounted", lambda: True)
+        if not is_mounted():
+            return None
         return "break"
 
     def _choose_feedback(self, outcome: FeedbackOutcome) -> None:

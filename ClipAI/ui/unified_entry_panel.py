@@ -30,6 +30,7 @@ from ClipAI.ui.base_dialog import (
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.window_drag import WindowDragController
 from ClipAI.ui.popup_layout import PopupLayoutPolicy, popup_bounds_from_tk_geometry
+from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
 
 
 _TRANSPARENT_WINDOW_BACKGROUND = "#111111"
@@ -109,6 +110,9 @@ class UnifiedEntryPanelDialog:
         native_window_surface: NativeWindowSurface,
         display_metrics: DisplayMetricsReader,
         layout_policy: PopupLayoutPolicy | None = None,
+        *,
+        primary_surface_host: PrimarySurfaceHost | None = None,
+        primary_surface_lease: PrimarySurfaceLease | None = None,
     ) -> None:
         self._native_window_surface = native_window_surface
         self._display_metrics = display_metrics
@@ -121,37 +125,44 @@ class UnifiedEntryPanelDialog:
         self._body_render_key: tuple[object, ...] | None = None
         self._message_label: ctk.CTkLabel | None = None
         self._message_row = 0
+        self._primary_surface_host = primary_surface_host
+        self._primary_surface_lease = primary_surface_lease
+        if (primary_surface_host is None) != (primary_surface_lease is None):
+            raise ValueError("primary surface host and lease must be provided together")
 
-        self._window = ctk.CTkToplevel(master)
-        self._window.withdraw()
-        self._window.title("ClipAI")
-        self._window.overrideredirect(True)
-        self._window.attributes("-topmost", True)
-        # Match the result Popup: Windows owns the real rounded outer edge.
-        # The transparent key removes the rectangular Toplevel background,
-        # so no dark pixels can leak through the shell's curved corners.
-        self._window.configure(fg_color=_TRANSPARENT_WINDOW_BACKGROUND)
-        try:
-            self._window.attributes(
-                "-transparentcolor",
-                _TRANSPARENT_WINDOW_BACKGROUND,
+        if primary_surface_host is not None:
+            self._window = primary_surface_host.window
+            self._lifecycle = primary_surface_host.lifecycle
+        else:
+            self._window = ctk.CTkToplevel(master)
+            self._window.withdraw()
+            self._window.title("ClipAI")
+            self._window.overrideredirect(True)
+            self._window.attributes("-topmost", True)
+            # Match the result Popup: Windows owns the real rounded outer edge.
+            self._window.configure(fg_color=_TRANSPARENT_WINDOW_BACKGROUND)
+            try:
+                self._window.attributes(
+                    "-transparentcolor",
+                    _TRANSPARENT_WINDOW_BACKGROUND,
+                )
+            except tk.TclError:
+                self._window.configure(fg_color=SURFACE_BG)
+            self._lifecycle = DialogLifecycle(
+                self._window,
+                owns_mainloop=False,
+                window_activator=lambda window: self._native_window_surface.activate(
+                    int(window.winfo_id())
+                ),
             )
-        except tk.TclError:
-            self._window.configure(fg_color=SURFACE_BG)
-        self._window.bind("<Escape>", self._on_escape)
-        self._window.bind("<KeyPress>", self._on_key)
+        self._window.bind("<Escape>", self._on_escape, add="+")
+        self._window.bind("<KeyPress>", self._on_key, add="+")
         self._window.bind("<FocusOut>", self._on_focus_out, add="+")
-        self._window.bind("<Return>", self._on_enter)
-        self._window.bind("<Down>", lambda event: self._move_focus(event, True))
-        self._window.bind("<Up>", lambda event: self._move_focus(event, False))
-        self._window.protocol("WM_DELETE_WINDOW", self._intent.close)
-        self._lifecycle = DialogLifecycle(
-            self._window,
-            owns_mainloop=False,
-            window_activator=lambda window: self._native_window_surface.activate(
-                int(window.winfo_id())
-            ),
-        )
+        self._window.bind("<Return>", self._on_enter, add="+")
+        self._window.bind("<Down>", lambda event: self._move_focus(event, True), add="+")
+        self._window.bind("<Up>", lambda event: self._move_focus(event, False), add="+")
+        if primary_surface_host is None:
+            self._window.protocol("WM_DELETE_WINDOW", self._intent.close)
 
         self._shell = ctk.CTkFrame(
             self._window,
@@ -160,7 +171,8 @@ class UnifiedEntryPanelDialog:
             border_color="#454545",
             fg_color=SURFACE_BG,
         )
-        self._shell.pack(fill="both", expand=True)
+        if primary_surface_host is None:
+            self._shell.pack(fill="both", expand=True)
         self._shell.grid_columnconfigure(0, weight=1)
         self._shell.grid_rowconfigure(2, weight=1)
 
@@ -276,6 +288,10 @@ class UnifiedEntryPanelDialog:
     ) -> None:
         if snapshot != getattr(self, "_snapshot", None):
             self.apply(snapshot)
+        if getattr(self, "_primary_surface_host", None) is not None:
+            if self.is_primary_content_mounted():
+                self._lifecycle.focus(self._first_focus_target())
+            return
         if self._placed_panel_id != snapshot.panel_id:
             layout_policy = getattr(self, "_layout_policy", None) or PopupLayoutPolicy()
             bounds = anchor or layout_policy.calculate(
@@ -290,12 +306,19 @@ class UnifiedEntryPanelDialog:
         self.reveal()
 
     def hide(self) -> None:
+        if getattr(self, "_primary_surface_host", None) is not None:
+            self.unmount_primary_content()
+            return
         try:
             self._window.withdraw()
         except tk.TclError:
             pass
 
     def reveal(self) -> None:
+        if getattr(self, "_primary_surface_host", None) is not None:
+            if self.is_primary_content_mounted():
+                self._lifecycle.focus(self._first_focus_target())
+            return
         try:
             self._window.deiconify()
         except tk.TclError:
@@ -304,6 +327,8 @@ class UnifiedEntryPanelDialog:
 
     def current_bounds(self) -> PopupBounds | None:
         """Capture the actual user-adjusted outer bounds for Popup handoff."""
+        if getattr(self, "_primary_surface_host", None) is not None:
+            return self._primary_surface_host.current_bounds()
         try:
             self._window.update_idletasks()
             return popup_bounds_from_tk_geometry(
@@ -318,8 +343,35 @@ class UnifiedEntryPanelDialog:
 
     def close(self) -> None:
         self._snapshot = None
-        self.hide()
-        self._lifecycle.close()
+        if getattr(self, "_primary_surface_host", None) is None:
+            self.hide()
+            self._lifecycle.close()
+
+    @property
+    def primary_surface_host(self) -> PrimarySurfaceHost | None:
+        return self._primary_surface_host
+
+    @property
+    def primary_surface_lease(self) -> PrimarySurfaceLease | None:
+        return self._primary_surface_lease
+
+    def mount_primary_content(self) -> bool:
+        try:
+            self._shell.pack(fill="both", expand=True)
+        except tk.TclError:
+            return False
+        return True
+
+    def unmount_primary_content(self) -> None:
+        try:
+            self._shell.pack_forget()
+        except tk.TclError:
+            pass
+
+    def is_primary_content_mounted(self) -> bool:
+        host = getattr(self, "_primary_surface_host", None)
+        lease = getattr(self, "_primary_surface_lease", None)
+        return host is None or (lease is not None and host.is_mounted(lease))
 
     def request_close(self) -> None:
         """Request runtime-owned Panel closure after an external click."""
@@ -631,31 +683,46 @@ class UnifiedEntryPanelDialog:
         reason = f"\n{option.disabled_reason}" if option.disabled_reason else ""
         return f"{key}{option.label}{description}{reason}"
 
-    def _on_escape(self, _event=None) -> str:
+    def _on_escape(self, _event=None) -> str | None:
+        if not self.is_primary_content_mounted():
+            return None
+        self._intent.escape()
         return "break"
 
     def _on_key(self, event) -> None:
+        if not self.is_primary_content_mounted():
+            return
         if event.char and event.char.isdigit():
             self._intent.select_slot(int(event.char))
 
     def _on_enter(self, event) -> str:
+        if not self.is_primary_content_mounted():
+            return "break"
         invoke = getattr(event.widget, "invoke", None)
         if callable(invoke):
             invoke()
         return "break"
 
     def _move_focus(self, event, forward: bool) -> str:
+        if not self.is_primary_content_mounted():
+            return "break"
         target = event.widget.tk_focusNext() if forward else event.widget.tk_focusPrev()
         if target is not None:
             target.focus_set()
         return "break"
 
     def _on_focus_out(self, _event=None) -> None:
+        if not self.is_primary_content_mounted():
+            return
         self._window.after(0, self._close_if_focus_left)
 
     def _close_if_focus_left(self) -> None:
         snapshot = self._snapshot
-        if snapshot is None or snapshot.status == "preparing":
+        if (
+            snapshot is None
+            or snapshot.status == "preparing"
+            or not self.is_primary_content_mounted()
+        ):
             return
         try:
             focused = self._window.focus_get()

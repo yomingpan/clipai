@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from ClipAI.core.models import PopupBounds
+from ClipAI.core.models import EntryPanelSnapshot, PopupBounds
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
-from ClipAI.ui.result_dialog import ResultDialogPresenter
+from ClipAI.ui.result_dialog import ResultDialogPresenter, _PrimaryEntrySurface, _SessionView
 
 
 class Window:
@@ -179,3 +179,105 @@ def test_result_presenter_builds_existing_popup_content_in_primary_host(monkeypa
     assert dialog_kwargs["primary_surface_lease"] == "lease"
     assert dialog_kwargs["show_on_create"] is False
     assert events.index("actions") < events.index("show")
+
+
+def test_entry_panel_replaces_and_restores_existing_result_in_same_host(monkeypatch) -> None:
+    events = []
+
+    class Host:
+        def acquire(self): events.append("acquire"); return "panel-lease"
+        def replace(self, active, replacement, view): events.append(("replace", active, replacement, view)); return True
+        def restore(self, active): events.append(("restore", active)); return True
+        def close(self, lease=None): events.append(("close-host", lease)); return True
+
+    class ResultDialog:
+        primary_surface_host = Host()
+        primary_surface_lease = "result-lease"
+
+    class Panel:
+        def __init__(self, *args, **kwargs):
+            self.panel_id = None
+            events.append(("panel", kwargs["primary_surface_host"], kwargs["primary_surface_lease"]))
+        def apply(self, snapshot): self.panel_id = snapshot.panel_id; events.append("apply")
+        def reveal(self): events.append("focus-panel")
+        def presents(self, panel_id): return panel_id == self.panel_id
+        def close(self): events.append("close-panel")
+
+    monkeypatch.setattr("ClipAI.ui.result_dialog.UnifiedEntryPanelDialog", Panel)
+    presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
+    presenter._root = "root"
+    presenter._command_sink = lambda _command: None
+    presenter._native_window_surface = "native"
+    presenter._display_metrics = object()
+    presenter._layout_policy = object()
+    presenter._use_primary_surface_host = True
+    presenter._entry_panel_dialog = None
+    presenter._entry_panel_handoff = None
+    presenter._primary_entry_surface = None
+    held_view = _SessionView(ResultDialog(), object())
+    presenter._shortcut_guide_focus_return = ("workflow-1", held_view)
+    presenter._hold_focus_for_owned_surface = lambda: None
+    presenter._owned_popup_bounds = lambda: PopupBounds(10, 20, 400, 336)
+    presenter._restore_focus_after_owned_surface = lambda: events.append("restore-focus")
+
+    presenter.present_entry_panel(EntryPanelSnapshot("panel-1", "root"))
+    presenter.transition_entry_panel_to_popup("panel-1", "workflow-1")
+
+    assert presenter._primary_entry_surface.workflow_id == "workflow-1"
+    assert events[0:4] == [
+        "acquire",
+        ("panel", held_view.dialog.primary_surface_host, "panel-lease"),
+        "apply",
+        ("replace", "result-lease", "panel-lease", presenter._entry_panel_dialog),
+    ]
+
+    presenter.present_entry_panel(None)
+
+    assert ("restore", "panel-lease") in events
+    assert "close-host" not in events
+    assert events[-2:] == ["close-panel", "restore-focus"]
+
+
+def test_accepted_action_mounts_result_before_releasing_panel_state() -> None:
+    events = []
+
+    class Host:
+        def replace(self, active, replacement, view):
+            events.append(("replace", active, replacement, view))
+            return True
+
+    class Panel:
+        def close(self): events.append("panel:closed")
+
+    class ResultDialog:
+        def __init__(self, host):
+            self.primary_surface_host = host
+            self.primary_surface_lease = "result-lease"
+
+    class Control:
+        def observe_focus(self, event): events.append(type(event).__name__)
+
+    host = Host()
+    panel = Panel()
+    transition = _PrimaryEntrySurface(panel, host, "panel-lease", "workflow-1")
+    view = _SessionView(ResultDialog(host), object())
+    presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
+    presenter._entry_panel_dialog = panel
+    presenter._primary_entry_surface = transition
+    presenter._restore_focus_after_owned_surface = lambda: events.append("focus:released")
+    presenter._popup_control = lambda _workflow, _view: Control()
+    presenter._schedule_initial_focus = lambda workflow, _view: events.append(("focus", workflow))
+
+    assert presenter._complete_primary_entry_transition(
+        "workflow-1", view, transition
+    ) is True
+
+    assert events == [
+        ("replace", "panel-lease", "result-lease", view.dialog),
+        "panel:closed",
+        "focus:released",
+        "PopupControlShown",
+        ("focus", "workflow-1"),
+    ]
+    assert presenter._entry_panel_dialog is None
+    assert presenter._primary_entry_surface is None

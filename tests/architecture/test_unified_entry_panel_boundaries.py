@@ -49,3 +49,18 @@ def test_removed_action_time_selection_contracts_do_not_return() -> None:
 
     assert "EntryPanelSelectionId" not in production_source
     assert "EntryPanelInputPrepared" not in production_source
+
+
+def test_entry_panel_view_does_not_cross_semantic_or_actuation_boundaries() -> None:
+    source = Path("ClipAI/ui/unified_entry_panel.py").read_text(encoding="utf-8")
+    forbidden = (
+        "PopupControl",
+        "ActionExecutor",
+        "InputResolver",
+        "ClipboardTransactionCoordinator",
+        "WorkflowRuntimeModule",
+        "prepare_entry_input(",
+        "start_action(",
+    )
+
+    assert [value for value in forbidden if value in source] == []
