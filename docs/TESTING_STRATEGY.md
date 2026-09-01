@@ -338,6 +338,9 @@ Recipe 回饋與使用引導應測：
   search、density、Esc、disabled reason 與 numeric resolution，不讀 private state。
 - Runtime tests 必須以 Panel lifecycle ID 加 selection-preparation ID 驗證 close、
   reopen、replace、cancel 與 late completion；舊 completion 不得啟動 Action。
+  Accepted handoff 必須在 `CREATED` 等第一個 Popup projection 入列前完成註冊；
+  rejected admission 不得執行 hook。External capture 必須在 resolve 後確認同一
+  target 的 foreground，涵蓋一次完整重試與第二次失焦時禁止 clipboard fallback。
 - Hotkey tests 覆蓋單按 Alt 的 499/500 ms、deadline identity/listener-state recheck、
   提前 release、Alt auto-repeat suppression、Panel lifecycle 結束後的 identity-scoped
   settlement、direct digit coexistence、Panel-open digit claim、top-row/numpad、

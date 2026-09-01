@@ -1964,6 +1964,27 @@ def test_start_action_admission_uses_explicit_prepared_input_target() -> None:
     assert view.execute_action.invocations[-1].input_target is prepared_target
 
 
+def test_visible_action_runs_admission_hook_before_enqueuing_first_projection() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    admitted_workflows: list[str] = []
+
+    def before_first_projection(workflow_id: str) -> None:
+        admitted_workflows.append(workflow_id)
+        runtime.drain_commands()
+        assert view.snapshots == []
+
+    admission = runtime._workflow_module.start_action(
+        "a",
+        "short",
+        before_first_projection=before_first_projection,
+    )
+    runtime.drain_commands()
+
+    assert admission.accepted
+    assert admitted_workflows == [admission.workflow_id]
+    assert view.snapshots[-1].session_id == admission.workflow_id
+
+
 def test_start_action_admission_uses_captured_workflow_lineage_without_current_foreground() -> None:
     runtime, view, supervisor, _outputs, _listener = make_runtime()
     first = runtime._workflow_module.start_action("a", "short")
@@ -2034,16 +2055,19 @@ def test_entry_panel_admission_rechecks_provider_activity_before_starting() -> N
     )
     active_invocation_id = controller.snapshot.active_invocation_id
 
+    admitted_workflows: list[str] = []
     admission = runtime._workflow_module.start_action(
         "shorten",
         "long",
         input_target=InputTarget("external_text", InputDocument("prepared", "selection")),
         admission_origin="entry_panel",
+        before_first_projection=admitted_workflows.append,
     )
 
     assert admission.state == "blocked"
     assert admission.reason == "entry_panel_unavailable"
     assert controller.snapshot.active_invocation_id == active_invocation_id
+    assert admitted_workflows == []
 
 
 def test_accepted_follow_up_records_its_root_action_as_recent() -> None:

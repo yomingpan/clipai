@@ -151,6 +151,11 @@ class ExternalWindowActivator(Protocol):
         cancellation: CancellationToken,
     ) -> ExternalWindowActivationOutcome: ...
 
+    def confirm(
+        self,
+        target: ExternalWindowRef,
+    ) -> ExternalWindowActivationOutcome: ...
+
 
 class PasteTargetPresenter(Protocol):
     def present_paste_target(self, target: PasteTarget | None) -> None: ...

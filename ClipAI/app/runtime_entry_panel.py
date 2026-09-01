@@ -42,6 +42,7 @@ class WorkflowActionAdmitter(Protocol):
         result_route: ResultRoute = "popup",
         input_target: InputTarget | None = None,
         admission_origin: ActionAdmissionOrigin = "shortcut",
+        before_first_projection: Callable[[str], None] | None = None,
     ) -> ActionStartAdmission: ...
 
     def entry_panel_action_block_reason(self, action: EntryActionRef) -> str: ...
@@ -234,11 +235,19 @@ class EntryPanelRuntimeModule:
             if command.document.source == "workflow_result"
             else "external_text"
         )
+
+        def register_handoff(workflow_id: str) -> None:
+            self._presenter.transition_entry_panel_to_popup(
+                command.panel_id,
+                workflow_id,
+            )
+
         admission = self._workflows.start_action(
             command.action.action_id,
             command.action.press_type,
             input_target=InputTarget(target_kind, command.document),
             admission_origin="entry_panel",
+            before_first_projection=register_handoff,
         )
         if admission.accepted:
             if admission.workflow_id is None:
@@ -251,10 +260,6 @@ class EntryPanelRuntimeModule:
             self._coordinator.close()
             self._source = None
             self._hold_id = None
-            self._presenter.transition_entry_panel_to_popup(
-                command.panel_id,
-                admission.workflow_id,
-            )
             return
         message = admission.message or "This Action cannot start right now."
         self._presenter.present_entry_panel(self._coordinator.show_error(message))
@@ -291,23 +296,41 @@ class EntryPanelRuntimeModule:
 
         def work() -> None:
             try:
-                activation = self._external_window_activator.activate(target, cancellation)
-                if not activation.activated:
-                    self._enqueue(EntryPanelInputPrepared(
-                        panel_id,
-                        selection_id,
-                        action,
-                        error=activation.message or "The original window could not be activated.",
-                    ))
-                    return
                 resolved = self._actions.resolve(action.action_id, action.press_type)
-                document = self._input_resolver.resolve(resolved.input_mode, cancellation)
-                self._enqueue(EntryPanelInputPrepared(
-                    panel_id,
-                    selection_id,
-                    action,
-                    document=document,
-                ))
+                for attempt in range(2):
+                    activation = self._external_window_activator.activate(
+                        target,
+                        cancellation,
+                    )
+                    if not activation.activated:
+                        self._enqueue(EntryPanelInputPrepared(
+                            panel_id,
+                            selection_id,
+                            action,
+                            error=activation.message or "The original window could not be activated.",
+                        ))
+                        return
+                    document = self._input_resolver.resolve(
+                        resolved.input_mode,
+                        cancellation,
+                    )
+                    confirmation = self._external_window_activator.confirm(target)
+                    if confirmation.activated:
+                        self._enqueue(EntryPanelInputPrepared(
+                            panel_id,
+                            selection_id,
+                            action,
+                            document=document,
+                        ))
+                        return
+                    if attempt == 1:
+                        self._enqueue(EntryPanelInputPrepared(
+                            panel_id,
+                            selection_id,
+                            action,
+                            error=confirmation.message or "The original window changed during input capture.",
+                        ))
+                        return
             except CancelledError:
                 return
             except (InputError, ValueError) as error:

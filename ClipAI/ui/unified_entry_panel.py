@@ -112,6 +112,9 @@ class UnifiedEntryPanelDialog:
         self._search_guard = False
         self._option_buttons: list[tk.Misc] = []
         self._placed_panel_id: str | None = None
+        self._body_render_key: tuple[object, ...] | None = None
+        self._message_label: ctk.CTkLabel | None = None
+        self._message_row = 0
 
         self._window = ctk.CTkToplevel(master)
         self._window.withdraw()
@@ -225,7 +228,12 @@ class UnifiedEntryPanelDialog:
             self._density.deselect()
             tooltip = "精簡模式，點擊顯示詳細說明"
         self._density_tooltip.set_text(tooltip)
-        self._rebuild_body(snapshot)
+        body_render_key = _body_render_key(snapshot)
+        if body_render_key != getattr(self, "_body_render_key", None):
+            self._rebuild_body(snapshot)
+            self._body_render_key = body_render_key
+        else:
+            self._render_message(snapshot)
 
     def show(
         self,
@@ -296,6 +304,7 @@ class UnifiedEntryPanelDialog:
         return left <= x < left + width and top <= y < top + height
 
     def _rebuild_body(self, snapshot: EntryPanelSnapshot) -> None:
+        self._message_label = None
         for child in self._body.winfo_children():
             child.destroy()
         self._option_buttons.clear()
@@ -374,19 +383,39 @@ class UnifiedEntryPanelDialog:
             ).grid(row=row, column=0, pady=(8, 0), sticky="ew")
             row += 1
 
-        if snapshot.message:
-            ctk.CTkLabel(
-                self._body,
-                text=snapshot.message,
-                anchor="w",
-                justify="left",
-                wraplength=380,
-                text_color="#F6A9A9" if snapshot.status == "error" else MODEL_COLOR,
-                font=ctk.CTkFont(
-                    family=TC_FONT_FAMILY,
-                    size=POPUP_FONT_SIZES["auxiliary"],
-                ),
-            ).grid(row=row, column=0, padx=4, pady=(8, 0), sticky="ew")
+        self._message_row = row
+        self._render_message(snapshot)
+
+    def _render_message(self, snapshot: EntryPanelSnapshot) -> None:
+        label = getattr(self, "_message_label", None)
+        if not snapshot.message:
+            if label is not None:
+                label.destroy()
+                self._message_label = None
+            return
+        text_color = "#F6A9A9" if snapshot.status == "error" else MODEL_COLOR
+        if label is not None:
+            label.configure(text=snapshot.message, text_color=text_color)
+            return
+        self._message_label = ctk.CTkLabel(
+            self._body,
+            text=snapshot.message,
+            anchor="w",
+            justify="left",
+            wraplength=380,
+            text_color=text_color,
+            font=ctk.CTkFont(
+                family=TC_FONT_FAMILY,
+                size=POPUP_FONT_SIZES["auxiliary"],
+            ),
+        )
+        self._message_label.grid(
+            row=getattr(self, "_message_row", 0),
+            column=0,
+            padx=4,
+            pady=(8, 0),
+            sticky="ew",
+        )
 
     @staticmethod
     def _split_root_options(
@@ -474,7 +503,6 @@ class UnifiedEntryPanelDialog:
 
         def activate(_event=None) -> str:
             if option.enabled:
-                card.focus_set()
                 self._intent.select(option)
             return "break"
 
@@ -584,3 +612,14 @@ class UnifiedEntryPanelDialog:
 
     def _first_focus_target(self):
         return self._option_buttons[0] if self._option_buttons else self._density
+
+
+def _body_render_key(snapshot: EntryPanelSnapshot) -> tuple[object, ...]:
+    """Identify widget topology independently from operation lifecycle state."""
+    return (
+        snapshot.page,
+        snapshot.category_id,
+        snapshot.density,
+        snapshot.options,
+        snapshot.search_text,
+    )

@@ -66,7 +66,9 @@ Workflow state.
   canonical displayed content; no clipboard read occurs.
 - Otherwise the Panel captures one opaque external-window reference at open.
   On selection it restores and validates that exact target before calling the
-  existing `InputResolver` at explicit user intent.
+  existing `InputResolver` at explicit user intent, then confirms the same
+  target still owns foreground. A lost target retries the complete operation
+  once; a second loss fails closed.
 - Failure does not substitute the current foreground window or a later clipboard
   value.
 - Prepared `InputDocument` enters Workflow admission through `InputTarget`, so
@@ -113,6 +115,8 @@ Public tests exercise `EntryPanelCatalog`, `EntryPanelCoordinator`,
 the UI projection/intent port. Identity, withdrawn preparation, commit order,
 rollback, retry and reused-Popup behavior are tested through the
 `EntryPanelPopupHandoff` interface; presenter tests retain only the integration
-needed to prove delegation from Workflow rendering. Tests do not inspect private
-presenter transition state, private widget helpers, private runtime methods or
-internal state dictionaries.
+needed to prove delegation from Workflow rendering. Runtime tests additionally
+prove handoff registration precedes the first visible Workflow projection and
+that post-capture target loss cannot admit clipboard fallback. Tests do not
+inspect private presenter transition state, private widget helpers, private
+runtime methods or internal state dictionaries.
