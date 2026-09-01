@@ -9,6 +9,7 @@ from ClipAI.core.state import CancellationToken
 PressType = Literal["short", "long"]
 ShortcutPressId = NewType("ShortcutPressId", int)
 ModifierHoldId = NewType("ModifierHoldId", int)
+EntryInputPreparationId = NewType("EntryInputPreparationId", str)
 EntryPanelSelectionId = NewType("EntryPanelSelectionId", str)
 ShortcutPressOutcome = Literal["released", "cancelled"]
 InterruptionScope = Literal["current", "all"]
@@ -59,6 +60,19 @@ ActionStartAdmissionState = Literal["accepted", "rejected", "blocked"]
 ActionAdmissionOrigin = Literal["shortcut", "entry_panel"]
 EntryPanelPage = Literal["root", "scene", "more"]
 EntryPanelDensity = Literal["detailed", "compact"]
+EntryInputPreviewKind = Literal[
+    "preparing",
+    "selection_text",
+    "clipboard_text",
+    "clipboard_image",
+    "workflow_result",
+    "failed",
+]
+PreparedInputUnavailableReason = Literal[
+    "selection_or_clipboard_unavailable",
+    "clipboard_unavailable",
+    "clipboard_image_unavailable",
+]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
 ControlSurfaceKind = Literal["workflow", "provider_settings", "shortcut_guide", "personal_styles"]
@@ -110,6 +124,12 @@ class EntryPanelOption:
     category_id: str = ""
     enabled: bool = True
     disabled_reason: str = ""
+
+
+@dataclass(frozen=True)
+class EntryInputSourcePreview:
+    kind: EntryInputPreviewKind
+    summary: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True)
@@ -619,6 +639,88 @@ class InputDocument:
     workflow_id: str | None = None
     step_id: str | None = None
     image: ImageContent | None = None
+
+
+@dataclass(frozen=True)
+class PreparedEntryInputResolution:
+    document: InputDocument | None = field(default=None, repr=False)
+    unavailable_reason: PreparedInputUnavailableReason | None = None
+
+    def __post_init__(self) -> None:
+        if (self.document is None) == (self.unavailable_reason is None):
+            raise ValueError(
+                "prepared input resolution requires exactly one document or reason"
+            )
+
+
+@dataclass(frozen=True)
+class PreparedEntryInput:
+    """Memory-only input facts captured once for one Entry Panel lifecycle."""
+
+    workflow_document: InputDocument | None = field(default=None, repr=False)
+    selection_document: InputDocument | None = field(default=None, repr=False)
+    clipboard_text_document: InputDocument | None = field(default=None, repr=False)
+    clipboard_image: ImageContent | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        external_values = (
+            self.selection_document,
+            self.clipboard_text_document,
+            self.clipboard_image,
+        )
+        if self.workflow_document is not None and any(
+            value is not None for value in external_values
+        ):
+            raise ValueError("workflow prepared input cannot contain external input")
+        if self.workflow_document is not None:
+            document = self.workflow_document
+            if (
+                document.source != "workflow_result"
+                or not document.workflow_id
+                or not document.step_id
+            ):
+                raise ValueError("workflow prepared input requires exact lineage")
+        if (
+            self.selection_document is not None
+            and self.selection_document.source != "selection"
+        ):
+            raise ValueError("prepared selection must use the selection source")
+        if (
+            self.clipboard_text_document is not None
+            and self.clipboard_text_document.source != "clipboard"
+        ):
+            raise ValueError("prepared clipboard text must use the clipboard source")
+
+    def resolve(self, mode: InputMode) -> PreparedEntryInputResolution:
+        if self.workflow_document is not None:
+            return PreparedEntryInputResolution(document=self.workflow_document)
+        if mode == "clipboard_image":
+            if self.clipboard_image is None:
+                return PreparedEntryInputResolution(
+                    unavailable_reason="clipboard_image_unavailable"
+                )
+            return PreparedEntryInputResolution(
+                document=InputDocument(
+                    "",
+                    "screenshot",
+                    image=self.clipboard_image,
+                )
+            )
+        if mode == "selection_or_clipboard" and self.selection_document is not None:
+            return PreparedEntryInputResolution(document=self.selection_document)
+        if self.clipboard_image is not None:
+            return PreparedEntryInputResolution(
+                document=InputDocument("", "clipboard", image=self.clipboard_image)
+            )
+        if self.clipboard_text_document is not None:
+            return PreparedEntryInputResolution(document=self.clipboard_text_document)
+        return PreparedEntryInputResolution(
+            unavailable_reason=(
+                "selection_or_clipboard_unavailable"
+                if mode == "selection_or_clipboard"
+                else "clipboard_unavailable"
+            )
+        )
 
 
 @dataclass(frozen=True)

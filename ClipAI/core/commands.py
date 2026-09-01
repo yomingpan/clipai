@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TypeAlias
 
 from ClipAI.core.errors import ActionLanguagePackErrorCode
-from ClipAI.core.models import EntryActionRef, EntryPanelDensity, EntryPanelSelectionId, FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
+from ClipAI.core.models import EntryActionRef, EntryInputPreparationId, EntryPanelDensity, EntryPanelSelectionId, FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PreparedEntryInput, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
 from ClipAI.core.models import ControlSurfaceRef
 from ClipAI.core.voice import VoiceCaptureId, VoiceDisableId, VoiceEngineEvent, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
 
@@ -95,6 +95,25 @@ class EntryPanelInputPrepared:
     action: EntryActionRef
     document: InputDocument | None = field(default=None, repr=False)
     error: str = ""
+
+
+@dataclass(frozen=True)
+class EntryPanelInputPreparationCompleted:
+    panel_id: str
+    preparation_id: EntryInputPreparationId
+    prepared_input: PreparedEntryInput = field(repr=False)
+
+
+@dataclass(frozen=True)
+class EntryPanelInputPreparationFailed:
+    panel_id: str
+    preparation_id: EntryInputPreparationId
+    message: str
+
+
+@dataclass(frozen=True)
+class RetryEntryPanelInput:
+    panel_id: str
 
 
 @dataclass(frozen=True)

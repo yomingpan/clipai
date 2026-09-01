@@ -2,7 +2,14 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from ClipAI.core.models import ActionStartAdmission, EntryActionRef
+from ClipAI.core.commands import EntryPanelInputPreparationCompleted
+from ClipAI.core.models import (
+    ActionStartAdmission,
+    EntryActionRef,
+    EntryInputPreparationId,
+    InputDocument,
+    PreparedEntryInput,
+)
 
 
 def test_entry_action_reference_preserves_explicit_press_variant() -> None:
@@ -34,3 +41,15 @@ def test_accepted_action_admission_identifies_the_authoritative_workflow() -> No
 
     with pytest.raises(ValueError, match="requires workflow_id"):
         ActionStartAdmission("accepted")
+
+
+def test_preparation_completion_repr_does_not_expose_frozen_input() -> None:
+    command = EntryPanelInputPreparationCompleted(
+        "panel-1",
+        EntryInputPreparationId("preparation-1"),
+        PreparedEntryInput(
+            selection_document=InputDocument("private text", "selection")
+        ),
+    )
+
+    assert "private text" not in repr(command)
