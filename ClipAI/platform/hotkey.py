@@ -32,6 +32,9 @@ _VK_DIGIT_MAP = {code: str(code - 48) for code in range(48, 58)}
 _VK_NUMPAD_MAP = {code: str(code - 96) for code in range(96, 106)}
 _VK_ALPHA_MAP = {code: chr(code).lower() for code in range(65, 91)}
 _VK_OEM_3 = 192
+_ENTRY_PANEL_CONFLICT_KEYS = frozenset({"altgr", "cmd", "tab", "f4", "space"})
+
+
 def _describe_key(key) -> str:
     name = getattr(key, "name", None)
     char = getattr(key, "char", None)
@@ -42,6 +45,8 @@ def _describe_key(key) -> str:
 def _normalize_key(key) -> str | None:
     name = getattr(key, "name", None)
     if name:
+        if name == "alt_gr":
+            return "altgr"
         if name.startswith("alt"):
             return "alt"
         if name.startswith("shift"):
@@ -182,6 +187,7 @@ class _HotkeyDispatcher:
                 "esc",
                 *(token for _, tokens in self._hotkeys for token in tokens),
                 *("0123456789" if entry_panel_enabled else ""),
+                *(_ENTRY_PANEL_CONFLICT_KEYS if entry_panel_enabled else ()),
             }
         )
         self._pressed: set[str] = set()
@@ -455,6 +461,13 @@ class _HotkeyDispatcher:
                 self._report_key_state()
                 return
             if token == "esc":
+                if self._pressed:
+                    # Esc participates in native Alt/Ctrl/Shift combinations.
+                    # Only exact Esc is ClipAI's progressive interruption
+                    # gesture; observing a chord must remain passive.
+                    self._update_entry_hold_on_press(token)
+                    self._report_key_state()
+                    return
                 if self._escape is not None:
                     return
                 for state in tuple(self._active.values()):

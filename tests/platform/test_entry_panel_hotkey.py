@@ -1,8 +1,13 @@
 import ctypes
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
+import yaml
 
 from ClipAI.core.commands import (
     EntryPanelDigitPressed,
+    InterruptionRequested,
     OpenUnifiedEntryPanel,
     ShortcutPressEnded,
     ShortcutPressInvoked,
@@ -45,6 +50,21 @@ class Timer:
     def fire(self) -> None:
         if not self.cancelled:
             self.callback()
+
+
+def _dispatcher(events, shortcuts=None):
+    Timer.timers.clear()
+    return create_hotkey_dispatcher(
+        shortcuts or {},
+        events.append,
+        modifier_mode="ctrl_alt",
+        timer_factory=Timer,
+        entry_panel_enabled=True,
+    )
+
+
+def _key_for_token(token: str) -> Key:
+    return Key(char=token) if len(token) == 1 else Key(token)
 
 
 def test_exact_alt_hold_opens_entry_panel_at_500_ms_deadline() -> None:
@@ -281,6 +301,155 @@ def test_alt_auto_repeat_after_panel_open_does_not_start_a_second_hold() -> None
 
     assert len(Timer.timers) == 1
     assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
+
+
+def test_exact_alt_hold_does_not_open_before_500_ms_deadline() -> None:
+    events = []
+    dispatcher = _dispatcher(events)
+
+    dispatcher.on_press(Key("alt"))
+
+    assert Timer.timers[0].delay == 0.5
+    assert events == []
+
+
+@pytest.mark.parametrize("alt_name", ["alt", "alt_l", "alt_r"])
+def test_left_and_right_alt_share_the_exact_alt_contract(alt_name: str) -> None:
+    events = []
+    dispatcher = _dispatcher(events)
+
+    dispatcher.on_press(Key(alt_name))
+    Timer.timers[0].fire()
+
+    assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
+
+
+@pytest.mark.parametrize(
+    ("joined_key", "release_key"),
+    [
+        (Key("tab"), Key("tab")),
+        (Key("f4"), Key("f4")),
+        (Key("space"), Key("space")),
+        (Key("esc"), Key("esc")),
+        (Key("shift"), Key("shift")),
+        (Key("cmd"), Key("cmd")),
+    ],
+    ids=["alt-tab", "alt-f4", "alt-space", "alt-esc", "shift-alt", "win-alt"],
+)
+def test_native_alt_combinations_cancel_only_the_panel_candidate(
+    joined_key: Key,
+    release_key: Key,
+) -> None:
+    events = []
+    dispatcher = _dispatcher(events)
+
+    dispatcher.on_press(Key("alt"))
+    timer = Timer.timers[0]
+    dispatcher.on_press(joined_key)
+    timer.callback()
+    dispatcher.on_release(release_key)
+    dispatcher.on_release(Key("alt"))
+
+    assert timer.cancelled is True
+    assert OpenUnifiedEntryPanel(ModifierHoldId(1)) not in events
+    assert not any(isinstance(event, InterruptionRequested) for event in events)
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (Key("tab"), Key("alt")),
+        (Key("f4"), Key("alt")),
+        (Key("space"), Key("alt")),
+        (Key("shift"), Key("alt")),
+        (Key("cmd"), Key("alt")),
+    ],
+    ids=["tab-alt", "f4-alt", "space-alt", "shift-alt", "win-alt"],
+)
+def test_existing_key_then_alt_never_starts_an_exact_alt_hold(
+    first: Key,
+    second: Key,
+) -> None:
+    events = []
+    dispatcher = _dispatcher(events)
+
+    dispatcher.on_press(first)
+    dispatcher.on_press(second)
+
+    assert Timer.timers == []
+    assert not any(isinstance(event, OpenUnifiedEntryPanel) for event in events)
+
+
+@pytest.mark.parametrize(
+    "sequence",
+    [
+        (Key("alt_gr"),),
+        (Key("ctrl_r"), Key("alt_gr")),
+        (Key("alt_gr"), Key("ctrl_r")),
+    ],
+    ids=["altgr-alone", "ctrl-altgr", "altgr-ctrl"],
+)
+def test_altgr_never_becomes_an_exact_alt_panel_hold(sequence: tuple[Key, ...]) -> None:
+    events = []
+    dispatcher = _dispatcher(events)
+
+    for key in sequence:
+        dispatcher.on_press(key)
+
+    assert Timer.timers == []
+    assert not any(isinstance(event, OpenUnifiedEntryPanel) for event in events)
+
+
+def test_every_configured_ctrl_alt_shortcut_keeps_its_existing_lifecycle() -> None:
+    config = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
+    definitions = config["shortcuts"]
+    shortcuts = {
+        definition["id"]: {"hotkey": definition["hotkey"]}
+        for definition in definitions
+    }
+
+    for definition in definitions:
+        Timer.timers.clear()
+        events = []
+        dispatcher = create_hotkey_dispatcher(
+            shortcuts,
+            events.append,
+            modifier_mode="ctrl_alt",
+            timer_factory=Timer,
+            entry_panel_enabled=True,
+        )
+        trigger = definition["hotkey"].split("+")[-1]
+        dispatcher.on_press(Key("ctrl"))
+        dispatcher.on_press(Key("alt"))
+        dispatcher.on_press(_key_for_token(trigger))
+        dispatcher.on_release(_key_for_token(trigger))
+
+        assert events == [
+            ShortcutPressStarted(1, definition["id"]),
+            ShortcutPressInvoked(1, definition["id"], "short"),
+            ShortcutPressEnded(1, definition["id"], "released"),
+        ], definition["id"]
+
+
+@pytest.mark.parametrize("digit", list("0123456789"))
+def test_configured_ctrl_alt_digit_accepts_numpad_virtual_keys(digit: str) -> None:
+    events = []
+    dispatcher = _dispatcher(
+        events,
+        {f"action-{digit}": {"hotkey": f"ctrl+alt+{digit}"}},
+    )
+
+    dispatcher.on_press(Key("ctrl"))
+    dispatcher.on_press(Key("alt"))
+    numpad = Key(vk=96 + int(digit))
+    dispatcher.on_press(numpad)
+    dispatcher.on_release(numpad)
+
+    assert events == [
+        ShortcutPressStarted(1, f"action-{digit}"),
+        ShortcutPressInvoked(1, f"action-{digit}", "short"),
+        ShortcutPressEnded(1, f"action-{digit}", "released"),
+    ]
 
 
 def test_panel_settlement_allows_fresh_hold_after_a_missing_release() -> None:
