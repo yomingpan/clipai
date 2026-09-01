@@ -110,5 +110,9 @@ Workflow state.
 
 Public tests exercise `EntryPanelCatalog`, `EntryPanelCoordinator`,
 `RecentActionHistory`, the typed runtime command seam, the hotkey listener and
-the UI projection/intent port. They do not test private widget helpers, private
-runtime methods or internal state dictionaries.
+the UI projection/intent port. Identity, withdrawn preparation, commit order,
+rollback, retry and reused-Popup behavior are tested through the
+`EntryPanelPopupHandoff` interface; presenter tests retain only the integration
+needed to prove delegation from Workflow rendering. Tests do not inspect private
+presenter transition state, private widget helpers, private runtime methods or
+internal state dictionaries.

@@ -59,7 +59,9 @@ tests/              # Unit sims 與 integration tests
   surface 可見，既有 Popup 不得重新定位。Bounds 的螢幕位置是 physical pixels，
   CustomTkinter width/height 是 toolkit-logical units。不得由 Panel
   close、focus、游標位置或任意 Workflow snapshot 猜測交接，也不得保留未具名的
-  「上一次 Panel 位置」供日後 Popup 使用。
+  「上一次 Panel 位置」供日後 Popup 使用。`EntryPanelPopupHandoff` 是 presenter
+  私有的 deep module，集中 identity matching、withdrawn preparation、commit、
+  rollback 與 retry；它不是第二個 presentation owner。
 - 最近使用由 `RecentActionHistory` 擁有，只接收 `WorkflowController` 已接受的
   successful step 所解析出的 `action_id + press_type`；不得由 provider completion、
   Workflow snapshot revision、Popup visibility 或 operation tracker 推導成功。

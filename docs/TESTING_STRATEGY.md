@@ -350,7 +350,9 @@ Recipe 回饋與使用引導應測：
   hide-before-destroy、Panel/Popup exact logical-size/physical-position bounds、
   identity-scoped withdrawn-build hide-Panel → reveal-Popup → destroy-Panel handoff、
   既有 Popup 不重新定位與 action lifecycle feedback；
-  不 mock 內部 widget helper。
+  handoff 規則只經 `EntryPanelPopupHandoff` interface 測試，presenter 只保留必要
+  integration coverage；不得斷言 presenter 私有 transition state，也不 mock 內部
+  widget helper。
 - Windows smoke 必須驗證 external target restore → action-time selection capture →
   typed Workflow admission，以及 multi-monitor/DPI、IME、top-row/numpad 與 cursor
   preservation。UI thread 不得執行 provider 或 blocking selection work。

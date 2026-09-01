@@ -39,7 +39,10 @@ has closed or reopened.
   hide the Panel, reveal the Popup, then destroy the Panel in the same UI turn.
   If reveal fails, it restores the same Panel for retry. Reused Popups keep their
   existing bounds. Bounds use physical screen position and toolkit-logical size;
-  navigation and Workflow/Popup state ownership do not move.
+  navigation and Workflow/Popup state ownership do not move. Its private
+  `EntryPanelPopupHandoff` deep module owns the handoff implementation state and
+  ordered commit/rollback interface; this does not create another presentation
+  owner.
 - The platform hotkey listener owns the exact `Alt` 500 ms hold and digit
   claim. Alt auto-repeat remains part of the same physical hold. Runtime settles
   the consumed hold by identity when the Panel lifecycle ends, so a missed OS
