@@ -1,7 +1,7 @@
 from ClipAI.app.config_loader import load_config_bundle
 import pytest
 
-from ClipAI.core.models import EntryActionRef, EntryPanelSelectionId
+from ClipAI.core.models import EntryActionRef, EntryInputSourcePreview
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.entry_panel import EntryPanelCandidate, EntryPanelCatalog, EntryPanelCategory, EntryPanelCoordinator
 
@@ -127,35 +127,40 @@ def test_disabled_action_stays_visible_with_reason_and_cannot_be_selected() -> N
     assert decision.action is None
 
 
-def test_preparation_identity_rejects_late_completion_after_replacement() -> None:
+def test_input_lifecycle_projection_survives_navigation_and_density_changes() -> None:
     panel = coordinator()
-    panel.open("panel-1")
-    first = EntryPanelSelectionId("selection-1")
-    second = EntryPanelSelectionId("selection-2")
+    preview = EntryInputSourcePreview("preparing")
+    root = panel.open(
+        "panel-1",
+        preparing=True,
+        source_preview=preview,
+    )
+    scene = panel.select_digit("5").snapshot
+    more = panel.open_more()
+    compact = panel.toggle_density()
 
-    panel.begin_preparation(first)
-    pending = panel.begin_preparation(second)
-    stale = panel.settle_preparation(first, message="stale failure")
-    settled = panel.settle_preparation(second, message="target unavailable")
-
-    assert pending.status == "preparing"
-    assert pending.selection_id == second
-    assert stale is None
-    assert settled.status == "error"
-    assert settled.message == "target unavailable"
-    assert settled.selection_id is None
+    assert root.status == scene.status == more.status == compact.status == "preparing"
+    assert compact.source_preview == preview
 
 
-def test_close_invalidates_active_preparation_identity() -> None:
+def test_input_completion_and_failure_are_truthful_projection_transitions() -> None:
     panel = coordinator()
-    panel.open("panel-1")
-    selection_id = EntryPanelSelectionId("selection-1")
-    panel.begin_preparation(selection_id)
+    panel.open("panel-1", preparing=True)
 
-    panel.close()
+    completed = panel.complete_input_preparation(
+        EntryInputSourcePreview("selection_text", "captured")
+    )
+    failed = panel.show_error(
+        "target unavailable",
+        source_preview=EntryInputSourcePreview("failed", "target unavailable"),
+    )
 
-    assert panel.snapshot is None
-    assert panel.settle_preparation(selection_id) is None
+    assert completed.status == "idle"
+    assert completed.message == ""
+    assert completed.source_preview.kind == "selection_text"
+    assert failed.status == "error"
+    assert failed.message == "target unavailable"
+    assert failed.source_preview.kind == "failed"
 
 
 def test_catalog_rejects_semantically_invalid_categories_without_yaml_loader() -> None:

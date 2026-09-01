@@ -10,7 +10,6 @@ PressType = Literal["short", "long"]
 ShortcutPressId = NewType("ShortcutPressId", int)
 ModifierHoldId = NewType("ModifierHoldId", int)
 EntryInputPreparationId = NewType("EntryInputPreparationId", str)
-EntryPanelSelectionId = NewType("EntryPanelSelectionId", str)
 ShortcutPressOutcome = Literal["released", "cancelled"]
 InterruptionScope = Literal["current", "all"]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
@@ -65,6 +64,7 @@ EntryInputPreviewKind = Literal[
     "selection_text",
     "clipboard_text",
     "clipboard_image",
+    "workflow_selection",
     "workflow_result",
     "failed",
 ]
@@ -142,7 +142,7 @@ class EntryPanelSnapshot:
     search_text: str = ""
     status: Literal["idle", "preparing", "error"] = "idle"
     message: str = ""
-    selection_id: EntryPanelSelectionId | None = None
+    source_preview: EntryInputSourcePreview | None = None
 
 
 @dataclass(frozen=True)

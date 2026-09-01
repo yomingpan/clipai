@@ -108,11 +108,11 @@ physical Alt hold
 OpenUnifiedEntryPanel typed command
         ▼
 EntryPanelRuntimeModule ──────── EntryPanelCatalog ← config/entry_panel.yaml
-  │ launch/source/selection identity              (IA/category copy/Action refs)
+  │ launch/source/preparation identity            (IA/category copy/Action refs)
   │                                      ← active Action Language Pack
   │                                         (candidate label/description)
   ├── EntryPanelCoordinator (pure navigation/search/density transitions)
-  │ external target restore + action-time capture, scoped by selection ID
+  │ open-time input preparation, scoped by preparation ID
   ▼
 WorkflowRuntimeModule.start_action(...) → ActionExecutor → InputResolver
                                                 │              │
@@ -208,15 +208,15 @@ continues to call the same behavior and may discard the result.
 
 External input preparation is a separate, identity-scoped stage because target
 activation and selection capture are blocking work. `EntryPanelRuntimeModule`
-allocates one `EntryPanelSelectionId`, projects `preparing`, and schedules the
-work through `TaskSupervisor`'s interactive lane. Completion returns through
-the typed command queue with the same Panel lifecycle ID and selection ID. A
-closed/reopened Panel, cancellation or shutdown invalidates the old identity;
-its late completion cannot start an Action or close the new Panel. While one
-selection is preparing, repeated click/Enter intents are ignored and cannot
-allocate a second identity or task. The existing clipboard transaction
-coordinator remains responsible for safe restoration even when preparation
-becomes stale.
+allocates one `EntryInputPreparationId` when the Panel opens, immediately
+projects `preparing`, and schedules the work through `TaskSupervisor`'s
+interactive lane. Completion returns through the typed command queue with the
+same Panel lifecycle ID and preparation ID. A closed/reopened Panel,
+cancellation, retry or shutdown invalidates the old identity; its late
+completion cannot replace the frozen input, start an Action or close the new
+Panel. Actions remain disabled until preparation settles. The existing
+clipboard transaction coordinator remains responsible for safe restoration
+even when preparation becomes stale.
 
 `ActionStartAdmission` is the single synchronous fact used to begin Panel
 closure, and an accepted result carries the authoritative Workflow identity:
@@ -256,25 +256,27 @@ keyboard adapter.
 For an external source, the intentional ordering is:
 
 ```text
-select Action → Panel pending → restore/validate external target
-              → InputResolver captures selection (clipboard fallback only inside its existing contract)
-              → typed preparation completion with matching selection ID
-              → explicit InputDocument/InputTarget → action admission
-              → accepted Workflow identity → visual handoff
+open Panel → Panel preparing → restore/validate captured external target
+           → InputResolver captures selection and clipboard candidates once
+           → typed preparation completion with matching preparation ID
+select Action → resolve frozen candidate to explicit InputTarget → action admission
+              → accepted Workflow identity → visual replacement
 ```
 
 The explicit document prevents the workflow from capturing a second time after
 the Panel or Popup has changed focus.
 
-Closing or navigating while preparation is pending cancels the task when
-possible and always invalidates the selection ID. A preparation failure restores
-the same Panel projection with an actionable error; it must not fall back to a
-new foreground window or a later clipboard value.
+Closing or retrying while preparation is pending cancels the task when possible
+and always invalidates the preparation ID. Navigation preserves the same frozen
+input lifecycle. A preparation failure restores the same Panel projection with
+an actionable error; it must not fall back to a new foreground window or a
+later clipboard value.
 
-### 5. Independent UI surface with shared lifecycle
+### 5. One primary UI surface with replaceable content
 
-Add `UnifiedEntryPanelDialog` in its own UI module and use the existing single
-hidden CustomTkinter root. Reuse `DialogLifecycle`, `NativeWindowSurface`,
+Keep `UnifiedEntryPanelDialog` in its own UI module, but mount it inside the
+same `PrimarySurfaceHost` used by result content under the existing single
+hidden CustomTkinter root. The host owns `DialogLifecycle`, `NativeWindowSurface`,
 display-metrics/pointer readers and current widget conventions. Do not reuse
 `PopupControl`: it is coupled to workflow/paste/output identities and would
 become a second owner if it absorbed the Panel.
@@ -344,9 +346,10 @@ preferences) or `WorkflowController` history (per-workflow accepted steps).
 | `EntryPanelSource` | core immutable model | Popup semantic source or opaque external-window reference; no clipboard payload. |
 | `EntryPanelCatalog` | services/config | Validated, display-only mapping to existing Action ID and press-type references. |
 | `ActionStartAdmission` | core/app boundary | Exact accepted/rejected/blocked start result; only accepted permits Panel close. |
-| `EntryPanelSelectionId` | core/app boundary | Prevents late target/input preparation from acting on a closed, reopened or newer Panel. |
-| `EntryPanelInputPrepared` | core command | Returns an explicit document or typed preparation failure through the ordered command queue. |
-| `InputTarget` | existing core model use | Carries the explicit `InputDocument`; the executor skips duplicate capture while Panel selection identity remains separate. |
+| `EntryInputPreparationId` | core/app boundary | Prevents late open-time input preparation from acting on a closed, retried, reopened or newer Panel. |
+| `PreparedEntryInput` | core immutable model | Holds the frozen selection, clipboard text and clipboard image candidates captured when the Panel opens. |
+| `EntryPanelInputPreparationCompleted` / `EntryPanelInputPreparationFailed` | core commands | Return frozen input or typed preparation failure through the ordered command queue. |
+| `InputTarget` | existing core model use | Carries the Action-compatible document resolved only from `PreparedEntryInput`; the executor skips duplicate capture. |
 | `WorkflowStepAccepted` | core/app command | Minimal accepted-step identity emitted only after controller acceptance; never carries user content. |
 | `RecentActionRef` | core/services | Minimal replay reference; no user content or window metadata. |
 | modifier-hold press identity | platform internal | Bounds timers, release, stale recovery and shutdown to one physical hold. |

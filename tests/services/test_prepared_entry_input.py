@@ -6,6 +6,7 @@ import pytest
 
 from ClipAI.core.models import ImageContent, InputDocument, PreparedEntryInput
 from ClipAI.services.input_resolver import InputResolver
+from ClipAI.services.entry_input_preview import build_entry_input_preview
 
 
 class Clipboard:
@@ -142,3 +143,36 @@ def test_workflow_preparation_rejects_missing_or_mixed_lineage() -> None:
             ),
             selection_document=InputDocument("selected", "selection"),
         )
+
+
+def test_source_preview_normalizes_whitespace_and_truncates_to_90_characters() -> None:
+    prepared = PreparedEntryInput(
+        selection_document=InputDocument(
+            "  " + "word \n\t" * 30,
+            "selection",
+        )
+    )
+
+    preview = build_entry_input_preview(prepared)
+
+    assert preview.kind == "selection_text"
+    assert len(preview.summary) == 90
+    assert "\n" not in preview.summary
+    assert preview.summary.endswith("…")
+
+
+def test_workflow_preview_distinguishes_selection_from_displayed_content() -> None:
+    prepared = PreparedEntryInput(
+        workflow_document=InputDocument(
+            "result",
+            "workflow_result",
+            workflow_id="workflow-1",
+            step_id="step-1",
+        )
+    )
+
+    assert build_entry_input_preview(prepared).kind == "workflow_result"
+    assert build_entry_input_preview(
+        prepared,
+        workflow_selection=True,
+    ).kind == "workflow_selection"

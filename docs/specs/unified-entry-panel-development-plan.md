@@ -223,22 +223,25 @@ Rules:
 - known availability is joined from authoritative runtime capability owners;
   input or OCR viability that requires execution is never pre-probed.
 
-### Two-stage selection lifecycle
+### Open-time input preparation lifecycle
 
 ```text
-SelectEntryPanelAction(panel_id, candidate)
-  → allocate selection_id and project preparing
+OpenUnifiedEntryPanel
+  → capture semantic Popup source or external-window reference
+  → allocate preparation_id, project preparing and disable Actions
   → restore/validate captured external target
-  → InputResolver captures at explicit intent
-  → EntryPanelInputPrepared(panel_id, selection_id, document | typed error)
+  → InputResolver captures selection and clipboard candidates once
+  → EntryPanelInputPreparationCompleted/Failed(panel_id, preparation_id, ...)
   → reject if either identity is stale
+SelectEntryPanelAction(panel_id, candidate)
+  → resolve an Action-compatible InputTarget from frozen candidates only
   → WorkflowRuntimeModule.start_action(... explicit InputTarget)
   → accepted: close Panel; rejected/blocked: keep it with real reason
 ```
 
-Popup-source selection skips external activation/capture and creates the
-explicit `InputTarget` from canonical Popup content. Closing, a newer selection,
-reopen and shutdown invalidate the old selection ID. Cancellation never grants
+Popup-source opening skips external activation/capture and freezes selected
+Popup text, otherwise the displayed canonical content. Closing, retry, reopen
+and shutdown invalidate the old preparation ID. Cancellation never grants
 an old worker authority over a new Panel.
 
 ### Successful-step to recent-history lifecycle

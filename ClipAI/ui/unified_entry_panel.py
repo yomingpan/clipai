@@ -13,8 +13,9 @@ from ClipAI.core.commands import (
     EntryPanelSearchChanged,
     EntryPanelSlotSelected,
     EntryPanelToggleDensity,
+    RetryEntryPanelInput,
 )
-from ClipAI.core.models import EntryPanelOption, EntryPanelSnapshot, PopupBounds
+from ClipAI.core.models import EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
 from ClipAI.ui.base_dialog import (
     ACTION_COLOR,
@@ -92,6 +93,11 @@ class EntryPanelIntentAdapter:
         if snapshot is not None:
             self._command_sink(CloseEntryPanel(snapshot.panel_id))
 
+    def retry_input(self) -> None:
+        snapshot = self._snapshot
+        if snapshot is not None:
+            self._command_sink(RetryEntryPanelInput(snapshot.panel_id))
+
 
 class UnifiedEntryPanelDialog:
     """Toolkit-only cursor-adjacent projection of the Unified Entry Panel."""
@@ -156,7 +162,7 @@ class UnifiedEntryPanelDialog:
         )
         self._shell.pack(fill="both", expand=True)
         self._shell.grid_columnconfigure(0, weight=1)
-        self._shell.grid_rowconfigure(1, weight=1)
+        self._shell.grid_rowconfigure(2, weight=1)
 
         header = ctk.CTkFrame(self._shell, fg_color="transparent")
         header.grid(row=0, column=0, padx=16, pady=(14, 8), sticky="ew")
@@ -203,6 +209,32 @@ class UnifiedEntryPanelDialog:
         )
         self._escape_button.grid(row=0, column=2, sticky="e")
 
+        source_row = ctk.CTkFrame(self._shell, fg_color="transparent")
+        source_row.grid(row=1, column=0, padx=16, pady=(0, 7), sticky="ew")
+        source_row.grid_columnconfigure(0, weight=1)
+        self._source_preview_label = ctk.CTkLabel(
+            source_row,
+            text="",
+            anchor="w",
+            justify="left",
+            text_color=MODEL_COLOR,
+            font=ctk.CTkFont(
+                family=TC_FONT_FAMILY,
+                size=POPUP_FONT_SIZES["auxiliary"],
+            ),
+        )
+        self._source_preview_label.grid(row=0, column=0, sticky="ew")
+        self._retry_input_button = ctk.CTkButton(
+            source_row,
+            text="重試",
+            width=54,
+            height=24,
+            fg_color="transparent",
+            hover_color="#3A3A3A",
+            text_color=CONTENT_COLOR,
+            command=self._intent.retry_input,
+        )
+
         self._body = ctk.CTkScrollableFrame(
             self._shell,
             corner_radius=0,
@@ -210,7 +242,7 @@ class UnifiedEntryPanelDialog:
             scrollbar_button_color="#454545",
             scrollbar_button_hover_color="#5A5A5A",
         )
-        self._body.grid(row=1, column=0, padx=14, pady=(0, 14), sticky="nsew")
+        self._body.grid(row=2, column=0, padx=14, pady=(0, 14), sticky="nsew")
         self._body.grid_columnconfigure(0, weight=1)
         self._drag_controller = WindowDragController(self._window)
         self._drag_controller.bind(header, title_label)
@@ -218,6 +250,7 @@ class UnifiedEntryPanelDialog:
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
         self._snapshot = snapshot
         self._intent.apply(snapshot)
+        self._render_source_preview(snapshot.source_preview)
         self._escape_button.configure(
             text="Esc 關閉" if snapshot.page == "root" else "Esc 返回"
         )
@@ -416,6 +449,27 @@ class UnifiedEntryPanelDialog:
             pady=(8, 0),
             sticky="ew",
         )
+
+    def _render_source_preview(
+        self,
+        preview: EntryInputSourcePreview | None,
+    ) -> None:
+        label = getattr(self, "_source_preview_label", None)
+        retry = getattr(self, "_retry_input_button", None)
+        if label is not None:
+            label.configure(
+                text=_source_preview_text(preview),
+                text_color=(
+                    "#F6A9A9"
+                    if preview is not None and preview.kind == "failed"
+                    else MODEL_COLOR
+                ),
+            )
+        if retry is not None:
+            if preview is not None and preview.kind == "failed":
+                retry.grid(row=0, column=1, padx=(8, 0), sticky="e")
+            else:
+                retry.grid_forget()
 
     @staticmethod
     def _split_root_options(
@@ -623,3 +677,19 @@ def _body_render_key(snapshot: EntryPanelSnapshot) -> tuple[object, ...]:
         snapshot.options,
         snapshot.search_text,
     )
+
+
+def _source_preview_text(preview: EntryInputSourcePreview | None) -> str:
+    if preview is None:
+        return "來源：尚未讀取"
+    labels = {
+        "preparing": "正在讀取選取內容…",
+        "selection_text": "選取文字",
+        "clipboard_text": "剪貼簿文字",
+        "clipboard_image": "剪貼簿截圖",
+        "workflow_selection": "Popup 選取文字",
+        "workflow_result": "目前結果",
+        "failed": "讀取失敗",
+    }
+    label = labels[preview.kind]
+    return f"{label}：{preview.summary}" if preview.summary else label

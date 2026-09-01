@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TypeAlias
 
 from ClipAI.core.errors import ActionLanguagePackErrorCode
-from ClipAI.core.models import EntryActionRef, EntryInputPreparationId, EntryPanelDensity, EntryPanelSelectionId, FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PreparedEntryInput, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
+from ClipAI.core.models import EntryActionRef, EntryInputPreparationId, EntryPanelDensity, FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PreparedEntryInput, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
 from ClipAI.core.models import ControlSurfaceRef
 from ClipAI.core.voice import VoiceCaptureId, VoiceDisableId, VoiceEngineEvent, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
 
@@ -86,15 +86,6 @@ class OpenUnifiedEntryPanel:
 class EntryPanelDigitPressed:
     hold_id: ModifierHoldId
     digit: str
-
-
-@dataclass(frozen=True)
-class EntryPanelInputPrepared:
-    panel_id: str
-    selection_id: EntryPanelSelectionId
-    action: EntryActionRef
-    document: InputDocument | None = field(default=None, repr=False)
-    error: str = ""
 
 
 @dataclass(frozen=True)
@@ -549,4 +540,4 @@ class UpdateVoiceDraft:
     text: str
 
 
-AppCommand: TypeAlias = ShortcutInputEvent | EntryPanelInputPrepared | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelEscape | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft
+AppCommand: TypeAlias = ShortcutInputEvent | EntryPanelInputPreparationCompleted | EntryPanelInputPreparationFailed | RetryEntryPanelInput | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelEscape | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

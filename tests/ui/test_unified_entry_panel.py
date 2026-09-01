@@ -8,10 +8,11 @@ from ClipAI.core.commands import (
     EntryPanelEscape,
     EntryPanelSlotSelected,
     EntryPanelToggleDensity,
+    RetryEntryPanelInput,
 )
-from ClipAI.core.models import DisplayMetrics, EntryActionRef, EntryPanelOption, EntryPanelSnapshot, PopupBounds
+from ClipAI.core.models import DisplayMetrics, EntryActionRef, EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
 from ClipAI.ui.base_dialog import ACTION_HOVER_COLOR
-from ClipAI.ui.unified_entry_panel import EntryPanelIntentAdapter, UnifiedEntryPanelDialog
+from ClipAI.ui.unified_entry_panel import EntryPanelIntentAdapter, UnifiedEntryPanelDialog, _source_preview_text
 
 
 @pytest.mark.integration
@@ -124,14 +125,32 @@ def test_intent_adapter_emits_typed_mouse_and_keyboard_commands() -> None:
     adapter.select(snapshot.options[0])
     adapter.select_slot(2)
     adapter.toggle_density()
+    adapter.retry_input()
     adapter.escape()
 
     assert commands == [
         EntryPanelActionSelected("panel-1", action),
         EntryPanelSlotSelected("panel-1", 2),
         EntryPanelToggleDensity("panel-1"),
+        RetryEntryPanelInput("panel-1"),
         EntryPanelEscape("panel-1"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("preview", "text"),
+    [
+        (EntryInputSourcePreview("preparing"), "正在讀取選取內容…"),
+        (EntryInputSourcePreview("selection_text", "selected"), "選取文字：selected"),
+        (EntryInputSourcePreview("clipboard_text", "copied"), "剪貼簿文字：copied"),
+        (EntryInputSourcePreview("clipboard_image"), "剪貼簿截圖"),
+        (EntryInputSourcePreview("workflow_selection", "chosen"), "Popup 選取文字：chosen"),
+        (EntryInputSourcePreview("workflow_result", "result"), "目前結果：result"),
+        (EntryInputSourcePreview("failed", "target changed"), "讀取失敗：target changed"),
+    ],
+)
+def test_source_preview_has_stable_truthful_copy(preview, text) -> None:
+    assert _source_preview_text(preview) == text
 
 
 def test_intent_adapter_emits_one_action_selection_until_projection_changes() -> None:

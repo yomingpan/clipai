@@ -240,7 +240,9 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 
 ### Canonical selection 與 presentation 測試
 
-- 外部 text-capable Action 在 trigger time 擷取 selection；有效 selection
+- 直接 Shortcut 的外部 text-capable Action 在 trigger time 擷取 selection；Unified
+  Entry Panel 則在 Panel open intent 凍結 selection／clipboard，Action 選取不得
+  再次擷取。有效 selection
   優先於 clipboard image 與 clipboard text。
 - Popup output action 的明確 selection 優先於 displayed step canonical
   content；沒有 selection 才 fallback，且 typed command 攜帶 semantic text。
@@ -336,7 +338,7 @@ Recipe 回饋與使用引導應測：
   無效時必須整包 fallback default，不得混用兩包。
 - Coordinator tests 只經 public transition interface 驗證 root、scene、More、
   search、density、Esc、disabled reason 與 numeric resolution，不讀 private state。
-- Runtime tests 必須以 Panel lifecycle ID 加 selection-preparation ID 驗證 close、
+- Runtime tests 必須以 Panel lifecycle ID 加 open-time preparation ID 驗證 close、
   reopen、replace、cancel 與 late completion；舊 completion 不得啟動 Action。
   Accepted handoff 必須在 `CREATED` 等第一個 Popup projection 入列前完成註冊；
   rejected admission 不得執行 hook。External capture 必須在 resolve 後確認同一
@@ -356,7 +358,7 @@ Recipe 回饋與使用引導應測：
   handoff 規則只經 `EntryPanelPopupHandoff` interface 測試，presenter 只保留必要
   integration coverage；不得斷言 presenter 私有 transition state，也不 mock 內部
   widget helper。
-- Windows smoke 必須驗證 external target restore → action-time selection capture →
+- Windows smoke 必須驗證 external target restore → open-time selection capture →
   typed Workflow admission，以及 multi-monitor/DPI、IME、top-row/numpad 與 cursor
   preservation。UI thread 不得執行 provider 或 blocking selection work。
 

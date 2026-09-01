@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from ClipAI.core.models import EntryActionRef, EntryPanelDecision, EntryPanelDensity, EntryPanelOption, EntryPanelSelectionId, EntryPanelSnapshot
+from ClipAI.core.models import EntryActionRef, EntryInputSourcePreview, EntryPanelDecision, EntryPanelDensity, EntryPanelOption, EntryPanelSnapshot
 from ClipAI.services.action_catalog import ActionCatalog
 
 
@@ -127,6 +127,8 @@ class EntryPanelCoordinator:
         *,
         recent: tuple[EntryActionRef, ...] = (),
         disabled: dict[EntryActionRef, str] | None = None,
+        preparing: bool = False,
+        source_preview: EntryInputSourcePreview | None = None,
     ) -> EntryPanelSnapshot:
         self._recent = recent[:3]
         self._disabled = dict(disabled or {})
@@ -148,6 +150,9 @@ class EntryPanelCoordinator:
                 )
                 for category in self._catalog.categories
             ),
+            status="preparing" if preparing else "idle",
+            message="正在讀取來源內容…" if preparing else "",
+            source_preview=source_preview,
         )
         return self._snapshot
 
@@ -155,15 +160,15 @@ class EntryPanelCoordinator:
         if self._snapshot is None or self._snapshot.page != "scene":
             raise RuntimeError("entry panel scene is not open")
         category = self._catalog.category(self._snapshot.category_id)
-        self._snapshot = EntryPanelSnapshot(
-            self._snapshot.panel_id,
-            "more",
+        self._snapshot = replace(
+            self._snapshot,
+            page="more",
             category_id=category.category_id,
-            density=self._snapshot.density,
             options=tuple(
                 self._action_option(None, item)
                 for item in category.advanced
             ),
+            search_text="",
         )
         return self._snapshot
 
@@ -180,11 +185,10 @@ class EntryPanelCoordinator:
             or query in item.description.casefold()
             or query in item.action.action_id.casefold()
         )
-        self._snapshot = EntryPanelSnapshot(
-            self._snapshot.panel_id,
-            "more",
+        self._snapshot = replace(
+            self._snapshot,
+            page="more",
             category_id=category.category_id,
-            density=self._snapshot.density,
             options=tuple(
                 self._action_option(None, item)
                 for item in candidates
@@ -201,47 +205,47 @@ class EntryPanelCoordinator:
         self._snapshot = replace(self._snapshot, density=density)
         return self._snapshot
 
-    def begin_preparation(
-        self,
-        selection_id: EntryPanelSelectionId,
-    ) -> EntryPanelSnapshot:
+    def begin_input_preparation(self) -> EntryPanelSnapshot:
         if self._snapshot is None:
             raise RuntimeError("entry panel is not open")
         self._snapshot = replace(
             self._snapshot,
             status="preparing",
-            message="Preparing input…",
-            selection_id=selection_id,
+            message="正在讀取來源內容…",
+            source_preview=EntryInputSourcePreview("preparing"),
         )
         return self._snapshot
 
-    def settle_preparation(
+    def complete_input_preparation(
         self,
-        selection_id: EntryPanelSelectionId,
-        *,
-        message: str = "",
-    ) -> EntryPanelSnapshot | None:
-        if self._snapshot is None or self._snapshot.selection_id != selection_id:
-            return None
+        source_preview: EntryInputSourcePreview,
+    ) -> EntryPanelSnapshot:
+        if self._snapshot is None:
+            raise RuntimeError("entry panel is not open")
         self._snapshot = replace(
             self._snapshot,
-            status="error" if message else "idle",
-            message=message,
-            selection_id=None,
+            status="idle",
+            message="",
+            source_preview=source_preview,
         )
         return self._snapshot
 
     def close(self) -> None:
         self._snapshot = None
 
-    def show_error(self, message: str) -> EntryPanelSnapshot:
+    def show_error(
+        self,
+        message: str,
+        *,
+        source_preview: EntryInputSourcePreview | None = None,
+    ) -> EntryPanelSnapshot:
         if self._snapshot is None:
             raise RuntimeError("entry panel is not open")
         self._snapshot = replace(
             self._snapshot,
             status="error",
             message=message,
-            selection_id=None,
+            source_preview=source_preview or self._snapshot.source_preview,
         )
         return self._snapshot
 
@@ -272,28 +276,31 @@ class EntryPanelCoordinator:
             return None
         if self._snapshot.page == "more":
             category = self._catalog.category(self._snapshot.category_id)
-            self._snapshot = EntryPanelSnapshot(
-                self._snapshot.panel_id,
-                "scene",
+            self._snapshot = replace(
+                self._snapshot,
+                page="scene",
                 category_id=category.category_id,
-                density=self._snapshot.density,
                 options=tuple(
                     self._action_option(index, item)
                     for index, item in enumerate(category.flagship, start=1)
                 ),
+                search_text="",
             )
             return self._snapshot
         if self._snapshot.page == "scene":
-            panel_id = self._snapshot.panel_id
-            density = self._snapshot.density
-            self.open(panel_id, recent=self._recent, disabled=self._disabled)
-            if density != self._snapshot.density:
-                self._snapshot = EntryPanelSnapshot(
-                    self._snapshot.panel_id,
-                    self._snapshot.page,
-                    density=density,
-                    options=self._snapshot.options,
-                )
+            previous = self._snapshot
+            root = self.open(
+                previous.panel_id,
+                recent=self._recent,
+                disabled=self._disabled,
+            )
+            self._snapshot = replace(
+                root,
+                density=previous.density,
+                status=previous.status,
+                message=previous.message,
+                source_preview=previous.source_preview,
+            )
             return self._snapshot
         self._snapshot = None
         return None
@@ -309,15 +316,15 @@ class EntryPanelCoordinator:
             return EntryPanelDecision(self._snapshot, option.action)
         if self._snapshot.page == "root" and option is not None and option.category_id:
             category = self._catalog.category_for_slot(slot)
-            self._snapshot = EntryPanelSnapshot(
-                self._snapshot.panel_id,
-                "scene",
+            self._snapshot = replace(
+                self._snapshot,
+                page="scene",
                 category_id=category.category_id,
-                density=self._snapshot.density,
                 options=tuple(
                     self._action_option(index, item)
                     for index, item in enumerate(category.flagship, start=1)
                 ),
+                search_text="",
             )
         return EntryPanelDecision(self._snapshot)
 

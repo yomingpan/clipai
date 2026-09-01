@@ -47,7 +47,11 @@ tests/              # Unit sims 與 integration tests
 - Provider environment mapping、credential resolution、concrete provider 建構與 `.env` persistence 屬於 app composition adapter；services 只依賴 typed backend contract。
 - Unified Entry Panel 的 ownership 依 ADR-0012 分離：`EntryPanelCoordinator`
   擁有純導覽、搜尋與資訊密度 projection，`EntryPanelRuntimeModule` 擁有唯一
-  Panel lifetime、launch source 與 input-preparation identity；它只能透過
+  Panel lifetime、launch source、open-time input-preparation identity 與 frozen
+  `PreparedEntryInput`。Panel 顯示後由 interactive worker 準備 external input；
+  Workflow selection／canonical content 則在 Panel 取得焦點前凍結。Action 選取
+  只能查詢 frozen input 的 `InputMode` 相容性，不得重新讀取 clipboard、selection
+  或 foreground。Runtime 只能透過
   `WorkflowRuntimeModule.start_action` 請求 Action admission。Workflow runtime
   必須以已捕捉的 `InputDocument.workflow_id + step_id` 驗證 contextual lineage，
   不得在 admission 時以目前 Foreground Workflow 取代來源 identity。UI 不得讀

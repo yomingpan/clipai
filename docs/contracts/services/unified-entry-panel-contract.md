@@ -15,8 +15,8 @@ then requests admission through the existing Workflow runtime.
   saved density from `UserPreferencesCoordinator` at composition time; the
   existing user-preferences lifecycle persists later density changes.
 - `EntryPanelRuntimeModule` owns the one live Panel lifecycle ID, captured source
-  reference, selection-preparation scheduling/cancellation and the transition to
-  Workflow admission.
+  reference, open-time preparation scheduling/cancellation, frozen
+  `PreparedEntryInput` and the transition to Workflow admission.
 - `UnifiedEntryPanelDialog` owns only toolkit widgets, focus evidence, placement,
   hide-before-destroy teardown and mechanical rendering. Header dragging reuses
   the UI-layer window drag controller; every semantic user operation emits a
@@ -32,16 +32,18 @@ then requests admission through the existing Workflow runtime.
 
 ```text
 closed → open(root) → navigating/searching/density toggle
-                    → preparing(selection_id)
-                    → rejected/blocked → open(previous page)
+       → preparing(preparation_id) → ready(frozen input)
+                    → failed → explicit retry(same source, new preparation_id)
+                    → rejected/blocked → ready(previous page)
                     → admitted → closed
 ```
 
-Opening, rendering, focus, navigation and density changes never imply Action
-execution. While preparing, another selection is ignored; it cannot replace the
-active identity or schedule another preparation. A close invalidates that
-identity. Only a completion matching both Panel lifecycle ID and selection ID
-may call Workflow admission.
+Opening is the explicit intent that authorizes input preparation; rendering,
+focus, navigation and density changes never imply Action execution. While
+preparing, Actions remain disabled. A close invalidates the preparation identity.
+Only a completion matching both Panel lifecycle ID and preparation ID may publish
+the frozen input. Action selection resolves only that immutable bundle and never
+reads selection, clipboard or foreground state.
 
 The Panel closes only after `ActionStartAdmission.accepted`. A rejected or
 blocked admission keeps the same Panel and projects the authoritative reason.
@@ -62,17 +64,21 @@ Workflow state.
 
 ## Input source
 
-- A foreground Workflow Popup supplies its explicit semantic selection or
-  canonical displayed content; no clipboard read occurs.
+- A foreground Workflow Popup freezes its explicit semantic selection or
+  canonical displayed content before the Panel takes focus; no clipboard read
+  occurs.
 - Otherwise the Panel captures one opaque external-window reference at open.
-  On selection it restores and validates that exact target before calling the
-  existing `InputResolver` at explicit user intent, then confirms the same
-  target still owns foreground. A lost target retries the complete operation
-  once; a second loss fails closed.
+  After the Panel is projected, preparation restores and validates that exact
+  target, waits for modifiers to release, captures every supported input fact
+  through the existing `InputResolver`, then confirms the same target still owns
+  foreground. A lost target retries the complete operation once; a second loss
+  fails closed.
 - Failure does not substitute the current foreground window or a later clipboard
   value.
-- Prepared `InputDocument` enters Workflow admission through `InputTarget`, so
-  `ActionExecutor` does not capture a second time.
+- `PreparedEntryInput` resolves the already frozen `InputDocument` for the
+  selected Action's `InputMode`; it enters Workflow admission through
+  `InputTarget`, so neither runtime selection nor `ActionExecutor` captures a
+  second time.
 - A workflow-result document keeps its captured `workflow_id + step_id` through
   final admission. Workflow runtime validates that lineage against its own
   membership/history; it never substitutes the current Foreground Workflow.
@@ -112,7 +118,9 @@ Workflow state.
 
 Public tests exercise `EntryPanelCatalog`, `EntryPanelCoordinator`,
 `RecentActionHistory`, the typed runtime command seam, the hotkey listener and
-the UI projection/intent port. Identity, withdrawn preparation, commit order,
+the UI projection/intent port. Open-time preparation tests prove source capture,
+frozen mode resolution, preview, retry and late-completion rejection. Identity,
+withdrawn preparation, commit order,
 rollback, retry and reused-Popup behavior are tested through the
 `EntryPanelPopupHandoff` interface; presenter tests retain only the integration
 needed to prove delegation from Workflow rendering. Runtime tests additionally
