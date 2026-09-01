@@ -256,8 +256,12 @@ class UnifiedEntryPanelDialog:
         )
         self._body.grid(row=2, column=0, padx=14, pady=(0, 14), sticky="nsew")
         self._body.grid_columnconfigure(0, weight=1)
-        self._drag_controller = WindowDragController(self._window)
-        self._drag_controller.bind(header, title_label)
+        if primary_surface_host is not None:
+            self._drag_controller = None
+            primary_surface_host.bind_drag(header, title_label)
+        else:
+            self._drag_controller = WindowDragController(self._window)
+            self._drag_controller.bind(header, title_label)
 
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
         self._snapshot = snapshot

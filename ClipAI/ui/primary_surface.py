@@ -13,6 +13,7 @@ from ClipAI.core.models import PopupBounds
 from ClipAI.core.ports import NativeWindowSurface
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import popup_bounds_from_tk_geometry
+from ClipAI.ui.window_drag import WindowDragController
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ class PrimarySurfaceHost:
         self._mounted: tuple[PrimarySurfaceLease, PrimarySurfaceView] | None = None
         self._restore_target: tuple[PrimarySurfaceLease, PrimarySurfaceView] | None = None
         self._closed = False
+        self._drag_controller = WindowDragController(self._window)
 
         window = self._window
         bounds = spec.bounds
@@ -189,6 +191,22 @@ class PrimarySurfaceHost:
             return popup_bounds_from_tk_geometry(str(self._window.geometry()))
         except (AttributeError, TypeError, ValueError, tk.TclError):
             return None
+
+    def bind_drag(self, *handles: object) -> None:
+        self._drag_controller.bind(*handles)
+
+    def resize(
+        self,
+        width: int,
+        height: int,
+        *,
+        x: int | None = None,
+        y: int | None = None,
+    ) -> None:
+        bounds = self.current_bounds()
+        target_x = x if x is not None else (bounds.x if bounds is not None else 0)
+        target_y = y if y is not None else (bounds.y if bounds is not None else 0)
+        self._window.geometry(f"{width}x{height}+{target_x}+{target_y}")
 
     def close(self, lease: PrimarySurfaceLease | None = None) -> bool:
         if lease is not None and (

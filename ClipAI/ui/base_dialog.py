@@ -749,7 +749,11 @@ class BaseDialog:
                     window_activator=self._activate_native_window,
                 )
             )
-            self._drag_controller = WindowDragController(self.root)
+            self._drag_controller = (
+                None
+                if primary_surface_host is not None
+                else WindowDragController(self.root)
+            )
             self._flash_controller = SurfaceFlashController(
                 colors=self._state_colors,
                 apply_color=self._painter.draw,
@@ -958,12 +962,20 @@ class BaseDialog:
         return "break"
 
     def enable_drag(self, *widgets) -> None:
-        self._drag_controller.bind(*widgets)
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            primary_host.bind_drag(*widgets)
+        else:
+            self._drag_controller.bind(*widgets)
 
     def resize(self, width: int, height: int, *, x: int | None = None, y: int | None = None) -> None:
         if width == self.width and height == self.height and x is None and y is None:
             return
         self.width, self.height = width, height
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            primary_host.resize(width, height, x=x, y=y)
+            return
         target_x = self.root.winfo_x() if x is None else x
         target_y = self.root.winfo_y() if y is None else y
         self.root.geometry(f"{width}x{height}+{target_x}+{target_y}")

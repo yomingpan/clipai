@@ -15,7 +15,11 @@ class Window:
     def title(self, value): self.events.append(("title", value))
     def geometry(self, value=None):
         if value is not None:
-            self._geometry = value
+            self._geometry = (
+                f"{self._geometry.split('+', 1)[0]}{value}"
+                if value.startswith("+")
+                else value
+            )
             self.events.append(("geometry", value))
         return self._geometry
     def minsize(self, width, height): self.events.append(("minsize", width, height))
@@ -35,6 +39,8 @@ class Window:
     def focus_force(self): self.events.append("focus")
     def focus_get(self): return self
     def winfo_toplevel(self): return self
+    def winfo_x(self): return 20
+    def winfo_y(self): return 30
 
 
 class Native:
@@ -123,6 +129,27 @@ def test_only_the_mounted_lease_can_show_or_close_the_host() -> None:
     assert host.close(lease) is True
     assert host.close(lease) is False
     assert window.events[-1] == "destroy"
+
+
+def test_host_owns_drag_and_resize_for_every_mounted_view() -> None:
+    class Handle:
+        def __init__(self): self.bindings = {}
+        def bind(self, sequence, callback, add=None): self.bindings[sequence] = (callback, add)
+
+    host, window, _native = make_host()
+    first = Handle()
+    second = Handle()
+
+    host.bind_drag(first)
+    host.bind_drag(second)
+    start = type("Event", (), {"x_root": 50, "y_root": 60})()
+    move = type("Event", (), {"x_root": 80, "y_root": 90})()
+    first.bindings["<ButtonPress-1>"][0](start)
+    second.bindings["<B1-Motion>"][0](move)
+    host.resize(460, 350)
+
+    assert ("geometry", "+50+60") in window.events
+    assert window.events[-1] == ("geometry", "460x350+50+60")
 
 
 def test_result_presenter_builds_existing_popup_content_in_primary_host(monkeypatch) -> None:
