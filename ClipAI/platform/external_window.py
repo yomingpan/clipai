@@ -71,10 +71,23 @@ class SystemExternalWindowActivator:
             if time.monotonic() >= activation_deadline:
                 return _outcome("target_focus_timeout")
             self._wait(self._poll_sec)
+            _raise_if_cancelled(cancellation)
+            if time.monotonic() >= activation_deadline:
+                return _outcome("target_focus_timeout")
+            if not self._target_is_valid(target):
+                return _outcome("target_changed")
+            self._activate_target(target)
         _raise_if_cancelled(cancellation)
+        confirmation = self.confirm(target)
+        _raise_if_cancelled(cancellation)
+        return confirmation
+
+    def confirm(
+        self,
+        target: ExternalWindowTarget,
+    ) -> ExternalWindowActivationOutcome:
         if not self._target_is_valid(target) or not self._target_is_foreground(target):
             return _outcome("target_changed")
-        _raise_if_cancelled(cancellation)
         return ExternalWindowActivationOutcome("activated")
 
 

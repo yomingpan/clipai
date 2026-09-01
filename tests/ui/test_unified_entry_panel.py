@@ -289,6 +289,57 @@ def test_show_does_not_rebuild_an_unchanged_projection() -> None:
     assert applied == [snapshot]
 
 
+def test_preparing_projection_keeps_existing_option_widgets_alive() -> None:
+    class Intent:
+        def apply(self, _snapshot) -> None:
+            pass
+
+    class EscapeButton:
+        def configure(self, **_kwargs) -> None:
+            pass
+
+    class DensitySwitch:
+        def select(self) -> None:
+            pass
+
+        def deselect(self) -> None:
+            pass
+
+    class Tooltip:
+        def set_text(self, _text: str) -> None:
+            pass
+
+    option = EntryPanelOption(
+        1,
+        "縮短內容",
+        action=EntryActionRef("shorten_content", "short"),
+    )
+    idle = EntryPanelSnapshot("panel-1", "scene", options=(option,))
+    preparing = EntryPanelSnapshot(
+        "panel-1",
+        "scene",
+        options=(option,),
+        status="preparing",
+        message="Preparing input…",
+    )
+    rebuilt: list[str] = []
+    messages: list[str] = []
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog._snapshot = None
+    dialog._intent = Intent()
+    dialog._escape_button = EscapeButton()
+    dialog._density = DensitySwitch()
+    dialog._density_tooltip = Tooltip()
+    dialog._rebuild_body = lambda snapshot: rebuilt.append(snapshot.status)
+    dialog._render_message = lambda snapshot: messages.append(snapshot.message)
+
+    dialog.apply(idle)
+    dialog.apply(preparing)
+
+    assert rebuilt == ["idle"]
+    assert messages == ["Preparing input…"]
+
+
 def test_show_uses_an_existing_popup_as_the_exact_initial_bounds() -> None:
     class Window:
         def __init__(self) -> None:

@@ -59,7 +59,13 @@ tests/              # Unit sims 與 integration tests
   surface 可見，既有 Popup 不得重新定位。Bounds 的螢幕位置是 physical pixels，
   CustomTkinter width/height 是 toolkit-logical units。不得由 Panel
   close、focus、游標位置或任意 Workflow snapshot 猜測交接，也不得保留未具名的
-  「上一次 Panel 位置」供日後 Popup 使用。
+  「上一次 Panel 位置」供日後 Popup 使用。`EntryPanelPopupHandoff` 是 presenter
+  私有的 deep module，集中 identity matching、withdrawn preparation、commit、
+  rollback 與 retry；它不是第二個 presentation owner。
+  `WorkflowRuntimeModule.start_action` 必須在任何 accepted visible Workflow 的
+  第一個 projection（包含 `CREATED`）之前，執行呼叫端提供的 typed
+  pre-projection hook；Entry Panel 只能透過這個 seam 註冊 handoff，不得在
+  `start_action` 返回後補註冊。
 - 最近使用由 `RecentActionHistory` 擁有，只接收 `WorkflowController` 已接受的
   successful step 所解析出的 `action_id + press_type`；不得由 provider completion、
   Workflow snapshot revision、Popup visibility 或 operation tracker 推導成功。
@@ -472,7 +478,10 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
   explicit user intent. A valid selection takes precedence; otherwise input
   falls back to the configured clipboard policy. Selection capture and Paste
   share the one container-scoped `ClipboardTransactionCoordinator`, so capture
-  cannot permanently replace newer clipboard content.
+  cannot permanently replace newer clipboard content. Entry Panel capture must
+  confirm that the exact captured external target still owns foreground after
+  resolution; a lost target retries the complete activation/capture once, then
+  fails closed without admitting the clipboard fallback.
 - Workflow identity, output-operation identity, selection-capture identity, and
   view lifecycle remain distinct. A Workflow snapshot revision cannot stand in
   for any of those operation identities.

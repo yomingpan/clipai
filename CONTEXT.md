@@ -16,6 +16,10 @@ _Avoid_: Active popup, focused window
 A visible Workflow explicitly preserved when another external Action starts. Pinning preserves the Workflow but does not make it the Foreground Workflow.
 _Avoid_: Persistent popup
 
+**Entry Panel Handoff**:
+The identity-scoped visual replacement of an Entry Panel by the admitted Workflow's Popup. It preserves a single visible surface and does not define or change Workflow state.
+_Avoid_: Popup launch, Panel closure
+
 **Voice Draft**:
 Editable canonical text belonging to one Workflow, formed from finalized Voice Input segments and explicit user edits. It exists only for that Workflow's lifetime and excludes interim recognition.
 _Avoid_: Transcript, recording

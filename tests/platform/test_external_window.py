@@ -60,6 +60,89 @@ def test_external_window_activator_reports_focus_refusal_without_substitution() 
     assert "original window" in outcome.message.lower()
 
 
+def test_external_window_activator_retries_an_accepted_focus_request(monkeypatch) -> None:
+    target = ExternalWindowRef("hwnd:2a", 42, 7)
+    attempts = 0
+    clock = {"now": 0.0}
+
+    def activate(_candidate: ExternalWindowRef) -> bool:
+        nonlocal attempts
+        attempts += 1
+        return True
+
+    def wait(seconds: float) -> None:
+        clock["now"] += seconds
+
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _modifier: False,
+        target_activation_timeout_sec=0.05,
+        poll_sec=0.01,
+        wait=wait,
+        target_is_valid=lambda candidate: candidate == target,
+        activate_target=activate,
+        target_is_foreground=lambda candidate: candidate == target and attempts >= 2,
+    )
+
+    monkeypatch.setattr(
+        "ClipAI.platform.external_window.time.monotonic",
+        lambda: clock["now"],
+    )
+
+    outcome = activator.activate(target, CancellationToken())
+
+    assert outcome.state == "activated"
+    assert attempts == 2
+
+
+def test_external_window_activator_does_not_retry_past_its_deadline(monkeypatch) -> None:
+    target = ExternalWindowRef("hwnd:2a", 42, 7)
+    attempts = 0
+    clock = {"now": 0.0}
+
+    def activate(_candidate: ExternalWindowRef) -> bool:
+        nonlocal attempts
+        attempts += 1
+        return True
+
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _modifier: False,
+        target_activation_timeout_sec=0.05,
+        poll_sec=0.05,
+        wait=lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
+        target_is_valid=lambda candidate: candidate == target,
+        activate_target=activate,
+        target_is_foreground=lambda _candidate: False,
+    )
+    monkeypatch.setattr(
+        "ClipAI.platform.external_window.time.monotonic",
+        lambda: clock["now"],
+    )
+
+    outcome = activator.activate(target, CancellationToken())
+
+    assert outcome.state == "target_focus_timeout"
+    assert attempts == 1
+
+
+def test_external_window_confirmation_rejects_focus_lost_after_capture() -> None:
+    target = ExternalWindowRef("hwnd:2a", 42, 7)
+    foreground = {"value": True}
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _modifier: False,
+        target_is_valid=lambda candidate: candidate == target,
+        activate_target=lambda _candidate: True,
+        target_is_foreground=lambda candidate: candidate == target and foreground["value"],
+        wait=lambda _seconds: None,
+    )
+    assert activator.activate(target, CancellationToken()).activated is True
+
+    foreground["value"] = False
+    confirmation = activator.confirm(target)
+
+    assert confirmation.state == "target_changed"
+    assert "changed" in confirmation.message.lower()
+
+
 def test_external_window_activator_prepares_paste_target_through_the_same_seam() -> None:
     target = PasteTarget("hwnd:2a", 42, "Notepad", "Untitled", 7)
     activator = SystemExternalWindowActivator(

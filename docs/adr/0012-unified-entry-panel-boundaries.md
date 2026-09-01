@@ -32,14 +32,22 @@ has closed or reopened.
   platform adapters or providers.
 - Accepted Action admission returns the authoritative Workflow identity.
   `EntryPanelRuntimeModule` uses that identity with the Panel lifecycle identity
-  to request one explicit visual handoff; UI never infers a handoff from focus,
-  closure, cursor movement or an unrelated Workflow snapshot.
+  through the visible Action's pre-projection hook to request one explicit
+  visual handoff before `CREATED` or any later Workflow projection is emitted;
+  UI never infers a handoff from focus, closure, cursor movement or an unrelated
+  Workflow snapshot.
 - `ResultDialogPresenter` owns only the cross-surface actuation of that handoff:
   capture the Panel's actual outer bounds, build a new Popup while withdrawn,
   hide the Panel, reveal the Popup, then destroy the Panel in the same UI turn.
   If reveal fails, it restores the same Panel for retry. Reused Popups keep their
   existing bounds. Bounds use physical screen position and toolkit-logical size;
-  navigation and Workflow/Popup state ownership do not move.
+  navigation and Workflow/Popup state ownership do not move. Its private
+  `EntryPanelPopupHandoff` deep module owns the handoff implementation state and
+  ordered commit/rollback interface; this does not create another presentation
+  owner.
+- Operation-only Panel projections such as `preparing` and error-message updates
+  preserve the existing option widget tree. This prevents queued toolkit focus
+  callbacks from targeting cards destroyed solely by a lifecycle-state change.
 - The platform hotkey listener owns the exact `Alt` 500 ms hold and digit
   claim. Alt auto-repeat remains part of the same physical hold. Runtime settles
   the consumed hold by identity when the Panel lifecycle ends, so a missed OS
@@ -47,7 +55,12 @@ has closed or reopened.
   never resolves Action IDs.
 - External target validation/activation remains a platform capability behind an
   opaque core port. Selection capture reuses `InputResolver` and the one
-  `ClipboardTransactionCoordinator`.
+  `ClipboardTransactionCoordinator`. The platform activator may retry the exact
+  captured, still-valid target within its existing bounded timeout; it does not
+  substitute another foreground window or extend the activation bound. After
+  input resolution, runtime confirms that the same target still owns foreground;
+  a failed confirmation retries the full activation/capture once and then fails
+  closed instead of admitting an untrusted clipboard fallback.
 - `WorkflowRuntimeModule.start_action` is the only Action admission seam for
   both legacy shortcuts and the Panel.
 - `WorkflowController` emits a minimal accepted-step identity only after it

@@ -53,8 +53,11 @@ class Workflows:
         result_route="popup",
         input_target=None,
         admission_origin="shortcut",
+        before_first_projection=None,
     ):
         self.starts.append((action_id, press_type, result_route, input_target, admission_origin))
+        if before_first_projection is not None:
+            before_first_projection("workflow-1")
         return ActionStartAdmission("accepted", workflow_id="workflow-1")
 
     def entry_panel_action_block_reason(self, _action):
@@ -68,6 +71,9 @@ class Activator:
 
     def activate(self, target, cancellation):
         self.targets.append(target)
+        return self.outcome
+
+    def confirm(self, _target):
         return self.outcome
 
 
@@ -87,6 +93,8 @@ def make_module(
     activation_outcome=ExternalWindowActivationOutcome("activated"),
     foreground_workflow_id=None,
     workflow_context=None,
+    external_window_activator=None,
+    input_resolver=None,
 ):
     bundle = load_config_bundle()
     actions = bundle.actions
@@ -94,8 +102,8 @@ def make_module(
     presenter = Presenter()
     supervisor = Supervisor()
     workflows = Workflows(foreground_workflow_id=foreground_workflow_id)
-    activator = Activator(activation_outcome)
-    inputs = Inputs()
+    activator = external_window_activator or Activator(activation_outcome)
+    inputs = input_resolver or Inputs()
     commands = []
     external = ExternalWindowRef("hwnd:10", 42, 7)
     module = EntryPanelRuntimeModule(
@@ -132,6 +140,134 @@ def test_external_action_restores_exact_source_then_admits_prepared_input() -> N
     assert workflows.starts[-1][4] == "entry_panel"
     assert coordinator.snapshot is None
     assert presenter.popup_transitions == [(pending.panel_id, "workflow-1")]
+
+
+def test_entry_panel_handoff_is_registered_before_the_first_popup_projection() -> None:
+    module, coordinator, presenter, supervisor, workflows, _activator, _inputs, commands, _external = make_module()
+    events: list[str] = []
+
+    def transition(_panel_id, _workflow_id) -> None:
+        events.append("handoff:registered")
+
+    def start_action(
+        _action_id,
+        _press_type,
+        *,
+        result_route="popup",
+        input_target=None,
+        admission_origin="shortcut",
+        before_first_projection=None,
+    ):
+        del result_route, input_target, admission_origin
+        if before_first_projection is not None:
+            before_first_projection("workflow-1")
+        events.append("popup:first-projection")
+        return ActionStartAdmission("accepted", workflow_id="workflow-1")
+
+    presenter.transition_entry_panel_to_popup = transition
+    workflows.start_action = start_action
+    module.open()
+    module.select_action(EntryActionRef("shorten_content", "short"))
+
+    supervisor.work[next(iter(supervisor.work))]()
+    module.handle(commands.pop())
+
+    assert coordinator.snapshot is None
+    assert events == ["handoff:registered", "popup:first-projection"]
+
+
+def test_external_capture_retries_when_the_exact_target_loses_foreground() -> None:
+    class FocusAwareActivator:
+        def __init__(self) -> None:
+            self.foreground = False
+            self.activations = 0
+
+        def activate(self, _target, _cancellation):
+            self.activations += 1
+            self.foreground = True
+            return ExternalWindowActivationOutcome("activated")
+
+        def confirm(self, _target):
+            if self.foreground:
+                return ExternalWindowActivationOutcome("activated")
+            return ExternalWindowActivationOutcome(
+                "target_changed",
+                "The original window changed during input capture.",
+            )
+
+    class FocusSensitiveInputs:
+        def __init__(self, activator: FocusAwareActivator) -> None:
+            self.activator = activator
+            self.calls = 0
+
+        def resolve(self, _mode, _cancellation=None):
+            self.calls += 1
+            if self.calls == 1:
+                self.activator.foreground = False
+                return InputDocument("unexpected clipboard", "clipboard")
+            return InputDocument("selected at intent", "selection")
+
+    activator = FocusAwareActivator()
+    inputs = FocusSensitiveInputs(activator)
+    module, coordinator, _presenter, supervisor, workflows, _activator, _inputs, commands, _external = make_module(
+        external_window_activator=activator,
+        input_resolver=inputs,
+    )
+    module.open()
+    module.select_action(EntryActionRef("shorten_content", "short"))
+
+    supervisor.work[next(iter(supervisor.work))]()
+    module.handle(commands.pop())
+
+    assert coordinator.snapshot is None
+    assert activator.activations == 2
+    assert inputs.calls == 2
+    assert workflows.starts[-1][3].document == InputDocument(
+        "selected at intent",
+        "selection",
+    )
+
+
+def test_external_capture_rejects_clipboard_fallback_after_two_focus_losses() -> None:
+    class UnstableActivator:
+        def __init__(self) -> None:
+            self.activations = 0
+
+        def activate(self, _target, _cancellation):
+            self.activations += 1
+            return ExternalWindowActivationOutcome("activated")
+
+        def confirm(self, _target):
+            return ExternalWindowActivationOutcome(
+                "target_changed",
+                "The original window changed during input capture.",
+            )
+
+    class ClipboardFallbackInputs:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def resolve(self, _mode, _cancellation=None):
+            self.calls += 1
+            return InputDocument("unexpected clipboard", "clipboard")
+
+    activator = UnstableActivator()
+    inputs = ClipboardFallbackInputs()
+    module, coordinator, _presenter, supervisor, workflows, _activator, _inputs, commands, _external = make_module(
+        external_window_activator=activator,
+        input_resolver=inputs,
+    )
+    module.open()
+    module.select_action(EntryActionRef("shorten_content", "short"))
+
+    supervisor.work[next(iter(supervisor.work))]()
+    module.handle(commands.pop())
+
+    assert coordinator.snapshot.status == "error"
+    assert "changed during input capture" in coordinator.snapshot.message
+    assert activator.activations == 2
+    assert inputs.calls == 2
+    assert workflows.starts == []
 
 
 def test_repeated_action_selection_does_not_start_a_second_preparation() -> None:
