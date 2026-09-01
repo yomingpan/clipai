@@ -14,6 +14,7 @@ from ClipAI.core.ports import NativeWindowSurface
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import popup_bounds_from_tk_geometry
+from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
 from ClipAI.ui.window_drag import WindowDragController
 
@@ -660,6 +661,8 @@ class BaseDialog:
         show_on_create: bool = True,
         on_close_request: Callable[[], None] | None = None,
         native_window_surface: NativeWindowSurface | None = None,
+        primary_surface_host: PrimarySurfaceHost | None = None,
+        primary_surface_lease: PrimarySurfaceLease | None = None,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
@@ -669,35 +672,40 @@ class BaseDialog:
         self.pinned = False
         self._on_close_request = on_close_request
         self._native_window_surface = native_window_surface
+        self._primary_surface_host = primary_surface_host
+        self._primary_surface_lease = primary_surface_lease
+        if (primary_surface_host is None) != (primary_surface_lease is None):
+            raise ValueError("primary surface host and lease must be provided together")
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
         self._surface_inset = surface_inset
         self._corner_radius = corner_radius
         self._border_inset = max(1, surface_inset // 3)
 
         try:
-            self.root = ctk.CTkToplevel(master) if master is not None else ctk.CTk()
-            self.root.withdraw()
-            self.root.title(title)
-            self.root.geometry(f"{width}x{height}")
-            self.root.minsize(minimum_width or min(width, 320), minimum_height or min(height, 180))
-            self.root.configure(fg_color=background_color)
-            if frameless:
-                self.root.overrideredirect(True)
-            if transparent_background:
-                try:
-                    self.root.attributes("-transparentcolor", background_color)
-                except Exception:
-                    pass
-            if topmost:
-                self.root.attributes("-topmost", True)
-            if x is not None and y is not None:
-                self.root.geometry(f"{width}x{height}+{x}+{y}")
+            if primary_surface_host is not None:
+                self.root = primary_surface_host.window
             else:
-                self._position_window(width, height, position)
-            self.root.update_idletasks()
-            _resample_window_dpi_scaling(self.root)
-            if show_on_create:
-                self.root.deiconify()
+                self.root = ctk.CTkToplevel(master) if master is not None else ctk.CTk()
+                self.root.withdraw()
+                self.root.title(title)
+                self.root.geometry(f"{width}x{height}")
+                self.root.minsize(minimum_width or min(width, 320), minimum_height or min(height, 180))
+                self.root.configure(fg_color=background_color)
+                if frameless:
+                    self.root.overrideredirect(True)
+                if transparent_background:
+                    try:
+                        self.root.attributes("-transparentcolor", background_color)
+                    except Exception:
+                        pass
+                if topmost:
+                    self.root.attributes("-topmost", True)
+                if x is not None and y is not None:
+                    self.root.geometry(f"{width}x{height}+{x}+{y}")
+                else:
+                    self._position_window(width, height, position)
+                self.root.update_idletasks()
+                _resample_window_dpi_scaling(self.root)
 
             self.canvas = tk.Canvas(
                 self.root,
@@ -705,7 +713,8 @@ class BaseDialog:
                 highlightthickness=0,
                 bd=0,
             )
-            self.canvas.pack(fill="both", expand=True)
+            if primary_surface_host is None:
+                self.canvas.pack(fill="both", expand=True)
             self._painter = RoundedSurfacePainter(
                 self.canvas,
                 width=width,
@@ -730,10 +739,14 @@ class BaseDialog:
             self.canvas.bind("<Configure>", self._on_canvas_configure, add="+")
             self.main_frame = self.surface
 
-            self.lifecycle = DialogLifecycle(
-                self.root,
-                owns_mainloop=master is None,
-                window_activator=self._activate_native_window,
+            self.lifecycle = (
+                primary_surface_host.lifecycle
+                if primary_surface_host is not None
+                else DialogLifecycle(
+                    self.root,
+                    owns_mainloop=master is None,
+                    window_activator=self._activate_native_window,
+                )
             )
             self._drag_controller = WindowDragController(self.root)
             self._flash_controller = SurfaceFlashController(
@@ -745,7 +758,15 @@ class BaseDialog:
             self.root.protocol("WM_DELETE_WINDOW", self.request_close)
             self.root.bind("<Escape>", lambda _event: self.request_close())
             self.enable_drag(self.canvas, self.surface)
-            if hide_from_task_switcher:
+            if primary_surface_host is not None:
+                assert primary_surface_lease is not None
+                if not primary_surface_host.mount(primary_surface_lease, self):
+                    raise RuntimeError("primary surface content could not be mounted")
+                if show_on_create:
+                    primary_surface_host.show(primary_surface_lease)
+            elif show_on_create:
+                self.root.deiconify()
+            if hide_from_task_switcher and primary_surface_host is None:
                 self.root.after_idle(self._hide_from_task_switcher)
         except Exception:
             self._valid = False
@@ -781,6 +802,11 @@ class BaseDialog:
 
     def show(self) -> bool:
         """Reveal a fully built dialog after a withdrawn construction."""
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            primary_lease = self._primary_surface_lease
+            assert primary_lease is not None
+            return primary_host.show(primary_lease)
         try:
             self.root.update_idletasks()
             self.root.deiconify()
@@ -789,6 +815,9 @@ class BaseDialog:
         return True
 
     def current_bounds(self) -> PopupBounds | None:
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            return primary_host.current_bounds()
         try:
             self.root.update_idletasks()
             return popup_bounds_from_tk_geometry(
@@ -813,12 +842,32 @@ class BaseDialog:
         return self.pinned
 
     def close(self) -> None:
-        self.lifecycle.close()
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            primary_host.close(self._primary_surface_lease)
+        else:
+            self.lifecycle.close()
+
+    def mount_primary_content(self) -> bool:
+        try:
+            self.canvas.pack(fill="both", expand=True)
+        except tk.TclError:
+            return False
+        return True
+
+    def unmount_primary_content(self) -> None:
+        try:
+            self.canvas.pack_forget()
+        except tk.TclError:
+            pass
 
     def apply_external_output_visibility(
         self,
         visibility: Literal["hidden", "visible_activate", "visible_no_activate"],
     ) -> bool:
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            return primary_host.apply_visibility(visibility)
         if visibility == "hidden":
             try:
                 self.root.withdraw()
@@ -843,6 +892,9 @@ class BaseDialog:
         raise ValueError(f"unsupported popup visibility: {visibility}")
 
     def native_owns_foreground(self) -> bool:
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            return primary_host.owns_foreground()
         native = self._native_window_surface
         if native is None:
             return False
@@ -853,6 +905,9 @@ class BaseDialog:
             return False
 
     def _activate_native_window(self, window: tk.Misc) -> bool:
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            return primary_host.lifecycle.focus()
         native = self._native_window_surface
         if native is None:
             return False
@@ -864,6 +919,9 @@ class BaseDialog:
             return False
 
     def _hide_from_task_switcher(self) -> bool:
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            return primary_host.hide_from_task_switcher()
         native = self._native_window_surface
         if native is None:
             return False

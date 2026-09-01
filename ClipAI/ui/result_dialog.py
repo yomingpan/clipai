@@ -19,6 +19,7 @@ from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 from ClipAI.ui.entry_panel_handoff import EntryPanelPopupHandoff
 from ClipAI.ui.popup_control import PopupControl, PopupControlRegistered, PopupControlShown, PopupForegroundPolled, PopupInsidePointerPressed, PopupOutsideFocusRequested, PopupOutsidePointerPressed, PopupOwnedDialogClosed, PopupOwnedDialogOpened, PopupProjectionContext, ToolkitFocusEntered
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
+from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.personal_styles import PersonalStylesDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
@@ -111,6 +112,7 @@ class ResultDialogPresenter:
         voice_projection: VoiceProjection | None = None,
         application_version: str = "development",
         github_url: str = "https://github.com/yomingpan/clipai",
+        use_primary_surface_host: bool = True,
     ) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
@@ -140,6 +142,7 @@ class ResultDialogPresenter:
         self._voice_projection = voice_projection
         self._application_version = application_version
         self._github_url = github_url
+        self._use_primary_surface_host = use_primary_surface_host
         self._about_dialog: AboutDialog | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
@@ -935,6 +938,15 @@ class ResultDialogPresenter:
                 else None
             )
             bounds = self._layout_policy.calculate(metrics) if metrics is not None else None
+        primary_host = None
+        primary_lease = None
+        if bounds is not None and self._use_primary_surface_host:
+            primary_host = PrimarySurfaceHost(
+                self._root,
+                PrimarySurfaceSpec(bounds),
+                self._native_window_surface,
+            )
+            primary_lease = primary_host.acquire()
         dialog = BaseDialog(
             title="ClipAI",
             width=bounds.width if bounds else 400,
@@ -951,12 +963,16 @@ class ResultDialogPresenter:
             minimum_width=340,
             minimum_height=220,
             hide_from_task_switcher=True,
-            show_on_create=show_on_create,
+            show_on_create=show_on_create if primary_host is None else False,
             on_close_request=lambda sid=session_id: self._request_close(sid),
             native_window_surface=self._native_window_surface,
+            primary_surface_host=primary_host,
+            primary_surface_lease=primary_lease,
         )
         surface = BaseResultSurface(dialog)
         surface.configure_standard_actions()
+        if primary_host is not None and show_on_create:
+            dialog.show()
         return _SessionView(dialog=dialog, surface=surface)
 
     def _configure_voice_control(self, snapshot: SessionSnapshot, view: _SessionView) -> None:
