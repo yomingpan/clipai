@@ -11,13 +11,15 @@ import webbrowser
 import customtkinter as ctk
 
 from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
-from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
+from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
+from ClipAI.core.popup_presentation import project_popup_presentation
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
 from ClipAI.ui.popup_control import PopupControl, PopupControlRegistered, PopupControlShown, PopupForegroundPolled, PopupInsidePointerPressed, PopupOutsideFocusRequested, PopupOutsidePointerPressed, PopupOwnedDialogClosed, PopupOwnedDialogOpened, PopupProjectionContext, ToolkitFocusEntered
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
+from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease, PrimarySurfaceSpec
 from ClipAI.ui.provider_settings import ProviderSettingsDialog
 from ClipAI.ui.personal_styles import PersonalStylesDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
@@ -67,6 +69,14 @@ class _SessionView:
     applied_voice_insertion_revision: int | None = None
     voice_draft_editing: bool = True
     applied_follow_up_capture_ids: set[str] = field(default_factory=set)
+
+
+@dataclass
+class _PrimaryEntrySurface:
+    dialog: UnifiedEntryPanelDialog
+    host: PrimarySurfaceHost
+    panel_lease: PrimarySurfaceLease
+    workflow_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +142,7 @@ class ResultDialogPresenter:
         self._personal_styles_dialog: PersonalStylesDialog | None = None
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
         self._entry_panel_dialog: UnifiedEntryPanelDialog | None = None
+        self._primary_entry_surface: _PrimaryEntrySurface | None = None
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
         self._voice_setup_dialog: VoiceSetupDialog | None = None
@@ -189,6 +200,15 @@ class ResultDialogPresenter:
 
     def present_entry_panel(self, snapshot: EntryPanelSnapshot | None) -> None:
         if snapshot is None:
+            primary_entry = self._primary_entry_surface
+            if primary_entry is not None:
+                if not primary_entry.host.restore(primary_entry.panel_lease):
+                    primary_entry.host.close(primary_entry.panel_lease)
+                primary_entry.dialog.close()
+                self._primary_entry_surface = None
+                self._entry_panel_dialog = None
+                self._restore_focus_after_owned_surface()
+                return
             if self._entry_panel_dialog is not None:
                 self._entry_panel_dialog.close()
                 self._entry_panel_dialog = None
@@ -197,14 +217,73 @@ class ResultDialogPresenter:
         if self._native_window_surface is None or self._display_metrics is None:
             return
         self._hold_focus_for_owned_surface()
+        anchor = self._owned_popup_bounds()
         if self._entry_panel_dialog is None:
-            self._entry_panel_dialog = UnifiedEntryPanelDialog(
+            held = self._shortcut_guide_focus_return
+            held_view = held[1] if held is not None else None
+            host = (
+                held_view.dialog.primary_surface_host
+                if held_view is not None
+                else None
+            )
+            active_lease = (
+                held_view.dialog.primary_surface_lease
+                if held_view is not None
+                else None
+            )
+            if host is None or active_lease is None:
+                bounds = anchor or self._layout_policy.calculate(
+                    self._display_metrics.current()
+                )
+                host = PrimarySurfaceHost(
+                    self._root,
+                    PrimarySurfaceSpec(bounds),
+                    self._native_window_surface,
+                )
+            panel_lease = host.acquire()
+            dialog = UnifiedEntryPanelDialog(
                 self._root,
                 self._command_sink,
                 self._native_window_surface,
                 self._display_metrics,
+                self._layout_policy,
+                primary_surface_host=host,
+                primary_surface_lease=panel_lease,
             )
-        self._entry_panel_dialog.show(snapshot)
+            dialog.apply(snapshot)
+            mounted = (
+                host.replace(active_lease, panel_lease, dialog)
+                if active_lease is not None
+                else host.mount(panel_lease, dialog)
+            )
+            if not mounted:
+                host.close()
+                self._restore_focus_after_owned_surface()
+                return
+            self._entry_panel_dialog = dialog
+            self._primary_entry_surface = _PrimaryEntrySurface(
+                dialog,
+                host,
+                panel_lease,
+            )
+            if active_lease is None:
+                host.show(panel_lease)
+            dialog.reveal()
+            return
+        self._entry_panel_dialog.show(snapshot, anchor=anchor)
+
+    def transition_entry_panel_to_popup(
+        self,
+        panel_id: str,
+        workflow_id: str,
+    ) -> None:
+        """Keep the Panel visible until its admitted Popup is ready to replace it."""
+        dialog = self._entry_panel_dialog
+        if dialog is None:
+            return
+        primary_entry = getattr(self, "_primary_entry_surface", None)
+        if primary_entry is not None and dialog.presents(panel_id):
+            primary_entry.workflow_id = workflow_id
 
     def show_provider_settings(self, state: ProviderSettingsState) -> None:
         if self._provider_settings_dialog is None:
@@ -320,6 +399,15 @@ class ResultDialogPresenter:
             self._shortcut_guide_focus_return = (workflow_id, view)
             return
 
+    def _owned_popup_bounds(self) -> PopupBounds | None:
+        target = self._shortcut_guide_focus_return
+        if target is None:
+            return None
+        workflow_id, held_view = target
+        if self._interactive_view(workflow_id) is not held_view:
+            return None
+        return held_view.dialog.current_bounds()
+
     def _restore_focus_after_shortcut_guide(self) -> None:
         self._restore_focus_after_owned_surface()
 
@@ -403,6 +491,10 @@ class ResultDialogPresenter:
             self._shortcut_guide_dialog.destroy()
             self._shortcut_guide_dialog = None
         if self._entry_panel_dialog is not None:
+            primary_entry = self._primary_entry_surface
+            if primary_entry is not None:
+                primary_entry.host.close()
+                self._primary_entry_surface = None
             self._entry_panel_dialog.close()
             self._entry_panel_dialog = None
         try:
@@ -424,7 +516,8 @@ class ResultDialogPresenter:
             if not view.dialog.is_alive():
                 self._close_dead_view(workflow_id, view)
                 continue
-            self._popup_control(workflow_id, view).observe_focus(PopupForegroundPolled())
+            if view.dialog.is_visible():
+                self._popup_control(workflow_id, view).observe_focus(PopupForegroundPolled())
         point = self._pointer_press_reader.poll() if self._pointer_press_reader is not None else None
         if point is not None:
             self._handle_pointer_press(*point)
@@ -492,10 +585,36 @@ class ResultDialogPresenter:
                 view.dialog.close()
                 self._evict_view(snapshot.session_id, view)
             return
+        primary_entry = getattr(self, "_primary_entry_surface", None)
+        primary_transition = (
+            primary_entry
+            if primary_entry is not None
+            and primary_entry.workflow_id == snapshot.session_id
+            else None
+        )
         if view is None:
-            view = self._create_view(snapshot.session_id)
+            if primary_transition is not None:
+                result_lease = primary_transition.host.acquire()
+                view = self._create_view(
+                    snapshot.session_id,
+                    bounds=primary_transition.host.current_bounds(),
+                    show_on_create=False,
+                    primary_host=primary_transition.host,
+                    primary_lease=result_lease,
+                    mount_primary_content=False,
+                )
+            else:
+                view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
-            self._register_view(snapshot.session_id, view)
+            if primary_transition is not None:
+                self._register_view(
+                    snapshot.session_id,
+                    view,
+                    focus_on_show=False,
+                    announce_shown=False,
+                )
+            else:
+                self._register_view(snapshot.session_id, view)
         previous = view.last_snapshot
         if snapshot.status is SessionStatus.VOICE_REVIEW and (
             previous is None or previous.status is not SessionStatus.VOICE_REVIEW
@@ -505,34 +624,19 @@ class ResultDialogPresenter:
         view.revision = snapshot.revision
         previous_step_id = view.step_id
         view.content = snapshot.content
-        if snapshot.displayed_step_index >= 0:
-            view.step_id = snapshot.steps[snapshot.displayed_step_index].step_id
+        view.step_id = _displayed_step_id(snapshot)
         if previous_step_id is not None and view.step_id != previous_step_id:
             view.surface.close_feedback_overlay()
-        if patch.header:
-            view.surface.set_pinned_state(snapshot.pinned)
-            view.surface.set_title(snapshot.title)
-            view.surface.set_source_preview(snapshot.source_preview)
-            view.surface.set_model(snapshot.model)
-            self._project_popup_context(snapshot.session_id, view)
-            view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
         guidance_key = view.step_id or ""
-        if snapshot.status == SessionStatus.COMPLETED and snapshot.show_guidance_hint and guidance_key not in view.shown_guidance_keys:
+        popup_model = project_popup_presentation(
+            snapshot,
+            guidance_already_shown=guidance_key in view.shown_guidance_keys,
+        )
+        view.surface.render(popup_model)
+        if popup_model.guidance:
             view.shown_guidance_keys.add(guidance_key)
-            view.surface.show_action_guidance_hint()
-        if previous is None:
-            view.surface.close_button.configure(
-                command=lambda sid=snapshot.session_id: self._request_close(sid)
-            )
-            view.surface.pin_button.configure(
-                command=lambda sid=snapshot.session_id: self._toggle_pin(sid)
-            )
         if patch.header:
-            view.surface.configure_back_action(
-                (lambda sid=snapshot.session_id: self._navigate_back(sid))
-                if snapshot.can_navigate_back
-                else None
-            )
+            self._project_popup_context(snapshot.session_id, view)
         content_key = _content_render_key(snapshot)
         content_changed = patch.content
         if snapshot.status == SessionStatus.VOICE_REVIEW:
@@ -579,7 +683,6 @@ class ResultDialogPresenter:
                         view.surface.append_content_text(snapshot.content[len(previous.content):], "body")
                     else:
                         view.surface.set_content_chunks([(snapshot.content, "body")])
-                    view.surface.set_source_preview(f"Failed: {snapshot.error}")
                 else:
                     view.surface.set_content_chunks([(snapshot.error, "body")])
         elif snapshot.status in {SessionStatus.COMPLETED, SessionStatus.STOPPED}:
@@ -608,19 +711,10 @@ class ResultDialogPresenter:
                         view.surface.append_content_text(snapshot.content[len(previous.content):], "body")
                     else:
                         view.surface.set_content_chunks([(snapshot.content, "body")])
-                    view.surface.set_source_preview(snapshot.status_text)
                 else:
                     view.surface.set_loading(snapshot.status_text)
         if content_changed:
             view.rendered_content_key = content_key
-        if patch.actions:
-            view.surface.configure_standard_actions(
-                on_speak=(lambda sid=snapshot.session_id: self._toggle_speech(sid)) if "speaker" in snapshot.available_actions else None,
-                on_copy=(lambda sid=snapshot.session_id: self._copy(sid)) if "copy" in snapshot.available_actions else None,
-                on_paste=(lambda sid=snapshot.session_id: self._paste(sid)) if "paste" in snapshot.available_actions else None,
-                on_archive=(lambda sid=snapshot.session_id: self._archive(sid)) if "archive" in snapshot.available_actions else None,
-                on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions and snapshot.status is not SessionStatus.CONTEXT_QUESTION else None,
-            )
         if (
             snapshot.question_composer_revision
             and (
@@ -643,19 +737,6 @@ class ResultDialogPresenter:
             view.surface.set_follow_up_active(True)
         self._configure_voice_control(snapshot, view)
         view.speaking = snapshot.speaking
-        if patch.visual_state:
-            view.surface.set_speaker_active(snapshot.speaking)
-        if patch.feedback and snapshot.status == SessionStatus.COMPLETED and snapshot.action_feedback_contract is not None and view.step_id is not None:
-            view.surface.configure_feedback(
-                snapshot.action_feedback_contract,
-                snapshot.feedback_state,
-                snapshot.feedback_message,
-                lambda outcome, reason, note, save_case, sid=snapshot.session_id, step=view.step_id: self._submit_feedback(
-                    sid, step, outcome, reason, note, save_case
-                ),
-            )
-        elif patch.feedback:
-            view.surface.hide_feedback()
         if (
             previous is not None
             and previous.status in {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING}
@@ -663,6 +744,39 @@ class ResultDialogPresenter:
         ):
             self._schedule_initial_focus(snapshot.session_id, view)
         view.last_snapshot = snapshot
+        if primary_transition is not None:
+            self._complete_primary_entry_transition(
+                snapshot.session_id,
+                view,
+                primary_transition,
+            )
+            return
+
+    def _complete_primary_entry_transition(
+        self,
+        workflow_id: str,
+        view: _SessionView,
+        transition: _PrimaryEntrySurface,
+    ) -> bool:
+        result_host = view.dialog.primary_surface_host
+        result_lease = view.dialog.primary_surface_lease
+        if (
+            result_host is not transition.host
+            or result_lease is None
+            or not transition.host.replace(
+                transition.panel_lease,
+                result_lease,
+                view.dialog,
+            )
+        ):
+            return False
+        transition.dialog.close()
+        self._entry_panel_dialog = None
+        self._primary_entry_surface = None
+        self._restore_focus_after_owned_surface()
+        self._popup_control(workflow_id, view).observe_focus(PopupControlShown())
+        self._schedule_initial_focus(workflow_id, view)
+        return True
 
     def _evict_view(self, session_id: str, view: _SessionView) -> None:
         if self._views.get(session_id) is view:
@@ -685,7 +799,12 @@ class ResultDialogPresenter:
 
     def _interactive_view(self, session_id: str) -> _SessionView | None:
         view = self._views.get(session_id)
-        if view is None or view.close_requested or not view.dialog.is_alive():
+        if (
+            view is None
+            or view.close_requested
+            or not view.dialog.is_alive()
+            or not view.dialog.is_visible()
+        ):
             return None
         return view
 
@@ -855,9 +974,31 @@ class ResultDialogPresenter:
             not capture_active and bool(view.surface.follow_entry.get().strip())
         )
 
-    def _create_view(self, session_id: str) -> _SessionView:
-        metrics = self._display_metrics.current() if self._display_metrics is not None else None
-        bounds = self._layout_policy.calculate(metrics) if metrics is not None else None
+    def _create_view(
+        self,
+        session_id: str,
+        *,
+        bounds: PopupBounds | None = None,
+        show_on_create: bool = True,
+        primary_host: PrimarySurfaceHost | None = None,
+        primary_lease: PrimarySurfaceLease | None = None,
+        mount_primary_content: bool = True,
+    ) -> _SessionView:
+        if bounds is None:
+            metrics = (
+                self._display_metrics.current()
+                if self._display_metrics is not None
+                else None
+            )
+            bounds = self._layout_policy.calculate(metrics) if metrics is not None else None
+        if primary_host is None:
+            bounds = bounds or PopupBounds(20, 20, 400, 336)
+            primary_host = PrimarySurfaceHost(
+                self._root,
+                PrimarySurfaceSpec(bounds),
+                self._native_window_surface,
+            )
+            primary_lease = primary_host.acquire()
         dialog = BaseDialog(
             title="ClipAI",
             width=bounds.width if bounds else 400,
@@ -874,12 +1015,48 @@ class ResultDialogPresenter:
             minimum_width=340,
             minimum_height=220,
             hide_from_task_switcher=True,
+            show_on_create=show_on_create if primary_host is None else False,
             on_close_request=lambda sid=session_id: self._request_close(sid),
             native_window_surface=self._native_window_surface,
+            primary_surface_host=primary_host,
+            primary_surface_lease=primary_lease,
+            mount_primary_content=mount_primary_content,
         )
         surface = BaseResultSurface(dialog)
-        surface.configure_standard_actions()
-        return _SessionView(dialog=dialog, surface=surface)
+        view = _SessionView(dialog=dialog, surface=surface)
+        surface.close_button.configure(
+            command=lambda sid=session_id: self._request_close(sid)
+        )
+        surface.pin_button.configure(
+            command=lambda sid=session_id: self._toggle_pin(sid)
+        )
+        surface.bind_back_action(
+            lambda sid=session_id: self._navigate_back(sid)
+        )
+        surface.configure_standard_actions(
+            on_speak=lambda sid=session_id: self._toggle_speech(sid),
+            on_copy=lambda sid=session_id: self._copy(sid),
+            on_paste=lambda sid=session_id: self._paste(sid),
+            on_archive=lambda sid=session_id: self._archive(sid),
+            on_follow_up=lambda sid=session_id: self._toggle_follow_up(sid),
+        )
+        surface.bind_feedback_submit(
+            lambda outcome, reason, note, save_case, sid=session_id, rendered=view: (
+                self._submit_feedback(
+                    sid,
+                    rendered.step_id,
+                    outcome,
+                    reason,
+                    note,
+                    save_case,
+                )
+                if rendered.step_id is not None
+                else None
+            )
+        )
+        if primary_host is not None and show_on_create:
+            dialog.show()
+        return view
 
     def _configure_voice_control(self, snapshot: SessionSnapshot, view: _SessionView) -> None:
         global_projection = getattr(self, "_voice_projection", None)
@@ -972,6 +1149,7 @@ class ResultDialogPresenter:
         view: _SessionView,
         *,
         focus_on_show: bool = True,
+        announce_shown: bool = True,
     ) -> None:
         control = self._popup_control(session_id, view)
         control.observe_focus(PopupControlRegistered())
@@ -1005,9 +1183,10 @@ class ResultDialogPresenter:
         view.surface.bind_voice_draft_paste(
             lambda event, sid=session_id: self._paste_shortcut(event, sid)
         )
-        control.observe_focus(PopupControlShown())
-        if focus_on_show:
-            self._schedule_initial_focus(session_id, view)
+        if announce_shown:
+            control.observe_focus(PopupControlShown())
+            if focus_on_show:
+                self._schedule_initial_focus(session_id, view)
 
     def _schedule_initial_focus(self, session_id: str, view: _SessionView) -> None:
         def establish_initial_focus() -> None:
@@ -1019,11 +1198,11 @@ class ResultDialogPresenter:
 
         view.dialog.lifecycle.schedule(0, establish_initial_focus)
 
-    def _shortcut(self, action: Callable[[str], None], session_id: str) -> str:
-        view = self._views.get(session_id)
+    def _shortcut(self, action: Callable[[str], None], session_id: str) -> str | None:
+        view = self._interactive_view(session_id)
         if view is not None and self._popup_control(session_id, view).focused_inside:
             action(session_id)
-        return "break"
+        return "break" if view is not None else None
 
     def _popup_shortcut(self, event, action: Callable[[str], None], session_id: str) -> str:
         if _has_only_popup_shortcut_modifiers(event):
@@ -1056,19 +1235,19 @@ class ResultDialogPresenter:
         return "break"
 
     def _focus_in(self, session_id: str) -> None:
-        view = self._views.get(session_id)
+        view = self._interactive_view(session_id)
         if view is None:
             return
         self._popup_control(session_id, view).observe_focus(ToolkitFocusEntered())
 
     def _pointer_pressed_inside(self, session_id: str) -> None:
-        view = self._views.get(session_id)
+        view = self._interactive_view(session_id)
         if view is None:
             return
         self._popup_control(session_id, view).observe_focus(PopupInsidePointerPressed())
 
     def _close_if_outside(self, session_id: str) -> None:
-        view = self._views.get(session_id)
+        view = self._interactive_view(session_id)
         if view is None:
             return
         self._popup_control(session_id, view).observe_focus(PopupOutsideFocusRequested())

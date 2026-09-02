@@ -247,6 +247,7 @@ class WorkflowController:
                 action_version=action.version_id,
                 provider=provider,
                 model=model,
+                action_language=action.action_language,
             )
             steps = (*kept, step)
             source_preview = _source_preview(document)

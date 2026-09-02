@@ -4,6 +4,7 @@ import ctypes
 from ctypes import wintypes
 
 from ClipAI.core.models import DisplayMetrics
+from ClipAI.platform.win32_api import configure_shcore_api, configure_win32_api
 
 
 class WindowsDisplayMetricsReader:
@@ -11,6 +12,7 @@ class WindowsDisplayMetricsReader:
         self._declare_dpi_awareness()
 
     def current(self) -> DisplayMetrics:
+        configure_win32_api(ctypes.windll.user32, ctypes.windll.kernel32)
         point = wintypes.POINT()
         ctypes.windll.user32.GetCursorPos(ctypes.byref(point))
         monitor = ctypes.windll.user32.MonitorFromPoint(point, 2)
@@ -20,7 +22,14 @@ class WindowsDisplayMetricsReader:
         dpi_x = wintypes.UINT(96)
         dpi_y = wintypes.UINT(96)
         try:
-            ctypes.windll.shcore.GetDpiForMonitor(monitor, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))
+            shcore = ctypes.windll.shcore
+            configure_shcore_api(shcore)
+            shcore.GetDpiForMonitor(
+                monitor,
+                0,
+                ctypes.byref(dpi_x),
+                ctypes.byref(dpi_y),
+            )
         except (AttributeError, OSError):
             pass
         work = info.rcWork
@@ -36,8 +45,11 @@ class WindowsDisplayMetricsReader:
 
     @staticmethod
     def _declare_dpi_awareness() -> None:
+        configure_win32_api(ctypes.windll.user32, ctypes.windll.kernel32)
         try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            shcore = ctypes.windll.shcore
+            configure_shcore_api(shcore)
+            shcore.SetProcessDpiAwareness(2)
         except (AttributeError, OSError):
             try:
                 ctypes.windll.user32.SetProcessDPIAware()

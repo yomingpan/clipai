@@ -86,7 +86,7 @@ class AboutDialog:
         ctk.CTkLabel(
             self._window,
             text=(
-                "• 新手入門：長按 Ctrl + Alt 呼叫統一入口，從這裡開始體驗。\n"
+                "• 新手入門：長按 Alt 500 毫秒呼叫統一入口，從這裡開始體驗。\n"
                 "• 進階使用：參考系統匣上的 Keyboard Shortcuts，查看完整快捷鍵。\n"
                 "• 提醒：部分軟體可能有按鍵衝突，請避開衝突快捷鍵；\n"
                 "  快捷鍵仍是最快速、最絲滑的 AI 互動方式。"

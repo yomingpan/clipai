@@ -29,8 +29,9 @@ class ActionFeedbackService:
                 raise ValueError("select a valid feedback reason")
         elif command.reason:
             raise ValueError("feedback reason is only valid when adjustment is needed")
+        provenance = step.action_language
         record = ActionFeedbackRecord(
-            record_schema_version=1,
+            record_schema_version=2,
             feedback_id=command.operation_id,
             created_at=self._clock().astimezone(timezone.utc).isoformat(),
             workflow_id=workflow_id,
@@ -42,6 +43,15 @@ class ActionFeedbackService:
             model=step.model,
             input_source=step.input_source,
             outcome=command.outcome,
+            action_language_pack_id=(
+                provenance.identity.pack_id if provenance is not None else ""
+            ),
+            action_language_pack_version=(
+                provenance.identity.pack_version if provenance is not None else ""
+            ),
+            action_language_locale=(
+                provenance.identity.locale if provenance is not None else ""
+            ),
             reason=command.reason,
             note=command.note.strip(),
             input_text=step.input_text if command.save_case else None,

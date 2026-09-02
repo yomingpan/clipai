@@ -47,15 +47,49 @@ tests/              # Unit sims 與 integration tests
 - Provider environment mapping、credential resolution、concrete provider 建構與 `.env` persistence 屬於 app composition adapter；services 只依賴 typed backend contract。
 - Unified Entry Panel 的 ownership 依 ADR-0012 分離：`EntryPanelCoordinator`
   擁有純導覽、搜尋與資訊密度 projection，`EntryPanelRuntimeModule` 擁有唯一
-  Panel lifetime、launch source 與 input-preparation identity；它只能透過
+  Panel lifetime、launch source、open-time input-preparation identity 與 frozen
+  `PreparedEntryInput`。Panel 顯示後由 interactive worker 準備 external input；
+  Workflow selection／canonical content 則在 Panel 取得焦點前凍結。Action 選取
+  只能查詢 frozen input 的 `InputMode` 相容性，不得重新讀取 clipboard、selection
+  或 foreground。Runtime 只能透過
   `WorkflowRuntimeModule.start_action` 請求 Action admission。Workflow runtime
   必須以已捕捉的 `InputDocument.workflow_id + step_id` 驗證 contextual lineage，
   不得在 admission 時以目前 Foreground Workflow 取代來源 identity。UI 不得讀
   clipboard、native handle、provider 或 Workflow state，也不得從 render 或
   focus 推導 Action intent。
+- Entry Panel 到結果 Popup 的內容替換必須同時帶 Panel lifecycle ID 與已接受的
+  Workflow ID。`PrimarySurfaceHost` 是唯一 primary `CTkToplevel`、mounted-view
+  lease、bounds、DPI resample、drag、replace 與 rollback owner；Panel 與結果 view
+  只能 mount 在它的 content slot。替換前必須 off-slot build 完成，任一瞬間只能有
+  一個 mounted primary view，既有 Popup 不得重新定位。Bounds 的螢幕位置是
+  physical pixels，CustomTkinter width/height 是 toolkit-logical units。不得由 Panel
+  close、focus、游標位置或任意 Workflow snapshot 猜測替換，也不得建立第二個
+  primary Toplevel 或保留舊雙視窗 handoff state。
+  `WorkflowRuntimeModule.start_action` 必須在任何 accepted visible Workflow 的
+  第一個 projection（包含 `CREATED`）之前，執行呼叫端提供的 typed
+  pre-projection hook；Entry Panel 只能透過這個 seam 註冊 identity-matched
+  primary-surface replacement，不得在
+  `start_action` 返回後補註冊。
+- Popup 的 widget-neutral header/action/feedback/guidance projection 由 core-only、
+  Tk-free `PopupPresentationModel` 與 pure projector 擁有；
+  `BaseResultSurface.render(model)` 是唯一 widget 投影 seam。Content 與 flash 不
+  進入該 model。Baseline Action availability 不得覆寫 `PopupControl` 擁有的
+  in-flight/ack enable 與 pulse。
+- Entry Panel 的 `Esc` 永遠是 close/cancel-preparation；`EntryPanelBack` 才是
+  More → scene → root 導覽，root no-op。Preparing 是 option-level neutral pending，
+  不得偽裝成 policy disabled；真實 disabled reason 優先。UI lifecycle 更新只能
+  原地刷新 card，除非 topology 或 visible static detail 改變。
 - 最近使用由 `RecentActionHistory` 擁有，只接收 `WorkflowController` 已接受的
   successful step 所解析出的 `action_id + press_type`；不得由 provider completion、
   Workflow snapshot revision、Popup visibility 或 operation tracker 推導成功。
+- Action Language Pack 的 canonical feature skeleton 只擁有不可翻譯行為；pure
+  compiler 擁有完整性與相容性規則，包括 Entry Panel ordered Action refs 與
+  pack candidate `label/description` 的 exact coverage；app loader 擁有 filesystem
+  驗證，bootstrap 擁有啟動時 resolve/fallback，`ActionLanguageSelectionCoordinator` 擁有
+  restart-only selection lifecycle。Workflow、Provider、Voice Input 與 Speech/TTS
+  不得選 pack 或依 locale 分支。Entry Panel coordinator/runtime/UI 只消費已組裝
+  projection，不得讀 pack identity。完整規則見
+  `docs/contracts/services/action-language-pack-contract.md`。
 
 ## Core
 
@@ -130,6 +164,12 @@ window icon handle。UI 只傳 toolkit child id；top-level native handle 的解
 留在 Windows adapter。Headless adapter 回傳保守結果，兩者都不得向 contract
 外拋出 native failure。Pointer press 同樣由 platform adapter 透過
 `PointerPressReader` 注入。
+
+Windows top-level foreground activation 的 thread-input attachment、bring-to-top、
+activation 與 ownership verification 由 `platform.window_activation` 單一 primitive
+實作。`NativeWindowSurface` 負責解析 ClipAI toolkit shell，
+`ExternalWindowActivator` 負責驗證精確外部 HWND/PID 與有界重試；兩者不得各自複製
+另一套 `AttachThreadInput`／`SetForegroundWindow` 流程。
 
 不得放入：
 
@@ -296,8 +336,9 @@ UI 只負責：
 
 目標是避免把產品行為硬寫進程式。程式可以定義 schema、預設值、validation，但可調整內容應盡量外部化。
 
-`config/entry_panel.yaml` 只擁有 Entry Panel 的 category、顯示順序、文案與
-`action_id + press_type` 候選人。Action prompt、input/output mode、provider、
+`config/entry_panel.yaml` 只擁有 Entry Panel 的 category、顯示順序、category
+文案與 `action_id + press_type` 候選人；candidate `label/description` 由 active
+Action Language Pack 完整提供。Action prompt、input/output mode、provider、
 Personal Style 與可執行性仍由既有 owner 決定；UI 不得依 action ID 寫分支。
 
 ### Prompts
@@ -456,7 +497,16 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
   explicit user intent. A valid selection takes precedence; otherwise input
   falls back to the configured clipboard policy. Selection capture and Paste
   share the one container-scoped `ClipboardTransactionCoordinator`, so capture
-  cannot permanently replace newer clipboard content.
+  cannot permanently replace newer clipboard content. Entry Panel capture must
+  confirm that the exact captured external target still owns foreground after
+  resolution. Confirmation may wait briefly for the exact target to recover
+  from an IME-owned transient foreground window, but it must not substitute a
+  different HWND or process. Expiry fails closed without automatically
+  recapturing or admitting the clipboard fallback.
+- Windows platform adapters declare pointer-sized Win32 handles and callback
+  signatures before native calls. A WinEvent callback remains strongly owned
+  until its exact hook is successfully removed; failed unhook must not release
+  the callback or register a parallel hook.
 - Workflow identity, output-operation identity, selection-capture identity, and
   view lifecycle remain distinct. A Workflow snapshot revision cannot stand in
   for any of those operation identities.

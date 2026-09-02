@@ -7,7 +7,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from ClipAI.core.models import ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
+from ClipAI.core.models import ActionLanguagePackSelectionState, ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceLanguage, VoiceProjection
 
 logger = logging.getLogger("clipai.tray")
@@ -89,6 +89,8 @@ class TrayController:
         on_open_provider_settings: Callable[[], None] | None = None,
         on_open_shortcut_guide: Callable[[], None] | None = None,
         on_open_personal_styles: Callable[[], None] | None = None,
+        action_language_selection: ActionLanguagePackSelectionState | None = None,
+        on_select_action_language: Callable[[str], None] | None = None,
         on_refresh_models: Callable[[], None] | None = None,
         guidance_preferences: GuidancePreferences | None = None,
         on_set_first_use_hints: Callable[[bool], None] | None = None,
@@ -115,6 +117,8 @@ class TrayController:
         self._on_open_provider_settings = on_open_provider_settings
         self._on_open_shortcut_guide = on_open_shortcut_guide
         self._on_open_personal_styles = on_open_personal_styles
+        self._action_language_selection = action_language_selection
+        self._on_select_action_language = on_select_action_language
         self._on_refresh_models = on_refresh_models
         self._guidance_preferences = guidance_preferences
         self._on_set_first_use_hints = on_set_first_use_hints
@@ -151,6 +155,9 @@ class TrayController:
             menu_items.append(pystray.MenuItem(SHORTCUT_GUIDE_MENU_LABEL, lambda _icon, _item: self._on_open_shortcut_guide()))
         if self._on_open_personal_styles is not None:
             menu_items.append(pystray.MenuItem("Personal Styles...", lambda _icon, _item: self._on_open_personal_styles()))
+        action_language_menu = self._build_action_language_menu(pystray)
+        if action_language_menu is not None:
+            menu_items.append(action_language_menu)
         menu_items.append(pystray.Menu.SEPARATOR)
         speech_speed_menu = self._build_speech_speed_menu(pystray)
         if speech_speed_menu is not None:
@@ -225,6 +232,77 @@ class TrayController:
             for option in selection.providers
         )
         return pystray.MenuItem(label, pystray.Menu(*items))
+
+    def _build_action_language_menu(self, pystray):
+        state = self._action_language_selection
+        if state is None or self._on_select_action_language is None:
+            return None
+        items = [
+            pystray.MenuItem(
+                descriptor.display_name,
+                self._action_language_action(descriptor.identity.pack_id),
+                checked=lambda _item, chosen=descriptor.identity.pack_id: (
+                    self._action_language_selection is not None
+                    and self._action_language_selection.selected_pack_id == chosen
+                ),
+                radio=True,
+                enabled=lambda _item, chosen=descriptor.identity.pack_id: (
+                    self._action_language_selection is not None
+                    and self._action_language_selection.pending_pack_id is None
+                    and self._action_language_selection.selected_pack_id != chosen
+                ),
+            )
+            for descriptor in state.available_packs
+        ]
+        available_ids = {
+            descriptor.identity.pack_id for descriptor in state.available_packs
+        }
+        if state.recovery is not None and state.selected_pack_id not in available_ids:
+            items.append(
+                pystray.MenuItem(
+                    f"{state.selected_pack_id} (unavailable)",
+                    None,
+                    checked=True,
+                    radio=True,
+                    enabled=False,
+                )
+            )
+        return pystray.MenuItem(
+            lambda _item: self._action_language_label(),
+            pystray.Menu(*items),
+        )
+
+    def _action_language_label(self) -> str:
+        state = self._action_language_selection
+        if state is None:
+            return "Action Language"
+        names = {
+            descriptor.identity.pack_id: descriptor.display_name
+            for descriptor in state.available_packs
+        }
+        active = names.get(state.active_pack.pack_id, state.active_pack.pack_id)
+        selected = names.get(state.selected_pack_id, state.selected_pack_id)
+        if state.pending_pack_id is not None:
+            return f"Action Language (saving...; current: {active})"
+        if state.recovery is not None:
+            return f"Action Language (selection unavailable; current: {active})"
+        if state.restart_required:
+            return f"Action Language (current: {active}; after restart: {selected})"
+        return f"Action Language (current: {active})"
+
+    def _action_language_action(self, pack_id: str):
+        def select(_icon, _item) -> None:
+            state = self._action_language_selection
+            if (
+                state is None
+                or self._on_select_action_language is None
+                or state.pending_pack_id is not None
+                or state.selected_pack_id == pack_id
+            ):
+                return
+            self._on_select_action_language(pack_id)
+
+        return select
 
     def _build_guidance_menu(self, pystray):
         if self._guidance_preferences is None or self._on_set_first_use_hints is None or self._on_reset_first_use_hints is None:
@@ -362,6 +440,13 @@ class TrayController:
 
     def set_voice_projection(self, projection: VoiceProjection) -> None:
         self._voice = projection
+        self._refresh_menu()
+
+    def set_action_language_selection(
+        self,
+        state: ActionLanguagePackSelectionState,
+    ) -> None:
+        self._action_language_selection = state
         self._refresh_menu()
 
     def _provider_action(self, provider: str):

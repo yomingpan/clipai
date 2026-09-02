@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ActionFeedbackRecord, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EntryPanelSnapshot, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
+from ClipAI.core.models import ActionFeedbackRecord, ActionLanguagePackSelectionRead, ActionLanguagePackSelectionState, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EntryPanelSnapshot, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, ModifierHoldId, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 from ClipAI.core.voice import VoiceCaptureId, VoiceCaptureSurfaceContext, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
 
@@ -61,6 +61,12 @@ class WorkflowAttentionPresenter(Protocol):
 class EntryPanelPresenter(Protocol):
     def present_entry_panel(self, snapshot: EntryPanelSnapshot | None) -> None: ...
 
+    def transition_entry_panel_to_popup(
+        self,
+        panel_id: str,
+        workflow_id: str,
+    ) -> None: ...
+
 
 class ApplicationView(ResultPresenter, Protocol):
     def set_command_sink(self, sink: Callable[[object], None]) -> None: ...
@@ -99,6 +105,19 @@ class ActionFeedbackStore(Protocol):
     def append(self, record: ActionFeedbackRecord) -> None: ...
 
 
+class ActionLanguagePackSelectionStore(Protocol):
+    def load(self) -> ActionLanguagePackSelectionRead: ...
+
+    def save(self, pack_id: str) -> None: ...
+
+
+class ActionLanguagePackSelectionPresenter(Protocol):
+    def set_action_language_selection(
+        self,
+        state: ActionLanguagePackSelectionState,
+    ) -> None: ...
+
+
 class UserPreferencesStore(Protocol):
     def load(self) -> UserPreferences: ...
 
@@ -130,6 +149,12 @@ class ExternalWindowActivator(Protocol):
         self,
         target: ExternalWindowRef,
         cancellation: CancellationToken,
+    ) -> ExternalWindowActivationOutcome: ...
+
+    def confirm(
+        self,
+        target: ExternalWindowRef,
+        cancellation: CancellationToken | None = None,
     ) -> ExternalWindowActivationOutcome: ...
 
 
@@ -257,6 +282,8 @@ class ShortcutObservationLease(Protocol):
 
 class ShortcutInput(Stoppable, Protocol):
     def observe(self) -> ShortcutObservationLease: ...
+
+    def settle_entry_panel_hold(self, hold_id: ModifierHoldId) -> None: ...
 
 
 class RuntimeComponent(Stoppable, Protocol):

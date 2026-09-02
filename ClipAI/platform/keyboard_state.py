@@ -6,7 +6,9 @@ import sys
 MODIFIER_KEYS = ("ctrl", "alt", "shift")
 
 _TOKEN_VIRTUAL_KEYS = {
-    "alt": (0x12,),  # VK_MENU
+    # VK_MENU is not reliably asserted for side-specific Alt events while a
+    # low-level hook is processing them. Query the generic and both side keys.
+    "alt": (0x12, 0xA4, 0xA5),  # VK_MENU, VK_LMENU, VK_RMENU
     "ctrl": (0x11,),  # VK_CONTROL
     "shift": (0x10,),  # VK_SHIFT
     "grave": (0xC0,),  # VK_OEM_3
@@ -23,6 +25,12 @@ def windows_key_is_pressed(token: str) -> bool | None:
     try:
         import ctypes
 
+        from ClipAI.platform.win32_api import configure_win32_api
+
+        configure_win32_api(
+            ctypes.windll.user32,
+            getattr(ctypes.windll, "kernel32", None),
+        )
         return any(
             bool(ctypes.windll.user32.GetAsyncKeyState(virtual_key) & 0x8000)
             for virtual_key in virtual_keys

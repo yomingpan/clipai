@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted.
+Superseded in part by ADR-0013.
+
+ADR-0012 remains authoritative for Panel navigation, Workflow admission,
+recent-action history, configuration and semantic ownership. ADR-0013 replaces
+its decisions to use two independent visible `CTkToplevel` surfaces and to
+defer external input preparation until Action selection.
 
 ## Context
 
@@ -25,23 +30,52 @@ has closed or reopened.
   initial density comes from the existing persisted user-preferences owner.
 - `EntryPanelRuntimeModule` owns Panel membership, launch/source identity and
   one active input-preparation identity. Only matching completion can request
-  Workflow admission.
+  Workflow admission. A second Action intent while preparation is active is
+  ignored rather than replacing that identity.
 - `UnifiedEntryPanelDialog` is an independent UI adapter on the existing Tk root.
   It renders projections and emits typed intents; it does not call services,
   platform adapters or providers.
-- The platform hotkey listener owns the exact `Ctrl+Alt` 1.5 second hold and digit
-  claim. It emits typed facts and never resolves Action IDs.
+- Accepted Action admission returns the authoritative Workflow identity.
+  `EntryPanelRuntimeModule` uses that identity with the Panel lifecycle identity
+  through the visible Action's pre-projection hook to request one explicit
+  visual handoff before `CREATED` or any later Workflow projection is emitted;
+  UI never infers a handoff from focus, closure, cursor movement or an unrelated
+  Workflow snapshot.
+- `ResultDialogPresenter` owns only the cross-surface actuation of that handoff:
+  capture the Panel's actual outer bounds, build a new Popup while withdrawn,
+  hide the Panel, reveal the Popup, then destroy the Panel in the same UI turn.
+  If reveal fails, it restores the same Panel for retry. Reused Popups keep their
+  existing bounds. Bounds use physical screen position and toolkit-logical size;
+  navigation and Workflow/Popup state ownership do not move. Its private
+  `EntryPanelPopupHandoff` deep module owns the handoff implementation state and
+  ordered commit/rollback interface; this does not create another presentation
+  owner.
+- Operation-only Panel projections such as `preparing` and error-message updates
+  preserve the existing option widget tree. This prevents queued toolkit focus
+  callbacks from targeting cards destroyed solely by a lifecycle-state change.
+- The platform hotkey listener owns the exact `Alt` 500 ms hold and digit
+  claim. Alt auto-repeat remains part of the same physical hold. Runtime settles
+  the consumed hold by identity when the Panel lifecycle ends, so a missed OS
+  release cannot block the next real hold. The listener emits typed facts and
+  never resolves Action IDs.
 - External target validation/activation remains a platform capability behind an
   opaque core port. Selection capture reuses `InputResolver` and the one
-  `ClipboardTransactionCoordinator`.
+  `ClipboardTransactionCoordinator`. The platform activator may retry the exact
+  captured, still-valid target within its existing bounded timeout; it does not
+  substitute another foreground window or extend the activation bound. After
+  input resolution, runtime confirms that the same target still owns foreground;
+  a failed confirmation retries the full activation/capture once and then fails
+  closed instead of admitting an untrusted clipboard fallback.
 - `WorkflowRuntimeModule.start_action` is the only Action admission seam for
   both legacy shortcuts and the Panel.
 - `WorkflowController` emits a minimal accepted-step identity only after it
   accepts the active invocation. `RecentActionHistory` owns unique top-three
   Action references; its platform store persists only Action ID and press type.
-- Categories, ordering, copy and candidate `action_id + press_type` references
-  are loaded from `config/entry_panel.yaml`. Execution semantics remain in
-  `ActionCatalog`.
+- Categories, ordering and candidate `action_id + press_type` references are
+  loaded from `config/entry_panel.yaml`. Candidate Action `label/description`
+  are joined from the already compiled active Action Language Pack during app
+  composition. Execution semantics remain in `ActionCatalog`; coordinator and
+  UI do not inspect locale or pack identity.
 
 ## Enforced boundaries
 
@@ -59,8 +93,11 @@ has closed or reopened.
 ## Alternatives rejected
 
 - Extending `PopupControl` merges entry navigation with Workflow actuation.
+- Closing the Panel before the identity-matched Popup is fully built creates a
+  visible gap; revealing both surfaces creates a double flash; caching unscoped
+  "last Panel bounds" can move a later unrelated Popup and is therefore rejected.
 - Calling `ActionExecutor` from UI bypasses Workflow admission and cancellation.
-- Registering modifier-only `Ctrl+Alt` as an ordinary shortcut conflicts with
+- Registering modifier-only `Alt` as an ordinary shortcut conflicts with
   trigger-token and direct digit semantics.
 - Deriving recents from snapshots or provider completion reports success too
   early and uses the wrong identity.

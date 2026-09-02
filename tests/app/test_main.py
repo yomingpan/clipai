@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
 from ClipAI.core.errors import ConfigError
 import main
@@ -25,7 +26,7 @@ class InstanceGate:
 def test_config_error_uses_startup_error_surface(monkeypatch) -> None:
     messages: list[str] = []
     monkeypatch.setattr(main, "load_dotenv", None)
-    monkeypatch.setattr(main, "load_config_bundle", lambda: (_ for _ in ()).throw(ConfigError("bad config")))
+    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store: (_ for _ in ()).throw(ConfigError("bad config")))
     monkeypatch.setattr(main, "show_startup_error", messages.append)
 
     with pytest.raises(SystemExit) as caught:
@@ -39,7 +40,7 @@ def test_main_loads_dotenv_with_file_precedence(monkeypatch) -> None:
     calls: list[dict[str, bool]] = []
     runtime = type("Runtime", (), {"run_forever": lambda self: None})()
     monkeypatch.setattr(main, "load_dotenv", lambda **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(main, "load_config_bundle", lambda: object())
+    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store: SimpleNamespace(bundle=object()))
     monkeypatch.setattr(main, "build_runtime", lambda _bundle: runtime)
 
     main.main(instance_gate=InstanceGate(Lease()))
@@ -51,7 +52,7 @@ def test_second_instance_stops_before_loading_configuration(monkeypatch) -> None
     messages: list[str] = []
     configuration_loads: list[str] = []
     monkeypatch.setattr(main, "show_startup_error", messages.append)
-    monkeypatch.setattr(main, "load_config_bundle", lambda: configuration_loads.append("loaded"))
+    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store: configuration_loads.append("loaded"))
 
     main.main(instance_gate=InstanceGate(None))
 
@@ -70,7 +71,7 @@ def test_main_uses_composed_instance_gate_before_loading_configuration(monkeypat
     monkeypatch.setattr(main, "build_application_instance_gate", lambda: InstanceGate(None), raising=False)
     monkeypatch.setattr(main, "show_startup_error", lambda _message: None)
     monkeypatch.setattr(main, "load_dotenv", None)
-    monkeypatch.setattr(main, "load_config_bundle", load_configuration)
+    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store: SimpleNamespace(bundle=load_configuration()))
     monkeypatch.setattr(main, "build_runtime", lambda _bundle: runtime)
 
     main.main()

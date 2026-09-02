@@ -4,12 +4,16 @@ import ctypes
 from pathlib import Path
 from typing import Any
 
+from ClipAI.platform.window_activation import activate_top_level_window
+from ClipAI.platform.win32_api import configure_win32_api
+
 
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_APPWINDOW = 0x00040000
-SW_RESTORE = 9
 SW_SHOWNOACTIVATE = 4
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
 WM_SETICON = 0x0080
 ICON_SMALL = 0
 ICON_BIG = 1
@@ -23,6 +27,7 @@ class WindowsNativeWindowSurface:
     def __init__(self, *, user32: Any | None = None, kernel32: Any | None = None) -> None:
         self._user32 = user32 or ctypes.windll.user32
         self._kernel32 = kernel32 or ctypes.windll.kernel32
+        configure_win32_api(self._user32, self._kernel32)
 
     def hide_from_task_switcher(self, toolkit_child_id: int) -> bool:
         try:
@@ -39,37 +44,27 @@ class WindowsNativeWindowSurface:
             return False
 
     def activate(self, toolkit_child_id: int) -> bool:
-        attached = False
-        current_thread = 0
-        foreground_thread = 0
         try:
             hwnd = self._top_level(toolkit_child_id)
-            foreground = int(self._user32.GetForegroundWindow())
-            current_thread = int(self._kernel32.GetCurrentThreadId())
-            foreground_thread = (
-                int(self._user32.GetWindowThreadProcessId(foreground, None))
-                if foreground
-                else 0
+            # Tk has already deiconified the window before it asks for native
+            # activation. Re-showing it here produces a second visible frame
+            # on Windows, which is especially noticeable for the Entry Panel.
+            self._user32.SetWindowPos(
+                hwnd,
+                -1,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOMOVE,
             )
-            attached = bool(
-                foreground_thread
-                and foreground_thread != current_thread
-                and self._user32.AttachThreadInput(current_thread, foreground_thread, True)
+            return activate_top_level_window(
+                hwnd,
+                user32=self._user32,
+                kernel32=self._kernel32,
             )
-            self._user32.ShowWindow(hwnd, SW_RESTORE)
-            self._user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0043)
-            self._user32.BringWindowToTop(hwnd)
-            self._user32.SetForegroundWindow(hwnd)
-            self._user32.SetActiveWindow(hwnd)
-            return int(self._user32.GetForegroundWindow()) == hwnd
         except (AttributeError, OSError, TypeError, ValueError):
             return False
-        finally:
-            if attached:
-                try:
-                    self._user32.AttachThreadInput(current_thread, foreground_thread, False)
-                except (AttributeError, OSError, TypeError, ValueError):
-                    pass
 
     def show_without_activation(self, toolkit_child_id: int) -> bool:
         try:
@@ -77,7 +72,11 @@ class WindowsNativeWindowSurface:
             hwnd = self._top_level(toolkit_child_id)
             self._user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
             if previous_foreground and previous_foreground != hwnd:
-                self._user32.SetForegroundWindow(previous_foreground)
+                activate_top_level_window(
+                    previous_foreground,
+                    user32=self._user32,
+                    kernel32=self._kernel32,
+                )
             return (
                 int(self._user32.GetForegroundWindow()) == previous_foreground
                 if previous_foreground

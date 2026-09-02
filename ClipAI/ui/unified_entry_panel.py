@@ -8,13 +8,14 @@ import customtkinter as ctk
 from ClipAI.core.commands import (
     CloseEntryPanel,
     EntryPanelActionSelected,
-    EntryPanelEscape,
+    EntryPanelBack,
     EntryPanelOpenMore,
     EntryPanelSearchChanged,
     EntryPanelSlotSelected,
     EntryPanelToggleDensity,
+    RetryEntryPanelInput,
 )
-from ClipAI.core.models import EntryPanelOption, EntryPanelSnapshot
+from ClipAI.core.models import EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
 from ClipAI.ui.base_dialog import (
     ACTION_COLOR,
@@ -26,8 +27,8 @@ from ClipAI.ui.base_dialog import (
     TC_FONT_FAMILY,
     _Tooltip,
 )
-from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
+from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
 
 
 _TRANSPARENT_WINDOW_BACKGROUND = "#111111"
@@ -42,15 +43,24 @@ class EntryPanelIntentAdapter:
     def __init__(self, command_sink: Callable[[object], None]) -> None:
         self._command_sink = command_sink
         self._snapshot: EntryPanelSnapshot | None = None
+        self._selection_pending = False
 
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
+        if snapshot != self._snapshot:
+            self._selection_pending = False
         self._snapshot = snapshot
 
     def select(self, option: EntryPanelOption) -> None:
         snapshot = self._snapshot
-        if snapshot is None or not option.enabled:
+        if (
+            snapshot is None
+            or not option.enabled
+            or option.pending
+            or self._selection_pending
+        ):
             return
         if option.action is not None:
+            self._selection_pending = True
             self._command_sink(
                 EntryPanelActionSelected(snapshot.panel_id, option.action)
             )
@@ -77,15 +87,20 @@ class EntryPanelIntentAdapter:
         if snapshot is not None:
             self._command_sink(EntryPanelToggleDensity(snapshot.panel_id))
 
-    def escape(self) -> None:
+    def back(self) -> None:
         snapshot = self._snapshot
         if snapshot is not None:
-            self._command_sink(EntryPanelEscape(snapshot.panel_id))
+            self._command_sink(EntryPanelBack(snapshot.panel_id))
 
     def close(self) -> None:
         snapshot = self._snapshot
         if snapshot is not None:
             self._command_sink(CloseEntryPanel(snapshot.panel_id))
+
+    def retry_input(self) -> None:
+        snapshot = self._snapshot
+        if snapshot is not None:
+            self._command_sink(RetryEntryPanelInput(snapshot.panel_id))
 
 
 class UnifiedEntryPanelDialog:
@@ -97,45 +112,34 @@ class UnifiedEntryPanelDialog:
         command_sink: Callable[[object], None],
         native_window_surface: NativeWindowSurface,
         display_metrics: DisplayMetricsReader,
+        layout_policy: PopupLayoutPolicy | None = None,
+        *,
+        primary_surface_host: PrimarySurfaceHost | None = None,
+        primary_surface_lease: PrimarySurfaceLease | None = None,
     ) -> None:
-        self._native_window_surface = native_window_surface
-        self._display_metrics = display_metrics
+        del native_window_surface, display_metrics, layout_policy
         self._intent = EntryPanelIntentAdapter(command_sink)
         self._snapshot: EntryPanelSnapshot | None = None
         self._search_guard = False
         self._option_buttons: list[tk.Misc] = []
+        self._option_updaters: list[Callable[[EntryPanelOption], None]] = []
         self._placed_panel_id: str | None = None
-
-        self._window = ctk.CTkToplevel(master)
-        self._window.withdraw()
-        self._window.title("ClipAI")
-        self._window.overrideredirect(True)
-        self._window.attributes("-topmost", True)
-        # Match the result Popup: Windows owns the real rounded outer edge.
-        # The transparent key removes the rectangular Toplevel background,
-        # so no dark pixels can leak through the shell's curved corners.
-        self._window.configure(fg_color=_TRANSPARENT_WINDOW_BACKGROUND)
-        try:
-            self._window.attributes(
-                "-transparentcolor",
-                _TRANSPARENT_WINDOW_BACKGROUND,
-            )
-        except tk.TclError:
-            self._window.configure(fg_color=SURFACE_BG)
-        self._window.bind("<Escape>", self._on_escape)
-        self._window.bind("<KeyPress>", self._on_key)
+        self._body_render_key: tuple[object, ...] | None = None
+        self._message_label: ctk.CTkLabel | None = None
+        self._message_row = 0
+        self._primary_surface_host = primary_surface_host
+        self._primary_surface_lease = primary_surface_lease
+        if primary_surface_host is None or primary_surface_lease is None:
+            raise ValueError("UnifiedEntryPanelDialog requires a primary surface host and lease")
+        self._window = primary_surface_host.window
+        self._lifecycle = primary_surface_host.lifecycle
+        self._window.bind("<Escape>", self._on_escape, add="+")
+        self._window.bind("<Control-z>", self._on_back, add="+")
+        self._window.bind("<KeyPress>", self._on_key, add="+")
         self._window.bind("<FocusOut>", self._on_focus_out, add="+")
-        self._window.bind("<Return>", self._on_enter)
-        self._window.bind("<Down>", lambda event: self._move_focus(event, True))
-        self._window.bind("<Up>", lambda event: self._move_focus(event, False))
-        self._window.protocol("WM_DELETE_WINDOW", self._intent.close)
-        self._lifecycle = DialogLifecycle(
-            self._window,
-            owns_mainloop=False,
-            window_activator=lambda window: self._native_window_surface.activate(
-                int(window.winfo_id())
-            ),
-        )
+        self._window.bind("<Return>", self._on_enter, add="+")
+        self._window.bind("<Down>", lambda event: self._move_focus(event, True), add="+")
+        self._window.bind("<Up>", lambda event: self._move_focus(event, False), add="+")
 
         self._shell = ctk.CTkFrame(
             self._window,
@@ -144,14 +148,25 @@ class UnifiedEntryPanelDialog:
             border_color="#454545",
             fg_color=SURFACE_BG,
         )
-        self._shell.pack(fill="both", expand=True)
         self._shell.grid_columnconfigure(0, weight=1)
-        self._shell.grid_rowconfigure(1, weight=1)
+        self._shell.grid_rowconfigure(2, weight=1)
 
         header = ctk.CTkFrame(self._shell, fg_color="transparent")
         header.grid(row=0, column=0, padx=16, pady=(14, 8), sticky="ew")
-        header.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
+        header.grid_columnconfigure(1, weight=1)
+        self._back_button = ctk.CTkButton(
+            header,
+            text="←",
+            width=28,
+            height=28,
+            corner_radius=7,
+            fg_color="transparent",
+            hover_color="#3A3A3A",
+            text_color=CONTENT_COLOR,
+            command=self._intent.back,
+        )
+        self._back_button.grid(row=0, column=0, padx=(0, 8), sticky="w")
+        title_label = ctk.CTkLabel(
             header,
             text="ClipAI",
             anchor="w",
@@ -160,14 +175,15 @@ class UnifiedEntryPanelDialog:
                 size=POPUP_FONT_SIZES["interface"],
                 weight="bold",
             ),
-        ).grid(row=0, column=0, sticky="w")
+        )
+        title_label.grid(row=0, column=1, sticky="w")
         self._density = ctk.CTkSwitch(
             header,
             text="",
             width=38,
             command=self._intent.toggle_density,
         )
-        self._density.grid(row=0, column=1, padx=(14, 16))
+        self._density.grid(row=0, column=2, padx=(14, 16))
         self._density_tooltip = _Tooltip(
             self._density,
             "顯示詳細說明，點擊切換精簡模式",
@@ -188,9 +204,35 @@ class UnifiedEntryPanelDialog:
                 family=TC_FONT_FAMILY,
                 size=POPUP_FONT_SIZES["auxiliary"],
             ),
-            command=self._intent.escape,
+            command=self._intent.close,
         )
-        self._escape_button.grid(row=0, column=2, sticky="e")
+        self._escape_button.grid(row=0, column=3, sticky="e")
+
+        source_row = ctk.CTkFrame(self._shell, fg_color="transparent")
+        source_row.grid(row=1, column=0, padx=16, pady=(0, 7), sticky="ew")
+        source_row.grid_columnconfigure(0, weight=1)
+        self._source_preview_label = ctk.CTkLabel(
+            source_row,
+            text="",
+            anchor="w",
+            justify="left",
+            text_color=MODEL_COLOR,
+            font=ctk.CTkFont(
+                family=TC_FONT_FAMILY,
+                size=POPUP_FONT_SIZES["auxiliary"],
+            ),
+        )
+        self._source_preview_label.grid(row=0, column=0, sticky="ew")
+        self._retry_input_button = ctk.CTkButton(
+            source_row,
+            text="重試",
+            width=54,
+            height=24,
+            fg_color="transparent",
+            hover_color="#3A3A3A",
+            text_color=CONTENT_COLOR,
+            command=self._intent.retry_input,
+        )
 
         self._body = ctk.CTkScrollableFrame(
             self._shell,
@@ -199,15 +241,19 @@ class UnifiedEntryPanelDialog:
             scrollbar_button_color="#454545",
             scrollbar_button_hover_color="#5A5A5A",
         )
-        self._body.grid(row=1, column=0, padx=14, pady=(0, 14), sticky="nsew")
+        self._body.grid(row=2, column=0, padx=14, pady=(0, 14), sticky="nsew")
         self._body.grid_columnconfigure(0, weight=1)
+        self._drag_controller = None
+        primary_surface_host.bind_drag(header, title_label)
 
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
         self._snapshot = snapshot
         self._intent.apply(snapshot)
-        self._escape_button.configure(
-            text="Esc 關閉" if snapshot.page == "root" else "Esc 返回"
-        )
+        self._render_source_preview(snapshot.source_preview)
+        if snapshot.page == "root":
+            self._back_button.grid_remove()
+        else:
+            self._back_button.grid()
         if snapshot.density == "detailed":
             self._density.select()
             tooltip = "詳細模式，點擊切換精簡模式"
@@ -215,23 +261,69 @@ class UnifiedEntryPanelDialog:
             self._density.deselect()
             tooltip = "精簡模式，點擊顯示詳細說明"
         self._density_tooltip.set_text(tooltip)
-        self._rebuild_body(snapshot)
+        body_render_key = _body_render_key(snapshot)
+        if body_render_key != getattr(self, "_body_render_key", None):
+            self._rebuild_body(snapshot)
+            self._body_render_key = body_render_key
+        else:
+            self._update_option_cards(snapshot.options)
+            self._render_message(snapshot)
 
-    def show(self, snapshot: EntryPanelSnapshot) -> None:
-        self.apply(snapshot)
-        if self._placed_panel_id != snapshot.panel_id:
-            bounds = PopupLayoutPolicy().calculate(self._display_metrics.current())
-            self._window.geometry(
-                f"{max(420, bounds.width)}x{bounds.height}+{bounds.x}+{bounds.y}"
-            )
-            self._placed_panel_id = snapshot.panel_id
-        self._window.update_idletasks()
-        self._native_window_surface.hide_from_task_switcher(int(self._window.winfo_id()))
-        self._window.deiconify()
-        self._lifecycle.focus(self._first_focus_target())
+    def show(
+        self,
+        snapshot: EntryPanelSnapshot,
+        *,
+        anchor: PopupBounds | None = None,
+    ) -> None:
+        if snapshot != getattr(self, "_snapshot", None):
+            self.apply(snapshot)
+        del anchor
+        if self.is_primary_content_mounted():
+            self._lifecycle.focus(self._first_focus_target())
+
+    def hide(self) -> None:
+        self.unmount_primary_content()
+
+    def reveal(self) -> None:
+        if self.is_primary_content_mounted():
+            self._lifecycle.focus(self._first_focus_target())
+
+    def current_bounds(self) -> PopupBounds | None:
+        """Capture the actual user-adjusted outer bounds for Popup handoff."""
+        return self._primary_surface_host.current_bounds()
+
+    def presents(self, panel_id: str) -> bool:
+        snapshot = self._snapshot
+        return snapshot is not None and snapshot.panel_id == panel_id
 
     def close(self) -> None:
-        self._lifecycle.close()
+        self._snapshot = None
+
+    @property
+    def primary_surface_host(self) -> PrimarySurfaceHost | None:
+        return self._primary_surface_host
+
+    @property
+    def primary_surface_lease(self) -> PrimarySurfaceLease | None:
+        return self._primary_surface_lease
+
+    def mount_primary_content(self) -> bool:
+        try:
+            self._shell.pack(fill="both", expand=True)
+        except tk.TclError:
+            return False
+        return True
+
+    def unmount_primary_content(self) -> None:
+        try:
+            self._shell.pack_forget()
+        except tk.TclError:
+            pass
+
+    def is_primary_content_mounted(self) -> bool:
+        host = getattr(self, "_primary_surface_host", None)
+        lease = getattr(self, "_primary_surface_lease", None)
+        return host is None or (lease is not None and host.is_mounted(lease))
 
     def request_close(self) -> None:
         """Request runtime-owned Panel closure after an external click."""
@@ -249,9 +341,11 @@ class UnifiedEntryPanelDialog:
         return left <= x < left + width and top <= y < top + height
 
     def _rebuild_body(self, snapshot: EntryPanelSnapshot) -> None:
+        self._message_label = None
         for child in self._body.winfo_children():
             child.destroy()
         self._option_buttons.clear()
+        self._option_updaters.clear()
         row = 0
         if snapshot.page == "more":
             self._search_guard = True
@@ -327,19 +421,60 @@ class UnifiedEntryPanelDialog:
             ).grid(row=row, column=0, pady=(8, 0), sticky="ew")
             row += 1
 
-        if snapshot.message:
-            ctk.CTkLabel(
-                self._body,
-                text=snapshot.message,
-                anchor="w",
-                justify="left",
-                wraplength=380,
-                text_color="#F6A9A9" if snapshot.status == "error" else MODEL_COLOR,
-                font=ctk.CTkFont(
-                    family=TC_FONT_FAMILY,
-                    size=POPUP_FONT_SIZES["auxiliary"],
+        self._message_row = row
+        self._render_message(snapshot)
+
+    def _render_message(self, snapshot: EntryPanelSnapshot) -> None:
+        label = getattr(self, "_message_label", None)
+        if not snapshot.message:
+            if label is not None:
+                label.destroy()
+                self._message_label = None
+            return
+        text_color = "#F6A9A9" if snapshot.status == "error" else MODEL_COLOR
+        if label is not None:
+            label.configure(text=snapshot.message, text_color=text_color)
+            return
+        self._message_label = ctk.CTkLabel(
+            self._body,
+            text=snapshot.message,
+            anchor="w",
+            justify="left",
+            wraplength=380,
+            text_color=text_color,
+            font=ctk.CTkFont(
+                family=TC_FONT_FAMILY,
+                size=POPUP_FONT_SIZES["auxiliary"],
+            ),
+        )
+        self._message_label.grid(
+            row=getattr(self, "_message_row", 0),
+            column=0,
+            padx=4,
+            pady=(8, 0),
+            sticky="ew",
+        )
+
+    def _render_source_preview(
+        self,
+        preview: EntryInputSourcePreview | None,
+    ) -> None:
+        label = getattr(self, "_source_preview_label", None)
+        retry = getattr(self, "_retry_input_button", None)
+        if label is not None:
+            label.configure(
+                text=_source_preview_text(preview),
+                text_color=(
+                    "#F6A9A9"
+                    if preview is not None and preview.kind == "failed"
+                    else MODEL_COLOR
                 ),
-            ).grid(row=row, column=0, padx=4, pady=(8, 0), sticky="ew")
+            )
+        if retry is not None:
+            if preview is not None and preview.kind == "failed":
+                retry.grid(row=0, column=1, padx=(8, 0), sticky="e")
+            else:
+                retry.grid_forget()
 
     @staticmethod
     def _split_root_options(
@@ -373,9 +508,10 @@ class UnifiedEntryPanelDialog:
 
         hovered = False
         focused = False
+        latest_option = option
 
         def redraw_card() -> None:
-            if not option.enabled:
+            if not latest_option.enabled or latest_option.pending:
                 return
             try:
                 if hovered:
@@ -426,9 +562,9 @@ class UnifiedEntryPanelDialog:
             card.after_idle(refresh)
 
         def activate(_event=None) -> str:
-            if option.enabled:
-                card.focus_set()
-                self._intent.select(option)
+            current = latest_option
+            if current.enabled and not current.pending:
+                self._intent.select(current)
             return "break"
 
         def show_focus(_event=None) -> None:
@@ -441,9 +577,6 @@ class UnifiedEntryPanelDialog:
             focused = False
             redraw_card()
 
-        detail = option.disabled_reason or (
-            option.description if snapshot.density == "detailed" else ""
-        )
         title_label = ctk.CTkLabel(
             card,
             text=title,
@@ -459,26 +592,58 @@ class UnifiedEntryPanelDialog:
             row=0,
             column=0,
             padx=12,
-            pady=(7, 0 if detail else 7),
+            pady=7,
             sticky="ew",
         )
         interactive_widgets = [card, title_label]
+        detail_label = ctk.CTkLabel(
+            card,
+            text="",
+            anchor="w",
+            justify="left",
+            wraplength=360,
+            text_color=MODEL_COLOR,
+            font=ctk.CTkFont(
+                family=TC_FONT_FAMILY,
+                size=POPUP_FONT_SIZES["auxiliary"],
+            ),
+        )
+        interactive_widgets.append(detail_label)
 
-        if detail:
-            detail_label = ctk.CTkLabel(
-                card,
-                text=detail,
-                anchor="w",
-                justify="left",
-                wraplength=360,
-                text_color="#F6A9A9" if option.disabled_reason else MODEL_COLOR,
-                font=ctk.CTkFont(
-                    family=TC_FONT_FAMILY,
-                    size=POPUP_FONT_SIZES["auxiliary"],
-                ),
+        def update(updated: EntryPanelOption) -> None:
+            nonlocal latest_option, hovered, focused
+            latest_option = updated
+            detail = updated.disabled_reason or (
+                "正在讀取來源內容…"
+                if updated.pending
+                else updated.description
+                if snapshot.density == "detailed"
+                else ""
             )
-            detail_label.grid(row=1, column=0, padx=12, pady=(0, 6), sticky="ew")
-            interactive_widgets.append(detail_label)
+            title_label.grid_configure(pady=(7, 0 if detail else 7))
+            detail_label.configure(
+                text=detail,
+                text_color="#F6A9A9" if updated.disabled_reason else MODEL_COLOR,
+            )
+            if detail:
+                detail_label.grid(
+                    row=1,
+                    column=0,
+                    padx=12,
+                    pady=(0, 6),
+                    sticky="ew",
+                )
+            else:
+                detail_label.grid_forget()
+            if not updated.enabled or updated.pending:
+                hovered = False
+                focused = False
+                card.configure(
+                    fg_color=_CARD_BACKGROUND,
+                    border_color=_CARD_BORDER,
+                )
+            else:
+                redraw_card()
 
         for widget in interactive_widgets:
             widget.bind("<Enter>", show_hover, add="+")
@@ -489,7 +654,19 @@ class UnifiedEntryPanelDialog:
         card.bind("<FocusIn>", show_focus, add="+")
         card.bind("<FocusOut>", clear_focus, add="+")
         self._option_buttons.append(card)
+        self._option_updaters.append(update)
+        update(option)
         return card
+
+    def _update_option_cards(
+        self,
+        options: tuple[EntryPanelOption, ...],
+    ) -> None:
+        if len(options) != len(self._option_updaters):
+            self._rebuild_body(self._snapshot)  # type: ignore[arg-type]
+            return
+        for update, option in zip(self._option_updaters, options):
+            update(option)
 
     @staticmethod
     def _option_text(option: EntryPanelOption, snapshot: EntryPanelSnapshot) -> str:
@@ -500,33 +677,57 @@ class UnifiedEntryPanelDialog:
             else ""
         )
         reason = f"\n{option.disabled_reason}" if option.disabled_reason else ""
-        return f"{key}{option.label}{description}{reason}"
+        pending = "\n正在讀取來源內容…" if option.pending and not option.disabled_reason else ""
+        return f"{key}{option.label}{description}{reason}{pending}"
 
-    def _on_escape(self, _event=None) -> str:
+    def _on_escape(self, _event=None) -> str | None:
+        if not self.is_primary_content_mounted():
+            return None
+        self._intent.close()
+        return "break"
+
+    def _on_back(self, _event=None) -> str | None:
+        if not self.is_primary_content_mounted():
+            return None
+        snapshot = self._snapshot
+        if snapshot is not None and snapshot.page != "root":
+            self._intent.back()
         return "break"
 
     def _on_key(self, event) -> None:
+        if not self.is_primary_content_mounted():
+            return
         if event.char and event.char.isdigit():
             self._intent.select_slot(int(event.char))
 
     def _on_enter(self, event) -> str:
+        if not self.is_primary_content_mounted():
+            return "break"
         invoke = getattr(event.widget, "invoke", None)
         if callable(invoke):
             invoke()
         return "break"
 
     def _move_focus(self, event, forward: bool) -> str:
+        if not self.is_primary_content_mounted():
+            return "break"
         target = event.widget.tk_focusNext() if forward else event.widget.tk_focusPrev()
         if target is not None:
             target.focus_set()
         return "break"
 
     def _on_focus_out(self, _event=None) -> None:
+        if not self.is_primary_content_mounted():
+            return
         self._window.after(0, self._close_if_focus_left)
 
     def _close_if_focus_left(self) -> None:
         snapshot = self._snapshot
-        if snapshot is None or snapshot.status == "preparing":
+        if (
+            snapshot is None
+            or snapshot.status == "preparing"
+            or not self.is_primary_content_mounted()
+        ):
             return
         try:
             focused = self._window.focus_get()
@@ -537,3 +738,39 @@ class UnifiedEntryPanelDialog:
 
     def _first_focus_target(self):
         return self._option_buttons[0] if self._option_buttons else self._density
+
+
+def _body_render_key(snapshot: EntryPanelSnapshot) -> tuple[object, ...]:
+    """Identify widget topology independently from operation lifecycle state."""
+    return (
+        snapshot.page,
+        snapshot.category_id,
+        snapshot.density,
+        tuple(
+            (
+                option.slot,
+                option.label,
+                option.description if snapshot.density == "detailed" else "",
+                option.action,
+                option.category_id,
+            )
+            for option in snapshot.options
+        ),
+        snapshot.search_text,
+    )
+
+
+def _source_preview_text(preview: EntryInputSourcePreview | None) -> str:
+    if preview is None:
+        return "來源：尚未讀取"
+    labels = {
+        "preparing": "正在讀取選取內容…",
+        "selection_text": "選取文字",
+        "clipboard_text": "剪貼簿文字",
+        "clipboard_image": "剪貼簿截圖",
+        "workflow_selection": "Popup 選取文字",
+        "workflow_result": "目前結果",
+        "failed": "讀取失敗",
+    }
+    label = labels[preview.kind]
+    return f"{label}：{preview.summary}" if preview.summary else label

@@ -1,0 +1,110 @@
+schema_version: 1
+candidates:
+  - action_id: translate_to_traditional_chinese
+    press_type: short
+    label: 繁体字中国語に翻訳
+    description: 内容を自然で読みやすい繁体字中国語に変換します。
+  - action_id: english_companion
+    press_type: short
+    label: English Companion
+    description: 英語の用法、文脈、よく使われる表現を理解します。
+  - action_id: explain_like_friend
+    press_type: short
+    label: 友人のように説明
+    description: 親しみやすく率直な言葉で内容を説明します。
+  - action_id: reading_friction
+    press_type: short
+    label: この英文を読み解く
+    description: 英文を読みにくくしている表現を見つけ、わかりやすく説明します。
+  - action_id: article_structure
+    press_type: short
+    label: 文章の構造と重要観点
+    description: 文章の構造と重要な論点を整理します。
+  - action_id: extract_keywords
+    press_type: short
+    label: 中核キーワードを抽出
+    description: 内容を理解するうえで重要な概念語を見つけます。
+  - action_id: translate_to_english
+    press_type: short
+    label: 英語に翻訳
+    description: 内容を自然で実用的な英語に翻訳します。
+  - action_id: shorten_content
+    press_type: short
+    label: 内容を短くする
+    description: 意味を保ちながら不要な言葉を削ります。
+  - action_id: personal_style_informal
+    press_type: short
+    label: 自然な私的文面に整える
+    description: 個人のスタイルに合わせて自然な私的表現に書き換えます。
+  - action_id: intent_preserving_dictation_editor
+    press_type: short
+    label: 音声入力を意図どおりの文章に整える
+    description: 話し手の意図を保ちながら、音声入力を使える文章に整えます。
+  - action_id: expression_retrieval
+    press_type: short
+    label: 表現を一つ定着させる
+    description: 言いたいのに思い出せない表現を見つけます。
+  - action_id: personal_style_oral
+    press_type: short
+    label: フォーマルな口述原稿
+    description: 個人のスタイルに合わせてフォーマルな口述原稿に整えます。
+  - action_id: personal_style_presentation
+    press_type: short
+    label: フォーマルな要点と口述稿
+    description: 個人のスタイルに合わせて要点が明確な発表原稿に整えます。
+  - action_id: pyramid_position
+    press_type: short
+    label: ピラミッドで立場を整理
+    description: 主張を明確にしてから、それを支える理由を整理します。
+  - action_id: critical_thinking
+    press_type: short
+    label: 批判的思考で問いを深める
+    description: 反対の視点から盲点や弱い前提を見つけます。
+  - action_id: tradeoff_perspective
+    press_type: short
+    label: トレードオフを見通す
+    description: 選択肢の間で実際に交換するものを明らかにします。
+  - action_id: reflective_question
+    press_type: short
+    label: 考える価値のある問いを一つ
+    description: 理解を最も前に進める次の問いを見つけます。
+  - action_id: name_idea
+    press_type: short
+    label: 考えに名前を付ける
+    description: まだ固まりきっていない考えに名前を付けます。
+  - action_id: name_concept_carefully
+    press_type: short
+    label: 概念を慎重に命名
+    description: 概念の名前と境界を慎重に定めます。
+  - action_id: illuminate_essence
+    press_type: short
+    label: 変わらない本質を照らす
+    description: 変化する細部から比較的安定した核心を見つけます。
+  - action_id: temporary_viewpoint
+    press_type: short
+    label: 暫定的な見方を保存
+    description: まだ結論の出ていない見方を後で振り返れる形に整えます。
+  - action_id: mece_decomposition
+    press_type: short
+    label: MECEで分解
+    description: 重複と漏れがないように問題を分解します。
+  - action_id: minimum_action
+    press_type: short
+    label: 最小の次の行動
+    description: 物事を前に進める最小の次の一歩を見つけます。
+  - action_id: structure_score_prompt
+    press_type: short
+    label: SCOREで要件を整理
+    description: SCOREの構造で要件と背景を明確にします。
+  - action_id: extract_screenshot_text
+    press_type: short
+    label: スクリーンショットから文字を抽出
+    description: クリップボードの画像から使える文字を抽出します。
+  - action_id: session_handoff
+    press_type: short
+    label: AI対話の引き継ぎを作成
+    description: 次のAI対話へ持ち込める引き継ぎ内容を整理します。
+  - action_id: command_copilot
+    press_type: short
+    label: Command Copilot｜コマンド変換とリスク審査
+    description: 使用予定のコマンドを確認し、意味とリスクを理解できるよう支援します。

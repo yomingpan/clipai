@@ -503,8 +503,9 @@ class WorkflowRuntimeModule:
         result_route: ResultRoute = "popup",
         input_target: InputTarget | None = None,
         admission_origin: ActionAdmissionOrigin = "shortcut",
+        before_first_projection: Callable[[str], None] | None = None,
     ) -> ActionStartAdmission:
-        """Admit one Action through the existing Workflow runtime."""
+        """Admit an Action, invoking the hook before any visible projection."""
         try:
             action = self._actions.resolve(action_id, press_type)
         except ValueError as error:
@@ -525,12 +526,26 @@ class WorkflowRuntimeModule:
                 )
         command = StartAction(action_id, press_type, result_route)
         if result_route == "speech":
-            self._start_headless_action(action, command, input_target=input_target)
-            return ActionStartAdmission("accepted")
+            workflow_id = self._start_headless_action(
+                action,
+                command,
+                input_target=input_target,
+            )
+            return ActionStartAdmission("accepted", workflow_id=workflow_id)
         target = input_target or self._input_targets.resolve(
             self._foreground_context(),
             action.external_fallback,
         )
+        projection_prepared = False
+
+        def prepare_first_projection(workflow_id: str) -> None:
+            nonlocal projection_prepared
+            if projection_prepared:
+                return
+            projection_prepared = True
+            if before_first_projection is not None:
+                before_first_projection(workflow_id)
+
         document = target.document
         contextual = target.kind == "workflow_result" and document is not None
         if contextual:
@@ -578,6 +593,7 @@ class WorkflowRuntimeModule:
                     )
                 workflow_id = uuid.uuid4().hex
                 parent_step_id = None
+                prepare_first_projection(workflow_id)
                 controller = self._new_controller(
                     SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
                     "visible",
@@ -602,6 +618,7 @@ class WorkflowRuntimeModule:
             elif action.personal_style is not None:
                 record = replace(record, personal_style=action.personal_style)
                 self._records[workflow_id] = record
+        prepare_first_projection(workflow_id)
         active_id = controller.snapshot.active_invocation_id
         if active_id is not None:
             controller.cancel_active()
@@ -623,7 +640,7 @@ class WorkflowRuntimeModule:
             invocation.invocation_id,
             lambda: self._execute_action.execute_invocation(action, invocation, controller, binding=record.binding),
         )
-        return ActionStartAdmission("accepted")
+        return ActionStartAdmission("accepted", workflow_id=workflow_id)
 
     def _start_headless_action(
         self,
@@ -631,7 +648,7 @@ class WorkflowRuntimeModule:
         command: StartAction,
         *,
         input_target: InputTarget | None = None,
-    ) -> None:
+    ) -> str:
         context = self._foreground_context()
         target = input_target or self._input_targets.resolve(context, action.external_fallback)
         workflow_id = uuid.uuid4().hex
@@ -662,6 +679,7 @@ class WorkflowRuntimeModule:
                 self._enqueue(HeadlessWorkflowFinished(workflow_id))
 
         self._submit_invocation(workflow_id, invocation.invocation_id, execute)
+        return workflow_id
 
     def _cancel_headless_workflows(self) -> None:
         workflow_ids = tuple(

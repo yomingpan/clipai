@@ -70,6 +70,13 @@ python scripts/run_unit_tests.py
 
 GitHub Windows CI 必須在 Python 3.10、3.11、3.12、3.13 執行 constrained clean install、compile、unit tests 與 architecture tests。排程工作另測未鎖定依賴，但不得影響正式安裝 constraints。
 
+Action Language Pack 的 machine gate 必須執行 strict loader/compiler、`zh-TW`
+baseline、跨 pack Action/variant/profile/feedback topology、固定輸出語言、selection
+lifecycle、Entry Panel candidate topology/copy、bootstrap atomic fallback、Tray truth
+與 architecture boundary 測試。Registry
+中的每個 pack 都必須由 `scripts/validate_language_packs.py` 原子驗證；不得只測目前
+selected pack。逐項語言品質審查是額外 release gate，不由 snapshot 測試取代。
+
 ### Integration Tests
 
 這是手動觸發的真實世界測試。
@@ -177,6 +184,14 @@ Unit / Sims 應測：
 - close Workflow cleanup。
 - presenter unsubscribe event。
 - selection 優先於 full output。
+- pure `SessionSnapshot → PopupPresentationModel` projector 保持 core-only、
+  Tk-free、frozen，且不含 content/flash。
+- header/actions/feedback/guidance/speaking 由 `BaseResultSurface.render(model)`
+  按 last-model field group 更新；Workflow callbacks 只綁一次。
+- feedback 只允許 completed + contract + valid displayed step，submit 讀 live
+  step；guidance 由 caller 注入去重事實；contextual question 排除 follow-up。
+- baseline available actions 的 render 不得解除 `PopupControl` in-flight disable，
+  也不得覆寫 acknowledgement pulse。
 
 Integration 應測：
 
@@ -233,7 +248,9 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 
 ### Canonical selection 與 presentation 測試
 
-- 外部 text-capable Action 在 trigger time 擷取 selection；有效 selection
+- 直接 Shortcut 的外部 text-capable Action 在 trigger time 擷取 selection；Unified
+  Entry Panel 則在 Panel open intent 凍結 selection／clipboard，Action 選取不得
+  再次擷取。有效 selection
   優先於 clipboard image 與 clipboard text。
 - Popup output action 的明確 selection 優先於 displayed step canonical
   content；沒有 selection 才 fallback，且 typed command 攜帶 semantic text。
@@ -323,22 +340,46 @@ Recipe 回饋與使用引導應測：
 - Catalog tests 以 PRD literal 驗證 `0`–`2` recent、`3`–`6` root category、
   `1`–`4` flagship 與 More 無數字；未知 Action/press type、重複候選、重複 slot、
   多於四個 flagship 與未知欄位都必須 fail closed。
+- Language Pack tests 必須驗證每個 canonical `action_id + press_type` 都有 exact、
+  非空 candidate `label/description`；`zh-TW` 保持 baseline，`ja-JP` 的 Recent、
+  scene、More/search 使用日文 projection。selected pack 的 candidate resource
+  無效時必須整包 fallback default，不得混用兩包。
 - Coordinator tests 只經 public transition interface 驗證 root、scene、More、
-  search、density、Esc、disabled reason 與 numeric resolution，不讀 private state。
-- Runtime tests 必須以 Panel lifecycle ID 加 selection-preparation ID 驗證 close、
+  search、density、Back、root no-op、disabled/pending precedence 與 numeric
+  resolution，不讀 private state。Esc 由 runtime close seam 驗證任頁立即關閉並
+  cancel preparation，Back 永不 close。
+- Runtime tests 必須以 Panel lifecycle ID 加 open-time preparation ID 驗證 close、
   reopen、replace、cancel 與 late completion；舊 completion 不得啟動 Action。
-- Hotkey tests 覆蓋 1499/1500 ms、deadline physical-state recheck、提前 release、
-  direct digit coexistence、Panel-open digit claim、top-row/numpad、injected event、
-  stale timer、repeated hold、shutdown 與 no-double-invoke。
+  Accepted surface replacement 必須在 `CREATED` 等第一個 Popup projection 入列前完成註冊；
+  rejected admission 不得執行 hook。External capture 必須在 resolve 後以 bounded、
+  cancellation-aware confirmation 等待同一 target 從 IME 暫態 foreground 轉移恢復；
+  到期時只擷取一次並禁止 clipboard fallback，不得改採新的 foreground target。
+- Hotkey tests 覆蓋單按 Alt 的 499/500 ms、deadline identity/listener-state recheck、
+  提前 release、Alt auto-repeat suppression、Panel lifecycle 結束後的 identity-scoped
+  settlement、direct digit coexistence、Panel-open digit claim、top-row/numpad、
+  injected event、stale timer、repeated hold、shutdown 與 no-double-invoke。
 - Recent tests 只接受 `WorkflowController` 已接受 step 的最小 identity，涵蓋
   dedupe、press-type replay、follow-up root、headless direct Action、synthetic
   exclusion、corrupt/restart/write failure 與 persisted privacy shape。
 - UI tests 驗證 shared root、build-before-show、keyboard/mouse equivalence、Esc
-  stack、tooltip focus、click outside、header non-overlap 與 action lifecycle feedback；
-  不 mock 內部 widget helper。
-- Windows smoke 必須驗證 external target restore → action-time selection capture →
+  stack、tooltip focus、click outside、header non-overlap、header drag、
+  Panel/Popup exact logical-size/physical-position bounds、同一 native shell 的
+  identity-scoped mount/replace/restore、rollback、既有 Popup 不重新定位與 action
+  lifecycle feedback。Shell 規則只經 `PrimarySurfaceHost` public interface 測試；
+  presenter 只保留必要 integration coverage，不得斷言 private widget helper。
+- UI lifecycle tests 必須證明 preparing/completion 只原地更新 card，
+  `_body_render_key` 不含 enabled/pending/reason；updater 與 click callback 都讀
+  latest option。Pending 顯示 neutral loading，真實 disabled reason 才使用紅色。
+- Windows smoke 必須驗證 external target restore → open-time selection capture →
   typed Workflow admission，以及 multi-monitor/DPI、IME、top-row/numpad 與 cursor
-  preservation。UI thread 不得執行 provider 或 blocking selection work。
+  preservation。20 ms sampling 必須證明 transition 沒有 visible gap、第二個 primary
+  surface 或 blank frame。UI thread 不得執行 provider 或 blocking selection work。
+- External target activation sims 必須驗證首次 Win32 focus request 被暫時拒絕時，
+  仍在同一 target 與既有 deadline 內重試；deadline 後維持 fail-closed，且不得替換
+  foreground target。共用 Windows activation primitive 必須驗證 foreground 與 target
+  input queue 都會 identity-scoped attach 並在完成後反向 detach。
+- Windows native adapter tests 必須驗證 pointer-sized HWND/HANDLE/HHOOK signatures；
+  WinEvent unhook 失敗時 callback 與 hook ownership 必須保留，且不得重複註冊。
 
 ## Marker 規則
 

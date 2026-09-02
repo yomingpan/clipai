@@ -1,6 +1,26 @@
 from __future__ import annotations
 
+import re
+
 from ClipAI.core.models import DisplayMetrics, PopupBounds
+
+
+_TK_GEOMETRY = re.compile(
+    r"^(?P<width>\d+)x(?P<height>\d+)(?P<x>[+-]\d+)(?P<y>[+-]\d+)$"
+)
+
+
+def popup_bounds_from_tk_geometry(geometry: str) -> PopupBounds:
+    """Parse CTk geometry: logical size plus physical screen position."""
+    match = _TK_GEOMETRY.fullmatch(geometry.strip())
+    if match is None:
+        raise ValueError(f"invalid toolkit window geometry: {geometry!r}")
+    return PopupBounds(
+        int(match.group("x")),
+        int(match.group("y")),
+        int(match.group("width")),
+        int(match.group("height")),
+    )
 
 
 class PopupLayoutPolicy:

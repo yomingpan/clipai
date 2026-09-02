@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
 
 import yaml
-import warnings
 
+from ClipAI.app.config_yaml import UniqueKeyLoader
+from ClipAI.app.language_pack_loader import ActionLanguagePackLoader, load_feature_skeleton
 from ClipAI.app.config_schema import AppSettings, ConfigBundle, ConfigSchemaVersions, ModifierMode, ProviderCatalog, ProviderName, RuntimeSettings, TTSSettings, VoiceInputSettings
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, ActionVariant, EntryActionRef, ExternalFallback, FeedbackReason, InputMode, OutputMode, OutputProfile, PersonalStyleMode, PressType, ShortcutCommandKind, ShortcutDefinition
+from ClipAI.core.models import EntryActionRef, PressType, ShortcutCommandKind, ShortcutDefinition
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings
 from ClipAI.services.action_catalog import ActionCatalog
+from ClipAI.services.action_language_packs import CompiledActionLanguagePack, LocalizedEntryPanelCandidate
 from ClipAI.services.entry_panel import EntryPanelCandidate, EntryPanelCatalog, EntryPanelCategory
 from ClipAI.services.output_profiles import OutputProfileCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
@@ -19,32 +22,9 @@ from ClipAI.support.logging_setup import Diagnostics, LoggingSettings
 T = TypeVar("T")
 CURRENT_SCHEMA_VERSION = 1
 APP_CONFIG_SCHEMA_VERSION = 2
-ACTIONS_SCHEMA_VERSION = 10
-
-
-class _UniqueKeyLoader(yaml.SafeLoader):
-    pass
-
-
-def _construct_unique_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
-    mapping: dict[Any, Any] = {}
-    for key_node, value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        if key in mapping:
-            raise yaml.constructor.ConstructorError(
-                "while constructing a mapping",
-                node.start_mark,
-                f"found duplicate key: {key}",
-                key_node.start_mark,
-            )
-        mapping[key] = loader.construct_object(value_node, deep=deep)
-    return mapping
-
-
-_UniqueKeyLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
-    _construct_unique_mapping,
-)
+ACTIONS_SCHEMA_VERSION = 11
+OUTPUT_PROFILES_SCHEMA_VERSION = 2
+ENTRY_PANEL_SCHEMA_VERSION = 2
 
 
 def load_config_bundle(
@@ -54,12 +34,37 @@ def load_config_bundle(
     shortcuts_path: str | Path = "config/shortcuts.yaml",
     output_profiles_path: str | Path = "config/output_profiles.yaml",
     entry_panel_path: str | Path = "config/entry_panel.yaml",
+    action_language_pack: CompiledActionLanguagePack | None = None,
 ) -> ConfigBundle:
     app, runtime, providers, tts, voice_input, logging_settings = load_app_config(app_config_path)
-    output_profiles = load_output_profiles(output_profiles_path)
-    actions = load_action_catalog(actions_path, output_profiles=output_profiles, default_stream=app.stream)
+    config_dir = Path(actions_path).parent
+    compiled_pack = action_language_pack
+    if compiled_pack is None:
+        skeleton = load_feature_skeleton(
+            config_dir,
+            actions_path=actions_path,
+            shortcuts_path=shortcuts_path,
+            output_profiles_path=output_profiles_path,
+            entry_panel_path=entry_panel_path,
+        )
+        language_pack_loader = ActionLanguagePackLoader(config_dir, skeleton)
+        language_pack_registry = language_pack_loader.load_registry()
+        compiled_pack = language_pack_loader.load(
+            language_pack_registry.entry(language_pack_registry.default_pack_id)
+        )
+    app = replace(app, system_prompt=compiled_pack.default_system_prompt)
+    output_profiles = OutputProfileCatalog(list(compiled_pack.output_profiles))
+    actions = ActionCatalog(
+        list(compiled_pack.action_definitions),
+        default_stream=app.stream,
+        version_context=compiled_pack.version_context,
+    )
     shortcuts = load_shortcut_catalog(shortcuts_path, actions=actions)
-    entry_panel = load_entry_panel_catalog(entry_panel_path, actions=actions)
+    entry_panel = load_entry_panel_catalog(
+        entry_panel_path,
+        actions=actions,
+        candidate_presentations=compiled_pack.entry_panel_candidates,
+    )
     return ConfigBundle(
         app=app,
         runtime=runtime,
@@ -71,12 +76,22 @@ def load_config_bundle(
         logging=logging_settings,
         output_profiles=output_profiles,
         entry_panel=entry_panel,
+        action_language=compiled_pack.provenance,
         schema_versions=ConfigSchemaVersions(
             app=_read_schema_version(app_config_path, max_version=APP_CONFIG_SCHEMA_VERSION),
             actions=_read_schema_version(actions_path, max_version=ACTIONS_SCHEMA_VERSION),
-            output_profiles=_read_schema_version(output_profiles_path),
+            output_profiles=_read_schema_version(
+                output_profiles_path,
+                max_version=OUTPUT_PROFILES_SCHEMA_VERSION,
+            ),
             shortcuts=_read_schema_version(shortcuts_path),
-            entry_panel=_read_schema_version(entry_panel_path),
+            entry_panel=_read_schema_version(
+                entry_panel_path,
+                max_version=ENTRY_PANEL_SCHEMA_VERSION,
+            ),
+            action_language_registry=1,
+            action_language_manifest=1,
+            action_language_resources=1,
         ),
     )
 
@@ -86,11 +101,11 @@ def load_app_config(path: str | Path) -> tuple[AppSettings, RuntimeSettings, Pro
     _schema_version(root, path, max_version=APP_CONFIG_SCHEMA_VERSION)
     _reject_unknown(root, {"schema_version", "app", "provider", "runtime", "tts", "voice_input", "logging"}, "config")
     app_data = _mapping(root.get("app"), "config.app")
-    _reject_unknown(app_data, {"stream", "temperature", "system_prompt", "modifier_mode", "entry_panel_enabled"}, "config.app")
+    _reject_unknown(app_data, {"stream", "temperature", "modifier_mode", "entry_panel_enabled"}, "config.app")
     app = AppSettings(
         stream=_boolean(app_data.get("stream"), "config.app.stream", default=False),
         temperature=_number(app_data.get("temperature"), "config.app.temperature", default=0.2),
-        system_prompt=_string(app_data.get("system_prompt"), "config.app.system_prompt", default=""),
+        system_prompt="",
         modifier_mode=cast(ModifierMode, _choice(app_data.get("modifier_mode"), "config.app.modifier_mode", {"alt_shift", "ctrl_shift", "ctrl_alt"}, "ctrl_alt")),
         entry_panel_enabled=_boolean(app_data.get("entry_panel_enabled"), "config.app.entry_panel_enabled", default=False),
     )
@@ -166,137 +181,6 @@ def _parse_logging(value: Any) -> LoggingSettings:
     )
 
 
-def load_output_profiles(path: str | Path) -> OutputProfileCatalog:
-    payload = _load_yaml_mapping(path)
-    _schema_version(payload, path)
-    _reject_unknown(payload, {"schema_version", "profiles"}, "output_profiles")
-    raw_profiles = payload.get("profiles")
-    if not isinstance(raw_profiles, list):
-        raise ConfigError("output_profiles.profiles must be a list")
-    profiles: list[OutputProfile] = []
-    for index, value in enumerate(raw_profiles):
-        profile_path = f"output_profiles.profiles[{index}]"
-        data = _mapping(value, profile_path)
-        _reject_unknown(data, {"id", "instruction", "required_markers", "presentation"}, profile_path)
-        markers = data.get("required_markers", [])
-        if not isinstance(markers, list) or not all(isinstance(marker, str) and marker.strip() for marker in markers):
-            raise ConfigError(f"{profile_path}.required_markers must be a list of non-empty strings")
-        profiles.append(OutputProfile(
-            id=_string(data.get("id"), f"{profile_path}.id"),
-            instruction=_string(data.get("instruction"), f"{profile_path}.instruction", default=""),
-            required_markers=tuple(marker.strip() for marker in markers),
-            presentation=_string(data.get("presentation"), f"{profile_path}.presentation", default="plain_text"),
-        ))
-    return OutputProfileCatalog(profiles)
-
-
-def load_action_catalog(
-    path: str | Path,
-    *,
-    output_profiles: OutputProfileCatalog | None = None,
-    default_stream: bool = False,
-) -> ActionCatalog:
-    output_profiles = output_profiles or load_output_profiles("config/output_profiles.yaml")
-    payload = _load_yaml_mapping(path)
-    _schema_version(payload, path, max_version=ACTIONS_SCHEMA_VERSION)
-    _reject_unknown(payload, {"schema_version", "actions"}, "actions")
-    raw_actions = payload.get("actions")
-    if not isinstance(raw_actions, list):
-        raise ConfigError("actions.actions must be a list")
-    actions = [_parse_action(item, index) for index, item in enumerate(raw_actions)]
-    for action in actions:
-        profile_ids = [action.output_profile, *(variant.output_profile for variant in action.press_variants.values() if variant.output_profile)]
-        for profile_id in profile_ids:
-            if not output_profiles.contains(profile_id):
-                raise ConfigError(f"action {action.id} references unknown output profile: {profile_id}")
-    return ActionCatalog(actions, default_stream=default_stream)
-
-
-def _parse_action(value: Any, index: int) -> ActionDefinition:
-    path = f"actions.actions[{index}]"
-    data = _mapping(value, path)
-    allowed = {"id", "name", "system_prompt", "prompt", "press_variants", "stream", "input_mode", "input_policy", "external_fallback", "output_mode", "temperature", "output_profile", "feedback", "personal_style_mode"}
-    _reject_unknown(data, allowed, path)
-    variants: dict[PressType, ActionVariant] = {}
-    raw_variants = _mapping(data.get("press_variants"), f"{path}.press_variants", allow_none=True)
-    _reject_unknown(raw_variants, {"short", "long"}, f"{path}.press_variants")
-    for press_type in ("short", "long"):
-        if press_type not in raw_variants:
-            continue
-        variant_path = f"{path}.press_variants.{press_type}"
-        variant = _mapping(raw_variants[press_type], variant_path)
-        _reject_unknown(variant, {"name", "system_prompt", "prompt", "output_profile", "feedback"}, variant_path)
-        variants[cast(PressType, press_type)] = ActionVariant(
-            name=_string(variant.get("name"), f"{variant_path}.name"),
-            system_prompt=_string(variant.get("system_prompt"), f"{variant_path}.system_prompt"),
-            prompt=_string(variant.get("prompt"), f"{variant_path}.prompt"),
-            output_profile=_string(variant.get("output_profile"), f"{variant_path}.output_profile", default="") or None,
-            feedback_contract=_parse_feedback_contract(variant.get("feedback"), variant_path),
-        )
-    temperature = data.get("temperature")
-    legacy_policy = data.get("input_policy")
-    if legacy_policy is not None:
-        _choice(legacy_policy, f"{path}.input_policy", {"external_text", "contextual_text"}, "external_text")
-        warnings.warn(
-            f"{path}.input_policy is deprecated; use external_fallback",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-    external_fallback = _choice(
-        data.get("external_fallback"),
-        f"{path}.external_fallback",
-        {"selection_or_clipboard", "clipboard"},
-        "clipboard" if data.get("input_mode") in {"clipboard", "clipboard_image"} else "selection_or_clipboard",
-    )
-    feedback_contract = _parse_feedback_contract(data.get("feedback"), path)
-    return ActionDefinition(
-        id=_string(data.get("id"), f"{path}.id"),
-        name=_string(data.get("name"), f"{path}.name"),
-        system_prompt=_string(data.get("system_prompt"), f"{path}.system_prompt"),
-        prompt=_string(data.get("prompt"), f"{path}.prompt"),
-        press_variants=variants,
-        stream=None if "stream" not in data else _boolean(data.get("stream"), f"{path}.stream", default=False),
-        input_mode=cast(InputMode, _choice(data.get("input_mode"), f"{path}.input_mode", {"clipboard", "clipboard_image", "selection_or_clipboard"}, "selection_or_clipboard")),
-        output_mode=cast(OutputMode, _choice(data.get("output_mode"), f"{path}.output_mode", {"popup"}, "popup")),
-        temperature=None if temperature is None else _number(temperature, f"{path}.temperature"),
-        output_profile=_string(data.get("output_profile"), f"{path}.output_profile", default="plain_text"),
-        external_fallback=cast(ExternalFallback, external_fallback),
-        feedback_contract=feedback_contract,
-        personal_style_mode=(
-            cast(PersonalStyleMode, _choice(data.get("personal_style_mode"), f"{path}.personal_style_mode", {"formal", "informal"}, "formal"))
-            if "personal_style_mode" in data
-            else None
-        ),
-    )
-
-
-def _parse_feedback_contract(value: Any, action_path: str) -> ActionFeedbackContract | None:
-    if value is None:
-        return None
-    path = f"{action_path}.feedback"
-    data = _mapping(value, path)
-    _reject_unknown(data, {"helps", "does_not", "reasons"}, path)
-    raw_reasons = data.get("reasons")
-    if not isinstance(raw_reasons, list) or not raw_reasons:
-        raise ConfigError(f"{path}.reasons must be a non-empty list")
-    reasons: list[FeedbackReason] = []
-    reason_ids: set[str] = set()
-    for index, value in enumerate(raw_reasons):
-        reason_path = f"{path}.reasons[{index}]"
-        reason = _mapping(value, reason_path)
-        _reject_unknown(reason, {"id", "label"}, reason_path)
-        reason_id = _string(reason.get("id"), f"{reason_path}.id")
-        if reason_id in reason_ids:
-            raise ConfigError(f"duplicate feedback reason id: {reason_id}")
-        reason_ids.add(reason_id)
-        reasons.append(FeedbackReason(reason_id, _string(reason.get("label"), f"{reason_path}.label")))
-    return ActionFeedbackContract(
-        ai_help_label=_string(data.get("helps"), f"{path}.helps"),
-        ai_does_not_label=_string(data.get("does_not"), f"{path}.does_not"),
-        reasons=tuple(reasons),
-    )
-
-
 def load_shortcut_catalog(path: str | Path, *, actions: ActionCatalog) -> ShortcutCatalog:
     payload = _load_yaml_mapping(path)
     _schema_version(payload, path)
@@ -334,10 +218,20 @@ def load_shortcut_catalog(path: str | Path, *, actions: ActionCatalog) -> Shortc
     return ShortcutCatalog(shortcuts)
 
 
-def load_entry_panel_catalog(path: str | Path, *, actions: ActionCatalog) -> EntryPanelCatalog:
+def load_entry_panel_catalog(
+    path: str | Path,
+    *,
+    actions: ActionCatalog,
+    candidate_presentations: tuple[LocalizedEntryPanelCandidate, ...],
+) -> EntryPanelCatalog:
     payload = _load_yaml_mapping(path)
-    _schema_version(payload, path)
+    _schema_version(payload, path, max_version=ENTRY_PANEL_SCHEMA_VERSION)
     _reject_unknown(payload, {"schema_version", "categories"}, "entry_panel")
+    presentations_by_action = {
+        candidate.action: candidate for candidate in candidate_presentations
+    }
+    if len(presentations_by_action) != len(candidate_presentations):
+        raise ConfigError("entry panel localized candidates must be unique")
     raw_categories = payload.get("categories")
     if not isinstance(raw_categories, list):
         raise ConfigError("entry_panel.categories must be a list")
@@ -348,41 +242,71 @@ def load_entry_panel_catalog(path: str | Path, *, actions: ActionCatalog) -> Ent
         _reject_unknown(data, {"id", "slot", "label", "description", "flagship", "advanced"}, category_path)
         slot = _integer(data.get("slot"), f"{category_path}.slot", default=0)
         category_id = _string(data.get("id"), f"{category_path}.id")
-        flagship = _parse_entry_panel_candidates(data.get("flagship"), f"{category_path}.flagship")
-        advanced = _parse_entry_panel_candidates(data.get("advanced"), f"{category_path}.advanced")
+        flagship_refs = _parse_entry_panel_candidate_refs(data.get("flagship"), f"{category_path}.flagship")
+        advanced_refs = _parse_entry_panel_candidate_refs(data.get("advanced"), f"{category_path}.advanced")
         categories.append(EntryPanelCategory(
             category_id=category_id,
             slot=slot,
             label=_string(data.get("label"), f"{category_path}.label"),
             description=_string(data.get("description"), f"{category_path}.description"),
-            flagship=flagship,
-            advanced=advanced,
+            flagship=tuple(
+                _entry_panel_candidate(action, presentations_by_action)
+                for action in flagship_refs
+            ),
+            advanced=tuple(
+                _entry_panel_candidate(action, presentations_by_action)
+                for action in advanced_refs
+            ),
         ))
+    configured_actions = tuple(
+        candidate.action
+        for category in categories
+        for candidate in (*category.flagship, *category.advanced)
+    )
+    localized_actions = tuple(presentations_by_action)
+    if set(configured_actions) != set(localized_actions):
+        raise ConfigError(
+            "entry panel localized candidate inventory does not match configured actions"
+        )
     try:
         return EntryPanelCatalog(tuple(categories), actions=actions)
     except ValueError as error:
         raise ConfigError(str(error)) from error
 
 
-def _parse_entry_panel_candidates(
+def _parse_entry_panel_candidate_refs(
     value: Any,
     path: str,
-) -> tuple[EntryPanelCandidate, ...]:
+) -> tuple[EntryActionRef, ...]:
     if not isinstance(value, list):
         raise ConfigError(f"{path} must be a list")
-    candidates: list[EntryPanelCandidate] = []
+    candidates: list[EntryActionRef] = []
     for index, item in enumerate(value):
         candidate_path = f"{path}[{index}]"
         data = _mapping(item, candidate_path)
-        _reject_unknown(data, {"action_id", "press_type", "label", "description"}, candidate_path)
+        _reject_unknown(data, {"action_id", "press_type"}, candidate_path)
         action_id = _string(data.get("action_id"), f"{candidate_path}.action_id")
         press_type = cast(PressType, _choice(data.get("press_type"), f"{candidate_path}.press_type", {"short", "long"}, "short"))
-        candidates.append(EntryPanelCandidate(
-            EntryActionRef(action_id, press_type),
-            _string(data.get("label"), f"{candidate_path}.label"),
-            _string(data.get("description"), f"{candidate_path}.description"),
-        ))
+        candidates.append(EntryActionRef(action_id, press_type))
     return tuple(candidates)
+
+
+def _entry_panel_candidate(
+    action: EntryActionRef,
+    presentations: dict[EntryActionRef, LocalizedEntryPanelCandidate],
+) -> EntryPanelCandidate:
+    try:
+        presentation = presentations[action]
+    except KeyError as exc:
+        raise ConfigError(
+            "entry panel localized candidate is missing: "
+            f"{action.action_id}/{action.press_type}"
+        ) from exc
+    return EntryPanelCandidate(
+        action,
+        presentation.label,
+        presentation.description,
+    )
 
 
 def _parse_gemini(data: dict[str, Any]) -> GeminiSettings:
@@ -463,7 +387,7 @@ def _model_catalog(value: Any, path: str, default_model: str) -> tuple[str, ...]
 def _load_yaml_mapping(path: str | Path) -> dict[str, Any]:
     try:
         with Path(path).open("r", encoding="utf-8") as handle:
-            return _mapping(yaml.load(handle, Loader=_UniqueKeyLoader) or {}, str(path))
+            return _mapping(yaml.load(handle, Loader=UniqueKeyLoader) or {}, str(path))
     except OSError as exc:
         raise ConfigError(f"cannot read config {path}: {exc}") from exc
     except yaml.YAMLError as exc:

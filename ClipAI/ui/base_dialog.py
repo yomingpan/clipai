@@ -9,29 +9,19 @@ from typing import Callable, Literal, Mapping, Protocol
 import customtkinter as ctk
 from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
-from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PresentationDocument
+from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PopupBounds, PresentationDocument
+from ClipAI.core.popup_presentation import PopupPresentationModel
 from ClipAI.core.ports import NativeWindowSurface
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
+from ClipAI.ui.popup_layout import popup_bounds_from_tk_geometry
+from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
 
 DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
 SOURCE_PREVIEW_MAX_CHARS = 36
 DISPLAY_BREAK_TAG = "display_break_hint"
-
-
-def _resample_window_dpi_scaling(window: tk.Misc) -> None:
-    """Refresh CustomTkinter's per-window scale after initial placement."""
-    previous_scaling = ScalingTracker.window_dpi_scaling_dict[window]
-    ScalingTracker.window_dpi_scaling_dict[window] = (
-        ScalingTracker.get_window_dpi_scaling(window)
-    )
-    try:
-        ScalingTracker.update_scaling_callbacks_for_window(window)
-    except Exception:
-        ScalingTracker.window_dpi_scaling_dict[window] = previous_scaling
-        raise
 
 
 @dataclass(frozen=True)
@@ -655,8 +645,12 @@ class BaseDialog:
         minimum_width: int | None = None,
         minimum_height: int | None = None,
         hide_from_task_switcher: bool = False,
+        show_on_create: bool = True,
         on_close_request: Callable[[], None] | None = None,
         native_window_surface: NativeWindowSurface | None = None,
+        primary_surface_host: PrimarySurfaceHost | None = None,
+        primary_surface_lease: PrimarySurfaceLease | None = None,
+        mount_primary_content: bool = True,
     ) -> None:
         del track_dialog_state
         self.pending_tasks: list[str] = []
@@ -664,38 +658,19 @@ class BaseDialog:
         self.width = width
         self.height = height
         self.pinned = False
-        self._drag_offset_x = 0
-        self._drag_offset_y = 0
         self._on_close_request = on_close_request
         self._native_window_surface = native_window_surface
+        self._primary_surface_host = primary_surface_host
+        self._primary_surface_lease = primary_surface_lease
+        if primary_surface_host is None or primary_surface_lease is None:
+            raise ValueError("BaseDialog requires a primary surface host and lease")
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
         self._surface_inset = surface_inset
         self._corner_radius = corner_radius
         self._border_inset = max(1, surface_inset // 3)
 
         try:
-            self.root = ctk.CTkToplevel(master) if master is not None else ctk.CTk()
-            self.root.withdraw()
-            self.root.title(title)
-            self.root.geometry(f"{width}x{height}")
-            self.root.minsize(minimum_width or min(width, 320), minimum_height or min(height, 180))
-            self.root.configure(fg_color=background_color)
-            if frameless:
-                self.root.overrideredirect(True)
-            if transparent_background:
-                try:
-                    self.root.attributes("-transparentcolor", background_color)
-                except Exception:
-                    pass
-            if topmost:
-                self.root.attributes("-topmost", True)
-            if x is not None and y is not None:
-                self.root.geometry(f"{width}x{height}+{x}+{y}")
-            else:
-                self._position_window(width, height, position)
-            self.root.update_idletasks()
-            _resample_window_dpi_scaling(self.root)
-            self.root.deiconify()
+            self.root = primary_surface_host.window
 
             self.canvas = tk.Canvas(
                 self.root,
@@ -703,7 +678,6 @@ class BaseDialog:
                 highlightthickness=0,
                 bd=0,
             )
-            self.canvas.pack(fill="both", expand=True)
             self._painter = RoundedSurfacePainter(
                 self.canvas,
                 width=width,
@@ -728,11 +702,8 @@ class BaseDialog:
             self.canvas.bind("<Configure>", self._on_canvas_configure, add="+")
             self.main_frame = self.surface
 
-            self.lifecycle = DialogLifecycle(
-                self.root,
-                owns_mainloop=master is None,
-                window_activator=self._activate_native_window,
-            )
+            self.lifecycle = primary_surface_host.lifecycle
+            self._drag_controller = None
             self._flash_controller = SurfaceFlashController(
                 colors=self._state_colors,
                 apply_color=self._painter.draw,
@@ -742,8 +713,11 @@ class BaseDialog:
             self.root.protocol("WM_DELETE_WINDOW", self.request_close)
             self.root.bind("<Escape>", lambda _event: self.request_close())
             self.enable_drag(self.canvas, self.surface)
-            if hide_from_task_switcher:
-                self.root.after_idle(self._hide_from_task_switcher)
+            if mount_primary_content:
+                if not primary_surface_host.mount(primary_surface_lease, self):
+                    raise RuntimeError("primary surface content could not be mounted")
+                if show_on_create:
+                    primary_surface_host.show(primary_surface_lease)
         except Exception:
             self._valid = False
             raise
@@ -771,10 +745,51 @@ class BaseDialog:
         return left <= x < left + width and top <= y < top + height
 
     def is_visible(self) -> bool:
+        if not self.is_primary_content_mounted():
+            return False
         try:
             return bool(self.root.winfo_viewable())
         except (AttributeError, tk.TclError):
             return False
+
+    @property
+    def primary_surface_host(self) -> PrimarySurfaceHost | None:
+        return self._primary_surface_host
+
+    @property
+    def primary_surface_lease(self) -> PrimarySurfaceLease | None:
+        return self._primary_surface_lease
+
+    def is_primary_content_mounted(self) -> bool:
+        host = getattr(self, "_primary_surface_host", None)
+        lease = getattr(self, "_primary_surface_lease", None)
+        return host is None or (lease is not None and host.is_mounted(lease))
+
+    def show(self) -> bool:
+        """Reveal a fully built dialog after a withdrawn construction."""
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            primary_lease = self._primary_surface_lease
+            assert primary_lease is not None
+            return primary_host.show(primary_lease)
+        try:
+            self.root.update_idletasks()
+            self.root.deiconify()
+        except tk.TclError:
+            return False
+        return True
+
+    def current_bounds(self) -> PopupBounds | None:
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            return primary_host.current_bounds()
+        try:
+            self.root.update_idletasks()
+            return popup_bounds_from_tk_geometry(
+                str(self.root.geometry())
+            )
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            return None
 
     def flash(self, state: DialogState) -> None:
         self._flash_controller.flash(state)
@@ -792,12 +807,32 @@ class BaseDialog:
         return self.pinned
 
     def close(self) -> None:
-        self.lifecycle.close()
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            primary_host.close(self._primary_surface_lease)
+        else:
+            self.lifecycle.close()
+
+    def mount_primary_content(self) -> bool:
+        try:
+            self.canvas.pack(fill="both", expand=True)
+        except tk.TclError:
+            return False
+        return True
+
+    def unmount_primary_content(self) -> None:
+        try:
+            self.canvas.pack_forget()
+        except tk.TclError:
+            pass
 
     def apply_external_output_visibility(
         self,
         visibility: Literal["hidden", "visible_activate", "visible_no_activate"],
     ) -> bool:
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            return primary_host.apply_visibility(visibility)
         if visibility == "hidden":
             try:
                 self.root.withdraw()
@@ -822,6 +857,9 @@ class BaseDialog:
         raise ValueError(f"unsupported popup visibility: {visibility}")
 
     def native_owns_foreground(self) -> bool:
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            return primary_host.owns_foreground()
         native = self._native_window_surface
         if native is None:
             return False
@@ -832,6 +870,9 @@ class BaseDialog:
             return False
 
     def _activate_native_window(self, window: tk.Misc) -> bool:
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            return primary_host.lifecycle.focus()
         native = self._native_window_surface
         if native is None:
             return False
@@ -843,6 +884,9 @@ class BaseDialog:
             return False
 
     def _hide_from_task_switcher(self) -> bool:
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            return primary_host.hide_from_task_switcher()
         native = self._native_window_surface
         if native is None:
             return False
@@ -852,8 +896,10 @@ class BaseDialog:
         except (AttributeError, TypeError, ValueError, tk.TclError):
             return False
 
-    def request_close(self) -> str:
+    def request_close(self) -> str | None:
         """Emit the semantic close request; only the presenter destroys views."""
+        if not self.is_primary_content_mounted():
+            return None
         if self._on_close_request is not None:
             self._on_close_request()
         else:
@@ -861,25 +907,20 @@ class BaseDialog:
         return "break"
 
     def enable_drag(self, *widgets) -> None:
-        for widget in widgets:
-            widget.bind("<ButtonPress-1>", self._start_drag)
-            widget.bind("<B1-Motion>", self._drag_window)
-
-    def _start_drag(self, event) -> None:
-        self._drag_offset_x = event.x_root - self.root.winfo_x()
-        self._drag_offset_y = event.y_root - self.root.winfo_y()
-
-    def _drag_window(self, event) -> None:
-        x, y = self.calculate_drag_position(event.x_root, event.y_root)
-        self.root.geometry(f"+{x}+{y}")
-
-    def calculate_drag_position(self, x_root: int, y_root: int) -> tuple[int, int]:
-        return x_root - self._drag_offset_x, y_root - self._drag_offset_y
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            primary_host.bind_drag(*widgets)
+        else:
+            self._drag_controller.bind(*widgets)
 
     def resize(self, width: int, height: int, *, x: int | None = None, y: int | None = None) -> None:
         if width == self.width and height == self.height and x is None and y is None:
             return
         self.width, self.height = width, height
+        primary_host = getattr(self, "_primary_surface_host", None)
+        if primary_host is not None:
+            primary_host.resize(width, height, x=x, y=y)
+            return
         target_x = self.root.winfo_x() if x is None else x
         target_y = self.root.winfo_y() if y is None else y
         self.root.geometry(f"{width}x{height}+{target_x}+{target_y}")
@@ -906,26 +947,6 @@ class BaseDialog:
             height=max(1, actual_height - surface_inset * 2),
         )
         self._flash_controller.redraw()
-
-    def _position_window(self, width: int, height: int, position: str) -> None:
-        self.root.update_idletasks()
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
-
-        if position == "cursor":
-            try:
-                pointer_x = self.root.winfo_pointerx()
-                pointer_y = self.root.winfo_pointery()
-                x = max(20, min(pointer_x - width // 3, screen_w - width - 20))
-                y = max(20, min(pointer_y - height // 4, screen_h - height - 40))
-            except tk.TclError:
-                x = max(20, (screen_w - width) // 2)
-                y = max(20, (screen_h - height) // 2)
-        else:
-            x = max(20, (screen_w - width) // 2)
-            y = max(20, (screen_h - height) // 2)
-
-        self.root.geometry(f"{width}x{height}+{x}+{y}")
 
     def run_dialog(self) -> None:
         self.lifecycle.run_dialog()
@@ -1070,11 +1091,32 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
 )
 
 
+def _popup_header_group(model: PopupPresentationModel) -> tuple[object, ...]:
+    return (
+        model.title,
+        model.model,
+        model.source_preview,
+        model.pinned,
+        model.back,
+        model.contract,
+        model.input_source,
+    )
+
+
 class StandardResultActions:
     def __init__(self, surface: BaseResultSurface) -> None:
         self._surface = surface
         self._specs = {spec.slot_id: spec for spec in STANDARD_RESULT_ACTIONS}
         self._pulse_jobs: dict[ResultActionId, str] = {}
+        self._baseline_enabled = {
+            spec.slot_id: False for spec in STANDARD_RESULT_ACTIONS
+        }
+        self._operation_enabled = {
+            spec.slot_id: True for spec in STANDARD_RESULT_ACTIONS
+        }
+        self._has_command = {
+            spec.slot_id: False for spec in STANDARD_RESULT_ACTIONS
+        }
         self._buttons = {
             spec.slot_id: surface.add_action_slot(
                 spec.slot_id,
@@ -1126,11 +1168,28 @@ class StandardResultActions:
         self._surface.dialog.lifecycle.schedule(duration_ms, lambda: self._set_active(slot_id, False))
 
     def set_enabled(self, slot_id: ResultActionId, enabled: bool) -> None:
-        self._buttons[slot_id].configure(state="normal" if enabled else "disabled")
+        self._operation_enabled[slot_id] = enabled
+        self._apply_enabled(slot_id)
+
+    def set_available(self, enabled_actions: tuple[str, ...]) -> None:
+        available = frozenset(enabled_actions)
+        for slot_id in self._buttons:
+            self._baseline_enabled[slot_id] = slot_id in available
+            self._apply_enabled(slot_id)
 
     def _set_command(self, slot_id: ResultActionId, command: Callable[[], None] | None) -> None:
         self._buttons[slot_id].configure(command=command)
-        self.set_enabled(slot_id, command is not None)
+        self._has_command[slot_id] = command is not None
+        self._baseline_enabled[slot_id] = command is not None
+        self._apply_enabled(slot_id)
+
+    def _apply_enabled(self, slot_id: ResultActionId) -> None:
+        enabled = (
+            self._has_command[slot_id]
+            and self._baseline_enabled[slot_id]
+            and self._operation_enabled[slot_id]
+        )
+        self._buttons[slot_id].configure(state="normal" if enabled else "disabled")
 
     def _set_active(self, slot_id: ResultActionId, active: bool) -> None:
         spec = self._specs[slot_id]
@@ -1166,6 +1225,7 @@ class BaseResultSurface:
         self.follow_up_visible = False
         self.overflow_expanded = False
         self._feedback_submit: Callable[[FeedbackOutcome, str, str, bool], None] | None = None
+        self._feedback_available = False
         self._feedback_state: FeedbackOperationState = "idle"
         self._feedback_overlay_open = False
         self._feedback_contract: ActionFeedbackContract | None = None
@@ -1175,7 +1235,36 @@ class BaseResultSurface:
         self._action_message_job: str | None = None
         self._action_message_revision = 0
         self._rendered_pinned_state: bool | None = None
+        self._last_model: PopupPresentationModel | None = None
         self._build()
+
+    def render(self, model: PopupPresentationModel) -> None:
+        """Render the content-free Popup model through field-group diffs."""
+        previous = self._last_model
+        if previous is None or _popup_header_group(previous) != _popup_header_group(model):
+            self.set_pinned_state(model.pinned)
+            self.set_title(model.title)
+            self.set_source_preview(model.source_preview)
+            self.set_model(model.model)
+            self.set_back_available(model.back)
+            self.configure_action_contract(model.contract, model.input_source)
+        if previous is None or previous.enabled_actions != model.enabled_actions:
+            self.set_available_actions(model.enabled_actions)
+        if previous is None or previous.speaking != model.speaking:
+            self.set_speaker_active(model.speaking)
+        if previous is None or previous.feedback != model.feedback:
+            if model.feedback is None:
+                self.hide_feedback()
+            else:
+                self.configure_feedback(
+                    model.feedback.contract,
+                    model.feedback.state,
+                    model.feedback.message,
+                    self._feedback_submit,
+                )
+        if model.guidance and (previous is None or not previous.guidance):
+            self.show_action_guidance_hint()
+        self._last_model = model
 
     def _build(self) -> None:
         self.header = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
@@ -1581,6 +1670,7 @@ class BaseResultSurface:
         if contract is None or on_submit is None:
             self.hide_feedback()
             return
+        self._feedback_available = True
         self._feedback_submit = on_submit
         self._feedback_contract = contract
         self._feedback_state = state
@@ -1621,13 +1711,19 @@ class BaseResultSurface:
                     self.dialog.lifecycle.cancel(self._feedback_success_job)
                 self._feedback_success_job = self.dialog.lifecycle.schedule(700, self.close_feedback_overlay)
 
+    def bind_feedback_submit(
+        self,
+        callback: Callable[[FeedbackOutcome, str, str, bool], None],
+    ) -> None:
+        self._feedback_submit = callback
+
     def hide_feedback(self) -> None:
         self.close_feedback_overlay()
-        self._feedback_submit = None
+        self._feedback_available = False
         self._feedback_state = "idle"
 
     def toggle_feedback_overlay(self) -> bool:
-        if self._feedback_submit is None:
+        if not self._feedback_available or self._feedback_submit is None:
             return False
         if self._feedback_state == "succeeded":
             self.show_action_message("已記錄回饋")
@@ -1655,7 +1751,10 @@ class BaseResultSurface:
             self.dialog.lifecycle.cancel(self._feedback_success_job)
             self._feedback_success_job = None
 
-    def _handle_escape(self, _event=None) -> str:
+    def _handle_escape(self, _event=None) -> str | None:
+        is_mounted = getattr(self.dialog, "is_primary_content_mounted", lambda: True)
+        if not is_mounted():
+            return None
         return "break"
 
     def _choose_feedback(self, outcome: FeedbackOutcome) -> None:
@@ -1717,6 +1816,9 @@ class BaseResultSurface:
             on_follow_up=on_follow_up,
         )
 
+    def set_available_actions(self, enabled_actions: tuple[str, ...]) -> None:
+        self.standard_actions.set_available(enabled_actions)
+
     def configure_voice_action(
         self,
         *,
@@ -1749,12 +1851,20 @@ class BaseResultSurface:
     def set_follow_up_send_enabled(self, enabled: bool) -> None:
         self.follow_send_button.configure(state="normal" if enabled else "disabled")
 
-    def configure_back_action(self, command: Callable[[], None] | None) -> None:
-        self._back_button.configure(command=command, state="normal" if command is not None else "disabled")
-        if command is None:
+    def bind_back_action(self, command: Callable[[], None]) -> None:
+        self._back_button.configure(command=command)
+
+    def set_back_available(self, enabled: bool) -> None:
+        self._back_button.configure(state="normal" if enabled else "disabled")
+        if not enabled:
             self._back_button.pack_forget()
         elif not self._back_button.winfo_manager():
             self._back_button.pack(side="left", padx=(0, 5), before=self.standard_actions._buttons["speaker"])
+
+    def configure_back_action(self, command: Callable[[], None] | None) -> None:
+        if command is not None:
+            self.bind_back_action(command)
+        self.set_back_available(command is not None)
 
     def bind_back_shortcut(self, callback: Callable[[object], str]) -> None:
         self.content_text.bind("<Control-z>", callback, add="+")

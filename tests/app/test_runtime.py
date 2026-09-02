@@ -10,7 +10,7 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectActionLanguagePack, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ActionInvocation, ControlSurfaceRef, EntryActionRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -286,6 +286,7 @@ class FakePasteOperations:
 class Listener:
     def __init__(self) -> None:
         self.stopped = False
+        self.settled_entry_panel_holds = []
 
     def stop(self) -> None:
         self.stopped = True
@@ -298,6 +299,9 @@ class Listener:
                 pass
 
         return Lease()
+
+    def settle_entry_panel_hold(self, hold_id) -> None:
+        self.settled_entry_panel_holds.append(hold_id)
 
 
 class Monitor:
@@ -572,7 +576,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, personal_styles=None, entry_panel=None, recent_actions=None, recent_action_sink=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, personal_styles=None, entry_panel=None, recent_actions=None, recent_action_sink=None, action_language=None):
     action = ActionDefinition(
         "a",
         "Action",
@@ -708,10 +712,31 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         tray_factory=Tray if with_tray else None,
         operation_tracker=operation_tracker,
         entry_panel=entry_panel,
+        action_language=action_language,
     )
     runtime_holder.append(runtime)
     runtime._provider_backend = backend
     return runtime, view, supervisor, outputs, listener
+
+
+def test_runtime_dispatches_action_language_commands_to_its_module() -> None:
+    class ActionLanguageModule:
+        def __init__(self) -> None:
+            self.commands = []
+
+        def handle(self, command) -> None:
+            self.commands.append(command)
+
+    module = ActionLanguageModule()
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime(
+        action_language=module
+    )
+    command = SelectActionLanguagePack("ja-JP", "operation-1")
+
+    runtime.enqueue(command)
+    runtime.drain_commands()
+
+    assert module.commands == [command]
 
 
 def workflow(view: FakeView, workflow_id: str):
@@ -1939,6 +1964,27 @@ def test_start_action_admission_uses_explicit_prepared_input_target() -> None:
     assert view.execute_action.invocations[-1].input_target is prepared_target
 
 
+def test_visible_action_runs_admission_hook_before_enqueuing_first_projection() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    admitted_workflows: list[str] = []
+
+    def before_first_projection(workflow_id: str) -> None:
+        admitted_workflows.append(workflow_id)
+        runtime.drain_commands()
+        assert view.snapshots == []
+
+    admission = runtime._workflow_module.start_action(
+        "a",
+        "short",
+        before_first_projection=before_first_projection,
+    )
+    runtime.drain_commands()
+
+    assert admission.accepted
+    assert admitted_workflows == [admission.workflow_id]
+    assert view.snapshots[-1].session_id == admission.workflow_id
+
+
 def test_start_action_admission_uses_captured_workflow_lineage_without_current_foreground() -> None:
     runtime, view, supervisor, _outputs, _listener = make_runtime()
     first = runtime._workflow_module.start_action("a", "short")
@@ -2009,16 +2055,19 @@ def test_entry_panel_admission_rechecks_provider_activity_before_starting() -> N
     )
     active_invocation_id = controller.snapshot.active_invocation_id
 
+    admitted_workflows: list[str] = []
     admission = runtime._workflow_module.start_action(
         "shorten",
         "long",
         input_target=InputTarget("external_text", InputDocument("prepared", "selection")),
         admission_origin="entry_panel",
+        before_first_projection=admitted_workflows.append,
     )
 
     assert admission.state == "blocked"
     assert admission.reason == "entry_panel_unavailable"
     assert controller.snapshot.active_invocation_id == active_invocation_id
+    assert admitted_workflows == []
 
 
 def test_accepted_follow_up_records_its_root_action_as_recent() -> None:

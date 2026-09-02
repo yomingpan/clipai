@@ -13,7 +13,7 @@ from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_key_is_pressed
 logger = logging.getLogger("clipai.hotkey")
 
 LONG_PRESS_SEC = 0.5
-ENTRY_PANEL_HOLD_SEC = 1.5
+ENTRY_PANEL_HOLD_SEC = LONG_PRESS_SEC
 
 _SHIFTED_DIGIT_MAP = {
     "!": "1",
@@ -32,6 +32,9 @@ _VK_DIGIT_MAP = {code: str(code - 48) for code in range(48, 58)}
 _VK_NUMPAD_MAP = {code: str(code - 96) for code in range(96, 106)}
 _VK_ALPHA_MAP = {code: chr(code).lower() for code in range(65, 91)}
 _VK_OEM_3 = 192
+_ENTRY_PANEL_CONFLICT_KEYS = frozenset({"altgr", "cmd", "tab", "f4", "space"})
+
+
 def _describe_key(key) -> str:
     name = getattr(key, "name", None)
     char = getattr(key, "char", None)
@@ -42,6 +45,8 @@ def _describe_key(key) -> str:
 def _normalize_key(key) -> str | None:
     name = getattr(key, "name", None)
     if name:
+        if name == "alt_gr":
+            return "altgr"
         if name.startswith("alt"):
             return "alt"
         if name.startswith("shift"):
@@ -151,6 +156,9 @@ class HotkeyListener:
     def observe(self) -> _ShortcutObservationLease:
         return self._dispatcher.observe()
 
+    def settle_entry_panel_hold(self, hold_id: ModifierHoldId) -> None:
+        self._dispatcher.settle_entry_panel_hold(hold_id)
+
 
 class _HotkeyDispatcher:
     def __init__(
@@ -179,6 +187,7 @@ class _HotkeyDispatcher:
                 "esc",
                 *(token for _, tokens in self._hotkeys for token in tokens),
                 *("0123456789" if entry_panel_enabled else ""),
+                *(_ENTRY_PANEL_CONFLICT_KEYS if entry_panel_enabled else ()),
             }
         )
         self._pressed: set[str] = set()
@@ -230,6 +239,18 @@ class _HotkeyDispatcher:
         with self._lock:
             self._observers.discard(token)
 
+    def settle_entry_panel_hold(self, hold_id: ModifierHoldId) -> None:
+        """End one consumed Panel hold without guessing from Alt auto-repeat."""
+        with self._lock:
+            state = self._entry_hold
+            if state is None or state.hold_id != hold_id:
+                return
+            if state.timer is not None:
+                state.timer.cancel()
+            self._entry_hold = None
+            self._pressed.discard("alt")
+            self._report_key_state()
+
     def stop(self) -> None:
         with self._lock:
             if self._stopped:
@@ -255,12 +276,24 @@ class _HotkeyDispatcher:
         if not self._entry_panel_enabled:
             return
         state = self._entry_hold
-        if state is not None and not state.opened and token not in {"ctrl", "alt"}:
-            if state.timer is not None:
-                state.timer.cancel()
-            self._entry_hold = None
+        if state is not None:
+            if not state.opened:
+                if token != "alt":
+                    if state.timer is not None:
+                        state.timer.cancel()
+                    self._entry_hold = None
+                return
+            digit_claim = (
+                token in set("0123456789")
+                and "alt" in self._pressed
+            )
+            modifier_joined = token in MODIFIER_KEYS and "alt" in self._pressed
+            if not digit_claim and not modifier_joined:
+                if state.timer is not None:
+                    state.timer.cancel()
+                self._entry_hold = None
             return
-        if self._entry_hold is not None or self._pressed != {"ctrl", "alt"}:
+        if self._pressed != {"alt"}:
             return
         self._timer_generation += 1
         self._hold_generation += 1
@@ -280,11 +313,7 @@ class _HotkeyDispatcher:
                     or current is None
                     or current.hold_id != hold_id
                     or current.timer_generation != timer_generation
-                    or self._pressed != {"ctrl", "alt"}
-                    or (
-                        self._key_is_pressed is not None
-                        and any(self._key_is_pressed(modifier) is False for modifier in ("ctrl", "alt"))
-                    )
+                    or self._pressed != {"alt"}
                 ):
                     return
                 current.opened = True
@@ -297,7 +326,7 @@ class _HotkeyDispatcher:
 
     def _release_entry_hold(self, token: str) -> None:
         state = self._entry_hold
-        if state is None or token not in {"ctrl", "alt"}:
+        if state is None or token != "alt":
             return
         if state.timer is not None:
             state.timer.cancel()
@@ -361,6 +390,11 @@ class _HotkeyDispatcher:
             for token in self._pressed
             if self._key_is_pressed(token) is False
         }
+        # Windows can report Alt as released while its low-level hook is still
+        # delivering the press lifecycle. A live Entry Panel hold therefore
+        # owns Alt until the listener observes a semantic transition itself.
+        if self._entry_hold is not None:
+            stale_tokens.discard("alt")
         if not stale_tokens:
             return set()
 
@@ -414,7 +448,7 @@ class _HotkeyDispatcher:
             if token not in self._tracked_tokens:
                 # The global hook observes ordinary typing too. Retaining an
                 # unbound character after its release is missed can poison the
-                # exact Ctrl+Alt entry hold indefinitely because Windows cannot
+                # exact Alt entry hold indefinitely because Windows cannot
                 # report the physical state of every printable character.
                 # It still cancels a pending hold and reports an invalid attempt
                 # under modifiers, but is not part of owned shortcut state.
@@ -427,6 +461,13 @@ class _HotkeyDispatcher:
                 self._report_key_state()
                 return
             if token == "esc":
+                if self._pressed:
+                    # Esc participates in native Alt/Ctrl/Shift combinations.
+                    # Only exact Esc is ClipAI's progressive interruption
+                    # gesture; observing a chord must remain passive.
+                    self._update_entry_hold_on_press(token)
+                    self._report_key_state()
+                    return
                 if self._escape is not None:
                     return
                 for state in tuple(self._active.values()):
@@ -469,6 +510,9 @@ class _HotkeyDispatcher:
                 self._emit(InterruptionRequested("current"))
                 return
             if token in self._pressed:
+                # Windows emits repeated Alt key-down callbacks while one
+                # physical hold remains active. Only an observed release or an
+                # identity-scoped Panel settlement may start a new hold.
                 return
             self._pressed.add(token)
             self._update_entry_hold_on_press(token)

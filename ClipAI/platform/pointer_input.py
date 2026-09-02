@@ -4,6 +4,8 @@ import ctypes
 from ctypes import wintypes
 from typing import Any
 
+from ClipAI.platform.win32_api import configure_win32_api
+
 
 class WindowsPointerPressReader:
     """Report one screen-coordinate sample for each native mouse-button press."""
@@ -12,6 +14,8 @@ class WindowsPointerPressReader:
 
     def __init__(self, user32: Any | None = None) -> None:
         self._user32 = user32 or ctypes.windll.user32
+        windll = getattr(ctypes, "windll", None)
+        configure_win32_api(self._user32, getattr(windll, "kernel32", None))
         self._down = {button: False for button in self._BUTTONS}
 
     def poll(self) -> tuple[int, int] | None:

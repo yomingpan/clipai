@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, NewType
 
-from ClipAI.core.errors import PasteFailureReason
+from ClipAI.core.errors import ActionLanguagePackErrorCode, PasteFailureReason
 from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
 ShortcutPressId = NewType("ShortcutPressId", int)
 ModifierHoldId = NewType("ModifierHoldId", int)
-EntryPanelSelectionId = NewType("EntryPanelSelectionId", str)
+EntryInputPreparationId = NewType("EntryInputPreparationId", str)
 ShortcutPressOutcome = Literal["released", "cancelled"]
 InterruptionScope = Literal["current", "all"]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
@@ -59,6 +59,20 @@ ActionStartAdmissionState = Literal["accepted", "rejected", "blocked"]
 ActionAdmissionOrigin = Literal["shortcut", "entry_panel"]
 EntryPanelPage = Literal["root", "scene", "more"]
 EntryPanelDensity = Literal["detailed", "compact"]
+EntryInputPreviewKind = Literal[
+    "preparing",
+    "selection_text",
+    "clipboard_text",
+    "clipboard_image",
+    "workflow_selection",
+    "workflow_result",
+    "failed",
+]
+PreparedInputUnavailableReason = Literal[
+    "selection_or_clipboard_unavailable",
+    "clipboard_unavailable",
+    "clipboard_image_unavailable",
+]
 SettingsOperationState = Literal["idle", "pending", "succeeded", "failed"]
 ProviderSettingsOperationKind = Literal["save", "refresh"]
 ControlSurfaceKind = Literal["workflow", "provider_settings", "shortcut_guide", "personal_styles"]
@@ -90,6 +104,11 @@ class ActionStartAdmission:
     state: ActionStartAdmissionState
     reason: str = ""
     message: str = ""
+    workflow_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.state == "accepted" and not self.workflow_id:
+            raise ValueError("accepted Action admission requires workflow_id")
 
     @property
     def accepted(self) -> bool:
@@ -104,7 +123,14 @@ class EntryPanelOption:
     action: EntryActionRef | None = None
     category_id: str = ""
     enabled: bool = True
+    pending: bool = False
     disabled_reason: str = ""
+
+
+@dataclass(frozen=True)
+class EntryInputSourcePreview:
+    kind: EntryInputPreviewKind
+    summary: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True)
@@ -117,7 +143,7 @@ class EntryPanelSnapshot:
     search_text: str = ""
     status: Literal["idle", "preparing", "error"] = "idle"
     message: str = ""
-    selection_id: EntryPanelSelectionId | None = None
+    source_preview: EntryInputSourcePreview | None = None
 
 
 @dataclass(frozen=True)
@@ -205,6 +231,51 @@ class VoicePreferencesState:
     enabled: bool = False
     language: VoiceLanguagePreference = "zh-TW"
     update_pending: bool = False
+
+
+@dataclass(frozen=True)
+class ActionLanguagePackIdentity:
+    pack_id: str
+    pack_version: str
+    locale: str
+
+
+@dataclass(frozen=True)
+class ActionLanguagePackDescriptor:
+    identity: ActionLanguagePackIdentity
+    display_name: str
+
+
+@dataclass(frozen=True)
+class ActionLanguageProvenance:
+    identity: ActionLanguagePackIdentity
+    feature_contract_hash: str
+    resource_content_hash: str
+
+
+@dataclass(frozen=True)
+class ActionLanguagePackRecovery:
+    requested_pack_id: str
+    reason: ActionLanguagePackErrorCode
+    diagnostic_code: str
+
+
+@dataclass(frozen=True)
+class ActionLanguagePackSelectionState:
+    available_packs: tuple[ActionLanguagePackDescriptor, ...]
+    active_pack: ActionLanguagePackIdentity
+    selected_pack_id: str
+    pending_pack_id: str | None = None
+    operation_id: str = ""
+    restart_required: bool = False
+    recovery: ActionLanguagePackRecovery | None = None
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class ActionLanguagePackSelectionRead:
+    selected_pack_id: str | None
+    diagnostic_code: str = ""
 
 
 @dataclass(frozen=True)
@@ -391,6 +462,9 @@ class ActionFeedbackRecord:
     model: str
     input_source: str
     outcome: FeedbackOutcome
+    action_language_pack_id: str = ""
+    action_language_pack_version: str = ""
+    action_language_locale: str = ""
     reason: str = ""
     note: str = ""
     input_text: str | None = None
@@ -481,6 +555,7 @@ class ResolvedAction:
     stream: bool = False
     personal_style_mode: PersonalStyleMode | None = None
     personal_style: PersonalStyleProfile | None = None
+    action_language: ActionLanguageProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -516,6 +591,7 @@ class WorkflowStep:
     action_version: str = ""
     provider: str = ""
     model: str = ""
+    action_language: ActionLanguageProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -552,12 +628,100 @@ class OutputProfile:
 
 
 @dataclass(frozen=True)
+class ActionVersionContext:
+    provenance: ActionLanguageProvenance
+    output_profiles: tuple[OutputProfile, ...]
+
+
+@dataclass(frozen=True)
 class InputDocument:
     text: str
     source: Literal["selection", "clipboard", "workflow_result", "voice_draft", "voice_transcript", "screenshot"]
     workflow_id: str | None = None
     step_id: str | None = None
     image: ImageContent | None = None
+
+
+@dataclass(frozen=True)
+class PreparedEntryInputResolution:
+    document: InputDocument | None = field(default=None, repr=False)
+    unavailable_reason: PreparedInputUnavailableReason | None = None
+
+    def __post_init__(self) -> None:
+        if (self.document is None) == (self.unavailable_reason is None):
+            raise ValueError(
+                "prepared input resolution requires exactly one document or reason"
+            )
+
+
+@dataclass(frozen=True)
+class PreparedEntryInput:
+    """Memory-only input facts captured once for one Entry Panel lifecycle."""
+
+    workflow_document: InputDocument | None = field(default=None, repr=False)
+    selection_document: InputDocument | None = field(default=None, repr=False)
+    clipboard_text_document: InputDocument | None = field(default=None, repr=False)
+    clipboard_image: ImageContent | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        external_values = (
+            self.selection_document,
+            self.clipboard_text_document,
+            self.clipboard_image,
+        )
+        if self.workflow_document is not None and any(
+            value is not None for value in external_values
+        ):
+            raise ValueError("workflow prepared input cannot contain external input")
+        if self.workflow_document is not None:
+            document = self.workflow_document
+            if (
+                document.source != "workflow_result"
+                or not document.workflow_id
+                or not document.step_id
+            ):
+                raise ValueError("workflow prepared input requires exact lineage")
+        if (
+            self.selection_document is not None
+            and self.selection_document.source != "selection"
+        ):
+            raise ValueError("prepared selection must use the selection source")
+        if (
+            self.clipboard_text_document is not None
+            and self.clipboard_text_document.source != "clipboard"
+        ):
+            raise ValueError("prepared clipboard text must use the clipboard source")
+
+    def resolve(self, mode: InputMode) -> PreparedEntryInputResolution:
+        if self.workflow_document is not None:
+            return PreparedEntryInputResolution(document=self.workflow_document)
+        if mode == "clipboard_image":
+            if self.clipboard_image is None:
+                return PreparedEntryInputResolution(
+                    unavailable_reason="clipboard_image_unavailable"
+                )
+            return PreparedEntryInputResolution(
+                document=InputDocument(
+                    "",
+                    "screenshot",
+                    image=self.clipboard_image,
+                )
+            )
+        if mode == "selection_or_clipboard" and self.selection_document is not None:
+            return PreparedEntryInputResolution(document=self.selection_document)
+        if self.clipboard_image is not None:
+            return PreparedEntryInputResolution(
+                document=InputDocument("", "clipboard", image=self.clipboard_image)
+            )
+        if self.clipboard_text_document is not None:
+            return PreparedEntryInputResolution(document=self.clipboard_text_document)
+        return PreparedEntryInputResolution(
+            unavailable_reason=(
+                "selection_or_clipboard_unavailable"
+                if mode == "selection_or_clipboard"
+                else "clipboard_unavailable"
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -696,6 +860,8 @@ class DisplayMetrics:
 
 @dataclass(frozen=True)
 class PopupBounds:
+    """Physical screen position with toolkit-logical width and height."""
+
     x: int
     y: int
     width: int

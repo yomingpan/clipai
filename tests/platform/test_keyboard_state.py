@@ -12,6 +12,8 @@ from ClipAI.platform import keyboard_state
     ("token", "pressed_virtual_key", "expected_queries"),
     [
         ("ctrl", 0x11, [0x11]),
+        ("alt", 0xA4, [0x12, 0xA4]),
+        ("alt", 0xA5, [0x12, 0xA4, 0xA5]),
         ("x", 0x58, [0x58]),
         ("grave", 0xC0, [0xC0]),
         ("6", 0x36, [0x36]),

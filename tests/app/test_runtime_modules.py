@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.commands import CloseSession, CopyResult, EntryPanelDigitPressed, OpenUnifiedEntryPanel, SelectProviderModel, SetFirstUseHintsEnabled, StartAction
+from ClipAI.core.commands import CloseEntryPanel, CloseSession, CopyResult, EntryPanelDigitPressed, OpenUnifiedEntryPanel, SelectProviderModel, SetFirstUseHintsEnabled, StartAction
 from ClipAI.core.models import ModifierHoldId, UserPreferences
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
 from tests.app.test_runtime import GuidanceStore, ModelPreferences, make_runtime
@@ -77,8 +77,14 @@ def test_runtime_routes_entry_panel_commands_to_its_independent_module() -> None
     commands = []
 
     class EntryPanel:
+        active_hold_id = None
+
         def handle(self, command) -> None:
             commands.append(command)
+            if isinstance(command, OpenUnifiedEntryPanel):
+                self.active_hold_id = command.hold_id
+            elif isinstance(command, CloseEntryPanel):
+                self.active_hold_id = None
 
         def stop(self) -> None:
             pass
@@ -93,3 +99,28 @@ def test_runtime_routes_entry_panel_commands_to_its_independent_module() -> None
     runtime.drain_commands()
 
     assert commands == [opened, digit]
+
+
+def test_runtime_settles_hotkey_hold_when_entry_panel_lifecycle_ends() -> None:
+    class EntryPanel:
+        active_hold_id = None
+
+        def handle(self, command) -> None:
+            if isinstance(command, OpenUnifiedEntryPanel):
+                self.active_hold_id = command.hold_id
+            elif isinstance(command, CloseEntryPanel):
+                self.active_hold_id = None
+
+        def stop(self) -> None:
+            pass
+
+    panel = EntryPanel()
+    runtime, _view, _supervisor, _outputs, listener = make_runtime(entry_panel=panel)
+    runtime.start()
+    hold_id = ModifierHoldId(7)
+
+    runtime.enqueue(OpenUnifiedEntryPanel(hold_id))
+    runtime.enqueue(CloseEntryPanel("panel-1"))
+    runtime.drain_commands()
+
+    assert listener.settled_entry_panel_holds == [hold_id]

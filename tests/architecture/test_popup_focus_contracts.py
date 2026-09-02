@@ -46,6 +46,26 @@ def test_external_visibility_result_is_never_discarded_as_a_bare_expression() ->
     assert violations == [], "\n".join(violations)
 
 
+def test_entry_panel_transition_state_stays_inside_primary_surface_path() -> None:
+    path = Path("ClipAI/ui/result_dialog.py")
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    forbidden = {"_entry_panel_handoff", "EntryPanelPopupHandoff"}
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        name = None
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            name = node.name
+        elif isinstance(node, ast.Attribute):
+            name = node.attr
+        elif isinstance(node, ast.Name):
+            name = node.id
+        if name in forbidden:
+            violations.append(
+                f"{path}:{getattr(node, 'lineno', 0)}: legacy two-window handoff returned"
+            )
+    assert violations == [], "\n".join(violations)
+
+
 def test_voice_admission_does_not_read_widget_visibility_or_split_by_trigger() -> None:
     violations: list[str] = []
     for path in Path("ClipAI").rglob("*.py"):

@@ -44,3 +44,24 @@ Speech preprocessing 屬於 service，移除 Markdown heading、emphasis、list 
 Popup、global hotkey 與 shortcut-sequence speech 共用一個 `SpeechCoordinator`。TTS 是單一資源，但取消必須比對 operation ID；舊 popup 關閉、舊 worker 完成或舊 handle 取消，都不得停止或清除新 operation 的 speaking state。
 
 Composable workflow 中，copy/paste/speak 的 fallback text 是目前 displayed step，而非永遠使用最新 step。Back navigation 不呼叫 provider，且 popup selection 仍優先於 displayed step content。
+
+## Popup presentation seam
+
+`ClipAI.core.popup_presentation` owns the Tk-free pure projection from
+`SessionSnapshot` to frozen `PopupPresentationModel`. The model contains only
+title/model/source preview、pin/back、Action contract/input source、guidance、
+baseline enabled actions、speaking 與 feedback；canonical content rendering and
+surface flash are deliberately outside this model.
+
+Feedback projects only for `COMPLETED` with a contract and a valid displayed
+step. Guidance projects only for `COMPLETED` with its flag when the caller says
+the displayed guidance key has not been shown. `CONTEXT_QUESTION` removes
+`follow_up` from baseline actions. `BaseResultSurface.render(model)` is the sole
+widget projection seam and diffs its last model by field group.
+
+Workflow callbacks are bound once when the view is created. Feedback submit
+reads the live view step at invocation time; it never captures the first render's
+step. Baseline `enabled_actions` flows through a narrow availability seam and is
+combined with, never substituted for, `PopupControl`'s in-flight operation gate.
+Only `PopupControl` may disable/re-enable or pulse output actions for operation
+acknowledgements.

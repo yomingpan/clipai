@@ -88,7 +88,9 @@ def main() -> int:
     from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
     import customtkinter as ctk
 
+    from ClipAI.core.models import PopupBounds
     from ClipAI.ui.base_dialog import BaseDialog
+    from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
 
     master = ctk.CTk()
     master.withdraw()
@@ -97,24 +99,41 @@ def main() -> int:
     for monitor in monitors:
         results = []
         foreground_before = ctypes.windll.user32.GetForegroundWindow()
+        bounds = PopupBounds(
+            monitor.left + 100,
+            monitor.top + 100,
+            400,
+            336,
+        )
+        host = PrimarySurfaceHost(
+            master,
+            PrimarySurfaceSpec(
+                bounds,
+                hide_from_task_switcher=False,
+            ),
+            None,
+        )
+        lease = host.acquire()
         dialog = BaseDialog(
             title="ClipAI DPI repro",
             width=400,
             height=336,
-            x=monitor.left + 100,
-            y=monitor.top + 100,
             master=master,
             frameless=True,
             transparent_background=True,
+            show_on_create=False,
+            primary_surface_host=host,
+            primary_surface_lease=lease,
         )
+        dialog.show()
         for trial in range(30):
             if trial:
                 dialog.root.withdraw()
                 foreground_before = ctypes.windll.user32.GetForegroundWindow()
                 dialog.root.deiconify()
             dialog.root.update_idletasks()
-            cached = ScalingTracker.window_dpi_scaling_dict[dialog.root]
-            truth = ScalingTracker.get_window_dpi_scaling(dialog.root)
+            cached = ScalingTracker.window_dpi_scaling_dict[host.window]
+            truth = ScalingTracker.get_window_dpi_scaling(host.window)
             result = (
                 cached == truth,
                 ctypes.windll.user32.GetForegroundWindow() == foreground_before,

@@ -1,16 +1,13 @@
-from ClipAI.app.config_loader import load_action_catalog, load_entry_panel_catalog
+from ClipAI.app.config_loader import load_config_bundle
 import pytest
 
-from ClipAI.core.models import EntryActionRef, EntryPanelSelectionId
+from ClipAI.core.models import EntryActionRef, EntryInputSourcePreview
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.entry_panel import EntryPanelCandidate, EntryPanelCatalog, EntryPanelCategory, EntryPanelCoordinator
 
 
 def coordinator() -> EntryPanelCoordinator:
-    return EntryPanelCoordinator(load_entry_panel_catalog(
-        "config/entry_panel.yaml",
-        actions=load_action_catalog("config/actions.yaml"),
-    ))
+    return EntryPanelCoordinator(load_config_bundle().entry_panel)
 
 
 def test_root_digit_opens_configured_scene_with_flagship_slots() -> None:
@@ -49,15 +46,15 @@ def test_root_projects_only_available_recent_actions_into_zero_based_slots() -> 
     )
 
 
-def test_more_and_escape_follow_the_progressive_navigation_stack() -> None:
+def test_more_and_back_follow_the_progressive_navigation_stack_without_closing_root() -> None:
     panel = coordinator()
     panel.open("panel-1")
     scene = panel.select_digit("5").snapshot
 
     more = panel.open_more()
-    returned_scene = panel.escape()
-    returned_root = panel.escape()
-    closed = panel.escape()
+    returned_scene = panel.back()
+    returned_root = panel.back()
+    unchanged_root = panel.back()
 
     assert scene.page == "scene"
     assert more.page == "more"
@@ -65,7 +62,29 @@ def test_more_and_escape_follow_the_progressive_navigation_stack() -> None:
     assert all(option.slot is None for option in more.options)
     assert returned_scene.page == "scene"
     assert returned_root.page == "root"
-    assert closed is None
+    assert unchanged_root == returned_root
+    assert panel.snapshot == returned_root
+
+
+def test_preparing_actions_remain_capable_but_are_pending_and_unselectable() -> None:
+    panel = coordinator()
+    policy_blocked = EntryActionRef("translate_to_english", "short")
+    panel.open(
+        "panel-1",
+        preparing=True,
+        disabled={policy_blocked: "Provider unavailable"},
+    )
+
+    scene = panel.select_digit("4").snapshot
+    blocked = next(option for option in scene.options if option.action == policy_blocked)
+    available = next(option for option in scene.options if option.action != policy_blocked)
+
+    assert blocked.enabled is False
+    assert blocked.pending is False
+    assert blocked.disabled_reason == "Provider unavailable"
+    assert available.enabled is True
+    assert available.pending is True
+    assert panel.select_digit(str(available.slot)).action is None
 
 
 def test_search_filters_only_the_current_more_page() -> None:
@@ -102,7 +121,7 @@ def test_density_toggle_preserves_page_search_and_action_order() -> None:
 
 def test_open_reuses_the_preferred_density_for_the_next_panel_lifecycle() -> None:
     panel = EntryPanelCoordinator(
-        load_entry_panel_catalog("config/entry_panel.yaml", actions=load_action_catalog("config/actions.yaml")),
+        load_config_bundle().entry_panel,
         density="compact",
     )
 
@@ -130,35 +149,40 @@ def test_disabled_action_stays_visible_with_reason_and_cannot_be_selected() -> N
     assert decision.action is None
 
 
-def test_preparation_identity_rejects_late_completion_after_replacement() -> None:
+def test_input_lifecycle_projection_survives_navigation_and_density_changes() -> None:
     panel = coordinator()
-    panel.open("panel-1")
-    first = EntryPanelSelectionId("selection-1")
-    second = EntryPanelSelectionId("selection-2")
+    preview = EntryInputSourcePreview("preparing")
+    root = panel.open(
+        "panel-1",
+        preparing=True,
+        source_preview=preview,
+    )
+    scene = panel.select_digit("5").snapshot
+    more = panel.open_more()
+    compact = panel.toggle_density()
 
-    panel.begin_preparation(first)
-    pending = panel.begin_preparation(second)
-    stale = panel.settle_preparation(first, message="stale failure")
-    settled = panel.settle_preparation(second, message="target unavailable")
-
-    assert pending.status == "preparing"
-    assert pending.selection_id == second
-    assert stale is None
-    assert settled.status == "error"
-    assert settled.message == "target unavailable"
-    assert settled.selection_id is None
+    assert root.status == scene.status == more.status == compact.status == "preparing"
+    assert compact.source_preview == preview
 
 
-def test_close_invalidates_active_preparation_identity() -> None:
+def test_input_completion_and_failure_are_truthful_projection_transitions() -> None:
     panel = coordinator()
-    panel.open("panel-1")
-    selection_id = EntryPanelSelectionId("selection-1")
-    panel.begin_preparation(selection_id)
+    panel.open("panel-1", preparing=True)
 
-    panel.close()
+    completed = panel.complete_input_preparation(
+        EntryInputSourcePreview("selection_text", "captured")
+    )
+    failed = panel.show_error(
+        "target unavailable",
+        source_preview=EntryInputSourcePreview("failed", "target unavailable"),
+    )
 
-    assert panel.snapshot is None
-    assert panel.settle_preparation(selection_id) is None
+    assert completed.status == "idle"
+    assert completed.message == ""
+    assert completed.source_preview.kind == "selection_text"
+    assert failed.status == "error"
+    assert failed.message == "target unavailable"
+    assert failed.source_preview.kind == "failed"
 
 
 def test_catalog_rejects_semantically_invalid_categories_without_yaml_loader() -> None:

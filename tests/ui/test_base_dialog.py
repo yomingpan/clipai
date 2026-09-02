@@ -8,9 +8,10 @@ import customtkinter as ctk
 import pytest
 from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
-import ClipAI.ui.base_dialog as base_dialog_module
+import ClipAI.ui.primary_surface as primary_surface_module
 
-from ClipAI.core.models import PasteTarget
+from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, PasteTarget, PopupBounds
+from ClipAI.core.popup_presentation import PopupFeedbackModel, PopupPresentationModel
 from ClipAI.ui.base_dialog import (
     ACTION_ICON_FONT_FAMILY,
     ACTION_COLOR,
@@ -576,18 +577,13 @@ def test_dialog_never_precalculates_physical_widget_dimensions() -> None:
     assert 'bind("<Configure>", self._on_canvas_configure' in source
 
 
-def test_dialog_initial_show_positions_and_resamples_while_withdrawn() -> None:
+def test_dialog_delegates_top_level_creation_geometry_and_dpi_to_primary_host() -> None:
     source = inspect.getsource(BaseDialog.__init__)
 
-    created = source.index("self.root =")
-    withdrawn = source.index("self.root.withdraw()")
-    positioned = source.index("self._position_window")
-    laid_out = source.index("self.root.update_idletasks()")
-    resampled = source.index("_resample_window_dpi_scaling(self.root)")
-    shown = source.index("self.root.deiconify()")
-
-    assert created < withdrawn < positioned < laid_out < resampled < shown
-    assert "self.root.update()" not in source
+    assert "CTkToplevel" not in source
+    assert "_resample_window_dpi_scaling" not in source
+    assert "primary_surface_host.window" in source
+    assert "primary_surface_host.mount" in source
 
 
 def test_window_dpi_resample_updates_cache_before_widget_callbacks(monkeypatch) -> None:
@@ -609,7 +605,7 @@ def test_window_dpi_resample_updates_cache_before_widget_callbacks(monkeypatch) 
         ),
     )
 
-    base_dialog_module._resample_window_dpi_scaling(window)
+    primary_surface_module.resample_window_dpi_scaling(window)
 
     assert ScalingTracker.window_dpi_scaling_dict[window] == 1.0
     assert observed_cache == [1.0]
@@ -634,7 +630,7 @@ def test_window_dpi_resample_rolls_back_cache_when_callback_fails(monkeypatch) -
     )
 
     with pytest.raises(RuntimeError, match="widget scaling failed"):
-        base_dialog_module._resample_window_dpi_scaling(window)
+        primary_surface_module.resample_window_dpi_scaling(window)
 
     assert ScalingTracker.window_dpi_scaling_dict[window] == 1.5
 
@@ -661,6 +657,43 @@ def test_dialog_resize_only_requests_logical_window_geometry() -> None:
 
     assert dialog.root.geometry_call == "500x400+10+20"
     assert (dialog.width, dialog.height) == (500, 400)
+
+
+def test_withdrawn_dialog_can_be_revealed_after_content_is_built() -> None:
+    events: list[str] = []
+
+    class Root:
+        def update_idletasks(self) -> None:
+            events.append("layout")
+
+        def deiconify(self) -> None:
+            events.append("shown")
+
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog.root = Root()
+
+    assert dialog.show() is True
+    assert events == ["layout", "shown"]
+
+
+def test_current_bounds_preserves_toolkit_logical_size() -> None:
+    class Root:
+        def update_idletasks(self) -> None:
+            pass
+
+        def geometry(self) -> str:
+            return "400x320+120+80"
+
+        def winfo_width(self) -> int:
+            return 600
+
+        def winfo_height(self) -> int:
+            return 480
+
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog.root = Root()
+
+    assert dialog.current_bounds() == PopupBounds(120, 80, 400, 320)
 
 
 def test_dialog_is_alive_requires_valid_open_existing_root() -> None:
@@ -829,14 +862,20 @@ def test_result_surface_escape_defers_to_the_global_gesture_owner() -> None:
     assert events == []
 
 
-def test_drag_position_calculation_uses_recorded_offsets() -> None:
-    class DialogLike:
-        _drag_offset_x = 12
-        _drag_offset_y = 5
+def test_base_dialog_delegates_drag_binding_to_shared_controller() -> None:
+    calls = []
 
-    from ClipAI.ui.base_dialog import BaseDialog
+    class DragController:
+        def bind(self, *widgets) -> None:
+            calls.append(widgets)
 
-    assert BaseDialog.calculate_drag_position(DialogLike(), 100, 80) == (88, 75)
+    dialog = BaseDialog.__new__(BaseDialog)
+    dialog._drag_controller = DragController()
+    handles = (object(), object())
+
+    dialog.enable_drag(*handles)
+
+    assert calls == [handles]
 
 
 def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
@@ -1504,6 +1543,90 @@ def test_standard_result_action_active_styles_are_semantic() -> None:
         "hover_color": ACTION_HOVER_COLOR,
         "text_color": CONTENT_COLOR,
     }
+
+
+def test_popup_render_is_the_content_free_field_group_projection_seam() -> None:
+    events: list[object] = []
+    contract = ActionFeedbackContract(
+        "AI helps",
+        "AI does not decide",
+        (FeedbackReason("other", "Other"),),
+    )
+    feedback = PopupFeedbackModel("step-1", contract, "idle", "")
+    model = PopupPresentationModel(
+        title="Action",
+        model="model",
+        source_preview="Selection",
+        pinned=True,
+        back=True,
+        contract=contract,
+        input_source="selection",
+        guidance=True,
+        enabled_actions=("copy", "archive"),
+        speaking=True,
+        feedback=feedback,
+    )
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface._last_model = None
+    surface._feedback_submit = lambda *_args: None
+    surface.set_pinned_state = lambda value: events.append(("pinned", value))
+    surface.set_title = lambda value: events.append(("title", value))
+    surface.set_source_preview = lambda value: events.append(("source", value))
+    surface.set_model = lambda value: events.append(("model", value))
+    surface.set_back_available = lambda value: events.append(("back", value))
+    surface.configure_action_contract = lambda value, source: events.append(("contract", value, source))
+    surface.set_available_actions = lambda value: events.append(("actions", value))
+    surface.set_speaker_active = lambda value: events.append(("speaking", value))
+    surface.show_action_guidance_hint = lambda: events.append("guidance")
+    surface.configure_feedback = lambda value, state, message, callback: events.append(("feedback", value, state, message, callback is not None))
+    surface.hide_feedback = lambda: events.append("feedback:hidden")
+
+    surface.render(model)
+    surface.render(model)
+
+    assert events == [
+        ("pinned", True),
+        ("title", "Action"),
+        ("source", "Selection"),
+        ("model", "model"),
+        ("back", True),
+        ("contract", contract, "selection"),
+        ("actions", ("copy", "archive")),
+        ("speaking", True),
+        ("feedback", contract, "idle", "", True),
+        "guidance",
+    ]
+
+
+def test_baseline_action_refresh_cannot_override_popup_control_operation_gate() -> None:
+    class Button:
+        def __init__(self) -> None:
+            self.state = "normal"
+
+        def configure(self, **kwargs) -> None:
+            if "state" in kwargs:
+                self.state = kwargs["state"]
+
+    class Surface:
+        def __init__(self) -> None:
+            self.dialog = type("Dialog", (), {"lifecycle": object()})()
+
+        def add_action_slot(self, *args, **kwargs):
+            return Button()
+
+        def set_action_tooltip(self, _slot_id, _text):
+            pass
+
+    actions = StandardResultActions(Surface())
+    actions.configure(on_copy=lambda: None)
+    actions.set_enabled("copy", False)
+
+    actions.set_available(("copy", "archive"))
+
+    assert actions._buttons["copy"].state == "disabled"
+    actions.set_enabled("copy", True)
+    assert actions._buttons["copy"].state == "normal"
+    assert actions._buttons["archive"].state == "disabled"
 
 
 def test_repeated_action_pulse_restarts_feedback_timer() -> None:

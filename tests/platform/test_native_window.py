@@ -90,7 +90,11 @@ def test_windows_surface_activates_and_verifies_foreground_ownership() -> None:
     assert surface.activate(10) is True
 
     assert user32.attached == [(1, 2, True), (1, 2, False)]
-    assert user32.positioned[-1] == (20, -1, 0, 0, 0, 0, 0x0043)
+    # Toolkit has already made the Toplevel visible before activation. Native
+    # activation must not issue a second show operation, which flashes a
+    # cursor-adjacent Panel on Windows.
+    assert user32.shown == []
+    assert user32.positioned[-1] == (20, -1, 0, 0, 0, 0, 0x0003)
     assert surface.owns_foreground(10) is True
 
 

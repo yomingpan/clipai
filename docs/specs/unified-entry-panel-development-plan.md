@@ -91,7 +91,7 @@ Protected behavior:
 
 | State or decision | Single owner |
 |---|---|
-| Physical `Ctrl+Alt` hold, deadline and claimed digits | platform hotkey listener |
+| Physical `Alt` hold, deadline and claimed digits | platform hotkey listener |
 | Entry catalog validation and key-to-candidate resolution | `EntryPanelCatalog` / `EntryPanelCoordinator` in services |
 | Panel lifecycle, launch source and active selection-preparation identity | `EntryPanelRuntimeModule` in app |
 | Panel widgets, focus evidence, placement and rendering | `UnifiedEntryPanelDialog` in UI |
@@ -223,22 +223,25 @@ Rules:
 - known availability is joined from authoritative runtime capability owners;
   input or OCR viability that requires execution is never pre-probed.
 
-### Two-stage selection lifecycle
+### Open-time input preparation lifecycle
 
 ```text
-SelectEntryPanelAction(panel_id, candidate)
-  → allocate selection_id and project preparing
+OpenUnifiedEntryPanel
+  → capture semantic Popup source or external-window reference
+  → allocate preparation_id, project preparing and mark capable Actions pending
   → restore/validate captured external target
-  → InputResolver captures at explicit intent
-  → EntryPanelInputPrepared(panel_id, selection_id, document | typed error)
+  → InputResolver captures selection and clipboard candidates once
+  → EntryPanelInputPreparationCompleted/Failed(panel_id, preparation_id, ...)
   → reject if either identity is stale
+SelectEntryPanelAction(panel_id, candidate)
+  → resolve an Action-compatible InputTarget from frozen candidates only
   → WorkflowRuntimeModule.start_action(... explicit InputTarget)
   → accepted: close Panel; rejected/blocked: keep it with real reason
 ```
 
-Popup-source selection skips external activation/capture and creates the
-explicit `InputTarget` from canonical Popup content. Closing, a newer selection,
-reopen and shutdown invalidate the old selection ID. Cancellation never grants
+Popup-source opening skips external activation/capture and freezes selected
+Popup text, otherwise the displayed canonical content. Closing, retry, reopen
+and shutdown invalidate the old preparation ID. Cancellation never grants
 an old worker authority over a new Panel.
 
 ### Successful-step to recent-history lifecycle
@@ -307,7 +310,7 @@ M1/M2 contract changes.
    `feat: add entry panel coordinator`
 
    Red/green pure tests for root/scene/more navigation, search, density, disabled
-   state, Esc and numeric resolution.
+   state, Back/root no-op, Esc close and numeric resolution.
 5. `test: specify recent action policy` then
    `feat: add recent action history`
 
@@ -321,8 +324,8 @@ deterministic; architecture and pure unit suites pass.
 
 6. `feat: add modifier-hold entry gesture`
 
-   Extend the existing listener with identity-scoped 1.5 second hold and digit
-   claim. Preserve ordinary shortcut bindings. Add 1499/1500 ms, release, stale,
+   Extend the existing listener with identity-scoped exact-Alt 500 ms hold and
+   digit claim. Preserve ordinary shortcut bindings. Add 499/500 ms, release, stale,
    injected, shutdown, repeated hold, top-row/numpad and no-double-invoke tests.
 7. `refactor: generalize external target activation`
 
@@ -349,15 +352,15 @@ start work; existing provider/Workflow/input/Paste regression suites pass.
 
 ### M3 — Shared lifecycle and native UI
 
-11. `refactor: share popup visual tokens and owned-surface handoff`
+11. `refactor: introduce PrimarySurfaceHost for result Popup`
 
-    Extract only proven shared theme tokens and replace the Shortcut Guide's
-    presenter-specific hold fields with one owned-surface handoff contract.
-12. `feat: add unified entry panel surface behind flag`
+    Extract the native shell, mounted slot, bounds, DPI and drag lifecycle
+    without changing Workflow or `PopupControl` semantics.
+12. `feat: mount unified entry panel in primary surface`
 
-    Implement the independent shared-root Panel and config-driven rendering.
-    Add widget, focus, keyboard, search, tooltip, Esc, click-outside, layout and
-    no-empty-shell tests.
+    Implement config-driven Panel rendering as a replaceable view in the same
+    host. Add widget, focus, keyboard, search, tooltip, Back, Esc, click-outside,
+    rollback, exact-bounds and no-empty-shell tests.
 13. `feat: compose unified entry panel runtime`
 
     Wire config, runtime module, hotkey command, UI projection and recent store
@@ -413,7 +416,7 @@ activation ports, existing Workflow admission, and a minimal recent Action
 aggregate.
 
 **Alternatives:** Extending `PopupControl`, calling Action execution from UI,
-registering `Ctrl+Alt` as an ordinary shortcut and creating a second Tk/WebView
+registering modifier-only `Alt` as an ordinary shortcut and creating a second Tk/WebView
 runtime are rejected because they duplicate an existing owner.
 
 **Consequences:** More contracts and tests precede visible UI. In return, Action
@@ -437,8 +440,8 @@ The next highest-value checks are:
 
 - whether the existing `PasteTarget` representation can be generalized without
   a compatibility alias;
-- whether shared owned-surface handoff can stay within `PopupControl`'s semantic
-  interface rather than introducing presenter state;
+- whether additional primary views can use `PrimarySurfaceHost` without
+  contaminating `PopupControl`'s Workflow actuation ownership;
 - initial multi-DPI width limits for the header and three recent buttons;
 - the user-facing disabled reasons available from provider, Personal Style and
   voice owners without creating a second availability matrix.

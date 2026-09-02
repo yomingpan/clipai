@@ -53,7 +53,7 @@ stack.
   capture is protected by the single clipboard transaction coordinator.
 - The existing hotkey implementation is deliberately stateful and hardened
   around timer identity, release semantics, stale physical-state recovery and
-  shutdown. A modifier-only `Ctrl+Alt` is not a normal shortcut binding.
+  shutdown. A modifier-only `Alt` hold is not a normal shortcut binding.
 - Only an immutable successful step accepted by `WorkflowController.complete`
   is a valid signal for recent actions. Provider completion, operation-tracker
   success, view visibility and snapshot revisions are all too early or too
@@ -102,15 +102,17 @@ Key source material:
 ## Target architecture
 
 ```text
-physical Ctrl+Alt hold
+physical Alt hold
         │  (platform owns physical state, timer, key claim)
         ▼
 OpenUnifiedEntryPanel typed command
         ▼
 EntryPanelRuntimeModule ──────── EntryPanelCatalog ← config/entry_panel.yaml
-  │ launch/source/selection identity              (IA and copy only)
+  │ launch/source/preparation identity            (IA/category copy/Action refs)
+  │                                      ← active Action Language Pack
+  │                                         (candidate label/description)
   ├── EntryPanelCoordinator (pure navigation/search/density transitions)
-  │ external target restore + action-time capture, scoped by selection ID
+  │ open-time input preparation, scoped by preparation ID
   ▼
 WorkflowRuntimeModule.start_action(...) → ActionExecutor → InputResolver
                                                 │              │
@@ -131,10 +133,10 @@ UnifiedEntryPanelDialog
 
 | Component | Layer | Responsibility | Must not own |
 |---|---|---|---|
-| Generic modifier-hold gesture | platform + typed core command | Exact Ctrl+Alt recognition, 1.5 second timer, physical-state recheck and numeric-key claim. | Panel UI, action execution, clipboard. |
+| Generic modifier-hold gesture | platform + typed core command | Exact Alt-only recognition, 500 ms identity/listener-state recheck, auto-repeat suppression, lifecycle settlement and numeric-key claim. | Panel UI, action execution, clipboard. |
 | `EntryPanelRuntimeModule` | app | Compose launch lifecycle, source snapshot, panel coordinator and action admission. | Workflow state, provider task, raw native UI handles. |
 | `EntryPanelCoordinator` | services | Own the immutable Panel projection and pure navigation, search, density, disabled-state and numeric-key transitions. | Toolkit state, external focus, Action execution or persistence. |
-| `UnifiedEntryPanelDialog` | ui | Render/filter/navigate; native placement/focus; emit typed UI commands. | Services, platform APIs, clipboard, provider. |
+| `UnifiedEntryPanelDialog` | ui | Render/filter/navigate; native placement/focus; shared header drag; hide-before-destroy; emit typed UI commands. | Services, platform APIs, clipboard, provider. |
 | `EntryPanelCatalog` | services/config composition | Validated panel IA: category, order, copy, flagship selection. | Action execution semantics or prompts. |
 | `ExternalWindowRef` + activator port | core/platform | Opaque external target reference and safe restore/validate operation. | Panel policy or duplicate paste ownership. |
 | `RecentActionHistory` + store | services/platform persistence | Top-three replay references from accepted steps; non-blocking durable write. | Workflow history, preferences or analytics. |
@@ -144,41 +146,46 @@ UnifiedEntryPanelDialog
 ### 1. Modifier-hold hotkey, not a normal shortcut
 
 Extend the platform listener with a reusable `modifier_hold` gesture contract
-for the exact physical `Ctrl+Alt` chord. Do **not** add `ctrl+alt` as an
+for the exact physical `Alt` hold. Do **not** add modifier-only `alt` as an
 ordinary `ShortcutCatalog` binding: ordinary bindings expect a trigger token;
-modifier-only release and digit input would otherwise race the existing short
+Alt release and digit input would otherwise race the existing short
 press/direct shortcut paths.
 
 Required behavior:
 
-1. Both modifiers down creates a press identity and starts the 1.5 second timer.
-2. Releasing either modifier before the deadline cancels; there is no short
+1. Alt down with no other held key creates a hold identity and starts the 500 ms timer.
+2. Releasing Alt or adding another modifier before the deadline cancels; there is no short
    invoke.
 3. A non-modifier before the deadline cancels only the entry candidate; normal
    direct shortcuts retain their existing behavior.
-4. At the deadline, recheck the same press identity and actual physical state.
-   Only then emit `OpenUnifiedEntryPanel`.
-5. Once opened with modifiers still held, the platform claims top-row digits
-   and numpad digits for the Panel until the chord is released. This prevents a
-   competing direct shortcut.
-6. Stale recovery and shutdown are identity-scoped. Repeated Ctrl+Alt while a
-   Panel is open raises the existing Panel; it does not reset/capture a new
-   source.
+4. At the deadline, recheck the same hold identity and listener-owned exact-Alt
+   state. Windows physical polling remains recovery-only because its low-level
+   Alt result can be transiently false. Only then emit `OpenUnifiedEntryPanel`.
+5. Once opened with Alt still held, the platform claims top-row digits and
+   numpad digits for the Panel until Alt is released. A later modifier press
+   does not allow the same digit to dispatch a competing direct shortcut.
+6. Stale recovery and shutdown are identity-scoped. Alt auto-repeat stays in the
+   same hold. When the consumed Panel lifecycle ends, runtime settles that exact
+   hold identity so a missing release cannot poison the next real hold. Repeated
+   complete Alt holds while a Panel is open raise the existing Panel; they do
+   not reset/capture a new source.
 
-The existing Keyboard Shortcut guide receives the long `Ctrl+Alt` description;
+The existing Keyboard Shortcut guide receives the long `Alt` description;
 the Panel itself does not show an extra shortcut-guide entry.
 
 ### 2. Action catalog versus entry catalog
 
-Keep `ActionCatalog` execution-only. Add `config/entry_panel.yaml`, compiled
-during app composition into `EntryPanelCatalog`; the catalog implementation
-owns semantic validity and lookup indexes while the config adapter owns YAML
-shape and error-path translation.
+Keep `ActionCatalog` execution-only. `config/entry_panel.yaml` is compiled
+during app composition with the active Action Language Pack's exact candidate
+presentation into `EntryPanelCatalog`; the catalog implementation owns semantic
+validity and lookup indexes while adapters own YAML shape, checksums and
+error-path translation.
 
-The file owns categories, visual order, concise descriptions and up to four
+The canonical file owns categories, visual order, category copy and up to four
 flagship candidates per scene. Each candidate is an explicit
 `action_id + press_type` reference, so press-variant semantics are not guessed
-by the UI. It does **not** duplicate prompts, input modes, provider choices,
+by the UI. Candidate `label/description` come from the active pack as one
+exact, restart-only resource. The canonical file does **not** duplicate prompts, input modes, provider choices,
 keyboard mappings or availability logic. Validation fails application startup
 when an action/variant is unknown, repeated across a location, a category is
 invalid, or a flagship limit is exceeded. The digit assignments are structural
@@ -201,17 +208,24 @@ continues to call the same behavior and may discard the result.
 
 External input preparation is a separate, identity-scoped stage because target
 activation and selection capture are blocking work. `EntryPanelRuntimeModule`
-allocates one `EntryPanelSelectionId`, projects `preparing`, and schedules the
-work through `TaskSupervisor`'s interactive lane. Completion returns through
-the typed command queue with the same Panel lifecycle ID and selection ID. A
-closed/reopened Panel, a second selection, cancellation or shutdown invalidates
-the old identity; its late completion cannot start an Action or close the new
-Panel. The existing clipboard transaction coordinator remains responsible for
-safe restoration even when preparation becomes stale.
+allocates one `EntryInputPreparationId` when the Panel opens, immediately
+projects `preparing`, and schedules the work through `TaskSupervisor`'s
+interactive lane. Completion returns through the typed command queue with the
+same Panel lifecycle ID and preparation ID. A closed/reopened Panel,
+cancellation, retry or shutdown invalidates the old identity; its late
+completion cannot replace the frozen input, start an Action or close the new
+Panel. Otherwise-capable Actions remain enabled but pending until preparation
+settles; pending guards block invocation without presenting a false policy
+failure. The existing
+clipboard transaction coordinator remains responsible for safe restoration
+even when preparation becomes stale.
 
-`ActionStartAdmission` is the single synchronous fact used to close the Panel:
+`ActionStartAdmission` is the single synchronous fact used to begin Panel
+closure, and an accepted result carries the authoritative Workflow identity:
 
-- `accepted`: close Panel and let existing workflow/provider lifecycle run.
+- `accepted`: register an identity-scoped primary-surface replacement and let
+  the existing workflow/provider lifecycle run; presenter controls the atomic
+  mounted-view swap.
 - `rejected`: keep Panel visible and show the reason.
 - `blocked`: retain Panel with an explicit busy/voice message, as applicable.
 
@@ -232,7 +246,7 @@ handles in the UI.
 | Launch context | Source contract | On action selection |
 |---|---|---|
 | Unpinned Result Popup exists | Preserve that Popup as a temporary owned dialog and use its current selected/full semantic content. | Reuse the Popup workflow/source; do not read clipboard. |
-| External application | Store opaque `ExternalWindowRef` at panel open. | Restore and validate target first, then request existing selection capture at action intent. |
+| External application | Store opaque `ExternalWindowRef` at panel open. | Restore and validate target, then freeze selection and clipboard candidates before Action choice. |
 | External target cannot be restored | No source fallback. | Keep Panel with a visible error; do not use latest clipboard. |
 
 Use one generic external-window activation implementation for Panel capture and
@@ -245,40 +259,51 @@ keyboard adapter.
 For an external source, the intentional ordering is:
 
 ```text
-select Action → Panel pending → restore/validate external target
-              → InputResolver captures selection (clipboard fallback only inside its existing contract)
-              → typed preparation completion with matching selection ID
-              → explicit InputDocument/InputTarget → action admission
-              → close Panel only if accepted
+open Panel → Panel preparing → restore/validate captured external target
+           → InputResolver captures selection and clipboard candidates once
+           → typed preparation completion with matching preparation ID
+select Action → resolve frozen candidate to explicit InputTarget → action admission
+              → accepted Workflow identity → visual replacement
 ```
 
 The explicit document prevents the workflow from capturing a second time after
 the Panel or Popup has changed focus.
 
-Closing or navigating while preparation is pending cancels the task when
-possible and always invalidates the selection ID. A preparation failure restores
-the same Panel projection with an actionable error; it must not fall back to a
-new foreground window or a later clipboard value.
+Closing or retrying while preparation is pending cancels the task when possible
+and always invalidates the preparation ID. Navigation preserves the same frozen
+input lifecycle. A preparation failure restores the same Panel projection with
+an actionable error; it must not fall back to a new foreground window or a
+later clipboard value.
 
-### 5. Independent UI surface with shared lifecycle
+### 5. One primary UI surface with replaceable content
 
-Add `UnifiedEntryPanelDialog` in its own UI module and use the existing single
-hidden CustomTkinter root. Reuse `DialogLifecycle`, `NativeWindowSurface`,
-display-metrics/pointer readers and current widget conventions. Do not reuse
+Keep `UnifiedEntryPanelDialog` in its own UI module, but mount it inside the
+same `PrimarySurfaceHost` used by result content under the existing single
+hidden CustomTkinter root. `PrimarySurfaceHost` owns `DialogLifecycle`,
+`NativeWindowSurface`, bounds, DPI, drag and the mounted content slot. Do not reuse
 `PopupControl`: it is coupled to workflow/paste/output identities and would
 become a second owner if it absorbed the Panel.
 
-Small reusable UI extraction: the presenter currently has a Popup-specific
-focus-hold behavior for the shortcut guide. Extract an owned-control-surface
-handoff capability rather than adding another private `_hold_*` special case.
-Build the Panel content before deiconifying to prevent an empty shell flash.
+Build Panel and result content off-slot before mounting it to prevent an empty
+shell flash. Focus-hold state remains presentation coordination and cannot own
+native shell replacement mechanics.
+
+Panel and Popup share one host and the injected `PopupLayoutPolicy`. When a
+focused Popup is the source, the Panel replaces its result view without changing
+the host bounds. After accepted admission, result content is built off-slot and
+identity-matched into the same host; failed mount restores the prior mounted
+view. Bounds retain physical screen position with toolkit-logical width/height,
+so DPI is applied exactly once. UI
+never caches an unscoped last position or infers the transition from
+closure/focus.
 
 UI behavior confirmed for the first release:
 
 - Detailed density on every open; no density preference persistence.
 - Search, Tab, arrow keys, Enter and click work in all applicable scenes.
-- `Esc` immediately returns More to its scene; it does not first clear the
-  filter. A subsequent `Esc` closes according to the panel flow.
+- `Esc` immediately closes every page and cancels matching preparation.
+- The non-root Back control and `Ctrl+Z` return More to scene and scene to root.
+  Root Back is a no-op; Back never closes or changes the Panel lifecycle.
 - Click outside closes the full Panel.
 - Top-row and numpad digits are both accepted after modifier-hold claim.
 - Tooltips are keyboard-focus accessible, not mouse-only.
@@ -323,9 +348,10 @@ preferences) or `WorkflowController` history (per-workflow accepted steps).
 | `EntryPanelSource` | core immutable model | Popup semantic source or opaque external-window reference; no clipboard payload. |
 | `EntryPanelCatalog` | services/config | Validated, display-only mapping to existing Action ID and press-type references. |
 | `ActionStartAdmission` | core/app boundary | Exact accepted/rejected/blocked start result; only accepted permits Panel close. |
-| `EntryPanelSelectionId` | core/app boundary | Prevents late target/input preparation from acting on a closed, reopened or newer Panel. |
-| `EntryPanelInputPrepared` | core command | Returns an explicit document or typed preparation failure through the ordered command queue. |
-| `InputTarget` | existing core model use | Carries the explicit `InputDocument`; the executor skips duplicate capture while Panel selection identity remains separate. |
+| `EntryInputPreparationId` | core/app boundary | Prevents late open-time input preparation from acting on a closed, retried, reopened or newer Panel. |
+| `PreparedEntryInput` | core immutable model | Holds the frozen selection, clipboard text and clipboard image candidates captured when the Panel opens. |
+| `EntryPanelInputPreparationCompleted` / `EntryPanelInputPreparationFailed` | core commands | Return frozen input or typed preparation failure through the ordered command queue. |
+| `InputTarget` | existing core model use | Carries the Action-compatible document resolved only from `PreparedEntryInput`; the executor skips duplicate capture. |
 | `WorkflowStepAccepted` | core/app command | Minimal accepted-step identity emitted only after controller acceptance; never carries user content. |
 | `RecentActionRef` | core/services | Minimal replay reference; no user content or window metadata. |
 | modifier-hold press identity | platform internal | Bounds timers, release, stale recovery and shutdown to one physical hold. |
@@ -334,7 +360,7 @@ preferences) or `WorkflowController` history (per-workflow accepted steps).
 
 | Scenario | Required behavior |
 |---|---|
-| Repeated Ctrl+Alt while Panel is open | Bring Panel forward; no new source snapshot, capture or action. |
+| Repeated Alt hold while Panel is open | Bring Panel forward; no new source snapshot, capture or action. |
 | Modifier released early / non-modifier pressed early | Cancel only the hold candidate; never emit a short action. |
 | External target restore/capture failure | Keep Panel, show error, no action and no stale-clipboard fallback. |
 | Known unavailable action | Visible, disabled and explanatory; never hidden. |
@@ -354,28 +380,33 @@ Privacy boundaries:
 
 ### Platform and runtime tests
 
-- Ctrl+Alt at 1499 ms and 1500 ms; release-before-deadline; physical-state
-  recheck; stale timer; injected event; shutdown; direct digit coexistence; no
-  double invoke.
-- Panel-open repeated hold; top-row/numpad claim while modifiers remain held.
+- Alt alone at 499 ms and 500 ms; release-before-deadline; hold-identity and
+  listener-state recheck; Alt auto-repeat suppression; lifecycle settlement
+  after a missed release; stale timer; injected event; shutdown; direct digit
+  coexistence; no double invoke.
+- Panel-open repeated hold; top-row/numpad claim while Alt remains held.
 - Voice listening/finalizing blocked; provider-response disabled state; direct
   shortcut behavior unchanged.
 - All PRD action IDs compile in `entry_panel.yaml`; invalid/missing/duplicate
   catalog entries fail predictably.
-- Popup source reuse; external target restore; capture at action intent;
+- Popup source reuse; external target restore; capture at Panel open;
   restore/capture failure; explicit input target prevents duplicate capture;
   closed/reopened/newer Panel rejects late preparation completion.
-- `ActionStartAdmission` drives close/reject state; existing provider and
-  workflow tests remain green.
+- `ActionStartAdmission` drives identity-scoped replacement/reject state; existing
+  provider and workflow tests remain green.
 - Recent ordering, dedupe, press-type replay, root-follow-up behavior,
   headless/synthetic policy, persistence failure and restart recovery.
 
 ### UI and desktop integration tests
 
-- One Tk root/mainloop; no blank shell; focus handoff with existing Popup.
+- One Tk root/mainloop; no blank shell; exact logical-size/physical-position
+  Panel/Popup bounds and one native host across mount/replace/restore for new
+  and reused Popups.
+- Header drag uses the host-owned drag controller; closing or replacing content
+  produces no extra visible frame.
 - Multi-monitor and DPI placement; work-area collision/quadrant flip; cursor
   preservation.
-- Keyboard-only navigation, search, More/Esc behavior, disabled reason,
+- Keyboard-only navigation, search, More/Back/Esc behavior, pending/disabled reason,
   top-row/numpad, click outside and tooltip focus access.
 - Integration smoke covering external source → action selection → workflow
   admission → real lifecycle feedback, with zero provider work from the UI
@@ -387,7 +418,7 @@ Privacy boundaries:
 |---|---|---|
 | M1 | Modifier-hold contract, entry catalog validation, action admission and recent policy tests. | Boundary/timer/config/accepted-step unit tests pass. |
 | M2 | Runtime source boundary, external-target activation port, explicit input target and atomic recent store. | No stale clipboard fallback; existing workflow/provider regression suite passes. |
-| M3 | Independent Panel UI under a feature flag. | Focus, DPI, keyboard, accessibility and lifecycle integration smoke pass. |
+| M3 | Panel and result views mounted in one `PrimarySurfaceHost`. | Focus, DPI, keyboard, accessibility and lifecycle integration smoke pass. |
 | M4 | Controlled daily-use enablement and observation. | No P0/P1 focus, clipboard, double-invoke or hotkey regressions; persistence failures observable. |
 
 Rollback is the feature flag or removal of the new entry command; existing direct
@@ -399,7 +430,7 @@ shortcuts and existing workflow behavior remain independently functional.
 |---|---|
 | Add the Panel to `PopupControl` | It is already coupled to workflow/paste/output identities; the new surface would leak external-target and navigation policy into it. |
 | Call `ActionExecutor` or provider directly from UI | Duplicates admission/cancellation/lifecycle and violates UI adapter boundaries. |
-| Register `Ctrl+Alt` as an ordinary shortcut | Modifier-only semantics conflict with existing trigger-token, release and digit paths. |
+| Register modifier-only `Alt` as an ordinary shortcut | Modifier-only semantics conflict with existing trigger-token, release and digit paths. |
 | Derive recent actions from snapshots / put them in preferences | Neither is the precise success signal or appropriate owner for behavior history. |
 | Build a WebView or second Tk root | Adds a second UI runtime and focus model without solving the source/action ownership problem. |
 
