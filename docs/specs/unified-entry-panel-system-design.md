@@ -221,8 +221,9 @@ even when preparation becomes stale.
 `ActionStartAdmission` is the single synchronous fact used to begin Panel
 closure, and an accepted result carries the authoritative Workflow identity:
 
-- `accepted`: request an identity-scoped visual handoff and let the existing
-  workflow/provider lifecycle run; presenter controls the atomic visual swap.
+- `accepted`: register an identity-scoped primary-surface replacement and let
+  the existing workflow/provider lifecycle run; presenter controls the atomic
+  mounted-view swap.
 - `rejected`: keep Panel visible and show the reason.
 - `blocked`: retain Panel with an explicit busy/voice message, as applicable.
 
@@ -243,7 +244,7 @@ handles in the UI.
 | Launch context | Source contract | On action selection |
 |---|---|---|
 | Unpinned Result Popup exists | Preserve that Popup as a temporary owned dialog and use its current selected/full semantic content. | Reuse the Popup workflow/source; do not read clipboard. |
-| External application | Store opaque `ExternalWindowRef` at panel open. | Restore and validate target first, then request existing selection capture at action intent. |
+| External application | Store opaque `ExternalWindowRef` at panel open. | Restore and validate target, then freeze selection and clipboard candidates before Action choice. |
 | External target cannot be restored | No source fallback. | Keep Panel with a visible error; do not use latest clipboard. |
 
 Use one generic external-window activation implementation for Panel capture and
@@ -276,23 +277,21 @@ later clipboard value.
 
 Keep `UnifiedEntryPanelDialog` in its own UI module, but mount it inside the
 same `PrimarySurfaceHost` used by result content under the existing single
-hidden CustomTkinter root. The host owns `DialogLifecycle`, `NativeWindowSurface`,
-display-metrics/pointer readers and current widget conventions. Do not reuse
+hidden CustomTkinter root. `PrimarySurfaceHost` owns `DialogLifecycle`,
+`NativeWindowSurface`, bounds, DPI, drag and the mounted content slot. Do not reuse
 `PopupControl`: it is coupled to workflow/paste/output identities and would
 become a second owner if it absorbed the Panel.
 
-Small reusable UI extraction: the presenter currently has a Popup-specific
-focus-hold behavior for the shortcut guide. Extract an owned-control-surface
-handoff capability rather than adding another private `_hold_*` special case.
-Build the Panel content before deiconifying to prevent an empty shell flash.
+Build Panel and result content off-slot before mounting it to prevent an empty
+shell flash. Focus-hold state remains presentation coordination and cannot own
+native shell replacement mechanics.
 
-Panel and Popup share the injected `PopupLayoutPolicy`. When a focused Popup is
-the source, the Panel opens at that Popup's actual bounds. After accepted
-admission, the identity-matched Popup either keeps its existing bounds or is
-built withdrawn at the Panel's current user-adjusted bounds. UI hides the Panel,
-reveals the completed Popup and destroys the Panel in the same turn; failed
-reveal restores the same Panel. Panel and Popup bounds retain physical screen
-position with toolkit-logical width/height, so DPI is applied exactly once. UI
+Panel and Popup share one host and the injected `PopupLayoutPolicy`. When a
+focused Popup is the source, the Panel replaces its result view without changing
+the host bounds. After accepted admission, result content is built off-slot and
+identity-matched into the same host; failed mount restores the prior mounted
+view. Bounds retain physical screen position with toolkit-logical width/height,
+so DPI is applied exactly once. UI
 never caches an unscoped last position or infers the transition from
 closure/focus.
 
@@ -387,10 +386,10 @@ Privacy boundaries:
   shortcut behavior unchanged.
 - All PRD action IDs compile in `entry_panel.yaml`; invalid/missing/duplicate
   catalog entries fail predictably.
-- Popup source reuse; external target restore; capture at action intent;
+- Popup source reuse; external target restore; capture at Panel open;
   restore/capture failure; explicit input target prevents duplicate capture;
   closed/reopened/newer Panel rejects late preparation completion.
-- `ActionStartAdmission` drives identity-scoped handoff/reject state; existing
+- `ActionStartAdmission` drives identity-scoped replacement/reject state; existing
   provider and workflow tests remain green.
 - Recent ordering, dedupe, press-type replay, root-follow-up behavior,
   headless/synthetic policy, persistence failure and restart recovery.
@@ -398,9 +397,10 @@ Privacy boundaries:
 ### UI and desktop integration tests
 
 - One Tk root/mainloop; no blank shell; exact logical-size/physical-position
-  Panel/Popup bounds and hide-Panel → reveal-Popup → destroy-Panel handoff for
-  new and reused Popups.
-- Header drag uses the shared UI drag controller; closing hides the Panel before toolkit teardown and produces no extra visible frame.
+  Panel/Popup bounds and one native host across mount/replace/restore for new
+  and reused Popups.
+- Header drag uses the host-owned drag controller; closing or replacing content
+  produces no extra visible frame.
 - Multi-monitor and DPI placement; work-area collision/quadrant flip; cursor
   preservation.
 - Keyboard-only navigation, search, More/Esc behavior, disabled reason,
@@ -415,7 +415,7 @@ Privacy boundaries:
 |---|---|---|
 | M1 | Modifier-hold contract, entry catalog validation, action admission and recent policy tests. | Boundary/timer/config/accepted-step unit tests pass. |
 | M2 | Runtime source boundary, external-target activation port, explicit input target and atomic recent store. | No stale clipboard fallback; existing workflow/provider regression suite passes. |
-| M3 | Independent Panel UI under a feature flag. | Focus, DPI, keyboard, accessibility and lifecycle integration smoke pass. |
+| M3 | Panel and result views mounted in one `PrimarySurfaceHost`. | Focus, DPI, keyboard, accessibility and lifecycle integration smoke pass. |
 | M4 | Controlled daily-use enablement and observation. | No P0/P1 focus, clipboard, double-invoke or hotkey regressions; persistence failures observable. |
 
 Rollback is the feature flag or removal of the new entry command; existing direct

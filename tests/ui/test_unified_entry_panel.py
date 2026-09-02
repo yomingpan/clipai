@@ -12,6 +12,7 @@ from ClipAI.core.commands import (
 )
 from ClipAI.core.models import DisplayMetrics, EntryActionRef, EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
 from ClipAI.ui.base_dialog import ACTION_HOVER_COLOR
+from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
 from ClipAI.ui.unified_entry_panel import EntryPanelIntentAdapter, UnifiedEntryPanelDialog, _source_preview_text
 
 
@@ -33,12 +34,21 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
     master = ctk.CTk()
     master.withdraw()
     dialog = None
+    host = None
     try:
+        host = PrimarySurfaceHost(
+            master,
+            PrimarySurfaceSpec(PopupBounds(268, 220, 400, 320)),
+            NativeSurface(),
+        )
+        lease = host.acquire()
         dialog = UnifiedEntryPanelDialog(
             master,
             lambda _command: None,
             NativeSurface(),
             MetricsReader(),
+            primary_surface_host=host,
+            primary_surface_lease=lease,
         )
         snapshot = EntryPanelSnapshot(
             "panel-1",
@@ -51,7 +61,10 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
                 ),
             ),
         )
-        dialog.show(snapshot)
+        dialog.apply(snapshot)
+        assert host.mount(lease, dialog) is True
+        assert host.show(lease) is True
+        dialog.reveal()
         header = dialog._shell.winfo_children()[0]
         title_label = header.winfo_children()[0]
         master.update()
@@ -103,8 +116,8 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         assert divider.winfo_height() >= 2
         assert all(card.winfo_height() >= 48 for card in dialog._option_buttons)
     finally:
-        if dialog is not None:
-            dialog.close()
+        if host is not None:
+            host.close()
         try:
             master.destroy()
         except tk.TclError:
@@ -213,54 +226,25 @@ def test_projection_text_respects_density_and_keeps_disabled_reason() -> None:
     assert "AI 正在回答" in compact
 
 
-def test_show_places_a_panel_once_and_keeps_that_position_for_projection_updates() -> None:
-    class Window:
-        def __init__(self) -> None:
-            self.geometry_calls: list[str] = []
-
-        def geometry(self, value: str) -> None:
-            self.geometry_calls.append(value)
-
-        def update_idletasks(self) -> None:
-            pass
-
-        def winfo_id(self) -> int:
-            return 42
-
-        def deiconify(self) -> None:
-            pass
-
-    class NativeSurface:
-        def hide_from_task_switcher(self, _window_id: int) -> None:
-            pass
-
-    class Metrics:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def current(self) -> DisplayMetrics:
-            self.calls += 1
-            return DisplayMetrics(1.0, 0, 0, 1920, 1080, 400 + self.calls, 300)
+def test_show_never_changes_primary_host_geometry() -> None:
+    class Host:
+        def is_mounted(self, _lease) -> bool:
+            return True
 
     class Lifecycle:
         def focus(self, _target: object) -> None:
             pass
 
     dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
-    dialog._window = Window()
-    dialog._native_window_surface = NativeSurface()
-    dialog._display_metrics = Metrics()
+    dialog._primary_surface_host = Host()
+    dialog._primary_surface_lease = "lease"
     dialog._lifecycle = Lifecycle()
-    dialog._placed_panel_id = None
-    dialog.apply = lambda _snapshot: None
+    dialog._snapshot = None
+    dialog.apply = lambda snapshot: setattr(dialog, "_snapshot", snapshot)
     dialog._first_focus_target = lambda: None
 
     dialog.show(EntryPanelSnapshot("panel-1", "root"))
     dialog.show(EntryPanelSnapshot("panel-1", "root", density="compact"))
-
-    assert dialog._display_metrics.calls == 1
-    assert len(dialog._window.geometry_calls) == 1
-    assert dialog._window.geometry_calls == ["400x320+268+220"]
 
 
 def test_show_does_not_rebuild_an_unchanged_projection() -> None:
@@ -285,11 +269,17 @@ def test_show_does_not_rebuild_an_unchanged_projection() -> None:
         def focus(self, _target: object) -> None:
             pass
 
+    class Host:
+        def is_mounted(self, _lease) -> bool:
+            return True
+
     dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
     dialog._window = Window()
     dialog._native_window_surface = NativeSurface()
     dialog._display_metrics = object()
     dialog._lifecycle = Lifecycle()
+    dialog._primary_surface_host = Host()
+    dialog._primary_surface_lease = "lease"
     dialog._placed_panel_id = None
     dialog._snapshot = None
     applied = []
@@ -359,77 +349,18 @@ def test_preparing_projection_keeps_existing_option_widgets_alive() -> None:
     assert messages == ["Preparing input…"]
 
 
-def test_show_uses_an_existing_popup_as_the_exact_initial_bounds() -> None:
-    class Window:
-        def __init__(self) -> None:
-            self.geometry_calls: list[str] = []
-
-        def geometry(self, value: str) -> None:
-            self.geometry_calls.append(value)
-
-        def update_idletasks(self) -> None:
-            pass
-
-        def winfo_id(self) -> int:
-            return 42
-
-        def deiconify(self) -> None:
-            pass
-
-    class NativeSurface:
-        def hide_from_task_switcher(self, _window_id: int) -> None:
-            pass
-
-    class Lifecycle:
-        def focus(self, _target: object) -> None:
-            pass
+def test_current_bounds_is_projected_by_primary_host() -> None:
+    class Host:
+        def current_bounds(self):
+            return PopupBounds(135, 95, 440, 330)
 
     dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
-    dialog._window = Window()
-    dialog._native_window_surface = NativeSurface()
-    dialog._display_metrics = object()
-    dialog._lifecycle = Lifecycle()
-    dialog._placed_panel_id = None
-    dialog.apply = lambda _snapshot: None
-    dialog._first_focus_target = lambda: None
-
-    dialog.show(
-        EntryPanelSnapshot("panel-1", "root"),
-        anchor=PopupBounds(120, 80, 460, 350),
-    )
-
-    assert dialog._window.geometry_calls == ["460x350+120+80"]
-
-
-def test_current_bounds_capture_the_user_adjusted_panel_geometry() -> None:
-    class Window:
-        def update_idletasks(self) -> None:
-            pass
-
-        def geometry(self) -> str:
-            # CTk reverses window scaling for width/height here while keeping
-            # the screen position in physical pixels.
-            return "440x330+135+95"
-
-        def winfo_x(self) -> int:
-            return 135
-
-        def winfo_y(self) -> int:
-            return 95
-
-        def winfo_width(self) -> int:
-            return 660
-
-        def winfo_height(self) -> int:
-            return 495
-
-    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
-    dialog._window = Window()
+    dialog._primary_surface_host = Host()
 
     assert dialog.current_bounds() == PopupBounds(135, 95, 440, 330)
 
 
-def test_close_hides_panel_before_destroying_its_toolkit_lifecycle() -> None:
+def test_close_releases_projection_without_destroying_shared_host() -> None:
     events: list[str] = []
 
     class Window:
@@ -447,5 +378,5 @@ def test_close_hides_panel_before_destroying_its_toolkit_lifecycle() -> None:
 
     dialog.close()
 
-    assert events == ["hidden", "destroyed"]
+    assert events == []
     assert dialog._snapshot is None

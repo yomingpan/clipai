@@ -352,15 +352,15 @@ start work; existing provider/Workflow/input/Paste regression suites pass.
 
 ### M3 — Shared lifecycle and native UI
 
-11. `refactor: share popup visual tokens and owned-surface handoff`
+11. `refactor: introduce PrimarySurfaceHost for result Popup`
 
-    Extract only proven shared theme tokens and replace the Shortcut Guide's
-    presenter-specific hold fields with one owned-surface handoff contract.
-12. `feat: add unified entry panel surface behind flag`
+    Extract the native shell, mounted slot, bounds, DPI and drag lifecycle
+    without changing Workflow or `PopupControl` semantics.
+12. `feat: mount unified entry panel in primary surface`
 
-    Implement the independent shared-root Panel and config-driven rendering.
-    Add widget, focus, keyboard, search, tooltip, Esc, click-outside, layout and
-    no-empty-shell tests.
+    Implement config-driven Panel rendering as a replaceable view in the same
+    host. Add widget, focus, keyboard, search, tooltip, Esc, click-outside,
+    rollback, exact-bounds and no-empty-shell tests.
 13. `feat: compose unified entry panel runtime`
 
     Wire config, runtime module, hotkey command, UI projection and recent store
@@ -440,8 +440,8 @@ The next highest-value checks are:
 
 - whether the existing `PasteTarget` representation can be generalized without
   a compatibility alias;
-- whether shared owned-surface handoff can stay within `PopupControl`'s semantic
-  interface rather than introducing presenter state;
+- whether additional primary views can use `PrimarySurfaceHost` without
+  contaminating `PopupControl`'s Workflow actuation ownership;
 - initial multi-DPI width limits for the header and three recent buttons;
 - the user-facing disabled reasons available from provider, Personal Style and
   voice owners without creating a second availability matrix.

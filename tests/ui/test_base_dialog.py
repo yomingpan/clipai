@@ -8,7 +8,7 @@ import customtkinter as ctk
 import pytest
 from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
-import ClipAI.ui.base_dialog as base_dialog_module
+import ClipAI.ui.primary_surface as primary_surface_module
 
 from ClipAI.core.models import PasteTarget, PopupBounds
 from ClipAI.ui.base_dialog import (
@@ -576,18 +576,13 @@ def test_dialog_never_precalculates_physical_widget_dimensions() -> None:
     assert 'bind("<Configure>", self._on_canvas_configure' in source
 
 
-def test_dialog_initial_show_positions_and_resamples_while_withdrawn() -> None:
+def test_dialog_delegates_top_level_creation_geometry_and_dpi_to_primary_host() -> None:
     source = inspect.getsource(BaseDialog.__init__)
 
-    created = source.index("self.root =")
-    withdrawn = source.index("self.root.withdraw()")
-    positioned = source.index("self._position_window")
-    laid_out = source.index("self.root.update_idletasks()")
-    resampled = source.index("_resample_window_dpi_scaling(self.root)")
-    shown = source.index("self.root.deiconify()")
-
-    assert created < withdrawn < positioned < laid_out < resampled < shown
-    assert "self.root.update()" not in source
+    assert "CTkToplevel" not in source
+    assert "_resample_window_dpi_scaling" not in source
+    assert "primary_surface_host.window" in source
+    assert "primary_surface_host.mount" in source
 
 
 def test_window_dpi_resample_updates_cache_before_widget_callbacks(monkeypatch) -> None:
@@ -609,7 +604,7 @@ def test_window_dpi_resample_updates_cache_before_widget_callbacks(monkeypatch) 
         ),
     )
 
-    base_dialog_module._resample_window_dpi_scaling(window)
+    primary_surface_module.resample_window_dpi_scaling(window)
 
     assert ScalingTracker.window_dpi_scaling_dict[window] == 1.0
     assert observed_cache == [1.0]
@@ -634,7 +629,7 @@ def test_window_dpi_resample_rolls_back_cache_when_callback_fails(monkeypatch) -
     )
 
     with pytest.raises(RuntimeError, match="widget scaling failed"):
-        base_dialog_module._resample_window_dpi_scaling(window)
+        primary_surface_module.resample_window_dpi_scaling(window)
 
     assert ScalingTracker.window_dpi_scaling_dict[window] == 1.5
 

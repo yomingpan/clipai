@@ -16,7 +16,6 @@ from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, Pointer
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
-from ClipAI.ui.entry_panel_handoff import EntryPanelPopupHandoff
 from ClipAI.ui.popup_control import PopupControl, PopupControlRegistered, PopupControlShown, PopupForegroundPolled, PopupInsidePointerPressed, PopupOutsideFocusRequested, PopupOutsidePointerPressed, PopupOwnedDialogClosed, PopupOwnedDialogOpened, PopupProjectionContext, ToolkitFocusEntered
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease, PrimarySurfaceSpec
@@ -120,7 +119,6 @@ class ResultDialogPresenter:
         voice_projection: VoiceProjection | None = None,
         application_version: str = "development",
         github_url: str = "https://github.com/yomingpan/clipai",
-        use_primary_surface_host: bool = True,
     ) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
@@ -143,7 +141,6 @@ class ResultDialogPresenter:
         self._personal_styles_dialog: PersonalStylesDialog | None = None
         self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
         self._entry_panel_dialog: UnifiedEntryPanelDialog | None = None
-        self._entry_panel_handoff: EntryPanelPopupHandoff | None = None
         self._primary_entry_surface: _PrimaryEntrySurface | None = None
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
@@ -151,7 +148,6 @@ class ResultDialogPresenter:
         self._voice_projection = voice_projection
         self._application_version = application_version
         self._github_url = github_url
-        self._use_primary_surface_host = use_primary_surface_host
         self._about_dialog: AboutDialog | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
@@ -203,7 +199,6 @@ class ResultDialogPresenter:
 
     def present_entry_panel(self, snapshot: EntryPanelSnapshot | None) -> None:
         if snapshot is None:
-            self._entry_panel_handoff = None
             primary_entry = self._primary_entry_surface
             if primary_entry is not None:
                 if not primary_entry.host.restore(primary_entry.panel_lease):
@@ -223,65 +218,57 @@ class ResultDialogPresenter:
         self._hold_focus_for_owned_surface()
         anchor = self._owned_popup_bounds()
         if self._entry_panel_dialog is None:
-            if self._use_primary_surface_host:
-                held = self._shortcut_guide_focus_return
-                held_view = held[1] if held is not None else None
-                host = (
-                    held_view.dialog.primary_surface_host
-                    if held_view is not None
-                    else None
+            held = self._shortcut_guide_focus_return
+            held_view = held[1] if held is not None else None
+            host = (
+                held_view.dialog.primary_surface_host
+                if held_view is not None
+                else None
+            )
+            active_lease = (
+                held_view.dialog.primary_surface_lease
+                if held_view is not None
+                else None
+            )
+            if host is None or active_lease is None:
+                bounds = anchor or self._layout_policy.calculate(
+                    self._display_metrics.current()
                 )
-                active_lease = (
-                    held_view.dialog.primary_surface_lease
-                    if held_view is not None
-                    else None
-                )
-                if host is None or active_lease is None:
-                    bounds = anchor or self._layout_policy.calculate(
-                        self._display_metrics.current()
-                    )
-                    host = PrimarySurfaceHost(
-                        self._root,
-                        PrimarySurfaceSpec(bounds),
-                        self._native_window_surface,
-                    )
-                panel_lease = host.acquire()
-                dialog = UnifiedEntryPanelDialog(
+                host = PrimarySurfaceHost(
                     self._root,
-                    self._command_sink,
+                    PrimarySurfaceSpec(bounds),
                     self._native_window_surface,
-                    self._display_metrics,
-                    self._layout_policy,
-                    primary_surface_host=host,
-                    primary_surface_lease=panel_lease,
                 )
-                dialog.apply(snapshot)
-                mounted = (
-                    host.replace(active_lease, panel_lease, dialog)
-                    if active_lease is not None
-                    else host.mount(panel_lease, dialog)
-                )
-                if not mounted:
-                    host.close()
-                    self._restore_focus_after_owned_surface()
-                    return
-                self._entry_panel_dialog = dialog
-                self._primary_entry_surface = _PrimaryEntrySurface(
-                    dialog,
-                    host,
-                    panel_lease,
-                )
-                if active_lease is None:
-                    host.show(panel_lease)
-                dialog.reveal()
-                return
-            self._entry_panel_dialog = UnifiedEntryPanelDialog(
+            panel_lease = host.acquire()
+            dialog = UnifiedEntryPanelDialog(
                 self._root,
                 self._command_sink,
                 self._native_window_surface,
                 self._display_metrics,
                 self._layout_policy,
+                primary_surface_host=host,
+                primary_surface_lease=panel_lease,
             )
+            dialog.apply(snapshot)
+            mounted = (
+                host.replace(active_lease, panel_lease, dialog)
+                if active_lease is not None
+                else host.mount(panel_lease, dialog)
+            )
+            if not mounted:
+                host.close()
+                self._restore_focus_after_owned_surface()
+                return
+            self._entry_panel_dialog = dialog
+            self._primary_entry_surface = _PrimaryEntrySurface(
+                dialog,
+                host,
+                panel_lease,
+            )
+            if active_lease is None:
+                host.show(panel_lease)
+            dialog.reveal()
+            return
         self._entry_panel_dialog.show(snapshot, anchor=anchor)
 
     def transition_entry_panel_to_popup(
@@ -294,13 +281,8 @@ class ResultDialogPresenter:
         if dialog is None:
             return
         primary_entry = getattr(self, "_primary_entry_surface", None)
-        if primary_entry is not None:
-            if dialog.presents(panel_id):
-                primary_entry.workflow_id = workflow_id
-            return
-        handoff = EntryPanelPopupHandoff(dialog)
-        if handoff.begin(panel_id, workflow_id):
-            self._entry_panel_handoff = handoff
+        if primary_entry is not None and dialog.presents(panel_id):
+            primary_entry.workflow_id = workflow_id
 
     def show_provider_settings(self, state: ProviderSettingsState) -> None:
         if self._provider_settings_dialog is None:
@@ -514,7 +496,6 @@ class ResultDialogPresenter:
                 self._primary_entry_surface = None
             self._entry_panel_dialog.close()
             self._entry_panel_dialog = None
-        self._entry_panel_handoff = None
         try:
             self._root.quit()
         except tk.TclError:
@@ -610,16 +591,6 @@ class ResultDialogPresenter:
             and primary_entry.workflow_id == snapshot.session_id
             else None
         )
-        handoff = getattr(self, "_entry_panel_handoff", None)
-        preparation = (
-            handoff.prepare(
-                snapshot.session_id,
-                popup_exists=view is not None,
-            )
-            if handoff is not None
-            else None
-        )
-        transitioning = preparation is not None
         if view is None:
             if primary_transition is not None:
                 result_lease = primary_transition.host.acquire()
@@ -631,17 +602,10 @@ class ResultDialogPresenter:
                     primary_lease=result_lease,
                     mount_primary_content=False,
                 )
-            elif transitioning:
-                assert preparation is not None
-                view = self._create_view(
-                    snapshot.session_id,
-                    bounds=preparation.bounds,
-                    show_on_create=not preparation.create_withdrawn,
-                )
             else:
                 view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
-            if transitioning or primary_transition is not None:
+            if primary_transition is not None:
                 self._register_view(
                     snapshot.session_id,
                     view,
@@ -824,18 +788,6 @@ class ResultDialogPresenter:
                 primary_transition,
             )
             return
-        if transitioning:
-            assert handoff is not None
-            completion = handoff.complete(snapshot.session_id, view.dialog)
-            if completion.committed:
-                self._entry_panel_dialog = None
-                self._entry_panel_handoff = None
-                self._restore_focus_after_owned_surface()
-                if completion.popup_revealed:
-                    self._popup_control(snapshot.session_id, view).observe_focus(
-                        PopupControlShown()
-                    )
-                    self._schedule_initial_focus(snapshot.session_id, view)
 
     def _complete_primary_entry_transition(
         self,
@@ -1076,7 +1028,8 @@ class ResultDialogPresenter:
                 else None
             )
             bounds = self._layout_policy.calculate(metrics) if metrics is not None else None
-        if primary_host is None and bounds is not None and self._use_primary_surface_host:
+        if primary_host is None:
+            bounds = bounds or PopupBounds(20, 20, 400, 336)
             primary_host = PrimarySurfaceHost(
                 self._root,
                 PrimarySurfaceSpec(bounds),

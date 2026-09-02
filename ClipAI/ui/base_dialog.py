@@ -16,25 +16,11 @@ from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import popup_bounds_from_tk_geometry
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
-from ClipAI.ui.window_drag import WindowDragController
 
 DialogState = Literal["idle", "success", "error", "warning"]
 ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
 SOURCE_PREVIEW_MAX_CHARS = 36
 DISPLAY_BREAK_TAG = "display_break_hint"
-
-
-def _resample_window_dpi_scaling(window: tk.Misc) -> None:
-    """Refresh CustomTkinter's per-window scale after initial placement."""
-    previous_scaling = ScalingTracker.window_dpi_scaling_dict[window]
-    ScalingTracker.window_dpi_scaling_dict[window] = (
-        ScalingTracker.get_window_dpi_scaling(window)
-    )
-    try:
-        ScalingTracker.update_scaling_callbacks_for_window(window)
-    except Exception:
-        ScalingTracker.window_dpi_scaling_dict[window] = previous_scaling
-        raise
 
 
 @dataclass(frozen=True)
@@ -675,38 +661,15 @@ class BaseDialog:
         self._native_window_surface = native_window_surface
         self._primary_surface_host = primary_surface_host
         self._primary_surface_lease = primary_surface_lease
-        if (primary_surface_host is None) != (primary_surface_lease is None):
-            raise ValueError("primary surface host and lease must be provided together")
+        if primary_surface_host is None or primary_surface_lease is None:
+            raise ValueError("BaseDialog requires a primary surface host and lease")
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
         self._surface_inset = surface_inset
         self._corner_radius = corner_radius
         self._border_inset = max(1, surface_inset // 3)
 
         try:
-            if primary_surface_host is not None:
-                self.root = primary_surface_host.window
-            else:
-                self.root = ctk.CTkToplevel(master) if master is not None else ctk.CTk()
-                self.root.withdraw()
-                self.root.title(title)
-                self.root.geometry(f"{width}x{height}")
-                self.root.minsize(minimum_width or min(width, 320), minimum_height or min(height, 180))
-                self.root.configure(fg_color=background_color)
-                if frameless:
-                    self.root.overrideredirect(True)
-                if transparent_background:
-                    try:
-                        self.root.attributes("-transparentcolor", background_color)
-                    except Exception:
-                        pass
-                if topmost:
-                    self.root.attributes("-topmost", True)
-                if x is not None and y is not None:
-                    self.root.geometry(f"{width}x{height}+{x}+{y}")
-                else:
-                    self._position_window(width, height, position)
-                self.root.update_idletasks()
-                _resample_window_dpi_scaling(self.root)
+            self.root = primary_surface_host.window
 
             self.canvas = tk.Canvas(
                 self.root,
@@ -714,8 +677,6 @@ class BaseDialog:
                 highlightthickness=0,
                 bd=0,
             )
-            if primary_surface_host is None:
-                self.canvas.pack(fill="both", expand=True)
             self._painter = RoundedSurfacePainter(
                 self.canvas,
                 width=width,
@@ -740,20 +701,8 @@ class BaseDialog:
             self.canvas.bind("<Configure>", self._on_canvas_configure, add="+")
             self.main_frame = self.surface
 
-            self.lifecycle = (
-                primary_surface_host.lifecycle
-                if primary_surface_host is not None
-                else DialogLifecycle(
-                    self.root,
-                    owns_mainloop=master is None,
-                    window_activator=self._activate_native_window,
-                )
-            )
-            self._drag_controller = (
-                None
-                if primary_surface_host is not None
-                else WindowDragController(self.root)
-            )
+            self.lifecycle = primary_surface_host.lifecycle
+            self._drag_controller = None
             self._flash_controller = SurfaceFlashController(
                 colors=self._state_colors,
                 apply_color=self._painter.draw,
@@ -763,16 +712,11 @@ class BaseDialog:
             self.root.protocol("WM_DELETE_WINDOW", self.request_close)
             self.root.bind("<Escape>", lambda _event: self.request_close())
             self.enable_drag(self.canvas, self.surface)
-            if primary_surface_host is not None and mount_primary_content:
-                assert primary_surface_lease is not None
+            if mount_primary_content:
                 if not primary_surface_host.mount(primary_surface_lease, self):
                     raise RuntimeError("primary surface content could not be mounted")
                 if show_on_create:
                     primary_surface_host.show(primary_surface_lease)
-            elif show_on_create:
-                self.root.deiconify()
-            if hide_from_task_switcher and primary_surface_host is None:
-                self.root.after_idle(self._hide_from_task_switcher)
         except Exception:
             self._valid = False
             raise
@@ -1002,26 +946,6 @@ class BaseDialog:
             height=max(1, actual_height - surface_inset * 2),
         )
         self._flash_controller.redraw()
-
-    def _position_window(self, width: int, height: int, position: str) -> None:
-        self.root.update_idletasks()
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
-
-        if position == "cursor":
-            try:
-                pointer_x = self.root.winfo_pointerx()
-                pointer_y = self.root.winfo_pointery()
-                x = max(20, min(pointer_x - width // 3, screen_w - width - 20))
-                y = max(20, min(pointer_y - height // 4, screen_h - height - 40))
-            except tk.TclError:
-                x = max(20, (screen_w - width) // 2)
-                y = max(20, (screen_h - height) // 2)
-        else:
-            x = max(20, (screen_w - width) // 2)
-            y = max(20, (screen_h - height) // 2)
-
-        self.root.geometry(f"{width}x{height}+{x}+{y}")
 
     def run_dialog(self) -> None:
         self.lifecycle.run_dialog()

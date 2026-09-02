@@ -47,20 +47,18 @@ reads selection, clipboard or foreground state.
 
 The Panel closes only after `ActionStartAdmission.accepted`. A rejected or
 blocked admission keeps the same Panel and projects the authoritative reason.
-An accepted admission identifies its Workflow. Runtime requests a visual
-handoff with both Panel and Workflow identities; a stale or unrelated Popup
-projection cannot consume it.
+An accepted admission identifies its Workflow. Runtime registers a visual
+replacement with both Panel and Workflow identities before the first Workflow
+projection; a stale or unrelated projection cannot consume it.
 
-During that handoff, the Panel remains visible while a new Popup is constructed
-withdrawn at the Panel's actual outer bounds. UI then hides the Panel, reveals
-the completed Popup and destroys the Panel in the same turn, so the two surfaces
-never overlap visibly. Reveal failure restores the same Panel and keeps the
-handoff retryable. If admission reuses an existing Popup, UI updates it behind
-the Panel and closes the Panel without changing the Popup geometry. `PopupBounds`
-stores physical screen position with toolkit-logical width/height; physical
-widget dimensions must not be fed back as logical geometry. This is presentation
-actuation only and does not merge Panel navigation with `PopupControl` or
-Workflow state.
+`PrimarySurfaceHost` retains one native shell while the result view is built
+off-slot and then identity-matched into the mounted content slot. Mount failure
+keeps or restores the same Panel. If admission reuses an existing Popup, its
+unmounted view is updated and remounted without changing shell geometry.
+`PopupBounds` stores physical screen position with toolkit-logical width/height;
+physical widget dimensions must not be fed back as logical geometry. This is
+presentation actuation only and does not merge Panel navigation with
+`PopupControl` or Workflow state.
 
 ## Input source
 
@@ -120,11 +118,10 @@ Public tests exercise `EntryPanelCatalog`, `EntryPanelCoordinator`,
 `RecentActionHistory`, the typed runtime command seam, the hotkey listener and
 the UI projection/intent port. Open-time preparation tests prove source capture,
 frozen mode resolution, preview, retry and late-completion rejection. Identity,
-withdrawn preparation, commit order,
-rollback, retry and reused-Popup behavior are tested through the
-`EntryPanelPopupHandoff` interface; presenter tests retain only the integration
-needed to prove delegation from Workflow rendering. Runtime tests additionally
-prove handoff registration precedes the first visible Workflow projection and
+mount, replace, commit order, rollback, bounds and reused-Popup behavior are
+tested through the `PrimarySurfaceHost` interface; presenter tests retain only
+the integration needed to prove delegation from Workflow rendering. Runtime
+tests additionally prove replacement registration precedes the first visible Workflow projection and
 that post-capture target loss cannot admit clipboard fallback. Tests do not
 inspect private presenter transition state, private widget helpers, private
 runtime methods or internal state dictionaries.

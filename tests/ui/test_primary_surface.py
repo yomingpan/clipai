@@ -191,7 +191,6 @@ def test_result_presenter_builds_existing_popup_content_in_primary_host(monkeypa
     presenter._display_metrics = Metrics()
     presenter._layout_policy = Layout()
     presenter._native_window_surface = "native"
-    presenter._use_primary_surface_host = True
 
     presenter._create_view("workflow-1")
 
@@ -237,9 +236,7 @@ def test_entry_panel_replaces_and_restores_existing_result_in_same_host(monkeypa
     presenter._native_window_surface = "native"
     presenter._display_metrics = object()
     presenter._layout_policy = object()
-    presenter._use_primary_surface_host = True
     presenter._entry_panel_dialog = None
-    presenter._entry_panel_handoff = None
     presenter._primary_entry_surface = None
     held_view = _SessionView(ResultDialog(), object())
     presenter._shortcut_guide_focus_return = ("workflow-1", held_view)

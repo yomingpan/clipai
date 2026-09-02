@@ -46,15 +46,10 @@ def test_external_visibility_result_is_never_discarded_as_a_bare_expression() ->
     assert violations == [], "\n".join(violations)
 
 
-def test_entry_panel_handoff_does_not_restore_presenter_private_state_path() -> None:
+def test_entry_panel_transition_state_stays_inside_primary_surface_path() -> None:
     path = Path("ClipAI/ui/result_dialog.py")
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    forbidden = {
-        "_EntryPanelPopupTransition",
-        "_entry_panel_transition",
-        "_entry_panel_transition_bounds",
-        "_complete_entry_panel_transition",
-    }
+    forbidden = {"_entry_panel_handoff", "EntryPanelPopupHandoff"}
     violations: list[str] = []
     for node in ast.walk(tree):
         name = None
@@ -66,7 +61,7 @@ def test_entry_panel_handoff_does_not_restore_presenter_private_state_path() -> 
             name = node.id
         if name in forbidden:
             violations.append(
-                f"{path}:{getattr(node, 'lineno', 0)}: handoff state bypasses EntryPanelPopupHandoff"
+                f"{path}:{getattr(node, 'lineno', 0)}: legacy two-window handoff returned"
             )
     assert violations == [], "\n".join(violations)
 

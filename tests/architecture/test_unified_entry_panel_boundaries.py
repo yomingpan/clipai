@@ -64,3 +64,14 @@ def test_entry_panel_view_does_not_cross_semantic_or_actuation_boundaries() -> N
     )
 
     assert [value for value in forbidden if value in source] == []
+
+
+def test_only_primary_surface_host_creates_migrated_top_level_window() -> None:
+    host_source = Path("ClipAI/ui/primary_surface.py").read_text(encoding="utf-8")
+    result_source = Path("ClipAI/ui/base_dialog.py").read_text(encoding="utf-8")
+    entry_source = Path("ClipAI/ui/unified_entry_panel.py").read_text(encoding="utf-8")
+
+    assert "CTkToplevel" in host_source
+    assert "CTkToplevel" not in result_source
+    assert "CTkToplevel" not in entry_source
+    assert not Path("ClipAI/ui/entry_panel_handoff.py").exists()

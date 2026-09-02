@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted — implementation pending.
+Accepted — implemented.
+
+The migration landed incrementally: complete Alt coexistence, typed frozen
+input, open-time preparation, `PrimarySurfaceHost`, same-shell Entry/result
+replacement, centralized geometry/DPI/drag, Windows release gates, and removal
+of the legacy two-window handoff path.
 
 This ADR partially supersedes ADR-0012. It preserves ADR-0012's semantic
 ownership boundaries but replaces two decisions:

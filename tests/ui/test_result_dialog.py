@@ -1290,34 +1290,6 @@ def test_outside_pointer_press_closes_the_unified_entry_panel() -> None:
     assert panel.close_requests == 1
 
 
-def test_presenter_commits_reused_popup_handoff_after_render() -> None:
-    class EntryPanel:
-        def presents(self, panel_id: str) -> bool:
-            return panel_id == "panel-1"
-
-        def close(self) -> None:
-            events.append("panel:closed")
-
-    presenter, events = presenter_with_selection(None)
-    presenter._entry_panel_dialog = EntryPanel()
-    presenter.transition_entry_panel_to_popup("panel-1", "s1")
-    previous = SessionSnapshot(
-        "s1",
-        0,
-        SessionStatus.REQUESTING_PROVIDER,
-        "action",
-        "Action",
-        "model",
-        status_text="Loading",
-    )
-    presenter._views["s1"].revision = previous.revision
-    presenter._views["s1"].last_snapshot = previous
-
-    presenter._apply(replace(previous, revision=1))
-
-    assert "panel:closed" in events
-
-
 def test_dead_popup_emits_close_intent_before_view_is_evicted() -> None:
     presenter, events = presenter_with_selection(None)
     presenter._views["s1"].dialog.alive = False

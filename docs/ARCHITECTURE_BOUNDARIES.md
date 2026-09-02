@@ -57,18 +57,18 @@ tests/              # Unit sims 與 integration tests
   不得在 admission 時以目前 Foreground Workflow 取代來源 identity。UI 不得讀
   clipboard、native handle、provider 或 Workflow state，也不得從 render 或
   focus 推導 Action intent。
-- Entry Panel 到結果 Popup 的視覺交接必須同時帶 Panel lifecycle ID 與已接受的
-  Workflow ID。`ResultDialogPresenter` 只負責沿用 Panel 實際 bounds、withdrawn
-  build、同一 UI turn hide Panel → reveal Popup → destroy Panel；任一瞬間只能有一個
-  surface 可見，既有 Popup 不得重新定位。Bounds 的螢幕位置是 physical pixels，
-  CustomTkinter width/height 是 toolkit-logical units。不得由 Panel
-  close、focus、游標位置或任意 Workflow snapshot 猜測交接，也不得保留未具名的
-  「上一次 Panel 位置」供日後 Popup 使用。`EntryPanelPopupHandoff` 是 presenter
-  私有的 deep module，集中 identity matching、withdrawn preparation、commit、
-  rollback 與 retry；它不是第二個 presentation owner。
+- Entry Panel 到結果 Popup 的內容替換必須同時帶 Panel lifecycle ID 與已接受的
+  Workflow ID。`PrimarySurfaceHost` 是唯一 primary `CTkToplevel`、mounted-view
+  lease、bounds、DPI resample、drag、replace 與 rollback owner；Panel 與結果 view
+  只能 mount 在它的 content slot。替換前必須 off-slot build 完成，任一瞬間只能有
+  一個 mounted primary view，既有 Popup 不得重新定位。Bounds 的螢幕位置是
+  physical pixels，CustomTkinter width/height 是 toolkit-logical units。不得由 Panel
+  close、focus、游標位置或任意 Workflow snapshot 猜測替換，也不得建立第二個
+  primary Toplevel 或保留舊雙視窗 handoff state。
   `WorkflowRuntimeModule.start_action` 必須在任何 accepted visible Workflow 的
   第一個 projection（包含 `CREATED`）之前，執行呼叫端提供的 typed
-  pre-projection hook；Entry Panel 只能透過這個 seam 註冊 handoff，不得在
+  pre-projection hook；Entry Panel 只能透過這個 seam 註冊 identity-matched
+  primary-surface replacement，不得在
   `start_action` 返回後補註冊。
 - 最近使用由 `RecentActionHistory` 擁有，只接收 `WorkflowController` 已接受的
   successful step 所解析出的 `action_id + press_type`；不得由 provider completion、

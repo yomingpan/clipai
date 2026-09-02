@@ -27,9 +27,7 @@ from ClipAI.ui.base_dialog import (
     TC_FONT_FAMILY,
     _Tooltip,
 )
-from ClipAI.ui.dialog_lifecycle import DialogLifecycle
-from ClipAI.ui.window_drag import WindowDragController
-from ClipAI.ui.popup_layout import PopupLayoutPolicy, popup_bounds_from_tk_geometry
+from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
 
 
@@ -114,9 +112,7 @@ class UnifiedEntryPanelDialog:
         primary_surface_host: PrimarySurfaceHost | None = None,
         primary_surface_lease: PrimarySurfaceLease | None = None,
     ) -> None:
-        self._native_window_surface = native_window_surface
-        self._display_metrics = display_metrics
-        self._layout_policy = layout_policy or PopupLayoutPolicy()
+        del native_window_surface, display_metrics, layout_policy
         self._intent = EntryPanelIntentAdapter(command_sink)
         self._snapshot: EntryPanelSnapshot | None = None
         self._search_guard = False
@@ -127,42 +123,16 @@ class UnifiedEntryPanelDialog:
         self._message_row = 0
         self._primary_surface_host = primary_surface_host
         self._primary_surface_lease = primary_surface_lease
-        if (primary_surface_host is None) != (primary_surface_lease is None):
-            raise ValueError("primary surface host and lease must be provided together")
-
-        if primary_surface_host is not None:
-            self._window = primary_surface_host.window
-            self._lifecycle = primary_surface_host.lifecycle
-        else:
-            self._window = ctk.CTkToplevel(master)
-            self._window.withdraw()
-            self._window.title("ClipAI")
-            self._window.overrideredirect(True)
-            self._window.attributes("-topmost", True)
-            # Match the result Popup: Windows owns the real rounded outer edge.
-            self._window.configure(fg_color=_TRANSPARENT_WINDOW_BACKGROUND)
-            try:
-                self._window.attributes(
-                    "-transparentcolor",
-                    _TRANSPARENT_WINDOW_BACKGROUND,
-                )
-            except tk.TclError:
-                self._window.configure(fg_color=SURFACE_BG)
-            self._lifecycle = DialogLifecycle(
-                self._window,
-                owns_mainloop=False,
-                window_activator=lambda window: self._native_window_surface.activate(
-                    int(window.winfo_id())
-                ),
-            )
+        if primary_surface_host is None or primary_surface_lease is None:
+            raise ValueError("UnifiedEntryPanelDialog requires a primary surface host and lease")
+        self._window = primary_surface_host.window
+        self._lifecycle = primary_surface_host.lifecycle
         self._window.bind("<Escape>", self._on_escape, add="+")
         self._window.bind("<KeyPress>", self._on_key, add="+")
         self._window.bind("<FocusOut>", self._on_focus_out, add="+")
         self._window.bind("<Return>", self._on_enter, add="+")
         self._window.bind("<Down>", lambda event: self._move_focus(event, True), add="+")
         self._window.bind("<Up>", lambda event: self._move_focus(event, False), add="+")
-        if primary_surface_host is None:
-            self._window.protocol("WM_DELETE_WINDOW", self._intent.close)
 
         self._shell = ctk.CTkFrame(
             self._window,
@@ -171,8 +141,6 @@ class UnifiedEntryPanelDialog:
             border_color="#454545",
             fg_color=SURFACE_BG,
         )
-        if primary_surface_host is None:
-            self._shell.pack(fill="both", expand=True)
         self._shell.grid_columnconfigure(0, weight=1)
         self._shell.grid_rowconfigure(2, weight=1)
 
@@ -256,12 +224,8 @@ class UnifiedEntryPanelDialog:
         )
         self._body.grid(row=2, column=0, padx=14, pady=(0, 14), sticky="nsew")
         self._body.grid_columnconfigure(0, weight=1)
-        if primary_surface_host is not None:
-            self._drag_controller = None
-            primary_surface_host.bind_drag(header, title_label)
-        else:
-            self._drag_controller = WindowDragController(self._window)
-            self._drag_controller.bind(header, title_label)
+        self._drag_controller = None
+        primary_surface_host.bind_drag(header, title_label)
 
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
         self._snapshot = snapshot
@@ -292,54 +256,20 @@ class UnifiedEntryPanelDialog:
     ) -> None:
         if snapshot != getattr(self, "_snapshot", None):
             self.apply(snapshot)
-        if getattr(self, "_primary_surface_host", None) is not None:
-            if self.is_primary_content_mounted():
-                self._lifecycle.focus(self._first_focus_target())
-            return
-        if self._placed_panel_id != snapshot.panel_id:
-            layout_policy = getattr(self, "_layout_policy", None) or PopupLayoutPolicy()
-            bounds = anchor or layout_policy.calculate(
-                self._display_metrics.current()
-            )
-            self._window.geometry(
-                f"{bounds.width}x{bounds.height}+{bounds.x}+{bounds.y}"
-            )
-            self._placed_panel_id = snapshot.panel_id
-        self._window.update_idletasks()
-        self._native_window_surface.hide_from_task_switcher(int(self._window.winfo_id()))
-        self.reveal()
+        del anchor
+        if self.is_primary_content_mounted():
+            self._lifecycle.focus(self._first_focus_target())
 
     def hide(self) -> None:
-        if getattr(self, "_primary_surface_host", None) is not None:
-            self.unmount_primary_content()
-            return
-        try:
-            self._window.withdraw()
-        except tk.TclError:
-            pass
+        self.unmount_primary_content()
 
     def reveal(self) -> None:
-        if getattr(self, "_primary_surface_host", None) is not None:
-            if self.is_primary_content_mounted():
-                self._lifecycle.focus(self._first_focus_target())
-            return
-        try:
-            self._window.deiconify()
-        except tk.TclError:
-            return
-        self._lifecycle.focus(self._first_focus_target())
+        if self.is_primary_content_mounted():
+            self._lifecycle.focus(self._first_focus_target())
 
     def current_bounds(self) -> PopupBounds | None:
         """Capture the actual user-adjusted outer bounds for Popup handoff."""
-        if getattr(self, "_primary_surface_host", None) is not None:
-            return self._primary_surface_host.current_bounds()
-        try:
-            self._window.update_idletasks()
-            return popup_bounds_from_tk_geometry(
-                str(self._window.geometry())
-            )
-        except (AttributeError, TypeError, ValueError, tk.TclError):
-            return None
+        return self._primary_surface_host.current_bounds()
 
     def presents(self, panel_id: str) -> bool:
         snapshot = self._snapshot
@@ -347,9 +277,6 @@ class UnifiedEntryPanelDialog:
 
     def close(self) -> None:
         self._snapshot = None
-        if getattr(self, "_primary_surface_host", None) is None:
-            self.hide()
-            self._lifecycle.close()
 
     @property
     def primary_surface_host(self) -> PrimarySurfaceHost | None:

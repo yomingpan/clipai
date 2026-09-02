@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
-from ClipAI.core.models import ActionFeedbackContract, FeedbackReason
+from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, PopupBounds
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
+from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
 
 
 COLORS = {
@@ -19,6 +20,14 @@ class MockBaseDialogSurface:
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
 
+        self.root = ctk.CTk()
+        self.root.withdraw()
+        self.host = PrimarySurfaceHost(
+            self.root,
+            PrimarySurfaceSpec(PopupBounds(100, 100, 400, 420)),
+            None,
+        )
+        lease = self.host.acquire()
         self.dialog = BaseDialog(
             title="ClipAI",
             width=400,
@@ -31,6 +40,9 @@ class MockBaseDialogSurface:
             transparent_background=True,
             surface_inset=8,
             corner_radius=18,
+            master=self.root,
+            primary_surface_host=self.host,
+            primary_surface_lease=lease,
         )
         self.surface = BaseResultSurface(self.dialog)
         self.feedback_contract = ActionFeedbackContract(
