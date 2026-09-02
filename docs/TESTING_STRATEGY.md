@@ -360,6 +360,10 @@ Recipe 回饋與使用引導應測：
   typed Workflow admission，以及 multi-monitor/DPI、IME、top-row/numpad 與 cursor
   preservation。20 ms sampling 必須證明 transition 沒有 visible gap、第二個 primary
   surface 或 blank frame。UI thread 不得執行 provider 或 blocking selection work。
+- External target activation sims 必須驗證首次 Win32 focus request 被暫時拒絕時，
+  仍在同一 target 與既有 deadline 內重試；deadline 後維持 fail-closed，且不得替換
+  foreground target。共用 Windows activation primitive 必須驗證 foreground 與 target
+  input queue 都會 identity-scoped attach 並在完成後反向 detach。
 
 ## Marker 規則
 

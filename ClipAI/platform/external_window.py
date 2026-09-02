@@ -14,6 +14,7 @@ from ClipAI.core.models import (
 )
 from ClipAI.core.state import CancellationToken
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_modifier_is_pressed
+from ClipAI.platform.window_activation import activate_top_level_window
 
 
 _MESSAGES = {
@@ -63,20 +64,29 @@ class SystemExternalWindowActivator:
         _raise_if_cancelled(cancellation)
         if not self._target_is_valid(target):
             return _outcome("target_gone")
-        if not self._activate_target(target) and not self._target_is_foreground(target):
-            return _outcome("target_refused_focus")
         activation_deadline = time.monotonic() + self._target_activation_timeout_sec
-        while not self._target_is_foreground(target):
+        request_was_accepted = False
+        while True:
             _raise_if_cancelled(cancellation)
+            request_was_accepted = self._activate_target(target) or request_was_accepted
+            if self._target_is_foreground(target):
+                break
             if time.monotonic() >= activation_deadline:
-                return _outcome("target_focus_timeout")
+                return _outcome(
+                    "target_focus_timeout"
+                    if request_was_accepted
+                    else "target_refused_focus"
+                )
             self._wait(self._poll_sec)
             _raise_if_cancelled(cancellation)
             if time.monotonic() >= activation_deadline:
-                return _outcome("target_focus_timeout")
+                return _outcome(
+                    "target_focus_timeout"
+                    if request_was_accepted
+                    else "target_refused_focus"
+                )
             if not self._target_is_valid(target):
                 return _outcome("target_changed")
-            self._activate_target(target)
         _raise_if_cancelled(cancellation)
         confirmation = self.confirm(target)
         _raise_if_cancelled(cancellation)
@@ -113,7 +123,11 @@ def activate_windows_target(target: ExternalWindowTarget) -> bool:
     if handle is None:
         return False
     try:
-        return bool(ctypes.windll.user32.SetForegroundWindow(handle))
+        return activate_top_level_window(
+            handle,
+            user32=ctypes.windll.user32,
+            kernel32=ctypes.windll.kernel32,
+        )
     except (AttributeError, OSError, TypeError, ValueError):
         return False
 

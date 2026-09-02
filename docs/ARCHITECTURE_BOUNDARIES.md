@@ -156,6 +156,12 @@ window icon handle。UI 只傳 toolkit child id；top-level native handle 的解
 外拋出 native failure。Pointer press 同樣由 platform adapter 透過
 `PointerPressReader` 注入。
 
+Windows top-level foreground activation 的 thread-input attachment、bring-to-top、
+activation 與 ownership verification 由 `platform.window_activation` 單一 primitive
+實作。`NativeWindowSurface` 負責解析 ClipAI toolkit shell，
+`ExternalWindowActivator` 負責驗證精確外部 HWND/PID 與有界重試；兩者不得各自複製
+另一套 `AttachThreadInput`／`SetForegroundWindow` 流程。
+
 不得放入：
 
 - Prompt 決策。

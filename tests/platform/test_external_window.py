@@ -48,6 +48,7 @@ def test_external_window_activator_reports_focus_refusal_without_substitution() 
     target = ExternalWindowRef("hwnd:2a", 42, 7)
     activator = SystemExternalWindowActivator(
         modifier_is_pressed=lambda _modifier: False,
+        target_activation_timeout_sec=0,
         target_is_valid=lambda candidate: candidate == target,
         activate_target=lambda _candidate: False,
         target_is_foreground=lambda _candidate: False,
@@ -58,6 +59,40 @@ def test_external_window_activator_reports_focus_refusal_without_substitution() 
 
     assert outcome.state == "target_refused_focus"
     assert "original window" in outcome.message.lower()
+
+
+def test_external_window_activator_retries_a_transient_initial_focus_refusal(
+    monkeypatch,
+) -> None:
+    target = ExternalWindowRef("hwnd:2a", 42, 7)
+    attempts = 0
+    clock = {"now": 0.0}
+
+    def activate(_candidate: ExternalWindowRef) -> bool:
+        nonlocal attempts
+        attempts += 1
+        return attempts >= 2
+
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _modifier: False,
+        target_activation_timeout_sec=0.05,
+        poll_sec=0.01,
+        wait=lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
+        target_is_valid=lambda candidate: candidate == target,
+        activate_target=activate,
+        target_is_foreground=(
+            lambda candidate: candidate == target and attempts >= 2
+        ),
+    )
+    monkeypatch.setattr(
+        "ClipAI.platform.external_window.time.monotonic",
+        lambda: clock["now"],
+    )
+
+    outcome = activator.activate(target, CancellationToken())
+
+    assert outcome.state == "activated"
+    assert attempts == 2
 
 
 def test_external_window_activator_retries_an_accepted_focus_request(monkeypatch) -> None:
