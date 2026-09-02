@@ -287,6 +287,28 @@ class Surface:
                 kwargs.get("command", button.command),
             ),
         })()
+        self._last_model = None
+        self._feedback_submit = None
+
+    render = BaseResultSurface.render
+
+    def set_pinned_state(self, pinned: bool) -> None:
+        self.pinned = pinned
+
+    def set_title(self, title: str) -> None:
+        self.title = title
+
+    def set_source_preview(self, source_preview: str) -> None:
+        self.source_preview = source_preview
+
+    def set_model(self, model: str) -> None:
+        self.model = model
+
+    def set_back_available(self, enabled: bool) -> None:
+        self.back_available = enabled
+
+    def set_available_actions(self, enabled_actions: tuple[str, ...]) -> None:
+        self.enabled_actions = enabled_actions
 
     def selected_text(self) -> str | None:
         return self.selected
@@ -398,6 +420,19 @@ def presenter_with_selection(selected: str | None):
     presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
     presenter._views = {"s1": _SessionView(Dialog(events), Surface(selected, events))}
     presenter._command_sink = lambda command: events.append(command)
+    view = presenter._views["s1"]
+    view.surface._feedback_submit = (
+        lambda outcome, reason, note, save_case, rendered=view: presenter._submit_feedback(
+            "s1",
+            rendered.step_id,
+            outcome,
+            reason,
+            note,
+            save_case,
+        )
+        if rendered.step_id is not None
+        else None
+    )
     presenter._paste_target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
     presenter._paste_target_updates = queue.Queue()
     presenter._shortcut_guide_focus_hold_active = False

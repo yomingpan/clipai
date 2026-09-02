@@ -10,7 +10,8 @@ from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
 import ClipAI.ui.primary_surface as primary_surface_module
 
-from ClipAI.core.models import PasteTarget, PopupBounds
+from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, PasteTarget, PopupBounds
+from ClipAI.core.popup_presentation import PopupFeedbackModel, PopupPresentationModel
 from ClipAI.ui.base_dialog import (
     ACTION_ICON_FONT_FAMILY,
     ACTION_COLOR,
@@ -1542,6 +1543,90 @@ def test_standard_result_action_active_styles_are_semantic() -> None:
         "hover_color": ACTION_HOVER_COLOR,
         "text_color": CONTENT_COLOR,
     }
+
+
+def test_popup_render_is_the_content_free_field_group_projection_seam() -> None:
+    events: list[object] = []
+    contract = ActionFeedbackContract(
+        "AI helps",
+        "AI does not decide",
+        (FeedbackReason("other", "Other"),),
+    )
+    feedback = PopupFeedbackModel("step-1", contract, "idle", "")
+    model = PopupPresentationModel(
+        title="Action",
+        model="model",
+        source_preview="Selection",
+        pinned=True,
+        back=True,
+        contract=contract,
+        input_source="selection",
+        guidance=True,
+        enabled_actions=("copy", "archive"),
+        speaking=True,
+        feedback=feedback,
+    )
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface._last_model = None
+    surface._feedback_submit = lambda *_args: None
+    surface.set_pinned_state = lambda value: events.append(("pinned", value))
+    surface.set_title = lambda value: events.append(("title", value))
+    surface.set_source_preview = lambda value: events.append(("source", value))
+    surface.set_model = lambda value: events.append(("model", value))
+    surface.set_back_available = lambda value: events.append(("back", value))
+    surface.configure_action_contract = lambda value, source: events.append(("contract", value, source))
+    surface.set_available_actions = lambda value: events.append(("actions", value))
+    surface.set_speaker_active = lambda value: events.append(("speaking", value))
+    surface.show_action_guidance_hint = lambda: events.append("guidance")
+    surface.configure_feedback = lambda value, state, message, callback: events.append(("feedback", value, state, message, callback is not None))
+    surface.hide_feedback = lambda: events.append("feedback:hidden")
+
+    surface.render(model)
+    surface.render(model)
+
+    assert events == [
+        ("pinned", True),
+        ("title", "Action"),
+        ("source", "Selection"),
+        ("model", "model"),
+        ("back", True),
+        ("contract", contract, "selection"),
+        ("actions", ("copy", "archive")),
+        ("speaking", True),
+        ("feedback", contract, "idle", "", True),
+        "guidance",
+    ]
+
+
+def test_baseline_action_refresh_cannot_override_popup_control_operation_gate() -> None:
+    class Button:
+        def __init__(self) -> None:
+            self.state = "normal"
+
+        def configure(self, **kwargs) -> None:
+            if "state" in kwargs:
+                self.state = kwargs["state"]
+
+    class Surface:
+        def __init__(self) -> None:
+            self.dialog = type("Dialog", (), {"lifecycle": object()})()
+
+        def add_action_slot(self, *args, **kwargs):
+            return Button()
+
+        def set_action_tooltip(self, _slot_id, _text):
+            pass
+
+    actions = StandardResultActions(Surface())
+    actions.configure(on_copy=lambda: None)
+    actions.set_enabled("copy", False)
+
+    actions.set_available(("copy", "archive"))
+
+    assert actions._buttons["copy"].state == "disabled"
+    actions.set_enabled("copy", True)
+    assert actions._buttons["copy"].state == "normal"
+    assert actions._buttons["archive"].state == "disabled"
 
 
 def test_repeated_action_pulse_restarts_feedback_timer() -> None:

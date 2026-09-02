@@ -13,6 +13,7 @@ import customtkinter as ctk
 from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
 from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
+from ClipAI.core.popup_presentation import project_popup_presentation
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
@@ -623,34 +624,19 @@ class ResultDialogPresenter:
         view.revision = snapshot.revision
         previous_step_id = view.step_id
         view.content = snapshot.content
-        if snapshot.displayed_step_index >= 0:
-            view.step_id = snapshot.steps[snapshot.displayed_step_index].step_id
+        view.step_id = _displayed_step_id(snapshot)
         if previous_step_id is not None and view.step_id != previous_step_id:
             view.surface.close_feedback_overlay()
-        if patch.header:
-            view.surface.set_pinned_state(snapshot.pinned)
-            view.surface.set_title(snapshot.title)
-            view.surface.set_source_preview(snapshot.source_preview)
-            view.surface.set_model(snapshot.model)
-            self._project_popup_context(snapshot.session_id, view)
-            view.surface.configure_action_contract(snapshot.action_feedback_contract, snapshot.input_source)
         guidance_key = view.step_id or ""
-        if snapshot.status == SessionStatus.COMPLETED and snapshot.show_guidance_hint and guidance_key not in view.shown_guidance_keys:
+        popup_model = project_popup_presentation(
+            snapshot,
+            guidance_already_shown=guidance_key in view.shown_guidance_keys,
+        )
+        view.surface.render(popup_model)
+        if popup_model.guidance:
             view.shown_guidance_keys.add(guidance_key)
-            view.surface.show_action_guidance_hint()
-        if previous is None:
-            view.surface.close_button.configure(
-                command=lambda sid=snapshot.session_id: self._request_close(sid)
-            )
-            view.surface.pin_button.configure(
-                command=lambda sid=snapshot.session_id: self._toggle_pin(sid)
-            )
         if patch.header:
-            view.surface.configure_back_action(
-                (lambda sid=snapshot.session_id: self._navigate_back(sid))
-                if snapshot.can_navigate_back
-                else None
-            )
+            self._project_popup_context(snapshot.session_id, view)
         content_key = _content_render_key(snapshot)
         content_changed = patch.content
         if snapshot.status == SessionStatus.VOICE_REVIEW:
@@ -697,7 +683,6 @@ class ResultDialogPresenter:
                         view.surface.append_content_text(snapshot.content[len(previous.content):], "body")
                     else:
                         view.surface.set_content_chunks([(snapshot.content, "body")])
-                    view.surface.set_source_preview(f"Failed: {snapshot.error}")
                 else:
                     view.surface.set_content_chunks([(snapshot.error, "body")])
         elif snapshot.status in {SessionStatus.COMPLETED, SessionStatus.STOPPED}:
@@ -726,19 +711,10 @@ class ResultDialogPresenter:
                         view.surface.append_content_text(snapshot.content[len(previous.content):], "body")
                     else:
                         view.surface.set_content_chunks([(snapshot.content, "body")])
-                    view.surface.set_source_preview(snapshot.status_text)
                 else:
                     view.surface.set_loading(snapshot.status_text)
         if content_changed:
             view.rendered_content_key = content_key
-        if patch.actions:
-            view.surface.configure_standard_actions(
-                on_speak=(lambda sid=snapshot.session_id: self._toggle_speech(sid)) if "speaker" in snapshot.available_actions else None,
-                on_copy=(lambda sid=snapshot.session_id: self._copy(sid)) if "copy" in snapshot.available_actions else None,
-                on_paste=(lambda sid=snapshot.session_id: self._paste(sid)) if "paste" in snapshot.available_actions else None,
-                on_archive=(lambda sid=snapshot.session_id: self._archive(sid)) if "archive" in snapshot.available_actions else None,
-                on_follow_up=(lambda sid=snapshot.session_id: self._toggle_follow_up(sid)) if "follow_up" in snapshot.available_actions and snapshot.status is not SessionStatus.CONTEXT_QUESTION else None,
-            )
         if (
             snapshot.question_composer_revision
             and (
@@ -761,19 +737,6 @@ class ResultDialogPresenter:
             view.surface.set_follow_up_active(True)
         self._configure_voice_control(snapshot, view)
         view.speaking = snapshot.speaking
-        if patch.visual_state:
-            view.surface.set_speaker_active(snapshot.speaking)
-        if patch.feedback and snapshot.status == SessionStatus.COMPLETED and snapshot.action_feedback_contract is not None and view.step_id is not None:
-            view.surface.configure_feedback(
-                snapshot.action_feedback_contract,
-                snapshot.feedback_state,
-                snapshot.feedback_message,
-                lambda outcome, reason, note, save_case, sid=snapshot.session_id, step=view.step_id: self._submit_feedback(
-                    sid, step, outcome, reason, note, save_case
-                ),
-            )
-        elif patch.feedback:
-            view.surface.hide_feedback()
         if (
             previous is not None
             and previous.status in {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING}
@@ -1060,10 +1023,40 @@ class ResultDialogPresenter:
             mount_primary_content=mount_primary_content,
         )
         surface = BaseResultSurface(dialog)
-        surface.configure_standard_actions()
+        view = _SessionView(dialog=dialog, surface=surface)
+        surface.close_button.configure(
+            command=lambda sid=session_id: self._request_close(sid)
+        )
+        surface.pin_button.configure(
+            command=lambda sid=session_id: self._toggle_pin(sid)
+        )
+        surface.bind_back_action(
+            lambda sid=session_id: self._navigate_back(sid)
+        )
+        surface.configure_standard_actions(
+            on_speak=lambda sid=session_id: self._toggle_speech(sid),
+            on_copy=lambda sid=session_id: self._copy(sid),
+            on_paste=lambda sid=session_id: self._paste(sid),
+            on_archive=lambda sid=session_id: self._archive(sid),
+            on_follow_up=lambda sid=session_id: self._toggle_follow_up(sid),
+        )
+        surface.bind_feedback_submit(
+            lambda outcome, reason, note, save_case, sid=session_id, rendered=view: (
+                self._submit_feedback(
+                    sid,
+                    rendered.step_id,
+                    outcome,
+                    reason,
+                    note,
+                    save_case,
+                )
+                if rendered.step_id is not None
+                else None
+            )
+        )
         if primary_host is not None and show_on_create:
             dialog.show()
-        return _SessionView(dialog=dialog, surface=surface)
+        return view
 
     def _configure_voice_control(self, snapshot: SessionSnapshot, view: _SessionView) -> None:
         global_projection = getattr(self, "_voice_projection", None)

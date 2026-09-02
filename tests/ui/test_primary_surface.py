@@ -180,8 +180,14 @@ def test_result_presenter_builds_existing_popup_content_in_primary_host(monkeypa
     class Surface:
         def __init__(self, dialog):
             events.append(("surface", dialog))
-        def configure_standard_actions(self):
+            self.close_button = type("Button", (), {"configure": lambda _self, **_kwargs: events.append("close-bound")})()
+            self.pin_button = type("Button", (), {"configure": lambda _self, **_kwargs: events.append("pin-bound")})()
+        def bind_back_action(self, _callback):
+            events.append("back-bound")
+        def configure_standard_actions(self, **_callbacks):
             events.append("actions")
+        def bind_feedback_submit(self, _callback):
+            events.append("feedback-bound")
 
     monkeypatch.setattr("ClipAI.ui.result_dialog.PrimarySurfaceHost", Host)
     monkeypatch.setattr("ClipAI.ui.result_dialog.BaseDialog", Dialog)

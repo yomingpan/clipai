@@ -10,6 +10,7 @@ import customtkinter as ctk
 from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PopupBounds, PresentationDocument
+from ClipAI.core.popup_presentation import PopupPresentationModel
 from ClipAI.core.ports import NativeWindowSurface
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
@@ -1090,11 +1091,32 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
 )
 
 
+def _popup_header_group(model: PopupPresentationModel) -> tuple[object, ...]:
+    return (
+        model.title,
+        model.model,
+        model.source_preview,
+        model.pinned,
+        model.back,
+        model.contract,
+        model.input_source,
+    )
+
+
 class StandardResultActions:
     def __init__(self, surface: BaseResultSurface) -> None:
         self._surface = surface
         self._specs = {spec.slot_id: spec for spec in STANDARD_RESULT_ACTIONS}
         self._pulse_jobs: dict[ResultActionId, str] = {}
+        self._baseline_enabled = {
+            spec.slot_id: False for spec in STANDARD_RESULT_ACTIONS
+        }
+        self._operation_enabled = {
+            spec.slot_id: True for spec in STANDARD_RESULT_ACTIONS
+        }
+        self._has_command = {
+            spec.slot_id: False for spec in STANDARD_RESULT_ACTIONS
+        }
         self._buttons = {
             spec.slot_id: surface.add_action_slot(
                 spec.slot_id,
@@ -1146,11 +1168,28 @@ class StandardResultActions:
         self._surface.dialog.lifecycle.schedule(duration_ms, lambda: self._set_active(slot_id, False))
 
     def set_enabled(self, slot_id: ResultActionId, enabled: bool) -> None:
-        self._buttons[slot_id].configure(state="normal" if enabled else "disabled")
+        self._operation_enabled[slot_id] = enabled
+        self._apply_enabled(slot_id)
+
+    def set_available(self, enabled_actions: tuple[str, ...]) -> None:
+        available = frozenset(enabled_actions)
+        for slot_id in self._buttons:
+            self._baseline_enabled[slot_id] = slot_id in available
+            self._apply_enabled(slot_id)
 
     def _set_command(self, slot_id: ResultActionId, command: Callable[[], None] | None) -> None:
         self._buttons[slot_id].configure(command=command)
-        self.set_enabled(slot_id, command is not None)
+        self._has_command[slot_id] = command is not None
+        self._baseline_enabled[slot_id] = command is not None
+        self._apply_enabled(slot_id)
+
+    def _apply_enabled(self, slot_id: ResultActionId) -> None:
+        enabled = (
+            self._has_command[slot_id]
+            and self._baseline_enabled[slot_id]
+            and self._operation_enabled[slot_id]
+        )
+        self._buttons[slot_id].configure(state="normal" if enabled else "disabled")
 
     def _set_active(self, slot_id: ResultActionId, active: bool) -> None:
         spec = self._specs[slot_id]
@@ -1186,6 +1225,7 @@ class BaseResultSurface:
         self.follow_up_visible = False
         self.overflow_expanded = False
         self._feedback_submit: Callable[[FeedbackOutcome, str, str, bool], None] | None = None
+        self._feedback_available = False
         self._feedback_state: FeedbackOperationState = "idle"
         self._feedback_overlay_open = False
         self._feedback_contract: ActionFeedbackContract | None = None
@@ -1195,7 +1235,36 @@ class BaseResultSurface:
         self._action_message_job: str | None = None
         self._action_message_revision = 0
         self._rendered_pinned_state: bool | None = None
+        self._last_model: PopupPresentationModel | None = None
         self._build()
+
+    def render(self, model: PopupPresentationModel) -> None:
+        """Render the content-free Popup model through field-group diffs."""
+        previous = self._last_model
+        if previous is None or _popup_header_group(previous) != _popup_header_group(model):
+            self.set_pinned_state(model.pinned)
+            self.set_title(model.title)
+            self.set_source_preview(model.source_preview)
+            self.set_model(model.model)
+            self.set_back_available(model.back)
+            self.configure_action_contract(model.contract, model.input_source)
+        if previous is None or previous.enabled_actions != model.enabled_actions:
+            self.set_available_actions(model.enabled_actions)
+        if previous is None or previous.speaking != model.speaking:
+            self.set_speaker_active(model.speaking)
+        if previous is None or previous.feedback != model.feedback:
+            if model.feedback is None:
+                self.hide_feedback()
+            else:
+                self.configure_feedback(
+                    model.feedback.contract,
+                    model.feedback.state,
+                    model.feedback.message,
+                    self._feedback_submit,
+                )
+        if model.guidance and (previous is None or not previous.guidance):
+            self.show_action_guidance_hint()
+        self._last_model = model
 
     def _build(self) -> None:
         self.header = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
@@ -1601,6 +1670,7 @@ class BaseResultSurface:
         if contract is None or on_submit is None:
             self.hide_feedback()
             return
+        self._feedback_available = True
         self._feedback_submit = on_submit
         self._feedback_contract = contract
         self._feedback_state = state
@@ -1641,13 +1711,19 @@ class BaseResultSurface:
                     self.dialog.lifecycle.cancel(self._feedback_success_job)
                 self._feedback_success_job = self.dialog.lifecycle.schedule(700, self.close_feedback_overlay)
 
+    def bind_feedback_submit(
+        self,
+        callback: Callable[[FeedbackOutcome, str, str, bool], None],
+    ) -> None:
+        self._feedback_submit = callback
+
     def hide_feedback(self) -> None:
         self.close_feedback_overlay()
-        self._feedback_submit = None
+        self._feedback_available = False
         self._feedback_state = "idle"
 
     def toggle_feedback_overlay(self) -> bool:
-        if self._feedback_submit is None:
+        if not self._feedback_available or self._feedback_submit is None:
             return False
         if self._feedback_state == "succeeded":
             self.show_action_message("已記錄回饋")
@@ -1740,6 +1816,9 @@ class BaseResultSurface:
             on_follow_up=on_follow_up,
         )
 
+    def set_available_actions(self, enabled_actions: tuple[str, ...]) -> None:
+        self.standard_actions.set_available(enabled_actions)
+
     def configure_voice_action(
         self,
         *,
@@ -1772,12 +1851,20 @@ class BaseResultSurface:
     def set_follow_up_send_enabled(self, enabled: bool) -> None:
         self.follow_send_button.configure(state="normal" if enabled else "disabled")
 
-    def configure_back_action(self, command: Callable[[], None] | None) -> None:
-        self._back_button.configure(command=command, state="normal" if command is not None else "disabled")
-        if command is None:
+    def bind_back_action(self, command: Callable[[], None]) -> None:
+        self._back_button.configure(command=command)
+
+    def set_back_available(self, enabled: bool) -> None:
+        self._back_button.configure(state="normal" if enabled else "disabled")
+        if not enabled:
             self._back_button.pack_forget()
         elif not self._back_button.winfo_manager():
             self._back_button.pack(side="left", padx=(0, 5), before=self.standard_actions._buttons["speaker"])
+
+    def configure_back_action(self, command: Callable[[], None] | None) -> None:
+        if command is not None:
+            self.bind_back_action(command)
+        self.set_back_available(command is not None)
 
     def bind_back_shortcut(self, callback: Callable[[object], str]) -> None:
         self.content_text.bind("<Control-z>", callback, add="+")
