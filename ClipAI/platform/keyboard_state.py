@@ -25,6 +25,12 @@ def windows_key_is_pressed(token: str) -> bool | None:
     try:
         import ctypes
 
+        from ClipAI.platform.win32_api import configure_win32_api
+
+        configure_win32_api(
+            ctypes.windll.user32,
+            getattr(ctypes.windll, "kernel32", None),
+        )
         return any(
             bool(ctypes.windll.user32.GetAsyncKeyState(virtual_key) & 0x8000)
             for virtual_key in virtual_keys

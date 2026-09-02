@@ -5,8 +5,10 @@ import ctypes
 from pathlib import Path
 import os
 import threading
+from typing import Any
 
 from ClipAI.core.models import PasteTarget
+from ClipAI.platform.win32_api import WinEventProc, configure_win32_api
 
 
 EVENT_SYSTEM_FOREGROUND = 0x0003
@@ -29,21 +31,14 @@ class WindowsForegroundWindowMonitor:
     ) -> None:
         self._callback = callback
         self._user32 = user32 or ctypes.windll.user32
+        windll = getattr(ctypes, "windll", None)
+        configure_win32_api(self._user32, getattr(windll, "kernel32", None))
         self._read_target = read_target or _read_windows_target
         self._process_id = os.getpid() if process_id is None else process_id
         self._is_owned_process = is_owned_process
-        self._callback_factory = callback_factory or ctypes.WINFUNCTYPE(
-            None,
-            ctypes.c_void_p,
-            ctypes.c_ulong,
-            ctypes.c_void_p,
-            ctypes.c_long,
-            ctypes.c_long,
-            ctypes.c_ulong,
-            ctypes.c_ulong,
-        )
-        self._hook = None
-        self._callback_ref = None
+        self._callback_factory = callback_factory or WinEventProc
+        self._hook: Any | None = None
+        self._callback_ref: Any | None = None
         self._sequence = 0
         self._lock = threading.Lock()
 
@@ -76,13 +71,15 @@ class WindowsForegroundWindowMonitor:
 
     def stop(self) -> None:
         hook = self._hook
-        self._hook = None
-        if hook is not None:
-            try:
-                self._user32.UnhookWinEvent(hook)
-            except (AttributeError, OSError, TypeError, ValueError):
-                pass
-        self._callback_ref = None
+        if hook is None:
+            return
+        try:
+            unhooked = bool(self._user32.UnhookWinEvent(hook))
+        except (AttributeError, OSError, TypeError, ValueError):
+            unhooked = False
+        if unhooked:
+            self._hook = None
+            self._callback_ref = None
 
     def _on_foreground_event(
         self,
@@ -124,6 +121,7 @@ class WindowsForegroundWindowMonitor:
 
 def _read_windows_target(handle: int, own_process_id: int) -> tuple[int, str, str] | None:
     user32 = ctypes.windll.user32
+    configure_win32_api(user32, ctypes.windll.kernel32)
     process_id = ctypes.c_ulong()
     try:
         if not user32.IsWindow(handle) or not user32.IsWindowVisible(handle):
@@ -153,6 +151,7 @@ def _window_title(user32, handle: int) -> str:
 
 def _process_name(process_id: int) -> str:
     kernel32 = ctypes.windll.kernel32
+    configure_win32_api(ctypes.windll.user32, kernel32)
     handle = None
     try:
         handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, process_id)

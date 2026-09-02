@@ -154,6 +154,7 @@ class ExternalWindowActivator(Protocol):
     def confirm(
         self,
         target: ExternalWindowRef,
+        cancellation: CancellationToken | None = None,
     ) -> ExternalWindowActivationOutcome: ...
 
 

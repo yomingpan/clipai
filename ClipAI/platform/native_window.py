@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ClipAI.platform.window_activation import activate_top_level_window
+from ClipAI.platform.win32_api import configure_win32_api
 
 
 GWL_EXSTYLE = -20
@@ -26,6 +27,7 @@ class WindowsNativeWindowSurface:
     def __init__(self, *, user32: Any | None = None, kernel32: Any | None = None) -> None:
         self._user32 = user32 or ctypes.windll.user32
         self._kernel32 = kernel32 or ctypes.windll.kernel32
+        configure_win32_api(self._user32, self._kernel32)
 
     def hide_from_task_switcher(self, toolkit_child_id: int) -> bool:
         try:

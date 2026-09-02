@@ -499,8 +499,14 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
   share the one container-scoped `ClipboardTransactionCoordinator`, so capture
   cannot permanently replace newer clipboard content. Entry Panel capture must
   confirm that the exact captured external target still owns foreground after
-  resolution; a lost target retries the complete activation/capture once, then
-  fails closed without admitting the clipboard fallback.
+  resolution. Confirmation may wait briefly for the exact target to recover
+  from an IME-owned transient foreground window, but it must not substitute a
+  different HWND or process. Expiry fails closed without automatically
+  recapturing or admitting the clipboard fallback.
+- Windows platform adapters declare pointer-sized Win32 handles and callback
+  signatures before native calls. A WinEvent callback remains strongly owned
+  until its exact hook is successfully removed; failed unhook must not release
+  the callback or register a parallel hook.
 - Workflow identity, output-operation identity, selection-capture identity, and
   view lifecycle remain distinct. A Workflow snapshot revision cannot stand in
   for any of those operation identities.

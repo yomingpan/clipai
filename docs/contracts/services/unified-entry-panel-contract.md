@@ -80,8 +80,9 @@ presentation actuation only and does not merge Panel navigation with
   After the Panel is projected, preparation restores and validates that exact
   target, waits for modifiers to release, captures every supported input fact
   through the existing `InputResolver`, then confirms the same target still owns
-  foreground. A lost target retries the complete operation once; a second loss
-  fails closed.
+  foreground. Confirmation may wait within a bounded, cancellation-aware window
+  for the exact target to recover from an IME transient. Expiry fails closed and
+  does not automatically repeat selection capture.
 - Failure does not substitute the current foreground window or a later clipboard
   value.
 - `PreparedEntryInput` resolves the already frozen `InputDocument` for the

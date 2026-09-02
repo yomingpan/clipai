@@ -397,34 +397,34 @@ class EntryPanelRuntimeModule:
 
         def work() -> None:
             try:
-                for attempt in range(2):
-                    activation = self._external_window_activator.activate(
-                        target,
-                        cancellation,
-                    )
-                    if not activation.activated:
-                        self._enqueue(EntryPanelInputPreparationFailed(
-                            panel_id,
-                            preparation_id,
-                            activation.message or "The original window could not be activated.",
-                        ))
-                        return
-                    prepared = self._input_resolver.prepare_entry_input(cancellation)
-                    confirmation = self._external_window_activator.confirm(target)
-                    if confirmation.activated:
-                        self._enqueue(EntryPanelInputPreparationCompleted(
-                            panel_id,
-                            preparation_id,
-                            prepared,
-                        ))
-                        return
-                    if attempt == 1:
-                        self._enqueue(EntryPanelInputPreparationFailed(
-                            panel_id,
-                            preparation_id,
-                            confirmation.message or "The original window changed during input capture.",
-                        ))
-                        return
+                activation = self._external_window_activator.activate(
+                    target,
+                    cancellation,
+                )
+                if not activation.activated:
+                    self._enqueue(EntryPanelInputPreparationFailed(
+                        panel_id,
+                        preparation_id,
+                        activation.message or "The original window could not be activated.",
+                    ))
+                    return
+                prepared = self._input_resolver.prepare_entry_input(cancellation)
+                confirmation = self._external_window_activator.confirm(
+                    target,
+                    cancellation,
+                )
+                if confirmation.activated:
+                    self._enqueue(EntryPanelInputPreparationCompleted(
+                        panel_id,
+                        preparation_id,
+                        prepared,
+                    ))
+                    return
+                self._enqueue(EntryPanelInputPreparationFailed(
+                    panel_id,
+                    preparation_id,
+                    confirmation.message or "The original window changed during input capture.",
+                ))
             except CancelledError:
                 return
             except (InputError, ValueError) as error:

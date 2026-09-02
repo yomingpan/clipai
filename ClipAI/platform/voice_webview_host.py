@@ -49,6 +49,9 @@ def realise_voice_host_invisibly(window: Any, *, user32: Any | None = None) -> b
         import ctypes
 
         user32 = ctypes.windll.user32
+        from ClipAI.platform.win32_api import configure_win32_api
+
+        configure_win32_api(user32, ctypes.windll.kernel32)
     try:
         native = window.native
 

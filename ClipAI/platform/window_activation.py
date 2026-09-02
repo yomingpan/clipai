@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ClipAI.platform.win32_api import configure_win32_api
+
 
 def activate_top_level_window(
     window_handle: int,
@@ -10,6 +12,8 @@ def activate_top_level_window(
     kernel32: Any,
 ) -> bool:
     """Activate one exact top-level HWND through the caller's input queue."""
+
+    configure_win32_api(user32, kernel32)
 
     current_thread = 0
     attached_threads: list[int] = []

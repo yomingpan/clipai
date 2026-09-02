@@ -351,8 +351,9 @@ Recipe 回饋與使用引導應測：
 - Runtime tests 必須以 Panel lifecycle ID 加 open-time preparation ID 驗證 close、
   reopen、replace、cancel 與 late completion；舊 completion 不得啟動 Action。
   Accepted surface replacement 必須在 `CREATED` 等第一個 Popup projection 入列前完成註冊；
-  rejected admission 不得執行 hook。External capture 必須在 resolve 後確認同一
-  target 的 foreground，涵蓋一次完整重試與第二次失焦時禁止 clipboard fallback。
+  rejected admission 不得執行 hook。External capture 必須在 resolve 後以 bounded、
+  cancellation-aware confirmation 等待同一 target 從 IME 暫態 foreground 轉移恢復；
+  到期時只擷取一次並禁止 clipboard fallback，不得改採新的 foreground target。
 - Hotkey tests 覆蓋單按 Alt 的 499/500 ms、deadline identity/listener-state recheck、
   提前 release、Alt auto-repeat suppression、Panel lifecycle 結束後的 identity-scoped
   settlement、direct digit coexistence、Panel-open digit claim、top-row/numpad、
@@ -377,6 +378,8 @@ Recipe 回饋與使用引導應測：
   仍在同一 target 與既有 deadline 內重試；deadline 後維持 fail-closed，且不得替換
   foreground target。共用 Windows activation primitive 必須驗證 foreground 與 target
   input queue 都會 identity-scoped attach 並在完成後反向 detach。
+- Windows native adapter tests 必須驗證 pointer-sized HWND/HANDLE/HHOOK signatures；
+  WinEvent unhook 失敗時 callback 與 hook ownership 必須保留，且不得重複註冊。
 
 ## Marker 規則
 

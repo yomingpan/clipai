@@ -80,7 +80,7 @@ class Activator:
         self.targets.append(target)
         return self.outcome
 
-    def confirm(self, _target):
+    def confirm(self, _target, _cancellation=None):
         return self.outcome
 
 
@@ -230,7 +230,7 @@ def test_handoff_registration_still_precedes_first_popup_projection() -> None:
     assert events == ["handoff:registered", "popup:first-projection"]
 
 
-def test_external_capture_retries_the_complete_preparation_after_focus_loss() -> None:
+def test_external_capture_does_not_recapture_after_confirmed_focus_loss() -> None:
     class FocusAwareActivator:
         def __init__(self) -> None:
             self.foreground = False
@@ -241,7 +241,7 @@ def test_external_capture_retries_the_complete_preparation_after_focus_loss() ->
             self.foreground = True
             return ExternalWindowActivationOutcome("activated")
 
-        def confirm(self, _target):
+        def confirm(self, _target, _cancellation=None):
             if self.foreground:
                 return ExternalWindowActivationOutcome("activated")
             return ExternalWindowActivationOutcome("target_changed", "target changed")
@@ -269,17 +269,14 @@ def test_external_capture_retries_the_complete_preparation_after_focus_loss() ->
     module.open()
 
     complete_external_preparation(module, supervisor, commands)
-    module.select_action(EntryActionRef("shorten_content", "short"))
-
-    assert coordinator.snapshot is None
-    assert activator.activations == 2
-    assert inputs.calls == 2
-    assert workflows.starts[-1][3].document == InputDocument(
-        "selected at open", "selection"
-    )
+    assert coordinator.snapshot.status == "error"
+    assert coordinator.snapshot.source_preview.kind == "failed"
+    assert activator.activations == 1
+    assert inputs.calls == 1
+    assert workflows.starts == []
 
 
-def test_external_capture_fails_closed_after_two_focus_losses() -> None:
+def test_external_capture_fails_closed_without_using_untrusted_clipboard() -> None:
     class UnstableActivator:
         def __init__(self) -> None:
             self.activations = 0
@@ -288,7 +285,7 @@ def test_external_capture_fails_closed_after_two_focus_losses() -> None:
             self.activations += 1
             return ExternalWindowActivationOutcome("activated")
 
-        def confirm(self, _target):
+        def confirm(self, _target, _cancellation=None):
             return ExternalWindowActivationOutcome("target_changed", "target changed")
 
     activator = UnstableActivator()
@@ -307,8 +304,8 @@ def test_external_capture_fails_closed_after_two_focus_losses() -> None:
 
     assert coordinator.snapshot.status == "error"
     assert coordinator.snapshot.source_preview.kind == "failed"
-    assert activator.activations == 2
-    assert inputs.calls == 2
+    assert activator.activations == 1
+    assert inputs.calls == 1
     assert workflows.starts == []
 
 

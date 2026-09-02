@@ -14,6 +14,7 @@ def test_external_window_activator_validates_and_confirms_captured_target() -> N
 
     activator = SystemExternalWindowActivator(
         modifier_is_pressed=lambda _modifier: False,
+        target_confirmation_timeout_sec=0,
         target_is_valid=lambda candidate: candidate == target,
         activate_target=activate,
         target_is_foreground=lambda candidate: candidate == target and foreground["value"],
@@ -164,6 +165,7 @@ def test_external_window_confirmation_rejects_focus_lost_after_capture() -> None
     foreground = {"value": True}
     activator = SystemExternalWindowActivator(
         modifier_is_pressed=lambda _modifier: False,
+        target_confirmation_timeout_sec=0,
         target_is_valid=lambda candidate: candidate == target,
         activate_target=lambda _candidate: True,
         target_is_foreground=lambda candidate: candidate == target and foreground["value"],
@@ -176,6 +178,33 @@ def test_external_window_confirmation_rejects_focus_lost_after_capture() -> None
 
     assert confirmation.state == "target_changed"
     assert "changed" in confirmation.message.lower()
+
+
+def test_external_window_confirmation_waits_for_transient_focus_to_return(
+    monkeypatch,
+) -> None:
+    target = ExternalWindowRef("hwnd:2a", 42, 7)
+    clock = {"now": 0.0}
+    foreground = iter((False, False, True))
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _modifier: False,
+        target_confirmation_timeout_sec=0.05,
+        poll_sec=0.01,
+        wait=lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
+        target_is_valid=lambda candidate: candidate == target,
+        activate_target=lambda _candidate: True,
+        target_is_foreground=lambda candidate: (
+            candidate == target and next(foreground)
+        ),
+    )
+    monkeypatch.setattr(
+        "ClipAI.platform.external_window.time.monotonic",
+        lambda: clock["now"],
+    )
+
+    confirmation = activator.confirm(target, CancellationToken())
+
+    assert confirmation.state == "activated"
 
 
 def test_external_window_activator_prepares_paste_target_through_the_same_seam() -> None:

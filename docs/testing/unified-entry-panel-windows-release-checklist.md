@@ -50,15 +50,21 @@ Test both left and right Alt where the keyboard exposes them.
   only the input captured when the Panel opened.
 - Repeat with no selection and clipboard text, then with a clipboard image.
   Disabled reasons must match the selected Action's input mode.
-- Force the original target to lose foreground during capture. One full retry
-  is permitted; a second loss fails closed and offers Retry without reading a
-  different foreground window.
+- Force the original target to lose foreground briefly during capture and then
+  restore the exact HWND. Preparation waits within its bounded confirmation
+  window and succeeds without sending a second copy shortcut. Keep a different
+  window foreground past the deadline; preparation fails closed and offers
+  Retry without reading that window or a later clipboard value.
 - In a result Popup, select a substring and invoke Chain. It uses that selection;
   with no selection it uses the complete displayed canonical content. Workflow
   identity and parent-step lineage remain unchanged.
 - Use Microsoft Bopomofo or another CJK IME in More search and any editable
   result field. Composition, candidate selection, Enter and Esc behave normally;
   digits committed by the IME are not mistaken for global Alt-held selection.
+- With Microsoft Bopomofo active in an external editor, select text and open the
+  Panel by holding Alt at least 50 times. Every settled preparation uses the
+  original selection, never flashes the red `original window changed` error for
+  an IME transient, and preserves the prior clipboard and caret position.
 - While external input is preparing, navigate root → scene → More and toggle
   density. Capable cards show neutral loading without red/disabled styling and
   cannot invoke; genuinely blocked cards keep their authoritative red reason.
