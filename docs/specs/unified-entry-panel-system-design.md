@@ -214,7 +214,9 @@ interactive lane. Completion returns through the typed command queue with the
 same Panel lifecycle ID and preparation ID. A closed/reopened Panel,
 cancellation, retry or shutdown invalidates the old identity; its late
 completion cannot replace the frozen input, start an Action or close the new
-Panel. Actions remain disabled until preparation settles. The existing
+Panel. Otherwise-capable Actions remain enabled but pending until preparation
+settles; pending guards block invocation without presenting a false policy
+failure. The existing
 clipboard transaction coordinator remains responsible for safe restoration
 even when preparation becomes stale.
 
@@ -299,8 +301,9 @@ UI behavior confirmed for the first release:
 
 - Detailed density on every open; no density preference persistence.
 - Search, Tab, arrow keys, Enter and click work in all applicable scenes.
-- `Esc` immediately returns More to its scene; it does not first clear the
-  filter. A subsequent `Esc` closes according to the panel flow.
+- `Esc` immediately closes every page and cancels matching preparation.
+- The non-root Back control and `Ctrl+Z` return More to scene and scene to root.
+  Root Back is a no-op; Back never closes or changes the Panel lifecycle.
 - Click outside closes the full Panel.
 - Top-row and numpad digits are both accepted after modifier-hold claim.
 - Tooltips are keyboard-focus accessible, not mouse-only.
@@ -403,7 +406,7 @@ Privacy boundaries:
   produces no extra visible frame.
 - Multi-monitor and DPI placement; work-area collision/quadrant flip; cursor
   preservation.
-- Keyboard-only navigation, search, More/Esc behavior, disabled reason,
+- Keyboard-only navigation, search, More/Back/Esc behavior, pending/disabled reason,
   top-row/numpad, click outside and tooltip focus access.
 - Integration smoke covering external source → action selection → workflow
   admission → real lifecycle feedback, with zero provider work from the UI

@@ -49,6 +49,8 @@ def test_removed_action_time_selection_contracts_do_not_return() -> None:
 
     assert "EntryPanelSelectionId" not in production_source
     assert "EntryPanelInputPrepared" not in production_source
+    assert "EntryPanelEscape" not in production_source
+    assert "class EntryPanelBack" in Path("ClipAI/core/commands.py").read_text(encoding="utf-8")
 
 
 def test_entry_panel_view_does_not_cross_semantic_or_actuation_boundaries() -> None:

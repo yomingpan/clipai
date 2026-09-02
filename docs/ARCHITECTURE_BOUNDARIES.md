@@ -70,6 +70,15 @@ tests/              # Unit sims 與 integration tests
   pre-projection hook；Entry Panel 只能透過這個 seam 註冊 identity-matched
   primary-surface replacement，不得在
   `start_action` 返回後補註冊。
+- Popup 的 widget-neutral header/action/feedback/guidance projection 由 core-only、
+  Tk-free `PopupPresentationModel` 與 pure projector 擁有；
+  `BaseResultSurface.render(model)` 是唯一 widget 投影 seam。Content 與 flash 不
+  進入該 model。Baseline Action availability 不得覆寫 `PopupControl` 擁有的
+  in-flight/ack enable 與 pulse。
+- Entry Panel 的 `Esc` 永遠是 close/cancel-preparation；`EntryPanelBack` 才是
+  More → scene → root 導覽，root no-op。Preparing 是 option-level neutral pending，
+  不得偽裝成 policy disabled；真實 disabled reason 優先。UI lifecycle 更新只能
+  原地刷新 card，除非 topology 或 visible static detail 改變。
 - 最近使用由 `RecentActionHistory` 擁有，只接收 `WorkflowController` 已接受的
   successful step 所解析出的 `action_id + press_type`；不得由 provider completion、
   Workflow snapshot revision、Popup visibility 或 operation tracker 推導成功。

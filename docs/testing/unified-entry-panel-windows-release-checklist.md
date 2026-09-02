@@ -59,6 +59,14 @@ Test both left and right Alt where the keyboard exposes them.
 - Use Microsoft Bopomofo or another CJK IME in More search and any editable
   result field. Composition, candidate selection, Enter and Esc behave normally;
   digits committed by the IME are not mistaken for global Alt-held selection.
+- While external input is preparing, navigate root → scene → More and toggle
+  density. Capable cards show neutral loading without red/disabled styling and
+  cannot invoke; genuinely blocked cards keep their authoritative red reason.
+  Opening and settlement produce no body flicker or card replacement.
+- On scene and More, use both the left Back control and `Ctrl+Z`; verify the
+  same lifecycle, source preview, density and preparation state remain. At root
+  Back is a no-op. Press Esc on each page and verify immediate close plus
+  preparation cancellation; the right header text always remains `Esc 關閉`.
 
 ## One primary surface and visual continuity
 

@@ -213,6 +213,69 @@ def test_result_presenter_builds_existing_popup_content_in_primary_host(monkeypa
     assert events.index("actions") < events.index("show")
 
 
+def test_popup_callbacks_bind_once_and_feedback_reads_the_live_step(monkeypatch) -> None:
+    class Metrics:
+        def current(self):
+            return object()
+
+    class Layout:
+        def calculate(self, _metrics):
+            return PopupBounds(40, 50, 420, 350)
+
+    class Host:
+        def __init__(self, *_args):
+            pass
+
+        def acquire(self):
+            return "lease"
+
+    class Dialog:
+        def __init__(self, **_kwargs):
+            pass
+
+        def show(self):
+            return True
+
+    class Button:
+        def configure(self, **_kwargs):
+            pass
+
+    class Surface:
+        def __init__(self, _dialog):
+            self.close_button = Button()
+            self.pin_button = Button()
+            self.binding_counts = {"back": 0, "actions": 0, "feedback": 0}
+
+        def bind_back_action(self, _callback):
+            self.binding_counts["back"] += 1
+
+        def configure_standard_actions(self, **_callbacks):
+            self.binding_counts["actions"] += 1
+
+        def bind_feedback_submit(self, callback):
+            self.binding_counts["feedback"] += 1
+            self.feedback_submit = callback
+
+    monkeypatch.setattr("ClipAI.ui.result_dialog.PrimarySurfaceHost", Host)
+    monkeypatch.setattr("ClipAI.ui.result_dialog.BaseDialog", Dialog)
+    monkeypatch.setattr("ClipAI.ui.result_dialog.BaseResultSurface", Surface)
+    presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
+    presenter._root = "tk-root"
+    presenter._display_metrics = Metrics()
+    presenter._layout_policy = Layout()
+    presenter._native_window_surface = "native"
+    submitted = []
+    presenter._submit_feedback = lambda workflow, step, *_args: submitted.append((workflow, step))
+
+    view = presenter._create_view("workflow-1")
+    view.step_id = "step-1"
+    view.step_id = "step-2"
+    view.surface.feedback_submit("helpful", "", "", False)
+
+    assert view.surface.binding_counts == {"back": 1, "actions": 1, "feedback": 1}
+    assert submitted == [("workflow-1", "step-2")]
+
+
 def test_entry_panel_replaces_and_restores_existing_result_in_same_host(monkeypatch) -> None:
     events = []
 

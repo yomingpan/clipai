@@ -184,6 +184,14 @@ Unit / Sims 應測：
 - close Workflow cleanup。
 - presenter unsubscribe event。
 - selection 優先於 full output。
+- pure `SessionSnapshot → PopupPresentationModel` projector 保持 core-only、
+  Tk-free、frozen，且不含 content/flash。
+- header/actions/feedback/guidance/speaking 由 `BaseResultSurface.render(model)`
+  按 last-model field group 更新；Workflow callbacks 只綁一次。
+- feedback 只允許 completed + contract + valid displayed step，submit 讀 live
+  step；guidance 由 caller 注入去重事實；contextual question 排除 follow-up。
+- baseline available actions 的 render 不得解除 `PopupControl` in-flight disable，
+  也不得覆寫 acknowledgement pulse。
 
 Integration 應測：
 
@@ -337,7 +345,9 @@ Recipe 回饋與使用引導應測：
   scene、More/search 使用日文 projection。selected pack 的 candidate resource
   無效時必須整包 fallback default，不得混用兩包。
 - Coordinator tests 只經 public transition interface 驗證 root、scene、More、
-  search、density、Esc、disabled reason 與 numeric resolution，不讀 private state。
+  search、density、Back、root no-op、disabled/pending precedence 與 numeric
+  resolution，不讀 private state。Esc 由 runtime close seam 驗證任頁立即關閉並
+  cancel preparation，Back 永不 close。
 - Runtime tests 必須以 Panel lifecycle ID 加 open-time preparation ID 驗證 close、
   reopen、replace、cancel 與 late completion；舊 completion 不得啟動 Action。
   Accepted surface replacement 必須在 `CREATED` 等第一個 Popup projection 入列前完成註冊；
@@ -356,6 +366,9 @@ Recipe 回饋與使用引導應測：
   identity-scoped mount/replace/restore、rollback、既有 Popup 不重新定位與 action
   lifecycle feedback。Shell 規則只經 `PrimarySurfaceHost` public interface 測試；
   presenter 只保留必要 integration coverage，不得斷言 private widget helper。
+- UI lifecycle tests 必須證明 preparing/completion 只原地更新 card，
+  `_body_render_key` 不含 enabled/pending/reason；updater 與 click callback 都讀
+  latest option。Pending 顯示 neutral loading，真實 disabled reason 才使用紅色。
 - Windows smoke 必須驗證 external target restore → open-time selection capture →
   typed Workflow admission，以及 multi-monitor/DPI、IME、top-row/numpad 與 cursor
   preservation。20 ms sampling 必須證明 transition 沒有 visible gap、第二個 primary

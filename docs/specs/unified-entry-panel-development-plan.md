@@ -228,7 +228,7 @@ Rules:
 ```text
 OpenUnifiedEntryPanel
   → capture semantic Popup source or external-window reference
-  → allocate preparation_id, project preparing and disable Actions
+  → allocate preparation_id, project preparing and mark capable Actions pending
   → restore/validate captured external target
   → InputResolver captures selection and clipboard candidates once
   → EntryPanelInputPreparationCompleted/Failed(panel_id, preparation_id, ...)
@@ -310,7 +310,7 @@ M1/M2 contract changes.
    `feat: add entry panel coordinator`
 
    Red/green pure tests for root/scene/more navigation, search, density, disabled
-   state, Esc and numeric resolution.
+   state, Back/root no-op, Esc close and numeric resolution.
 5. `test: specify recent action policy` then
    `feat: add recent action history`
 
@@ -359,7 +359,7 @@ start work; existing provider/Workflow/input/Paste regression suites pass.
 12. `feat: mount unified entry panel in primary surface`
 
     Implement config-driven Panel rendering as a replaceable view in the same
-    host. Add widget, focus, keyboard, search, tooltip, Esc, click-outside,
+    host. Add widget, focus, keyboard, search, tooltip, Back, Esc, click-outside,
     rollback, exact-bounds and no-empty-shell tests.
 13. `feat: compose unified entry panel runtime`
 

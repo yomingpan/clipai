@@ -67,7 +67,11 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         assert host.show(lease) is True
         dialog.reveal()
         header = dialog._shell.winfo_children()[0]
-        title_label = header.winfo_children()[0]
+        title_label = next(
+            child
+            for child in header.winfo_children()
+            if isinstance(child, ctk.CTkLabel) and child.cget("text") == "ClipAI"
+        )
         master.update()
 
         for handle in (header._canvas, title_label._canvas):

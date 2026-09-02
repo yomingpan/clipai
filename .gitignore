@@ -13,3 +13,6 @@ data/
 .codex-test-tmp/
 .clipai-test-artifacts/
 .venv/
+.omo/
+.claude.md
+.claude/

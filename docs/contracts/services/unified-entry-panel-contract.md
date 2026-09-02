@@ -11,7 +11,7 @@ then requests admission through the existing Workflow runtime.
 
 - `EntryPanelCoordinator` owns the immutable projection: page stack, detailed
   versus compact density, search text, focused candidate, disabled candidates,
-  transient message and active selection-preparation identity. It receives the
+  per-option pending projection and transient message. It receives the
   saved density from `UserPreferencesCoordinator` at composition time; the
   existing user-preferences lifecycle persists later density changes.
 - `EntryPanelRuntimeModule` owns the one live Panel lifecycle ID, captured source
@@ -40,10 +40,20 @@ closed → open(root) → navigating/searching/density toggle
 
 Opening is the explicit intent that authorizes input preparation; rendering,
 focus, navigation and density changes never imply Action execution. While
-preparing, Actions remain disabled. A close invalidates the preparation identity.
+preparing, otherwise-capable Actions remain enabled in the capability projection
+but carry `pending=True`; both the pure coordinator and UI intent adapter reject
+their invocation. A real policy or input incompatibility takes precedence,
+projects `enabled=False` with its authoritative reason, and is the only red
+disabled state. A close invalidates the preparation identity.
 Only a completion matching both Panel lifecycle ID and preparation ID may publish
 the frozen input. Action selection resolves only that immutable bundle and never
 reads selection, clipboard or foreground state.
+
+`Esc` always emits `CloseEntryPanel`, immediately closes any page and cancels
+matching preparation. `EntryPanelBack` is a distinct typed intent: the left
+header control and `Ctrl+Z` navigate More → scene → root; Back at root is a
+no-op and never closes. Navigation preserves Panel lifecycle, source preview,
+density, pending/error projection and frozen input.
 
 The Panel closes only after `ActionStartAdmission.accepted`. A rejected or
 blocked admission keeps the same Panel and projects the authoritative reason.
@@ -53,7 +63,8 @@ projection; a stale or unrelated projection cannot consume it.
 
 `PrimarySurfaceHost` retains one native shell while the result view is built
 off-slot and then identity-matched into the mounted content slot. Mount failure
-keeps or restores the same Panel. If admission reuses an existing Popup, its
+keeps the same Panel mounted; the Panel view is closed only after `replace()`
+succeeds. If admission reuses an existing Popup, its
 unmounted view is updated and remounted without changing shell geometry.
 `PopupBounds` stores physical screen position with toolkit-logical width/height;
 physical widget dimensions must not be fed back as logical geometry. This is
@@ -123,5 +134,10 @@ tested through the `PrimarySurfaceHost` interface; presenter tests retain only
 the integration needed to prove delegation from Workflow rendering. Runtime
 tests additionally prove replacement registration precedes the first visible Workflow projection and
 that post-capture target loss cannot admit clipboard fallback. Tests do not
-inspect private presenter transition state, private widget helpers, private
-runtime methods or internal state dictionaries.
+inspect private presenter transition state, private runtime methods or internal
+state dictionaries.
+
+UI lifecycle tests additionally lock `_body_render_key` to topology and visible
+static detail only. Per-option `enabled/pending/disabled_reason` changes update
+existing cards in place. Both updater and click callback read the latest option;
+opening and preparation settlement must not rebuild the body.
