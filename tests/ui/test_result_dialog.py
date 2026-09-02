@@ -5,7 +5,7 @@ import inspect
 from dataclasses import replace
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
-from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, PopupBounds, WorkflowAttention
+from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, PopupBounds, WorkflowAttention, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.ui.base_dialog import BaseResultSurface, _VoiceWaveIndicator
@@ -491,6 +491,101 @@ def test_latest_snapshot_mailbox_coalesces_each_workflow_to_highest_revision() -
     assert drained["one"].status == SessionStatus.COMPLETED
     assert drained["two"].status == SessionStatus.FAILED
     assert mailbox.drain() == ()
+
+
+def test_m0_popup_field_groups_characterize_header_actions_feedback_and_visual_state() -> None:
+    contract = ActionFeedbackContract(
+        "AI helps",
+        "AI does not decide",
+        (FeedbackReason("other", "Other"),),
+    )
+    step = WorkflowStep("step-1", "a", "A", "input", "result", "plain_text")
+    baseline = SessionSnapshot(
+        "one",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "model-a",
+        content="result",
+        available_actions=("copy",),
+        steps=(step,),
+        displayed_step_index=0,
+    )
+
+    header = workflow_render_patch(
+        baseline,
+        replace(
+            baseline,
+            revision=2,
+            title="B",
+            model="model-b",
+            source_preview="Selection",
+            pinned=True,
+            can_navigate_back=True,
+            action_feedback_contract=contract,
+            input_source="selection",
+        ),
+    )
+    actions = workflow_render_patch(
+        baseline,
+        replace(baseline, revision=2, available_actions=("copy", "archive")),
+    )
+    feedback = workflow_render_patch(
+        baseline,
+        replace(
+            baseline,
+            revision=2,
+            action_feedback_contract=contract,
+            feedback_state="pending",
+            feedback_message="Saving",
+        ),
+    )
+    visual = workflow_render_patch(
+        baseline,
+        replace(baseline, revision=2, speaking=True),
+    )
+
+    assert header == type(header)(True, False, False, True, False)
+    assert actions == type(actions)(False, False, True, False, False)
+    assert feedback == type(feedback)(True, False, False, True, False)
+    assert visual == type(visual)(False, False, False, False, True)
+
+
+def test_m0_guidance_is_completed_only_and_deduplicated_per_displayed_step() -> None:
+    presenter, events = presenter_with_selection(None)
+    presenter._configure_voice_control = lambda _snapshot, _view: None
+    view = presenter._views["s1"]
+    view.surface.set_source_preview = lambda _text: None
+    step = WorkflowStep("step-1", "a", "A", "input", "result", "plain_text")
+    previous = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.COMPLETED,
+        "a",
+        "A",
+        "model",
+        content="result",
+        steps=(step,),
+        displayed_step_index=0,
+    )
+    view.revision = previous.revision
+    view.last_snapshot = previous
+    view.step_id = step.step_id
+    view.content = previous.content
+    view.rendered_content_key = _content_render_key(previous)
+    view.flashed_completion_keys.add(step.step_id)
+
+    presenter._apply(replace(previous, revision=2, show_guidance_hint=True))
+    presenter._apply(replace(previous, revision=3, show_guidance_hint=True))
+    presenter._apply(replace(
+        previous,
+        revision=4,
+        status=SessionStatus.REQUESTING_PROVIDER,
+        show_guidance_hint=True,
+    ))
+
+    assert events.count("guidance:shown") == 1
 
 
 def test_voice_status_word_keeps_phase_semantics_in_the_presenter() -> None:

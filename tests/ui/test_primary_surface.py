@@ -305,3 +305,39 @@ def test_accepted_action_mounts_result_before_releasing_panel_state() -> None:
     ]
     assert presenter._entry_panel_dialog is None
     assert presenter._primary_entry_surface is None
+
+
+def test_m0_failed_result_replacement_keeps_the_entry_panel_mounted() -> None:
+    events = []
+
+    class Host:
+        def replace(self, active, replacement, view):
+            events.append(("replace", active, replacement, view))
+            return False
+
+    class Panel:
+        def close(self):
+            events.append("panel:closed")
+
+    class ResultDialog:
+        def __init__(self, host):
+            self.primary_surface_host = host
+            self.primary_surface_lease = "result-lease"
+
+    host = Host()
+    panel = Panel()
+    transition = _PrimaryEntrySurface(panel, host, "panel-lease", "workflow-1")
+    view = _SessionView(ResultDialog(host), object())
+    presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
+    presenter._entry_panel_dialog = panel
+    presenter._primary_entry_surface = transition
+
+    assert presenter._complete_primary_entry_transition(
+        "workflow-1", view, transition
+    ) is False
+
+    assert events == [
+        ("replace", "panel-lease", "result-lease", view.dialog),
+    ]
+    assert presenter._entry_panel_dialog is panel
+    assert presenter._primary_entry_surface is transition
