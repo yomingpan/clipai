@@ -1,3 +1,6 @@
+import pytest
+
+from ClipAI.core.errors import CancelledError
 from ClipAI.core.models import ExternalWindowRef, PasteTarget
 from ClipAI.core.state import CancellationToken
 from ClipAI.platform.external_window import SystemExternalWindowActivator
@@ -205,6 +208,22 @@ def test_external_window_confirmation_waits_for_transient_focus_to_return(
     confirmation = activator.confirm(target, CancellationToken())
 
     assert confirmation.state == "activated"
+
+
+def test_external_window_confirmation_observes_cancellation_while_waiting() -> None:
+    target = ExternalWindowRef("hwnd:2a", 42, 7)
+    cancellation = CancellationToken()
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _modifier: False,
+        target_confirmation_timeout_sec=1,
+        target_is_valid=lambda candidate: candidate == target,
+        activate_target=lambda _candidate: True,
+        target_is_foreground=lambda _candidate: False,
+        wait=lambda _seconds: cancellation.cancel(),
+    )
+
+    with pytest.raises(CancelledError):
+        activator.confirm(target, cancellation)
 
 
 def test_external_window_activator_prepares_paste_target_through_the_same_seam() -> None:
