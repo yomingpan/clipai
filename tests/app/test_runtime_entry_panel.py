@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
-from ClipAI.core.commands import EntryPanelToggleDensity, RetryEntryPanelInput, SetEntryPanelDensity
+from ClipAI.core.commands import EntryPanelBack, EntryPanelToggleDensity, RetryEntryPanelInput, SetEntryPanelDensity
 from ClipAI.core.models import (
     ActionStartAdmission,
     ActiveWorkflowContext,
@@ -469,3 +469,36 @@ def test_density_toggle_projects_immediately_and_requests_persistence() -> None:
     assert coordinator.snapshot.density == "compact"
     assert presenter.snapshots[-1].density == "compact"
     assert commands[-1] == SetEntryPanelDensity("compact")
+
+
+def test_back_preserves_pending_panel_lifecycle_and_root_is_a_noop() -> None:
+    module, coordinator, presenter, supervisor, _workflows, _activator, _inputs, _commands, _external = make_module()
+    opened = module.open()
+    scene = coordinator.select_digit("4").snapshot
+    coordinator.toggle_density()
+
+    module.handle(EntryPanelBack(opened.panel_id))
+    root = coordinator.snapshot
+    module.handle(EntryPanelBack(opened.panel_id))
+
+    assert root is not None
+    assert root.page == "root"
+    assert root.status == "preparing"
+    assert root.source_preview == scene.source_preview
+    assert root.density == "compact"
+    assert coordinator.snapshot == root
+    assert supervisor.cancelled == []
+    assert presenter.snapshots[-1] == root
+
+
+def test_escape_closes_from_non_root_and_cancels_preparation() -> None:
+    module, coordinator, presenter, supervisor, _workflows, _activator, _inputs, _commands, _external = make_module()
+    panel_id = module.open().panel_id
+    task_id = next(iter(supervisor.work))
+    coordinator.select_digit("4")
+
+    assert module.request_escape() is True
+
+    assert coordinator.snapshot is None
+    assert task_id in supervisor.cancelled
+    assert presenter.snapshots[-1] is None

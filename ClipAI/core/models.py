@@ -123,6 +123,7 @@ class EntryPanelOption:
     action: EntryActionRef | None = None
     category_id: str = ""
     enabled: bool = True
+    pending: bool = False
     disabled_reason: str = ""
 
 

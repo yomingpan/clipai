@@ -8,7 +8,7 @@ import customtkinter as ctk
 from ClipAI.core.commands import (
     CloseEntryPanel,
     EntryPanelActionSelected,
-    EntryPanelEscape,
+    EntryPanelBack,
     EntryPanelOpenMore,
     EntryPanelSearchChanged,
     EntryPanelSlotSelected,
@@ -47,12 +47,17 @@ class EntryPanelIntentAdapter:
 
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
         if snapshot != self._snapshot:
-            self._selection_pending = snapshot.status == "preparing"
+            self._selection_pending = False
         self._snapshot = snapshot
 
     def select(self, option: EntryPanelOption) -> None:
         snapshot = self._snapshot
-        if snapshot is None or not option.enabled or self._selection_pending:
+        if (
+            snapshot is None
+            or not option.enabled
+            or option.pending
+            or self._selection_pending
+        ):
             return
         if option.action is not None:
             self._selection_pending = True
@@ -82,10 +87,10 @@ class EntryPanelIntentAdapter:
         if snapshot is not None:
             self._command_sink(EntryPanelToggleDensity(snapshot.panel_id))
 
-    def escape(self) -> None:
+    def back(self) -> None:
         snapshot = self._snapshot
         if snapshot is not None:
-            self._command_sink(EntryPanelEscape(snapshot.panel_id))
+            self._command_sink(EntryPanelBack(snapshot.panel_id))
 
     def close(self) -> None:
         snapshot = self._snapshot
@@ -117,6 +122,7 @@ class UnifiedEntryPanelDialog:
         self._snapshot: EntryPanelSnapshot | None = None
         self._search_guard = False
         self._option_buttons: list[tk.Misc] = []
+        self._option_updaters: list[Callable[[EntryPanelOption], None]] = []
         self._placed_panel_id: str | None = None
         self._body_render_key: tuple[object, ...] | None = None
         self._message_label: ctk.CTkLabel | None = None
@@ -128,6 +134,7 @@ class UnifiedEntryPanelDialog:
         self._window = primary_surface_host.window
         self._lifecycle = primary_surface_host.lifecycle
         self._window.bind("<Escape>", self._on_escape, add="+")
+        self._window.bind("<Control-z>", self._on_back, add="+")
         self._window.bind("<KeyPress>", self._on_key, add="+")
         self._window.bind("<FocusOut>", self._on_focus_out, add="+")
         self._window.bind("<Return>", self._on_enter, add="+")
@@ -146,7 +153,19 @@ class UnifiedEntryPanelDialog:
 
         header = ctk.CTkFrame(self._shell, fg_color="transparent")
         header.grid(row=0, column=0, padx=16, pady=(14, 8), sticky="ew")
-        header.grid_columnconfigure(0, weight=1)
+        header.grid_columnconfigure(1, weight=1)
+        self._back_button = ctk.CTkButton(
+            header,
+            text="←",
+            width=28,
+            height=28,
+            corner_radius=7,
+            fg_color="transparent",
+            hover_color="#3A3A3A",
+            text_color=CONTENT_COLOR,
+            command=self._intent.back,
+        )
+        self._back_button.grid(row=0, column=0, padx=(0, 8), sticky="w")
         title_label = ctk.CTkLabel(
             header,
             text="ClipAI",
@@ -157,14 +176,14 @@ class UnifiedEntryPanelDialog:
                 weight="bold",
             ),
         )
-        title_label.grid(row=0, column=0, sticky="w")
+        title_label.grid(row=0, column=1, sticky="w")
         self._density = ctk.CTkSwitch(
             header,
             text="",
             width=38,
             command=self._intent.toggle_density,
         )
-        self._density.grid(row=0, column=1, padx=(14, 16))
+        self._density.grid(row=0, column=2, padx=(14, 16))
         self._density_tooltip = _Tooltip(
             self._density,
             "顯示詳細說明，點擊切換精簡模式",
@@ -185,9 +204,9 @@ class UnifiedEntryPanelDialog:
                 family=TC_FONT_FAMILY,
                 size=POPUP_FONT_SIZES["auxiliary"],
             ),
-            command=self._intent.escape,
+            command=self._intent.close,
         )
-        self._escape_button.grid(row=0, column=2, sticky="e")
+        self._escape_button.grid(row=0, column=3, sticky="e")
 
         source_row = ctk.CTkFrame(self._shell, fg_color="transparent")
         source_row.grid(row=1, column=0, padx=16, pady=(0, 7), sticky="ew")
@@ -231,9 +250,10 @@ class UnifiedEntryPanelDialog:
         self._snapshot = snapshot
         self._intent.apply(snapshot)
         self._render_source_preview(snapshot.source_preview)
-        self._escape_button.configure(
-            text="Esc 關閉" if snapshot.page == "root" else "Esc 返回"
-        )
+        if snapshot.page == "root":
+            self._back_button.grid_remove()
+        else:
+            self._back_button.grid()
         if snapshot.density == "detailed":
             self._density.select()
             tooltip = "詳細模式，點擊切換精簡模式"
@@ -246,6 +266,7 @@ class UnifiedEntryPanelDialog:
             self._rebuild_body(snapshot)
             self._body_render_key = body_render_key
         else:
+            self._update_option_cards(snapshot.options)
             self._render_message(snapshot)
 
     def show(
@@ -324,6 +345,7 @@ class UnifiedEntryPanelDialog:
         for child in self._body.winfo_children():
             child.destroy()
         self._option_buttons.clear()
+        self._option_updaters.clear()
         row = 0
         if snapshot.page == "more":
             self._search_guard = True
@@ -486,9 +508,10 @@ class UnifiedEntryPanelDialog:
 
         hovered = False
         focused = False
+        latest_option = option
 
         def redraw_card() -> None:
-            if not option.enabled:
+            if not latest_option.enabled or latest_option.pending:
                 return
             try:
                 if hovered:
@@ -539,8 +562,9 @@ class UnifiedEntryPanelDialog:
             card.after_idle(refresh)
 
         def activate(_event=None) -> str:
-            if option.enabled:
-                self._intent.select(option)
+            current = latest_option
+            if current.enabled and not current.pending:
+                self._intent.select(current)
             return "break"
 
         def show_focus(_event=None) -> None:
@@ -553,9 +577,6 @@ class UnifiedEntryPanelDialog:
             focused = False
             redraw_card()
 
-        detail = option.disabled_reason or (
-            option.description if snapshot.density == "detailed" else ""
-        )
         title_label = ctk.CTkLabel(
             card,
             text=title,
@@ -571,26 +592,58 @@ class UnifiedEntryPanelDialog:
             row=0,
             column=0,
             padx=12,
-            pady=(7, 0 if detail else 7),
+            pady=7,
             sticky="ew",
         )
         interactive_widgets = [card, title_label]
+        detail_label = ctk.CTkLabel(
+            card,
+            text="",
+            anchor="w",
+            justify="left",
+            wraplength=360,
+            text_color=MODEL_COLOR,
+            font=ctk.CTkFont(
+                family=TC_FONT_FAMILY,
+                size=POPUP_FONT_SIZES["auxiliary"],
+            ),
+        )
+        interactive_widgets.append(detail_label)
 
-        if detail:
-            detail_label = ctk.CTkLabel(
-                card,
-                text=detail,
-                anchor="w",
-                justify="left",
-                wraplength=360,
-                text_color="#F6A9A9" if option.disabled_reason else MODEL_COLOR,
-                font=ctk.CTkFont(
-                    family=TC_FONT_FAMILY,
-                    size=POPUP_FONT_SIZES["auxiliary"],
-                ),
+        def update(updated: EntryPanelOption) -> None:
+            nonlocal latest_option, hovered, focused
+            latest_option = updated
+            detail = updated.disabled_reason or (
+                "正在讀取來源內容…"
+                if updated.pending
+                else updated.description
+                if snapshot.density == "detailed"
+                else ""
             )
-            detail_label.grid(row=1, column=0, padx=12, pady=(0, 6), sticky="ew")
-            interactive_widgets.append(detail_label)
+            title_label.grid_configure(pady=(7, 0 if detail else 7))
+            detail_label.configure(
+                text=detail,
+                text_color="#F6A9A9" if updated.disabled_reason else MODEL_COLOR,
+            )
+            if detail:
+                detail_label.grid(
+                    row=1,
+                    column=0,
+                    padx=12,
+                    pady=(0, 6),
+                    sticky="ew",
+                )
+            else:
+                detail_label.grid_forget()
+            if not updated.enabled or updated.pending:
+                hovered = False
+                focused = False
+                card.configure(
+                    fg_color=_CARD_BACKGROUND,
+                    border_color=_CARD_BORDER,
+                )
+            else:
+                redraw_card()
 
         for widget in interactive_widgets:
             widget.bind("<Enter>", show_hover, add="+")
@@ -601,7 +654,19 @@ class UnifiedEntryPanelDialog:
         card.bind("<FocusIn>", show_focus, add="+")
         card.bind("<FocusOut>", clear_focus, add="+")
         self._option_buttons.append(card)
+        self._option_updaters.append(update)
+        update(option)
         return card
+
+    def _update_option_cards(
+        self,
+        options: tuple[EntryPanelOption, ...],
+    ) -> None:
+        if len(options) != len(self._option_updaters):
+            self._rebuild_body(self._snapshot)  # type: ignore[arg-type]
+            return
+        for update, option in zip(self._option_updaters, options):
+            update(option)
 
     @staticmethod
     def _option_text(option: EntryPanelOption, snapshot: EntryPanelSnapshot) -> str:
@@ -612,12 +677,21 @@ class UnifiedEntryPanelDialog:
             else ""
         )
         reason = f"\n{option.disabled_reason}" if option.disabled_reason else ""
-        return f"{key}{option.label}{description}{reason}"
+        pending = "\n正在讀取來源內容…" if option.pending and not option.disabled_reason else ""
+        return f"{key}{option.label}{description}{reason}{pending}"
 
     def _on_escape(self, _event=None) -> str | None:
         if not self.is_primary_content_mounted():
             return None
-        self._intent.escape()
+        self._intent.close()
+        return "break"
+
+    def _on_back(self, _event=None) -> str | None:
+        if not self.is_primary_content_mounted():
+            return None
+        snapshot = self._snapshot
+        if snapshot is not None and snapshot.page != "root":
+            self._intent.back()
         return "break"
 
     def _on_key(self, event) -> None:
@@ -672,7 +746,16 @@ def _body_render_key(snapshot: EntryPanelSnapshot) -> tuple[object, ...]:
         snapshot.page,
         snapshot.category_id,
         snapshot.density,
-        snapshot.options,
+        tuple(
+            (
+                option.slot,
+                option.label,
+                option.description if snapshot.density == "detailed" else "",
+                option.action,
+                option.category_id,
+            )
+            for option in snapshot.options
+        ),
         snapshot.search_text,
     )
 

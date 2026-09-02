@@ -108,6 +108,7 @@ class EntryPanelCoordinator:
         self._snapshot: EntryPanelSnapshot | None = None
         self._recent: tuple[EntryActionRef, ...] = ()
         self._disabled: dict[EntryActionRef, str] = {}
+        self._pending = False
 
     @property
     def snapshot(self) -> EntryPanelSnapshot | None:
@@ -132,6 +133,7 @@ class EntryPanelCoordinator:
     ) -> EntryPanelSnapshot:
         self._recent = recent[:3]
         self._disabled = dict(disabled or {})
+        self._pending = preparing
         recent_options = tuple(
             self._action_option(index, candidate)
             for index, action in enumerate(self._recent)
@@ -208,11 +210,13 @@ class EntryPanelCoordinator:
     def begin_input_preparation(self) -> EntryPanelSnapshot:
         if self._snapshot is None:
             raise RuntimeError("entry panel is not open")
+        self._pending = True
         self._snapshot = replace(
             self._snapshot,
             status="preparing",
             message="正在讀取來源內容…",
             source_preview=EntryInputSourcePreview("preparing"),
+            options=self._project_option_lifecycle(self._snapshot.options),
         )
         return self._snapshot
 
@@ -222,15 +226,18 @@ class EntryPanelCoordinator:
     ) -> EntryPanelSnapshot:
         if self._snapshot is None:
             raise RuntimeError("entry panel is not open")
+        self._pending = False
         self._snapshot = replace(
             self._snapshot,
             status="idle",
             message="",
             source_preview=source_preview,
+            options=self._project_option_lifecycle(self._snapshot.options),
         )
         return self._snapshot
 
     def close(self) -> None:
+        self._pending = False
         self._snapshot = None
 
     def show_error(
@@ -241,11 +248,13 @@ class EntryPanelCoordinator:
     ) -> EntryPanelSnapshot:
         if self._snapshot is None:
             raise RuntimeError("entry panel is not open")
+        self._pending = False
         self._snapshot = replace(
             self._snapshot,
             status="error",
             message=message,
             source_preview=source_preview or self._snapshot.source_preview,
+            options=self._project_option_lifecycle(self._snapshot.options),
         )
         return self._snapshot
 
@@ -258,20 +267,11 @@ class EntryPanelCoordinator:
             return None
         self._snapshot = replace(
             self._snapshot,
-            options=tuple(
-                replace(
-                    option,
-                    enabled=not self._disabled.get(option.action, ""),
-                    disabled_reason=self._disabled.get(option.action, ""),
-                )
-                if option.action is not None
-                else option
-                for option in self._snapshot.options
-            ),
+            options=self._project_option_lifecycle(self._snapshot.options),
         )
         return self._snapshot
 
-    def escape(self) -> EntryPanelSnapshot | None:
+    def back(self) -> EntryPanelSnapshot | None:
         if self._snapshot is None:
             return None
         if self._snapshot.page == "more":
@@ -293,6 +293,8 @@ class EntryPanelCoordinator:
                 previous.panel_id,
                 recent=self._recent,
                 disabled=self._disabled,
+                preparing=self._pending,
+                source_preview=previous.source_preview,
             )
             self._snapshot = replace(
                 root,
@@ -302,8 +304,7 @@ class EntryPanelCoordinator:
                 source_preview=previous.source_preview,
             )
             return self._snapshot
-        self._snapshot = None
-        return None
+        return self._snapshot
 
     def select_digit(self, digit: str) -> EntryPanelDecision:
         if self._snapshot is None:
@@ -312,7 +313,12 @@ class EntryPanelCoordinator:
             return EntryPanelDecision(self._snapshot)
         slot = int(digit)
         option = next((item for item in self._snapshot.options if item.slot == slot), None)
-        if option is not None and option.action is not None and option.enabled:
+        if (
+            option is not None
+            and option.action is not None
+            and option.enabled
+            and not option.pending
+        ):
             return EntryPanelDecision(self._snapshot, option.action)
         if self._snapshot.page == "root" and option is not None and option.category_id:
             category = self._catalog.category_for_slot(slot)
@@ -340,5 +346,22 @@ class EntryPanelCoordinator:
             candidate.description,
             candidate.action,
             enabled=not reason,
+            pending=self._pending and not reason,
             disabled_reason=reason,
+        )
+
+    def _project_option_lifecycle(
+        self,
+        options: tuple[EntryPanelOption, ...],
+    ) -> tuple[EntryPanelOption, ...]:
+        return tuple(
+            replace(
+                option,
+                enabled=not (reason := self._disabled.get(option.action, "")),
+                pending=self._pending and not reason,
+                disabled_reason=reason,
+            )
+            if option.action is not None
+            else option
+            for option in options
         )

@@ -4,8 +4,9 @@ import customtkinter as ctk
 import pytest
 
 from ClipAI.core.commands import (
+    CloseEntryPanel,
     EntryPanelActionSelected,
-    EntryPanelEscape,
+    EntryPanelBack,
     EntryPanelSlotSelected,
     EntryPanelToggleDensity,
     RetryEntryPanelInput,
@@ -13,7 +14,7 @@ from ClipAI.core.commands import (
 from ClipAI.core.models import DisplayMetrics, EntryActionRef, EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
 from ClipAI.ui.base_dialog import ACTION_HOVER_COLOR
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
-from ClipAI.ui.unified_entry_panel import EntryPanelIntentAdapter, UnifiedEntryPanelDialog, _source_preview_text
+from ClipAI.ui.unified_entry_panel import EntryPanelIntentAdapter, UnifiedEntryPanelDialog, _body_render_key, _source_preview_text
 
 
 @pytest.mark.integration
@@ -139,14 +140,16 @@ def test_intent_adapter_emits_typed_mouse_and_keyboard_commands() -> None:
     adapter.select_slot(2)
     adapter.toggle_density()
     adapter.retry_input()
-    adapter.escape()
+    adapter.back()
+    adapter.close()
 
     assert commands == [
         EntryPanelActionSelected("panel-1", action),
         EntryPanelSlotSelected("panel-1", 2),
         EntryPanelToggleDensity("panel-1"),
         RetryEntryPanelInput("panel-1"),
-        EntryPanelEscape("panel-1"),
+        EntryPanelBack("panel-1"),
+        CloseEntryPanel("panel-1"),
     ]
 
 
@@ -200,6 +203,104 @@ def test_disabled_option_does_not_emit_action_intent() -> None:
     adapter.select(option)
 
     assert commands == []
+
+
+def test_pending_option_does_not_emit_action_intent_even_while_enabled() -> None:
+    commands = []
+    adapter = EntryPanelIntentAdapter(commands.append)
+    option = EntryPanelOption(
+        1,
+        "Preparing",
+        action=EntryActionRef("shorten_content", "short"),
+        enabled=True,
+        pending=True,
+    )
+    adapter.apply(EntryPanelSnapshot("panel-1", "scene", options=(option,)))
+
+    adapter.select(option)
+
+    assert commands == []
+
+
+def test_body_render_key_ignores_option_lifecycle_but_tracks_visible_detail() -> None:
+    action = EntryActionRef("shorten_content", "short")
+    baseline = EntryPanelSnapshot(
+        "panel-1",
+        "scene",
+        options=(EntryPanelOption(1, "Shorten", "Description", action=action),),
+    )
+    lifecycle = EntryPanelSnapshot(
+        "panel-1",
+        "scene",
+        options=(EntryPanelOption(
+            1,
+            "Shorten",
+            "Description",
+            action=action,
+            enabled=False,
+            pending=True,
+            disabled_reason="Blocked",
+        ),),
+    )
+
+    assert _body_render_key(baseline) == _body_render_key(lifecycle)
+    assert _body_render_key(baseline) != _body_render_key(
+        EntryPanelSnapshot(
+            "panel-1",
+            "scene",
+            density="compact",
+            options=baseline.options,
+        )
+    )
+
+
+def test_option_card_callback_reads_latest_option_after_in_place_update(monkeypatch) -> None:
+    class Widget:
+        def __init__(self, _parent=None, **_kwargs) -> None:
+            self.bindings = {}
+
+        def grid_columnconfigure(self, *_args, **_kwargs) -> None:
+            pass
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+        def configure(self, **_kwargs) -> None:
+            pass
+
+        def grid(self, **_kwargs) -> None:
+            pass
+
+        def grid_configure(self, **_kwargs) -> None:
+            pass
+
+        def grid_forget(self) -> None:
+            pass
+
+        def after_idle(self, callback) -> None:
+            callback()
+
+    selected = []
+    monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkFrame", Widget)
+    monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkLabel", Widget)
+    monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkFont", lambda **_kwargs: object())
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog._intent = type("Intent", (), {"select": lambda _self, option: selected.append(option)})()
+    dialog._option_buttons = []
+    dialog._option_updaters = []
+    action = EntryActionRef("shorten_content", "short")
+    initial = EntryPanelOption(1, "Shorten", action=action, enabled=False)
+    latest = EntryPanelOption(1, "Shorten", action=action, enabled=True)
+
+    card = dialog._create_option_card(
+        object(),
+        initial,
+        EntryPanelSnapshot("panel-1", "scene"),
+    )
+    dialog._option_updaters[0](latest)
+    card.bindings["<Button-1>"]()
+
+    assert selected == [latest]
 
 
 def test_projection_text_respects_density_and_keeps_disabled_reason() -> None:
@@ -307,6 +408,12 @@ def test_preparing_projection_keeps_existing_option_widgets_alive() -> None:
         def configure(self, **_kwargs) -> None:
             pass
 
+        def grid(self) -> None:
+            pass
+
+        def grid_remove(self) -> None:
+            pass
+
     class DensitySwitch:
         def select(self) -> None:
             pass
@@ -337,9 +444,11 @@ def test_preparing_projection_keeps_existing_option_widgets_alive() -> None:
     dialog._snapshot = None
     dialog._intent = Intent()
     dialog._escape_button = EscapeButton()
+    dialog._back_button = EscapeButton()
     dialog._density = DensitySwitch()
     dialog._density_tooltip = Tooltip()
     dialog._rebuild_body = lambda snapshot: rebuilt.append(snapshot.status)
+    dialog._update_option_cards = lambda _options: None
     dialog._render_message = lambda snapshot: messages.append(snapshot.message)
 
     dialog.apply(idle)

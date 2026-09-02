@@ -5,7 +5,7 @@ import uuid
 from typing import Protocol, TypeAlias
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import CloseEntryPanel, EntryPanelActionSelected, EntryPanelDigitPressed, EntryPanelEscape, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, OpenUnifiedEntryPanel, RetryEntryPanelInput, SetEntryPanelDensity
+from ClipAI.core.commands import CloseEntryPanel, EntryPanelActionSelected, EntryPanelBack, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, OpenUnifiedEntryPanel, RetryEntryPanelInput, SetEntryPanelDensity
 from ClipAI.core.errors import CancelledError, InputError
 from ClipAI.core.models import (
     ActionAdmissionOrigin,
@@ -63,7 +63,7 @@ EntryPanelRuntimeCommand: TypeAlias = (
     | EntryPanelOpenMore
     | EntryPanelSearchChanged
     | EntryPanelToggleDensity
-    | EntryPanelEscape
+    | EntryPanelBack
 )
 
 
@@ -202,14 +202,8 @@ class EntryPanelRuntimeModule:
                 snapshot = self._coordinator.toggle_density()
                 self._presenter.present_entry_panel(snapshot)
                 self._enqueue(SetEntryPanelDensity(snapshot.density))
-            elif isinstance(command, EntryPanelEscape):
-                snapshot = self._coordinator.escape()
-                if snapshot is None:
-                    self._cancel_preparation()
-                    self._source = None
-                    self._prepared_input = None
-                    self._preparation_id = None
-                    self._hold_id = None
+            elif isinstance(command, EntryPanelBack):
+                snapshot = self._coordinator.back()
                 self._presenter.present_entry_panel(snapshot)
             elif isinstance(command, RetryEntryPanelInput):
                 self._retry_preparation()
@@ -368,7 +362,7 @@ class EntryPanelRuntimeModule:
         current = self._coordinator.snapshot
         if current is None:
             return False
-        self.handle(EntryPanelEscape(current.panel_id))
+        self.close(current.panel_id)
         return True
 
     def refresh_availability(self) -> None:
@@ -481,8 +475,6 @@ class EntryPanelRuntimeModule:
         disabled: dict[EntryActionRef, str] = {}
         for action in self._coordinator.actions:
             reason = self._workflows.entry_panel_action_block_reason(action)
-            if not reason and preparing:
-                reason = "正在讀取來源內容…"
             if not reason and failure:
                 reason = failure
             if not reason and prepared is not None:

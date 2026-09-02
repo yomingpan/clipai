@@ -46,15 +46,15 @@ def test_root_projects_only_available_recent_actions_into_zero_based_slots() -> 
     )
 
 
-def test_more_and_escape_follow_the_progressive_navigation_stack() -> None:
+def test_more_and_back_follow_the_progressive_navigation_stack_without_closing_root() -> None:
     panel = coordinator()
     panel.open("panel-1")
     scene = panel.select_digit("5").snapshot
 
     more = panel.open_more()
-    returned_scene = panel.escape()
-    returned_root = panel.escape()
-    closed = panel.escape()
+    returned_scene = panel.back()
+    returned_root = panel.back()
+    unchanged_root = panel.back()
 
     assert scene.page == "scene"
     assert more.page == "more"
@@ -62,7 +62,29 @@ def test_more_and_escape_follow_the_progressive_navigation_stack() -> None:
     assert all(option.slot is None for option in more.options)
     assert returned_scene.page == "scene"
     assert returned_root.page == "root"
-    assert closed is None
+    assert unchanged_root == returned_root
+    assert panel.snapshot == returned_root
+
+
+def test_preparing_actions_remain_capable_but_are_pending_and_unselectable() -> None:
+    panel = coordinator()
+    policy_blocked = EntryActionRef("translate_to_english", "short")
+    panel.open(
+        "panel-1",
+        preparing=True,
+        disabled={policy_blocked: "Provider unavailable"},
+    )
+
+    scene = panel.select_digit("4").snapshot
+    blocked = next(option for option in scene.options if option.action == policy_blocked)
+    available = next(option for option in scene.options if option.action != policy_blocked)
+
+    assert blocked.enabled is False
+    assert blocked.pending is False
+    assert blocked.disabled_reason == "Provider unavailable"
+    assert available.enabled is True
+    assert available.pending is True
+    assert panel.select_digit(str(available.slot)).action is None
 
 
 def test_search_filters_only_the_current_more_page() -> None:
