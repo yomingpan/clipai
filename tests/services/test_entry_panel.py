@@ -46,6 +46,32 @@ def test_root_projects_only_available_recent_actions_into_zero_based_slots() -> 
     )
 
 
+def test_root_projects_a_long_press_recent_with_variant_localized_copy() -> None:
+    bundle = load_config_bundle()
+    action = EntryActionRef("translate_to_english", "long")
+
+    root = EntryPanelCoordinator(bundle.entry_panel).open(
+        "panel-1",
+        recent=(action,),
+    )
+
+    recent = root.options[0]
+    resolved = bundle.actions.resolve(action.action_id, action.press_type)
+    assert resolved.feedback_contract is not None
+    assert recent.action == action
+    assert recent.label == resolved.name
+    assert recent.description == resolved.feedback_contract.ai_help_label
+
+
+def test_root_ignores_a_stale_recent_reference_instead_of_crashing() -> None:
+    root = coordinator().open(
+        "panel-1",
+        recent=(EntryActionRef("removed_action", "long"),),
+    )
+
+    assert all(option.action is None for option in root.options)
+
+
 def test_more_and_back_follow_the_progressive_navigation_stack_without_closing_root() -> None:
     panel = coordinator()
     panel.open("panel-1")

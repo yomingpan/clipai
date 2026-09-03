@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from ClipAI.core.errors import CancelledError
@@ -181,6 +183,31 @@ def test_external_window_confirmation_rejects_focus_lost_after_capture() -> None
 
     assert confirmation.state == "target_changed"
     assert "changed" in confirmation.message.lower()
+
+
+def test_external_window_confirmation_logs_safe_foreground_diagnostics(
+    caplog,
+) -> None:
+    target = ExternalWindowRef("hwnd:2a", 42, 7)
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _modifier: False,
+        target_confirmation_timeout_sec=0,
+        target_is_valid=lambda candidate: candidate == target,
+        activate_target=lambda _candidate: True,
+        target_is_foreground=lambda _candidate: False,
+        wait=lambda _seconds: None,
+    )
+    caplog.set_level(logging.INFO, logger="clipai.external_window")
+
+    confirmation = activator.confirm(target, CancellationToken())
+
+    assert confirmation.state == "target_changed"
+    trace = caplog.text
+    assert "phase=confirmation" in trace
+    assert "state=target_changed" in trace
+    assert "target_window=hwnd:2a" in trace
+    assert "target_process_id=42" in trace
+    assert "foreground_owner=" in trace
 
 
 def test_external_window_confirmation_waits_for_transient_focus_to_return(

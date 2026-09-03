@@ -25,7 +25,10 @@ then requests admission through the existing Workflow runtime.
   flagship limit、candidate uniqueness 與 existing `action_id + press_type`
   membership，並提供其 lookup indexes。Canonical config adapter 提供 IA shape；
   active Action Language Pack 提供 exact candidate `label/description`；app
-  composition 只在兩者完整吻合後建立 catalog。
+  composition 只在兩者完整吻合後建立 catalog。Recent replay lookup 是獨立的
+  presentation seam：分類內 reference 沿用 candidate copy，分類外但合法的 press
+  variant 使用 active pack 已編譯的 Action name 與 feedback `helps`；它不會把該
+  variant 加進 category browse topology。未知或已移除的 recent reference 會被忽略。
 - `RecentActionHistory` owns the unique most-recent-first top three references.
 
 ## Legal lifecycle
@@ -83,6 +86,9 @@ presentation actuation only and does not merge Panel navigation with
   foreground. Confirmation may wait within a bounded, cancellation-aware window
   for the exact target to recover from an IME transient. Expiry fails closed and
   does not automatically repeat selection capture.
+- While an external source is preparing, the Panel is visible without activation
+  and projection updates must not request toolkit focus. It may request focus only
+  after preparation settles or through a later explicit user interaction.
 - Failure does not substitute the current foreground window or a later clipboard
   value.
 - `PreparedEntryInput` resolves the already frozen `InputDocument` for the
@@ -105,6 +111,9 @@ presentation actuation only and does not merge Panel navigation with
 - Each candidate explicitly names Action ID and press type. The catalog rejects
   unknown Actions/variants, duplicates, invalid slots and more than four
   flagships.
+- Every successful Action press type that runtime can record must resolve through
+  the Recent presentation seam even when it is not a configured browse candidate.
+  A stale persisted reference is omitted instead of aborting Panel open.
 - Action prompts, input/output modes, provider policy and Personal Style policy
   remain in `ActionCatalog` and authoritative capability owners.
 - Configuration change affects the next Panel; an admitted invocation retains

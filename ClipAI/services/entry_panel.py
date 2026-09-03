@@ -70,6 +70,7 @@ class EntryPanelCatalog:
         self._categories_by_id = categories_by_id
         self._categories_by_slot = categories_by_slot
         self._candidates = candidates
+        self._actions = actions
 
     @property
     def categories(self) -> tuple[EntryPanelCategory, ...]:
@@ -88,6 +89,27 @@ class EntryPanelCatalog:
             raise ValueError(
                 f"unknown entry panel action: {action.action_id}/{action.press_type}"
             ) from exc
+
+    def recent_candidate_for_action(
+        self,
+        action: EntryActionRef,
+    ) -> EntryPanelCandidate | None:
+        """Resolve localized replay copy without changing browse topology."""
+        configured = self._candidates.get(action)
+        if configured is not None:
+            return configured
+        if action.press_type not in {"short", "long"}:
+            return None
+        try:
+            resolved = self._actions.resolve(action.action_id, action.press_type)
+        except ValueError:
+            return None
+        description = (
+            resolved.feedback_contract.ai_help_label
+            if resolved.feedback_contract is not None
+            else resolved.name
+        )
+        return EntryPanelCandidate(action, resolved.name, description)
 
     def category(self, category_id: str) -> EntryPanelCategory:
         try:
@@ -131,13 +153,18 @@ class EntryPanelCoordinator:
         preparing: bool = False,
         source_preview: EntryInputSourcePreview | None = None,
     ) -> EntryPanelSnapshot:
-        self._recent = recent[:3]
+        recent_candidates = tuple(
+            candidate
+            for action in recent[:3]
+            if (candidate := self._catalog.recent_candidate_for_action(action))
+            is not None
+        )
+        self._recent = tuple(candidate.action for candidate in recent_candidates)
         self._disabled = dict(disabled or {})
         self._pending = preparing
         recent_options = tuple(
             self._action_option(index, candidate)
-            for index, action in enumerate(self._recent)
-            for candidate in (self._catalog.candidate_for_action(action),)
+            for index, candidate in enumerate(recent_candidates)
         )
         self._snapshot = EntryPanelSnapshot(
             panel_id,

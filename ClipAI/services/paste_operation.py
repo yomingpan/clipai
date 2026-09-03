@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+import logging
 import threading
 from typing import Literal
 
@@ -11,6 +12,9 @@ from ClipAI.core.models import PasteDispatchReceipt, PasteOutcome, PasteRequest
 from ClipAI.core.ports import TargetedPasteOutput
 from ClipAI.core.state import CancellationToken
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator, TemporaryTextResult
+
+
+logger = logging.getLogger("clipai.paste")
 
 
 class PasteOperationCoordinator:
@@ -51,8 +55,25 @@ class PasteOperationCoordinator:
                 self._active = _ActivePaste(request)
                 rejected = None
         if rejected is not None:
+            logger.warning(
+                "Paste trace stage=admitted state=rejected operation_id=%s "
+                "workflow_id=%s target_window=%s target_process_id=%s reason=%s",
+                request.operation_id,
+                request.workflow_id,
+                request.target.window_token,
+                request.target.process_id,
+                rejected.outcome.reason,
+            )
             self._completion_sink(rejected)
             return False
+        logger.info(
+            "Paste trace stage=admitted state=accepted operation_id=%s "
+            "workflow_id=%s target_window=%s target_process_id=%s",
+            request.operation_id,
+            request.workflow_id,
+            request.target.window_token,
+            request.target.process_id,
+        )
         return True
 
     def execute(self, operation_id: str) -> None:
@@ -62,15 +83,40 @@ class PasteOperationCoordinator:
                 return
             active.state = "running"
         request = active.request
+        logger.info(
+            "Paste trace stage=running operation_id=%s workflow_id=%s "
+            "target_window=%s target_process_id=%s",
+            request.operation_id,
+            request.workflow_id,
+            request.target.window_token,
+            request.target.process_id,
+        )
         try:
             transaction = self._clipboard_transactions.use_temporary_text(
                 request.operation_id,
                 request.text,
-                lambda: self._dispatcher.dispatch(request.target, active.cancellation),
+                lambda: self._dispatch(active),
                 active.cancellation,
+            )
+            logger.info(
+                "Paste trace stage=cleanup operation_id=%s workflow_id=%s "
+                "cleanup=%s dispatch_receipt=%s cancelled=%s error_type=%s",
+                request.operation_id,
+                request.workflow_id,
+                transaction.cleanup,
+                transaction.value.state if transaction.value is not None else "none",
+                transaction.cancelled,
+                type(transaction.error).__name__ if transaction.error is not None else "none",
             )
             outcome = _paste_outcome(transaction)
         except BaseException as exc:
+            logger.warning(
+                "Paste trace stage=execution_error operation_id=%s workflow_id=%s "
+                "error_type=%s",
+                request.operation_id,
+                request.workflow_id,
+                type(exc).__name__,
+            )
             failure = _paste_failure(exc)
             self._finish(
                 active,
@@ -84,6 +130,31 @@ class PasteOperationCoordinator:
             )
             raise
         self._finish(active, outcome)
+
+    def _dispatch(self, active: _ActivePaste) -> PasteDispatchReceipt:
+        request = active.request
+        logger.info(
+            "Paste trace stage=dispatch_started operation_id=%s workflow_id=%s "
+            "target_window=%s target_process_id=%s",
+            request.operation_id,
+            request.workflow_id,
+            request.target.window_token,
+            request.target.process_id,
+        )
+        receipt = self._dispatcher.dispatch(
+            request.operation_id,
+            request.target,
+            active.cancellation,
+        )
+        logger.info(
+            "Paste trace stage=dispatch_returned operation_id=%s workflow_id=%s "
+            "receipt=%s detail_present=%s",
+            request.operation_id,
+            request.workflow_id,
+            receipt.state,
+            bool(receipt.detail),
+        )
+        return receipt
 
     def request_cancel(self, operation_id: str) -> bool:
         with self._lock:
@@ -150,6 +221,16 @@ class PasteOperationCoordinator:
             active.state = "completed"
             if self._active is active:
                 self._active = None
+        logger.info(
+            "Paste trace stage=terminal operation_id=%s workflow_id=%s "
+            "state=%s delivery=%s cleanup=%s reason=%s",
+            active.request.operation_id,
+            active.request.workflow_id,
+            outcome.state,
+            outcome.delivery,
+            outcome.cleanup,
+            outcome.reason or "none",
+        )
         self._completion_sink(completion)
 
     def _matching_active(self, operation_id: str) -> _ActivePaste | None:

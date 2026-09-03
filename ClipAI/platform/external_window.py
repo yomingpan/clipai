@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import ctypes
+import logging
+import os
 import time
 from typing import TypeAlias
 
@@ -16,6 +18,9 @@ from ClipAI.core.state import CancellationToken
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_modifier_is_pressed
 from ClipAI.platform.window_activation import activate_top_level_window
 from ClipAI.platform.win32_api import configure_win32_api
+
+
+logger = logging.getLogger("clipai.external_window")
 
 
 _MESSAGES = {
@@ -104,15 +109,36 @@ class SystemExternalWindowActivator:
         target: ExternalWindowTarget,
         cancellation: CancellationToken | None = None,
     ) -> ExternalWindowActivationOutcome:
+        started_at = time.monotonic()
         deadline = time.monotonic() + self._target_confirmation_timeout_sec
+        checks = 0
         while True:
             _raise_if_cancelled(cancellation)
+            checks += 1
             if not self._target_is_valid(target):
-                return _outcome("target_changed")
+                return _trace_outcome(
+                    "confirmation",
+                    target,
+                    _outcome("target_changed"),
+                    started_at,
+                    checks=checks,
+                )
             if self._target_is_foreground(target):
-                return ExternalWindowActivationOutcome("activated")
+                return _trace_outcome(
+                    "confirmation",
+                    target,
+                    ExternalWindowActivationOutcome("activated"),
+                    started_at,
+                    checks=checks,
+                )
             if time.monotonic() >= deadline:
-                return _outcome("target_changed")
+                return _trace_outcome(
+                    "confirmation",
+                    target,
+                    _outcome("target_changed"),
+                    started_at,
+                    checks=checks,
+                )
             self._wait(self._poll_sec)
 
 
@@ -177,3 +203,57 @@ def _raise_if_cancelled(cancellation: CancellationToken | None) -> None:
 
 def _outcome(state: ExternalWindowActivationState) -> ExternalWindowActivationOutcome:
     return ExternalWindowActivationOutcome(state, _MESSAGES[state])
+
+
+def _trace_outcome(
+    phase: str,
+    target: ExternalWindowTarget,
+    outcome: ExternalWindowActivationOutcome,
+    started_at: float,
+    *,
+    checks: int = 0,
+) -> ExternalWindowActivationOutcome:
+    foreground_window, foreground_process_id, foreground_owner = (
+        diagnostic_foreground_context(target)
+    )
+    log = logger.info if outcome.activated else logger.warning
+    log(
+        "External window trace phase=%s state=%s target_window=%s "
+        "target_process_id=%s foreground_window=%s foreground_process_id=%s "
+        "foreground_owner=%s checks=%s elapsed_ms=%s",
+        phase,
+        outcome.state,
+        target.window_token,
+        target.process_id,
+        foreground_window,
+        foreground_process_id,
+        foreground_owner,
+        checks,
+        max(0, round((time.monotonic() - started_at) * 1000)),
+    )
+    return outcome
+
+
+def diagnostic_foreground_context(
+    target: ExternalWindowTarget,
+) -> tuple[str, int, str]:
+    try:
+        user32 = ctypes.windll.user32
+        configure_win32_api(user32, ctypes.windll.kernel32)
+        handle = int(user32.GetForegroundWindow())
+        if not handle:
+            return "none", 0, "none"
+        process_id = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(handle, ctypes.byref(process_id))
+        target_handle = _window_handle(target)
+        if handle == target_handle:
+            owner = "target"
+        elif process_id.value == os.getpid():
+            owner = "clipai"
+        elif process_id.value == target.process_id:
+            owner = "target_process_other_window"
+        else:
+            owner = "other_process"
+        return f"hwnd:{handle:x}", int(process_id.value), owner
+    except (AttributeError, OSError, TypeError, ValueError):
+        return "unavailable", 0, "unknown"

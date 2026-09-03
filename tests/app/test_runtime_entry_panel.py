@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
 from ClipAI.core.commands import EntryPanelBack, EntryPanelToggleDensity, RetryEntryPanelInput, SetEntryPanelDensity
@@ -13,6 +15,7 @@ from ClipAI.core.models import (
     PreparedEntryInput,
 )
 from ClipAI.services.entry_panel import EntryPanelCoordinator
+from ClipAI.services.recent_actions import RecentActionHistory
 
 
 class Presenter:
@@ -106,6 +109,7 @@ def make_module(
     input_resolver=None,
     supervisor=None,
     events: list[str] | None = None,
+    recent_actions: RecentActionHistory | None = None,
 ):
     bundle = load_config_bundle()
     coordinator = EntryPanelCoordinator(bundle.entry_panel)
@@ -133,6 +137,7 @@ def make_module(
         supervisor=supervisor,
         enqueue=commands.append,
         presenter=presenter,
+        recent_actions=recent_actions,
     )
     return module, coordinator, presenter, supervisor, workflows, activator, inputs, commands, external
 
@@ -156,6 +161,22 @@ def test_external_source_is_captured_before_panel_and_work_starts_after_projecti
     assert inputs.calls == 0
     task_id = next(iter(supervisor.work))
     assert supervisor.task_classes[task_id] == "interactive"
+
+
+def test_recent_long_press_projects_the_current_block_reason() -> None:
+    recent = RecentActionHistory(
+        (EntryActionRef("translate_to_english", "long"),)
+    )
+    module, _coordinator, _presenter, _supervisor, workflows, *_rest = make_module(
+        recent_actions=recent,
+    )
+    workflows.block_reason = "AI 正在回答，完成後再選擇功能。"
+
+    snapshot = module.open()
+
+    option = next(item for item in snapshot.options if item.action == recent.refs[0])
+    assert option.enabled is False
+    assert option.disabled_reason == workflows.block_reason
 
 
 def test_preparation_submission_failure_is_projected_as_retryable_error() -> None:
@@ -198,6 +219,22 @@ def test_external_input_is_frozen_at_open_and_selection_never_recaptures() -> No
     assert workflows.starts[-1][4] == "entry_panel"
     assert coordinator.snapshot is None
     assert presenter.popup_transitions == [(panel_id, "workflow-1")]
+
+
+def test_entry_panel_action_trace_links_panel_to_admitted_workflow(caplog) -> None:
+    module, _coordinator, _presenter, supervisor, _workflows, _activator, _inputs, commands, _external = make_module()
+    caplog.set_level(logging.INFO, logger="clipai.entry_input")
+    panel_id = module.open().panel_id
+    complete_external_preparation(module, supervisor, commands)
+
+    module.select_action(EntryActionRef("shorten_content", "short"))
+
+    trace = caplog.text
+    assert "stage=action_admitted" in trace
+    assert f"panel_id={panel_id}" in trace
+    assert "workflow_id=workflow-1" in trace
+    assert "action_id=shorten_content" in trace
+    assert "press_type=short" in trace
 
 
 def test_handoff_registration_still_precedes_first_popup_projection() -> None:
@@ -307,6 +344,45 @@ def test_external_capture_fails_closed_without_using_untrusted_clipboard() -> No
     assert activator.activations == 1
     assert inputs.calls == 1
     assert workflows.starts == []
+
+
+def test_external_capture_logs_stage_and_identity_without_clipboard_content(
+    caplog,
+) -> None:
+    class ConfirmationFailureActivator:
+        def activate(self, _target, _cancellation):
+            return ExternalWindowActivationOutcome("activated")
+
+        def confirm(self, _target, _cancellation=None):
+            return ExternalWindowActivationOutcome(
+                "target_changed",
+                "target changed",
+            )
+
+    secret = "private clipboard content must not appear in diagnostics"
+    activator = ConfirmationFailureActivator()
+    inputs = Inputs(
+        PreparedEntryInput(
+            clipboard_text_document=InputDocument(secret, "clipboard")
+        )
+    )
+    module, _coordinator, _presenter, supervisor, _workflows, _activator, _inputs, commands, _external = make_module(
+        external_window_activator=activator,
+        input_resolver=inputs,
+    )
+    caplog.set_level(logging.INFO, logger="clipai.entry_input")
+
+    module.open()
+    complete_external_preparation(module, supervisor, commands)
+
+    trace = caplog.text
+    assert "stage=activation" in trace
+    assert "stage=capture" in trace
+    assert "stage=confirmation" in trace
+    assert "state=target_changed" in trace
+    assert "target_window=hwnd:10" in trace
+    assert "preparation_id=" in trace
+    assert secret not in trace
 
 
 def test_retry_gets_new_identity_and_reuses_the_original_external_target() -> None:

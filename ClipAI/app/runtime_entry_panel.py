@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import logging
 import uuid
 from typing import Protocol, TypeAlias
 
@@ -31,6 +32,9 @@ from ClipAI.services.entry_input_preview import build_entry_input_preview
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.input_target_resolver import InputTargetResolver
 from ClipAI.services.recent_actions import RecentActionHistory
+
+
+logger = logging.getLogger("clipai.entry_input")
 
 
 class WorkflowActionAdmitter(Protocol):
@@ -273,6 +277,14 @@ class EntryPanelRuntimeModule:
                     )
                 )
                 return
+            logger.info(
+                "Entry input trace stage=action_admitted panel_id=%s workflow_id=%s "
+                "action_id=%s press_type=%s",
+                current.panel_id,
+                admission.workflow_id,
+                action.action_id,
+                action.press_type,
+            )
             self._coordinator.close()
             self._source = None
             self._prepared_input = None
@@ -394,12 +406,31 @@ class EntryPanelRuntimeModule:
         cancellation = CancellationToken()
         task_id = f"entry-panel-input:{preparation_id}"
         self._task_id = task_id
+        logger.info(
+            "Entry input trace stage=scheduled panel_id=%s preparation_id=%s "
+            "target_window=%s target_process_id=%s",
+            panel_id,
+            preparation_id,
+            target.window_token,
+            target.process_id,
+        )
 
         def work() -> None:
             try:
                 activation = self._external_window_activator.activate(
                     target,
                     cancellation,
+                )
+                log = logger.info if activation.activated else logger.warning
+                log(
+                    "Entry input trace stage=activation panel_id=%s "
+                    "preparation_id=%s target_window=%s target_process_id=%s "
+                    "state=%s",
+                    panel_id,
+                    preparation_id,
+                    target.window_token,
+                    target.process_id,
+                    activation.state,
                 )
                 if not activation.activated:
                     self._enqueue(EntryPanelInputPreparationFailed(
@@ -409,9 +440,31 @@ class EntryPanelRuntimeModule:
                     ))
                     return
                 prepared = self._input_resolver.prepare_entry_input(cancellation)
+                logger.info(
+                    "Entry input trace stage=capture panel_id=%s preparation_id=%s "
+                    "target_window=%s selection_available=%s "
+                    "clipboard_text_available=%s clipboard_image_available=%s",
+                    panel_id,
+                    preparation_id,
+                    target.window_token,
+                    prepared.selection_document is not None,
+                    prepared.clipboard_text_document is not None,
+                    prepared.clipboard_image is not None,
+                )
                 confirmation = self._external_window_activator.confirm(
                     target,
                     cancellation,
+                )
+                log = logger.info if confirmation.activated else logger.warning
+                log(
+                    "Entry input trace stage=confirmation panel_id=%s "
+                    "preparation_id=%s target_window=%s target_process_id=%s "
+                    "state=%s",
+                    panel_id,
+                    preparation_id,
+                    target.window_token,
+                    target.process_id,
+                    confirmation.state,
                 )
                 if confirmation.activated:
                     self._enqueue(EntryPanelInputPreparationCompleted(
@@ -426,14 +479,37 @@ class EntryPanelRuntimeModule:
                     confirmation.message or "The original window changed during input capture.",
                 ))
             except CancelledError:
+                logger.info(
+                    "Entry input trace stage=cancelled panel_id=%s "
+                    "preparation_id=%s target_window=%s",
+                    panel_id,
+                    preparation_id,
+                    target.window_token,
+                )
                 return
             except (InputError, ValueError) as error:
+                logger.warning(
+                    "Entry input trace stage=capture_error panel_id=%s "
+                    "preparation_id=%s target_window=%s error_type=%s",
+                    panel_id,
+                    preparation_id,
+                    target.window_token,
+                    type(error).__name__,
+                )
                 self._enqueue(EntryPanelInputPreparationFailed(
                     panel_id,
                     preparation_id,
                     str(error),
                 ))
-            except Exception:
+            except Exception as error:
+                logger.warning(
+                    "Entry input trace stage=unexpected_error panel_id=%s "
+                    "preparation_id=%s target_window=%s error_type=%s",
+                    panel_id,
+                    preparation_id,
+                    target.window_token,
+                    type(error).__name__,
+                )
                 self._enqueue(EntryPanelInputPreparationFailed(
                     panel_id,
                     preparation_id,
@@ -448,8 +524,16 @@ class EntryPanelRuntimeModule:
                 task_class="interactive",
                 cancellation_hook=cancellation.cancel,
             )
-        except Exception:
+        except Exception as error:
             self._task_id = None
+            logger.warning(
+                "Entry input trace stage=scheduling_error panel_id=%s "
+                "preparation_id=%s target_window=%s error_type=%s",
+                panel_id,
+                preparation_id,
+                target.window_token,
+                type(error).__name__,
+            )
             self._enqueue(EntryPanelInputPreparationFailed(
                 panel_id,
                 preparation_id,
@@ -473,7 +557,16 @@ class EntryPanelRuntimeModule:
         failure: str = "",
     ) -> dict[EntryActionRef, str]:
         disabled: dict[EntryActionRef, str] = {}
-        for action in self._coordinator.actions:
+        actions = list(self._coordinator.actions)
+        if self._recent_actions is not None:
+            actions.extend(
+                action
+                for action in self._recent_actions.refs
+                if action not in actions
+                and action.press_type in {"short", "long"}
+                and self._actions.contains(action.action_id)
+            )
+        for action in actions:
             reason = self._workflows.entry_panel_action_block_reason(action)
             if not reason and failure:
                 reason = failure

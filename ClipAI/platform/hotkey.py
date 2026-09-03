@@ -33,6 +33,7 @@ _VK_NUMPAD_MAP = {code: str(code - 96) for code in range(96, 106)}
 _VK_ALPHA_MAP = {code: chr(code).lower() for code in range(65, 91)}
 _VK_OEM_3 = 192
 _ENTRY_PANEL_CONFLICT_KEYS = frozenset({"altgr", "cmd", "tab", "f4", "space"})
+_LLKHF_INJECTED = 0x10
 
 
 def _describe_key(key) -> str:
@@ -40,6 +41,15 @@ def _describe_key(key) -> str:
     char = getattr(key, "char", None)
     vk = getattr(key, "vk", None)
     return f"name={name!r} char={char!r} vk={vk!r} type={type(key).__name__}"
+
+
+def _allow_physical_windows_key(_message, data) -> bool:
+    """Keep SendInput events out of ClipAI intent state without suppressing them."""
+
+    try:
+        return not bool(int(data.flags) & _LLKHF_INJECTED)
+    except (AttributeError, TypeError, ValueError):
+        return True
 
 
 def _normalize_key(key) -> str | None:
@@ -676,6 +686,10 @@ def register_hotkeys_with_long_press(
         key_is_pressed=windows_key_is_pressed,
         entry_panel_enabled=entry_panel_enabled,
     )
-    listener = keyboard.Listener(on_press=dispatcher.on_press, on_release=dispatcher.on_release)
+    listener = keyboard.Listener(
+        on_press=dispatcher.on_press,
+        on_release=dispatcher.on_release,
+        win32_event_filter=_allow_physical_windows_key,
+    )
     listener.start()
     return HotkeyListener(listener, dispatcher)

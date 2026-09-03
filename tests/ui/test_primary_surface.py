@@ -331,6 +331,66 @@ def test_entry_panel_replaces_and_restores_existing_result_in_same_host(monkeypa
     assert events[-2:] == ["close-panel", "restore-focus"]
 
 
+def test_external_entry_panel_is_shown_without_activation_while_preparing(monkeypatch) -> None:
+    events = []
+
+    class Metrics:
+        def current(self):
+            return object()
+
+    class Layout:
+        def calculate(self, _metrics):
+            return PopupBounds(10, 20, 400, 336)
+
+    class Host:
+        def __init__(self, *_args):
+            events.append("host")
+        def acquire(self):
+            return "panel-lease"
+        def mount(self, _lease, _view):
+            events.append("mount")
+            return True
+        def apply_visibility(self, visibility):
+            events.append(("visibility", visibility))
+            return True
+        def show(self, _lease):
+            events.append("show")
+            return True
+        def close(self, _lease=None):
+            events.append("close")
+            return True
+
+    class Panel:
+        def __init__(self, *_args, **_kwargs):
+            pass
+        def apply(self, _snapshot):
+            events.append("apply")
+        def reveal(self):
+            events.append("reveal")
+
+    monkeypatch.setattr("ClipAI.ui.result_dialog.PrimarySurfaceHost", Host)
+    monkeypatch.setattr("ClipAI.ui.result_dialog.UnifiedEntryPanelDialog", Panel)
+    presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
+    presenter._root = "root"
+    presenter._command_sink = lambda _command: None
+    presenter._native_window_surface = "native"
+    presenter._display_metrics = Metrics()
+    presenter._layout_policy = Layout()
+    presenter._entry_panel_dialog = None
+    presenter._primary_entry_surface = None
+    presenter._shortcut_guide_focus_return = None
+    presenter._hold_focus_for_owned_surface = lambda: None
+    presenter._owned_popup_bounds = lambda: None
+    presenter._restore_focus_after_owned_surface = lambda: None
+
+    presenter.present_entry_panel(
+        EntryPanelSnapshot("panel-1", "root", status="preparing")
+    )
+
+    assert ("visibility", "visible_no_activate") in events
+    assert "show" not in events
+
+
 def test_accepted_action_mounts_result_before_releasing_panel_state() -> None:
     events = []
 

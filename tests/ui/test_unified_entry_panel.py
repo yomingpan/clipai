@@ -352,6 +352,36 @@ def test_show_never_changes_primary_host_geometry() -> None:
     dialog.show(EntryPanelSnapshot("panel-1", "root", density="compact"))
 
 
+def test_preparing_show_and_reveal_do_not_request_focus() -> None:
+    focused = []
+
+    class Host:
+        def is_mounted(self, _lease) -> bool:
+            return True
+
+    class Lifecycle:
+        def focus(self, target: object) -> None:
+            focused.append(target)
+
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog._primary_surface_host = Host()
+    dialog._primary_surface_lease = "lease"
+    dialog._lifecycle = Lifecycle()
+    dialog._snapshot = None
+    dialog.apply = lambda snapshot: setattr(dialog, "_snapshot", snapshot)
+    dialog._first_focus_target = lambda: "first-option"
+    preparing = EntryPanelSnapshot("panel-1", "root", status="preparing")
+
+    dialog.show(preparing)
+    dialog.reveal()
+
+    assert focused == []
+
+    dialog.show(EntryPanelSnapshot("panel-1", "root"))
+
+    assert focused == ["first-option"]
+
+
 def test_show_does_not_rebuild_an_unchanged_projection() -> None:
     class Window:
         def geometry(self, _value: str) -> None:

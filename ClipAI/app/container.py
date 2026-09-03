@@ -277,11 +277,8 @@ def build_runtime(
     recent_store = JsonRecentActionStore(local_app_data / "ClipAI" / "recent_actions.json")
     valid_recent = []
     for ref in recent_store.load():
-        try:
-            bundle.entry_panel.candidate_for_action(ref)
-        except ValueError:
-            continue
-        valid_recent.append(ref)
+        if bundle.entry_panel.recent_candidate_for_action(ref) is not None:
+            valid_recent.append(ref)
     recent_actions = RecentActionHistory(tuple(valid_recent))
     recent_persistence = RecentActionPersistence(
         recent_store,

@@ -11,6 +11,8 @@ operation id、Workflow id 與 kind 失敗時，不得碰目前 handle 或 lease
 
 `PasteOperationCoordinator` 是 Paste active membership、取消、dispatch truth 與 terminal outcome 的單一 owner。整個 container 同時只允許一個 Paste Operation；重疊請求立即以原 operation ID 回報失敗，不排隊，也不取代進行中的操作。Runtime 只排程 operation identity，不持有 concrete Paste handle 或 Paste registry。
 
+Paste operation identity 必須沿 typed `TargetedPasteOutput` port 傳到 keyboard adapter，讓 diagnostics 能以同一 identity 串接 admission、clipboard temporary mutation、target activation、shortcut dispatch、settle、conditional restore 與 terminal acknowledgement。Diagnostics 只記錄 identity、opaque HWND/PID、狀態、布林值與時間；不得記錄 canonical text、clipboard payload、application name 或 window title。
+
 Paste 使用共用 `ClipboardTransactionCoordinator`：保存完整文字／圖片 snapshot、寫入文字、記錄 owned sequence、送出 paste，並只在 sequence 未被使用者或其他程式更新時還原。它不得建立第二套 clipboard lock、snapshot 或 restoration owner。
 
 Paste failure 在偵測點建立 `PasteFailure(reason, message)`；合法 reason 為

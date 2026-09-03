@@ -141,7 +141,12 @@ class SpeechOutput(Protocol):
 
 
 class TargetedPasteOutput(Protocol):
-    def dispatch(self, target: PasteTarget, cancellation: CancellationToken) -> PasteDispatchReceipt: ...
+    def dispatch(
+        self,
+        operation_id: str,
+        target: PasteTarget,
+        cancellation: CancellationToken,
+    ) -> PasteDispatchReceipt: ...
 
 
 class ExternalWindowActivator(Protocol):

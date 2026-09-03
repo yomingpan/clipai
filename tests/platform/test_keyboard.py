@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from ClipAI.core.errors import PasteFailure
@@ -34,7 +36,7 @@ def test_paste_waits_for_physical_modifiers_to_be_released() -> None:
         target_is_foreground=lambda target: target == TARGET,
     )
 
-    receipt = keyboard.dispatch(TARGET, CancellationToken())
+    receipt = keyboard.dispatch("paste-1", TARGET, CancellationToken())
 
     assert waits == [0.02]
     assert pasted == ["paste"]
@@ -54,7 +56,7 @@ def test_paste_fails_without_injecting_when_modifiers_do_not_release() -> None:
     )
 
     with pytest.raises(PasteFailure) as raised:
-        keyboard.dispatch(TARGET, CancellationToken())
+        keyboard.dispatch("paste-1", TARGET, CancellationToken())
 
     assert raised.value.reason == "modifiers_held"
     assert pasted == []
@@ -71,7 +73,7 @@ def test_paste_rejects_invalid_target_without_injecting() -> None:
     )
 
     with pytest.raises(PasteFailure) as raised:
-        keyboard.dispatch(TARGET, CancellationToken())
+        keyboard.dispatch("paste-1", TARGET, CancellationToken())
 
     assert raised.value.reason == "target_gone"
     assert pasted == []
@@ -98,7 +100,7 @@ def test_paste_cancellation_is_checked_immediately_before_dispatch() -> None:
     )
 
     with pytest.raises(RuntimeError, match="cancelled"):
-        keyboard.dispatch(TARGET, cancellation)
+        keyboard.dispatch("paste-1", TARGET, cancellation)
 
     assert pasted == []
 
@@ -115,7 +117,7 @@ def test_paste_revalidates_target_and_foreground_at_commit_gate() -> None:
     )
 
     with pytest.raises(PasteFailure) as raised:
-        keyboard.dispatch(TARGET, CancellationToken())
+        keyboard.dispatch("paste-1", TARGET, CancellationToken())
 
     assert raised.value.reason == "target_changed"
     assert pasted == []
@@ -130,7 +132,7 @@ def test_paste_reports_target_refused_focus_at_activation_gate() -> None:
     )
 
     with pytest.raises(PasteFailure) as raised:
-        keyboard.dispatch(TARGET, CancellationToken())
+        keyboard.dispatch("paste-1", TARGET, CancellationToken())
 
     assert raised.value.reason == "target_refused_focus"
 
@@ -146,7 +148,7 @@ def test_paste_reports_target_focus_timeout_after_accepted_activation() -> None:
     )
 
     with pytest.raises(PasteFailure) as raised:
-        keyboard.dispatch(TARGET, CancellationToken())
+        keyboard.dispatch("paste-1", TARGET, CancellationToken())
 
     assert raised.value.reason == "target_focus_timeout"
 
@@ -160,7 +162,32 @@ def test_input_injection_error_after_commit_is_reported_as_unconfirmed_dispatch(
         target_is_foreground=lambda _target: True,
     )
 
-    receipt = keyboard.dispatch(TARGET, CancellationToken())
+    receipt = keyboard.dispatch("paste-1", TARGET, CancellationToken())
 
     assert receipt.state == "dispatched_unconfirmed"
     assert "after the Paste Dispatch point" in receipt.detail
+
+
+def test_paste_dispatch_trace_records_commit_boundaries_without_target_metadata(caplog) -> None:
+    keyboard = SystemKeyboardOutput(
+        modifier_is_pressed=lambda _modifier: False,
+        paste_settle_sec=0,
+        paste_shortcut=lambda: None,
+        target_is_valid=lambda _target: True,
+        activate_target=lambda _target: True,
+        target_is_foreground=lambda _target: True,
+    )
+    caplog.set_level(logging.INFO, logger="clipai.keyboard_paste")
+
+    keyboard.dispatch("paste-trace", TARGET, CancellationToken())
+
+    trace = caplog.text
+    assert "operation_id=paste-trace" in trace
+    assert "stage=activation" in trace
+    assert "stage=shortcut_started" in trace
+    assert "stage=shortcut_returned" in trace
+    assert "stage=settled" in trace
+    assert "target_window=hwnd:10" in trace
+    assert "target_process_id=42" in trace
+    assert "Notepad" not in trace
+    assert "Untitled" not in trace
