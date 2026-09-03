@@ -267,7 +267,10 @@ class ResultDialogPresenter:
                 panel_lease,
             )
             if active_lease is None:
-                host.show(panel_lease)
+                if snapshot.status == "preparing":
+                    host.apply_visibility("visible_no_activate")
+                else:
+                    host.show(panel_lease)
             dialog.reveal()
             return
         self._entry_panel_dialog.show(snapshot, anchor=anchor)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
 from ClipAI.core.commands import EntryPanelBack, EntryPanelToggleDensity, RetryEntryPanelInput, SetEntryPanelDensity
@@ -326,6 +328,45 @@ def test_external_capture_fails_closed_without_using_untrusted_clipboard() -> No
     assert activator.activations == 1
     assert inputs.calls == 1
     assert workflows.starts == []
+
+
+def test_external_capture_logs_stage_and_identity_without_clipboard_content(
+    caplog,
+) -> None:
+    class ConfirmationFailureActivator:
+        def activate(self, _target, _cancellation):
+            return ExternalWindowActivationOutcome("activated")
+
+        def confirm(self, _target, _cancellation=None):
+            return ExternalWindowActivationOutcome(
+                "target_changed",
+                "target changed",
+            )
+
+    secret = "private clipboard content must not appear in diagnostics"
+    activator = ConfirmationFailureActivator()
+    inputs = Inputs(
+        PreparedEntryInput(
+            clipboard_text_document=InputDocument(secret, "clipboard")
+        )
+    )
+    module, _coordinator, _presenter, supervisor, _workflows, _activator, _inputs, commands, _external = make_module(
+        external_window_activator=activator,
+        input_resolver=inputs,
+    )
+    caplog.set_level(logging.INFO, logger="clipai.entry_input")
+
+    module.open()
+    complete_external_preparation(module, supervisor, commands)
+
+    trace = caplog.text
+    assert "stage=activation" in trace
+    assert "stage=capture" in trace
+    assert "stage=confirmation" in trace
+    assert "state=target_changed" in trace
+    assert "target_window=hwnd:10" in trace
+    assert "preparation_id=" in trace
+    assert secret not in trace
 
 
 def test_retry_gets_new_identity_and_reuses_the_original_external_target() -> None:

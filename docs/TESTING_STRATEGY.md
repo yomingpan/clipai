@@ -370,6 +370,7 @@ Recipe 回饋與使用引導應測：
   lifecycle feedback。Shell 規則只經 `PrimarySurfaceHost` public interface 測試；
   presenter 只保留必要 integration coverage，不得斷言 private widget helper。
 - UI lifecycle tests 必須證明 preparing/completion 只原地更新 card，
+  external preparing Panel 以 visible-without-activation 顯示且不要求 toolkit focus，
   `_body_render_key` 不含 enabled/pending/reason；updater 與 click callback 都讀
   latest option。Pending 顯示 neutral loading，真實 disabled reason 才使用紅色。
 - Windows smoke 必須驗證 external target restore → open-time selection capture →

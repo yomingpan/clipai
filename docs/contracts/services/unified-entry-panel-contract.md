@@ -86,6 +86,9 @@ presentation actuation only and does not merge Panel navigation with
   foreground. Confirmation may wait within a bounded, cancellation-aware window
   for the exact target to recover from an IME transient. Expiry fails closed and
   does not automatically repeat selection capture.
+- While an external source is preparing, the Panel is visible without activation
+  and projection updates must not request toolkit focus. It may request focus only
+  after preparation settles or through a later explicit user interaction.
 - Failure does not substitute the current foreground window or a later clipboard
   value.
 - `PreparedEntryInput` resolves the already frozen `InputDocument` for the

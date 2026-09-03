@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
 from ClipAI.core.commands import InterruptionRequested, ShortcutKeyStateChanged, ShortcutPressInvoked, ShortcutPressStarted
-from ClipAI.platform.hotkey import create_hotkey_dispatcher, expand_hotkeys
+from ClipAI.platform.hotkey import (
+    create_hotkey_dispatcher,
+    expand_hotkeys,
+    register_hotkeys_with_long_press,
+)
 
 
 @dataclass
@@ -253,3 +258,33 @@ def test_injected_keys_never_appear_in_observation() -> None:
     dispatcher.on_press(FakeKey(char="8"), injected=True)
 
     assert events == []
+
+
+def test_registered_windows_listener_filters_injected_keys_before_dispatch(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Listener:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def start(self) -> None:
+            captured["started"] = True
+
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr("pynput.keyboard.Listener", Listener)
+
+    register_hotkeys_with_long_press(
+        {"copilot": {"hotkey": "ctrl+alt+c"}},
+        lambda _event: None,
+        modifier_mode="ctrl_alt",
+    )
+
+    event_filter = captured["win32_event_filter"]
+    assert callable(event_filter)
+    assert event_filter(0, SimpleNamespace(flags=0x10)) is False
+    assert event_filter(0, SimpleNamespace(flags=0)) is True
+    assert captured["started"] is True

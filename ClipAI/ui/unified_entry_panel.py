@@ -278,14 +278,19 @@ class UnifiedEntryPanelDialog:
         if snapshot != getattr(self, "_snapshot", None):
             self.apply(snapshot)
         del anchor
-        if self.is_primary_content_mounted():
+        if self.is_primary_content_mounted() and snapshot.status != "preparing":
             self._lifecycle.focus(self._first_focus_target())
 
     def hide(self) -> None:
         self.unmount_primary_content()
 
     def reveal(self) -> None:
-        if self.is_primary_content_mounted():
+        snapshot = self._snapshot
+        if (
+            self.is_primary_content_mounted()
+            and snapshot is not None
+            and snapshot.status != "preparing"
+        ):
             self._lifecycle.focus(self._first_focus_target())
 
     def current_bounds(self) -> PopupBounds | None:
