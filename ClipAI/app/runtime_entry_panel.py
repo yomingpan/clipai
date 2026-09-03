@@ -277,6 +277,14 @@ class EntryPanelRuntimeModule:
                     )
                 )
                 return
+            logger.info(
+                "Entry input trace stage=action_admitted panel_id=%s workflow_id=%s "
+                "action_id=%s press_type=%s",
+                current.panel_id,
+                admission.workflow_id,
+                action.action_id,
+                action.press_type,
+            )
             self._coordinator.close()
             self._source = None
             self._prepared_input = None

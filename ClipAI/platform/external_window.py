@@ -214,7 +214,7 @@ def _trace_outcome(
     checks: int = 0,
 ) -> ExternalWindowActivationOutcome:
     foreground_window, foreground_process_id, foreground_owner = (
-        _diagnostic_foreground_context(target)
+        diagnostic_foreground_context(target)
     )
     log = logger.info if outcome.activated else logger.warning
     log(
@@ -234,7 +234,7 @@ def _trace_outcome(
     return outcome
 
 
-def _diagnostic_foreground_context(
+def diagnostic_foreground_context(
     target: ExternalWindowTarget,
 ) -> tuple[str, int, str]:
     try:

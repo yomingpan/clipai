@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+import logging
 import threading
 import time
 from typing import Generic, TypeVar
@@ -17,6 +18,7 @@ from ClipAI.core.state import CancellationToken
 SnapshotT = TypeVar("SnapshotT")
 ResultT = TypeVar("ResultT")
 _MODIFIER_KEYS = ("ctrl", "alt", "shift")
+logger = logging.getLogger("clipai.clipboard_transaction")
 
 
 @dataclass(frozen=True)
@@ -46,14 +48,31 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
 
         with self._transaction(operation_id):
             if self._cancelled(cancellation):
+                logger.info(
+                    "Clipboard transaction trace stage=cancelled operation_id=%s checkpoint=before_snapshot",
+                    operation_id,
+                )
                 return TemporaryTextResult(cancelled=True)
             try:
                 if self._clipboard.sequence_number() <= 0:
                     raise OSError("Clipboard sequence tracking is unavailable.")
                 original = self._clipboard.snapshot()
             except Exception as exc:
+                logger.warning(
+                    "Clipboard transaction trace stage=snapshot_failed operation_id=%s error_type=%s",
+                    operation_id,
+                    type(exc).__name__,
+                )
                 return TemporaryTextResult(error=_clipboard_failure(exc))
+            logger.info(
+                "Clipboard transaction trace stage=snapshot_complete operation_id=%s",
+                operation_id,
+            )
             if self._cancelled(cancellation):
+                logger.info(
+                    "Clipboard transaction trace stage=cancelled operation_id=%s checkpoint=after_snapshot",
+                    operation_id,
+                )
                 return TemporaryTextResult(cancelled=True)
 
             try:
@@ -62,10 +81,20 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
                 if owned_sequence <= 0:
                     raise OSError("Clipboard sequence tracking was lost after mutation.")
             except Exception as exc:
+                logger.warning(
+                    "Clipboard transaction trace stage=transient_write_failed operation_id=%s error_type=%s",
+                    operation_id,
+                    type(exc).__name__,
+                )
                 return TemporaryTextResult(
                     error=_clipboard_failure(exc),
                     cleanup="failed",
                 )
+            logger.info(
+                "Clipboard transaction trace stage=transient_written operation_id=%s owned_sequence=%s",
+                operation_id,
+                owned_sequence,
+            )
 
             value: ResultT | None = None
             error: Exception | None = None
@@ -74,9 +103,23 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
                 if self._cancelled(cancellation):
                     cancelled = True
                 else:
+                    logger.info(
+                        "Clipboard transaction trace stage=work_started operation_id=%s",
+                        operation_id,
+                    )
                     value = work()
+                    logger.info(
+                        "Clipboard transaction trace stage=work_returned operation_id=%s result_type=%s",
+                        operation_id,
+                        type(value).__name__,
+                    )
             except Exception as exc:
                 error = exc
+                logger.warning(
+                    "Clipboard transaction trace stage=work_error operation_id=%s error_type=%s",
+                    operation_id,
+                    type(exc).__name__,
+                )
 
             cleanup: PasteCleanupState = "restored"
             try:
@@ -86,6 +129,12 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
                 cleanup = "failed"
                 if error is None:
                     error = _clipboard_failure(exc)
+            logger.info(
+                "Clipboard transaction trace stage=cleanup operation_id=%s state=%s owned_sequence=%s",
+                operation_id,
+                cleanup,
+                owned_sequence,
+            )
 
             return TemporaryTextResult(
                 value=value,

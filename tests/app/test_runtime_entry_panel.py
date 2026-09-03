@@ -221,6 +221,22 @@ def test_external_input_is_frozen_at_open_and_selection_never_recaptures() -> No
     assert presenter.popup_transitions == [(panel_id, "workflow-1")]
 
 
+def test_entry_panel_action_trace_links_panel_to_admitted_workflow(caplog) -> None:
+    module, _coordinator, _presenter, supervisor, _workflows, _activator, _inputs, commands, _external = make_module()
+    caplog.set_level(logging.INFO, logger="clipai.entry_input")
+    panel_id = module.open().panel_id
+    complete_external_preparation(module, supervisor, commands)
+
+    module.select_action(EntryActionRef("shorten_content", "short"))
+
+    trace = caplog.text
+    assert "stage=action_admitted" in trace
+    assert f"panel_id={panel_id}" in trace
+    assert "workflow_id=workflow-1" in trace
+    assert "action_id=shorten_content" in trace
+    assert "press_type=short" in trace
+
+
 def test_handoff_registration_still_precedes_first_popup_projection() -> None:
     module, coordinator, presenter, supervisor, workflows, _activator, _inputs, commands, _external = make_module()
     events: list[str] = []

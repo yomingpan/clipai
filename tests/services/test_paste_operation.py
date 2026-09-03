@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import threading
 
 from ClipAI.core.errors import CancelledError, InputError, PasteFailure
@@ -71,7 +72,8 @@ class Dispatcher:
         self.dispatch_started: threading.Event | None = None
         self.release_dispatch: threading.Event | None = None
 
-    def dispatch(self, target: PasteTarget, cancellation) -> PasteDispatchReceipt:
+    def dispatch(self, operation_id: str, target: PasteTarget, cancellation) -> PasteDispatchReceipt:
+        assert operation_id
         assert target == TARGET
         if self.before_dispatch is not None:
             self.before_dispatch(cancellation)
@@ -142,6 +144,35 @@ def test_normal_dispatch_is_reported_as_unconfirmed_and_restores_clipboard() -> 
     assert dispatcher.calls == 1
     assert clipboard.transient_writes == ["result"]
     assert clipboard.value == "original"
+
+
+def test_paste_trace_links_dispatch_and_cleanup_without_content_or_titles(caplog) -> None:
+    clipboard = Clipboard()
+    dispatcher = Dispatcher()
+    private_text = "private paste payload"
+    caplog.set_level(logging.INFO)
+
+    outcome = execute_once(
+        clipboard,
+        dispatcher,
+        PasteRequest("paste-trace", "workflow-trace", private_text, TARGET),
+    )
+
+    assert outcome.state == "dispatched_unconfirmed"
+    trace = caplog.text
+    assert "operation_id=paste-trace" in trace
+    assert "workflow_id=workflow-trace" in trace
+    assert "stage=admitted" in trace
+    assert "stage=transient_written" in trace
+    assert "stage=dispatch_started" in trace
+    assert "stage=dispatch_returned" in trace
+    assert "stage=cleanup" in trace
+    assert "stage=terminal" in trace
+    assert "target_window=hwnd:10" in trace
+    assert "target_process_id=42" in trace
+    assert private_text not in trace
+    assert "Notepad" not in trace
+    assert "Untitled" not in trace
 
 
 def test_system_dispatch_keeps_transient_text_until_target_consumes_paste() -> None:

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import logging
 import time
 
 from ClipAI.core.errors import PASTE_FAILURE_MESSAGES, PasteFailure
 from ClipAI.core.models import ExternalWindowActivationState, PasteDispatchReceipt, PasteTarget
 from ClipAI.core.state import CancellationToken
-from ClipAI.platform.external_window import SystemExternalWindowActivator
+from ClipAI.platform.external_window import SystemExternalWindowActivator, diagnostic_foreground_context
 from ClipAI.platform.keyboard_state import windows_modifier_is_pressed
+
+
+logger = logging.getLogger("clipai.keyboard_paste")
 
 
 class SystemKeyboardOutput:
@@ -39,20 +43,71 @@ class SystemKeyboardOutput:
             target_is_foreground=target_is_foreground,
         )
 
-    def dispatch(self, target: PasteTarget, cancellation: CancellationToken) -> PasteDispatchReceipt:
+    def dispatch(
+        self,
+        operation_id: str,
+        target: PasteTarget,
+        cancellation: CancellationToken,
+    ) -> PasteDispatchReceipt:
+        started_at = time.monotonic()
         activation = self._external_activation.activate(target, cancellation)
+        log = logger.info if activation.activated else logger.warning
+        log(
+            "Keyboard paste trace stage=activation operation_id=%s state=%s "
+            "target_window=%s target_process_id=%s",
+            operation_id,
+            activation.state,
+            target.window_token,
+            target.process_id,
+        )
         if not activation.activated:
             raise _paste_failure_for_activation(activation.state)
         detail = ""
+        _log_foreground("shortcut_started", operation_id, target, started_at)
         try:
             self._paste_shortcut()
         except Exception:
             detail = "Input injection returned an error after the Paste Dispatch point."
+        _log_foreground(
+            "shortcut_returned",
+            operation_id,
+            target,
+            started_at,
+            injection_error=bool(detail),
+        )
         # Input injection can return before the target consumes the clipboard.
         # Keep the transient payload available without claiming confirmation.
         if self._paste_settle_sec > 0:
             self._wait(self._paste_settle_sec)
+        _log_foreground("settled", operation_id, target, started_at)
         return PasteDispatchReceipt("dispatched_unconfirmed", detail)
+
+
+def _log_foreground(
+    stage: str,
+    operation_id: str,
+    target: PasteTarget,
+    started_at: float,
+    *,
+    injection_error: bool = False,
+) -> None:
+    foreground_window, foreground_process_id, foreground_owner = (
+        diagnostic_foreground_context(target)
+    )
+    logger.info(
+        "Keyboard paste trace stage=%s operation_id=%s target_window=%s "
+        "target_process_id=%s foreground_window=%s foreground_process_id=%s "
+        "foreground_owner=%s injection_error=%s elapsed_ms=%s",
+        stage,
+        operation_id,
+        target.window_token,
+        target.process_id,
+        foreground_window,
+        foreground_process_id,
+        foreground_owner,
+        injection_error,
+        max(0, round((time.monotonic() - started_at) * 1000)),
+    )
 
 
 def _send_paste_shortcut() -> None:
