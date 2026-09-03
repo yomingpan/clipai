@@ -360,7 +360,9 @@ Recipe 回饋與使用引導應測：
   injected event、stale timer、repeated hold、shutdown 與 no-double-invoke。
 - Recent tests 只接受 `WorkflowController` 已接受 step 的最小 identity，涵蓋
   dedupe、press-type replay、follow-up root、headless direct Action、synthetic
-  exclusion、corrupt/restart/write failure 與 persisted privacy shape。
+  exclusion、corrupt/restart/write failure 與 persisted privacy shape。所有可由
+  runtime 記錄的 short／long reference 都必須有 localized Recent presentation；
+  stale reference 必須安全省略，並以「成功 → record → Panel open」鎖定回歸。
 - UI tests 驗證 shared root、build-before-show、keyboard/mouse equivalence、Esc
   stack、tooltip focus、click outside、header non-overlap、header drag、
   Panel/Popup exact logical-size/physical-position bounds、同一 native shell 的

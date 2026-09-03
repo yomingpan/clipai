@@ -473,7 +473,16 @@ class EntryPanelRuntimeModule:
         failure: str = "",
     ) -> dict[EntryActionRef, str]:
         disabled: dict[EntryActionRef, str] = {}
-        for action in self._coordinator.actions:
+        actions = list(self._coordinator.actions)
+        if self._recent_actions is not None:
+            actions.extend(
+                action
+                for action in self._recent_actions.refs
+                if action not in actions
+                and action.press_type in {"short", "long"}
+                and self._actions.contains(action.action_id)
+            )
+        for action in actions:
             reason = self._workflows.entry_panel_action_block_reason(action)
             if not reason and failure:
                 reason = failure

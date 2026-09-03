@@ -82,6 +82,11 @@ tests/              # Unit sims 與 integration tests
 - 最近使用由 `RecentActionHistory` 擁有，只接收 `WorkflowController` 已接受的
   successful step 所解析出的 `action_id + press_type`；不得由 provider completion、
   Workflow snapshot revision、Popup visibility 或 operation tracker 推導成功。
+  `EntryPanelCatalog` 必須能為每個合法 replay reference 提供 localized Recent
+  presentation；分類內 candidate 使用 Entry Panel language resource，分類外 press
+  variant 使用同一 active Action Language Pack 已編譯的 Action 名稱與 Human Space
+  說明。這個 replay lookup 不得改變 category／flagship／advanced topology；移除或
+  過期的 reference 必須被忽略，不得使 Panel lifecycle 崩潰。
 - Action Language Pack 的 canonical feature skeleton 只擁有不可翻譯行為；pure
   compiler 擁有完整性與相容性規則，包括 Entry Panel ordered Action refs 與
   pack candidate `label/description` 的 exact coverage；app loader 擁有 filesystem

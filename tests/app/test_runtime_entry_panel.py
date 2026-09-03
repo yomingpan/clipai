@@ -13,6 +13,7 @@ from ClipAI.core.models import (
     PreparedEntryInput,
 )
 from ClipAI.services.entry_panel import EntryPanelCoordinator
+from ClipAI.services.recent_actions import RecentActionHistory
 
 
 class Presenter:
@@ -106,6 +107,7 @@ def make_module(
     input_resolver=None,
     supervisor=None,
     events: list[str] | None = None,
+    recent_actions: RecentActionHistory | None = None,
 ):
     bundle = load_config_bundle()
     coordinator = EntryPanelCoordinator(bundle.entry_panel)
@@ -133,6 +135,7 @@ def make_module(
         supervisor=supervisor,
         enqueue=commands.append,
         presenter=presenter,
+        recent_actions=recent_actions,
     )
     return module, coordinator, presenter, supervisor, workflows, activator, inputs, commands, external
 
@@ -156,6 +159,22 @@ def test_external_source_is_captured_before_panel_and_work_starts_after_projecti
     assert inputs.calls == 0
     task_id = next(iter(supervisor.work))
     assert supervisor.task_classes[task_id] == "interactive"
+
+
+def test_recent_long_press_projects_the_current_block_reason() -> None:
+    recent = RecentActionHistory(
+        (EntryActionRef("translate_to_english", "long"),)
+    )
+    module, _coordinator, _presenter, _supervisor, workflows, *_rest = make_module(
+        recent_actions=recent,
+    )
+    workflows.block_reason = "AI 正在回答，完成後再選擇功能。"
+
+    snapshot = module.open()
+
+    option = next(item for item in snapshot.options if item.action == recent.refs[0])
+    assert option.enabled is False
+    assert option.disabled_reason == workflows.block_reason
 
 
 def test_preparation_submission_failure_is_projected_as_retryable_error() -> None:

@@ -282,6 +282,29 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
     )
 
 
+def test_every_entry_action_press_type_has_a_recent_presentation() -> None:
+    bundle = load_config_bundle()
+    action_ids = {
+        item.action.action_id
+        for category in bundle.entry_panel.categories
+        for item in (*category.flagship, *category.advanced)
+    }
+    action_ids.update(
+        shortcut.action_id
+        for shortcut in bundle.shortcuts.definitions()
+        if shortcut.action_id is not None
+    )
+
+    for action_id in action_ids:
+        for press_type in ("short", "long"):
+            action = EntryActionRef(action_id, press_type)
+            candidate = bundle.entry_panel.recent_candidate_for_action(action)
+            assert candidate is not None
+            assert candidate.action == action
+            assert candidate.label
+            assert candidate.description
+
+
 def test_config_bundle_exposes_disabled_entry_panel_catalog() -> None:
     bundle = load_config_bundle()
 
