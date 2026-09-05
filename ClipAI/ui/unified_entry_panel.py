@@ -14,6 +14,7 @@ from ClipAI.core.commands import (
     EntryPanelSlotSelected,
     EntryPanelToggleDensity,
     RetryEntryPanelInput,
+    UseEntryPanelClipboard,
 )
 from ClipAI.core.models import EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
@@ -101,6 +102,11 @@ class EntryPanelIntentAdapter:
         snapshot = self._snapshot
         if snapshot is not None:
             self._command_sink(RetryEntryPanelInput(snapshot.panel_id))
+
+    def use_clipboard(self) -> None:
+        snapshot = self._snapshot
+        if snapshot is not None:
+            self._command_sink(UseEntryPanelClipboard(snapshot.panel_id))
 
 
 class UnifiedEntryPanelDialog:
@@ -232,6 +238,11 @@ class UnifiedEntryPanelDialog:
             hover_color="#3A3A3A",
             text_color=CONTENT_COLOR,
             command=self._intent.retry_input,
+        )
+        self._use_clipboard_button = ctk.CTkButton(
+            source_row, text="使用剪貼簿", width=92, height=24,
+            fg_color="transparent", hover_color="#3A3A3A", text_color=CONTENT_COLOR,
+            command=self._intent.use_clipboard,
         )
 
         self._body = ctk.CTkScrollableFrame(
@@ -466,6 +477,12 @@ class UnifiedEntryPanelDialog:
     ) -> None:
         label = getattr(self, "_source_preview_label", None)
         retry = getattr(self, "_retry_input_button", None)
+        clipboard = getattr(self, "_use_clipboard_button", None)
+        if clipboard is not None:
+            if preview is not None and preview.clipboard_override_available:
+                clipboard.grid(row=1, column=0, pady=(4, 0), sticky="w")
+            else:
+                clipboard.grid_forget()
         if label is not None:
             label.configure(
                 text=_source_preview_text(preview),

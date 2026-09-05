@@ -6,6 +6,7 @@ from typing import Protocol, TypeVar
 
 from ClipAI.core.models import ActionFeedbackRecord, ActionLanguagePackSelectionRead, ActionLanguagePackSelectionState, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EntryPanelSnapshot, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, ModifierHoldId, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
+from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest, SelectionSource
 from ClipAI.core.voice import VoiceCaptureId, VoiceCaptureSurfaceContext, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
 
 
@@ -46,8 +47,18 @@ class SelectionCaptureAdapter(Protocol):
     def copy_selection(self) -> None: ...
 
 
+class SelectionProbe(Protocol):
+    def capture_source(self, target: ExternalWindowRef | None) -> SelectionSource | None: ...
+
+    def source_is_current(self, source: SelectionSource) -> bool: ...
+
+    def probe(self, source: SelectionSource, cancellation: CancellationToken | None) -> SelectionCaptureOutcome: ...
+
+
 class SelectionReader(Protocol):
-    def read_text(self, cancellation: CancellationToken | None = None) -> str: ...
+    def begin_capture(self, target: ExternalWindowRef | None = None) -> SelectionCaptureRequest: ...
+
+    def capture(self, cancellation: CancellationToken | None = None, *, target: ExternalWindowRef | None = None, request: SelectionCaptureRequest | None = None) -> SelectionCaptureOutcome: ...
 
 
 class ResultPresenter(Protocol):

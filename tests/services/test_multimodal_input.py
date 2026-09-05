@@ -1,6 +1,6 @@
 import pytest
 
-from ClipAI.core.models import ImageContent, ResolvedAction
+from ClipAI.core.models import SelectionCaptureOutcome, ImageContent, ResolvedAction
 from ClipAI.core.errors import InputError
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.gemini import GeminiProvider
@@ -22,8 +22,8 @@ class Clipboard:
 
 
 class Selection:
-    def read_text(self, cancellation=None):
-        return "selected"
+    def capture(self, cancellation=None, *, target=None, request=None):
+        return SelectionCaptureOutcome("selected", "selected")
 
 
 def action():
@@ -46,7 +46,7 @@ def test_selection_wins_over_clipboard_image_and_text():
 def test_clipboard_image_wins_over_clipboard_text_without_selection():
     image = ImageContent(b"png", "image/png")
     selection = Selection()
-    selection.read_text = lambda _cancellation=None: ""
+    selection.capture = lambda _cancellation=None, **kwargs: SelectionCaptureOutcome(status="none")
     document = InputResolver(Clipboard(image), selection).resolve("selection_or_clipboard")
     assert document.image == image
     assert document.text == ""
@@ -55,7 +55,7 @@ def test_clipboard_image_wins_over_clipboard_text_without_selection():
 def test_text_only_resolution_skips_clipboard_image_and_uses_clipboard_text():
     image = ImageContent(b"png", "image/png")
     selection = Selection()
-    selection.read_text = lambda _cancellation=None: ""
+    selection.capture = lambda _cancellation=None, **kwargs: SelectionCaptureOutcome(status="none")
 
     document = InputResolver(Clipboard(image=image, text="clipboard text"), selection).resolve_text()
 

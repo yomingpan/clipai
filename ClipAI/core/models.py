@@ -69,6 +69,7 @@ EntryInputPreviewKind = Literal[
     "failed",
 ]
 PreparedInputUnavailableReason = Literal[
+    "selection_unknown",
     "selection_or_clipboard_unavailable",
     "clipboard_unavailable",
     "clipboard_image_unavailable",
@@ -131,6 +132,7 @@ class EntryPanelOption:
 class EntryInputSourcePreview:
     kind: EntryInputPreviewKind
     summary: str = field(default="", repr=False)
+    clipboard_override_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -562,6 +564,7 @@ class ResolvedAction:
 class InputTarget:
     kind: Literal["external_text", "workflow_result"]
     document: InputDocument | None = None
+    selection_request: SelectionCaptureRequest | None = None
 
 
 @dataclass(frozen=True)
@@ -662,6 +665,8 @@ class PreparedEntryInput:
     selection_document: InputDocument | None = field(default=None, repr=False)
     clipboard_text_document: InputDocument | None = field(default=None, repr=False)
     clipboard_image: ImageContent | None = field(default=None, repr=False)
+    selection_outcome: SelectionCaptureOutcome | None = None
+    clipboard_override: bool = False
 
     def __post_init__(self) -> None:
         external_values = (
@@ -707,7 +712,14 @@ class PreparedEntryInput:
                     image=self.clipboard_image,
                 )
             )
-        if mode == "selection_or_clipboard" and self.selection_document is not None:
+        if (
+            mode == "selection_or_clipboard"
+            and not self.clipboard_override
+            and self.selection_outcome is not None
+            and self.selection_outcome.status in {"unknown", "cancelled"}
+        ):
+            return PreparedEntryInputResolution(unavailable_reason="selection_unknown")
+        if mode == "selection_or_clipboard" and not self.clipboard_override and self.selection_document is not None:
             return PreparedEntryInputResolution(document=self.selection_document)
         if self.clipboard_image is not None:
             return PreparedEntryInputResolution(
@@ -726,8 +738,33 @@ class PreparedEntryInput:
 
 @dataclass(frozen=True)
 class SelectionCaptureOutcome:
-    text: str = ""
-    status: Literal["captured", "empty", "modifier_timeout", "cancelled", "failed"] = "empty"
+    text: str = field(default="", repr=False)
+    status: Literal["selected", "none", "unknown", "cancelled"] = "unknown"
+    reason: str = ""
+    strategy: str = ""
+    selection_detected: bool = False
+
+    def __post_init__(self) -> None:
+        if self.status not in {"selected", "none", "unknown", "cancelled"}:
+            raise ValueError("invalid selection status")
+        if self.status == "selected" and not self.text:
+            raise ValueError("selected requires nonempty original text")
+        if self.status != "selected" and self.text:
+            raise ValueError("only selected may contain text")
+
+
+@dataclass(frozen=True)
+class SelectionSource:
+    """One capture's native source identity, never a live foreground lookup."""
+
+    window: ExternalWindowRef
+    focus_token: str
+
+
+@dataclass(frozen=True)
+class SelectionCaptureRequest:
+    operation_id: str
+    source: SelectionSource | None
 
 
 @dataclass(frozen=True)
@@ -744,6 +781,7 @@ class EntryPanelSource:
     kind: Literal["workflow", "external", "unavailable"]
     workflow_id: str = ""
     external_window: ExternalWindowRef | None = None
+    selection_request: SelectionCaptureRequest | None = None
 
 
 @dataclass(frozen=True)

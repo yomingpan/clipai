@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ClipAI.core.models import SelectionCaptureOutcome
+
 import asyncio
 import threading
 
@@ -12,6 +14,10 @@ from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSel
 class _Reader:
     def read_text(self) -> str:
         return ""
+
+    def capture(self, cancellation=None, *, target=None, request=None):
+        text = self.read_text()
+        return SelectionCaptureOutcome(text, "selected" if text else "none")
 
 
 class _Speech:

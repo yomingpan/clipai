@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ClipAI.core.models import SelectionCaptureOutcome
+
 import pytest
 
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
@@ -13,6 +15,10 @@ class Reader:
     def read_text(self) -> str:
         self.calls += 1
         return self.text
+
+    def capture(self, cancellation=None, *, target=None, request=None):
+        text = self.read_text()
+        return SelectionCaptureOutcome(text, "selected" if text else "none")
 
 
 class Speech:

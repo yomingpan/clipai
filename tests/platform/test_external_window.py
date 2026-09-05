@@ -8,6 +8,18 @@ from ClipAI.core.state import CancellationToken
 from ClipAI.platform.external_window import SystemExternalWindowActivator
 
 
+def test_already_foreground_selection_source_does_not_wait_for_alt_release():
+    target = ExternalWindowRef("hwnd:2a", 42, 7)
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _: True,
+        target_is_valid=lambda candidate: candidate == target,
+        target_is_foreground=lambda candidate: candidate == target,
+        activate_target=lambda _: pytest.fail("must preserve existing focus"),
+        wait=lambda _: pytest.fail("UIA does not need modifier release"),
+    )
+    assert activator.activate(target, CancellationToken()).activated
+
+
 def test_external_window_activator_validates_and_confirms_captured_target() -> None:
     target = ExternalWindowRef("hwnd:2a", 42, 7)
     foreground = {"value": False}

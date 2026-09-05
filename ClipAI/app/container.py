@@ -73,6 +73,7 @@ from ClipAI.services.result_router import ResultRouter
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
 from ClipAI.services.selection_capture import SelectionCaptureCoordinator
+from ClipAI.platform.selection_uia import WindowsSelectionProbe
 from ClipAI.services.user_control import UserControlCoordinator
 from ClipAI.services.voice_input import VoiceInputController
 from ClipAI.services.prompt_builder import PromptBuilder
@@ -210,6 +211,7 @@ def build_runtime(
     selection_reader = SelectionCaptureCoordinator(
         clipboard_transactions,
         SystemSelectionCaptureAdapter(),
+        WindowsSelectionProbe(),
     )
     voice_selector = SpeechVoiceSelector(
         bundle.tts.english_voice,

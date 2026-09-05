@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 
-from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
+from ClipAI.core.models import SelectionCaptureOutcome, ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
 from ClipAI.core.errors import ProviderResponseError, ProviderUnavailableError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceOrigin
@@ -38,8 +38,8 @@ class FakeSelection:
     def __init__(self, text: str) -> None:
         self.text = text
 
-    def read_text(self, cancellation=None) -> str:
-        return self.text
+    def capture(self, cancellation=None, *, target=None, request=None):
+        return SelectionCaptureOutcome(self.text, "selected" if self.text else "none")
 
 
 class RecordingPresenter:

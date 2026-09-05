@@ -18,6 +18,17 @@ def build_entry_input_preview(
             _compact(workflow.text),
         )
     selection = prepared.selection_document
+    if (
+        prepared.selection_outcome is not None
+        and prepared.selection_outcome.status in {"unknown", "cancelled"}
+        and not prepared.clipboard_override
+    ):
+        return EntryInputSourcePreview(
+            "failed", "無法確認反白內容",
+            clipboard_override_available=(
+                prepared.clipboard_text_document is not None or prepared.clipboard_image is not None
+            ),
+        )
     if selection is not None:
         return EntryInputSourcePreview("selection_text", _compact(selection.text))
     if prepared.clipboard_image is not None:

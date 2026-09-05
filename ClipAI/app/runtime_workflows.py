@@ -536,6 +536,8 @@ class WorkflowRuntimeModule:
             self._foreground_context(),
             action.external_fallback,
         )
+        if target.document is None and action.input_mode == "selection_or_clipboard" and self._input_resolver is not None:
+            target = replace(target, selection_request=self._input_resolver.begin_selection())
         projection_prepared = False
 
         def prepare_first_projection(workflow_id: str) -> None:
@@ -651,6 +653,8 @@ class WorkflowRuntimeModule:
     ) -> str:
         context = self._foreground_context()
         target = input_target or self._input_targets.resolve(context, action.external_fallback)
+        if target.document is None and action.input_mode == "selection_or_clipboard" and self._input_resolver is not None:
+            target = replace(target, selection_request=self._input_resolver.begin_selection())
         workflow_id = uuid.uuid4().hex
         controller = self._new_controller(
             SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
@@ -807,6 +811,7 @@ class WorkflowRuntimeModule:
 
         workflow_id = uuid.uuid4().hex
         capture_id = uuid.uuid4().hex
+        selection_request = self._input_resolver.begin_selection()
         controller = self._new_controller(
             SessionSnapshot(
                 workflow_id,
@@ -831,7 +836,7 @@ class WorkflowRuntimeModule:
 
         def capture() -> None:
             try:
-                document = resolver.resolve_text(token)
+                document = resolver.resolve_text(token, request=selection_request)
             except InputError as error:
                 self._enqueue(ContextualSourceCaptureFailed(workflow_id, capture_id, str(error)))
             except BaseException:

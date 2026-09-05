@@ -25,6 +25,7 @@ dependencies = [
   "pip-system-certs>=5; sys_platform == 'win32'",
   "Markdown",
   "pywebview",
+  "pythonnet>=3.0,<4; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from ClipAI.core.models import ImageContent, InputDocument, PreparedEntryInput
+from ClipAI.core.models import SelectionCaptureOutcome, ImageContent, InputDocument, PreparedEntryInput
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.entry_input_preview import build_entry_input_preview
 
@@ -30,9 +30,9 @@ class Selection:
         self.text = text
         self.reads = 0
 
-    def read_text(self, _cancellation=None) -> str:
+    def capture(self, _cancellation=None, *, target=None, request=None):
         self.reads += 1
-        return self.text
+        return SelectionCaptureOutcome(self.text, "selected" if self.text else "none")
 
 
 def test_external_preparation_captures_each_input_fact_once() -> None:
@@ -176,3 +176,54 @@ def test_workflow_preview_distinguishes_selection_from_displayed_content() -> No
         prepared,
         workflow_selection=True,
     ).kind == "workflow_selection"
+
+
+@pytest.mark.parametrize("reason", ["uia_unsupported", "uia_timeout", "source_changed", "copy_timeout"])
+def test_unknown_never_silently_uses_old_clipboard(reason):
+    from dataclasses import replace
+    from ClipAI.core.errors import SelectionUnavailableError
+
+    selection = Selection()
+    selection.capture = lambda *args, **kwargs: SelectionCaptureOutcome(reason=reason)
+    resolver = InputResolver(Clipboard(text="old clipboard"), selection)
+    for read in (lambda: resolver.resolve("selection_or_clipboard"), resolver.resolve_text):
+        with pytest.raises(SelectionUnavailableError) as error:
+            read()
+        assert error.value.reason == reason
+    prepared = resolver.prepare_entry_input()
+    assert prepared.resolve("selection_or_clipboard").unavailable_reason == "selection_unknown"
+    preview = build_entry_input_preview(prepared)
+    assert preview.kind == "failed"
+    assert preview.clipboard_override_available
+    explicit = replace(prepared, clipboard_override=True)
+    assert explicit.resolve("selection_or_clipboard").document.text == "old clipboard"
+    assert build_entry_input_preview(explicit).kind == "clipboard_text"
+
+
+def test_cancelled_capture_cannot_create_prepared_input():
+    from ClipAI.core.errors import CancelledError
+    selection = Selection()
+    selection.capture = lambda *args, **kwargs: SelectionCaptureOutcome(status="cancelled")
+    with pytest.raises(CancelledError):
+        InputResolver(Clipboard(), selection).prepare_entry_input()
+
+
+def test_native_selection_survives_unavailable_clipboard_and_retains_whitespace():
+    class LockedClipboard:
+        def read_text(self):
+            raise RuntimeError("locked")
+        def read_image(self):
+            raise RuntimeError("locked")
+    prepared = InputResolver(LockedClipboard(), Selection(" \nselected\t ")).prepare_entry_input()
+    assert prepared.resolve("selection_or_clipboard").document.text == " \nselected\t "
+
+
+def test_clipboard_fallback_is_frozen_before_selection_compatibility_copy():
+    clipboard = Clipboard(text="original clipboard")
+    selection = Selection()
+    def capture(*args, **kwargs):
+        clipboard.text = "late clipboard"
+        return SelectionCaptureOutcome(status="none")
+    selection.capture = capture
+    prepared = InputResolver(clipboard, selection).prepare_entry_input()
+    assert prepared.resolve("selection_or_clipboard").document.text == "original clipboard"

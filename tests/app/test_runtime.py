@@ -159,10 +159,13 @@ class FakeExecute:
 
 
 class ContextResolver:
+    def begin_selection(self, target=None):
+        return None
+
     def __init__(self) -> None:
         self.document = InputDocument("fixed selected source", "selection")
 
-    def resolve_text(self, _cancellation=None):
+    def resolve_text(self, _cancellation=None, *, request=None):
         return self.document
 
 
@@ -818,7 +821,7 @@ def test_contextual_question_failure_closes_draft_and_reports_clear_error() -> N
     notifier = Notifier()
     runtime, view, supervisor, _outputs, _listener = make_runtime(notifier=notifier)
 
-    def missing(_cancellation=None):
+    def missing(_cancellation=None, *, request=None):
         raise InputError("找不到文字。")
 
     runtime._workflow_module._input_resolver.resolve_text = missing

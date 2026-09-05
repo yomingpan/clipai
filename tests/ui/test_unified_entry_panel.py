@@ -10,6 +10,7 @@ from ClipAI.core.commands import (
     EntryPanelSlotSelected,
     EntryPanelToggleDensity,
     RetryEntryPanelInput,
+    UseEntryPanelClipboard,
 )
 from ClipAI.core.models import DisplayMetrics, EntryActionRef, EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
 from ClipAI.ui.base_dialog import ACTION_HOVER_COLOR
@@ -54,6 +55,7 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         snapshot = EntryPanelSnapshot(
             "panel-1",
             "scene",
+            source_preview=EntryInputSourcePreview("failed", "無法確認反白內容", True),
             options=(
                 EntryPanelOption(
                     1,
@@ -73,6 +75,12 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
             if isinstance(child, ctk.CTkLabel) and child.cget("text") == "ClipAI"
         )
         master.update()
+
+        assert dialog._use_clipboard_button.winfo_ismapped()
+        assert (
+            dialog._use_clipboard_button.winfo_rootx() + dialog._use_clipboard_button.winfo_width()
+            <= dialog._window.winfo_rootx() + dialog._window.winfo_width()
+        )
 
         for handle in (header._canvas, title_label._canvas):
             before = (dialog._window.winfo_x(), dialog._window.winfo_y())
@@ -144,6 +152,7 @@ def test_intent_adapter_emits_typed_mouse_and_keyboard_commands() -> None:
     adapter.select_slot(2)
     adapter.toggle_density()
     adapter.retry_input()
+    adapter.use_clipboard()
     adapter.back()
     adapter.close()
 
@@ -152,6 +161,7 @@ def test_intent_adapter_emits_typed_mouse_and_keyboard_commands() -> None:
         EntryPanelSlotSelected("panel-1", 2),
         EntryPanelToggleDensity("panel-1"),
         RetryEntryPanelInput("panel-1"),
+        UseEntryPanelClipboard("panel-1"),
         EntryPanelBack("panel-1"),
         CloseEntryPanel("panel-1"),
     ]

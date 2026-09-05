@@ -9,6 +9,7 @@ from ClipAI.core.models import SpeechRequest
 from ClipAI.core.ports import ClipboardReader, OperationHandle, OperationTracker, SelectionReader, SpeechOutput
 from ClipAI.core.state import CancellationToken
 from ClipAI.services.speech_text import SpeechTextPreprocessor
+from ClipAI.services.input_resolver import InputResolver
 
 
 class SpeechVoiceSelector:
@@ -181,7 +182,5 @@ class SpeechCoordinator:
 
     def _read_text(self, *, clipboard_only: bool) -> str:
         if not clipboard_only:
-            selected = self._selection_reader.read_text().strip()
-            if selected:
-                return selected
+            return InputResolver(self._clipboard, self._selection_reader).resolve_text().text
         return self._clipboard.read_text()

@@ -39,6 +39,7 @@ def configure_win32_api(user32: Any, kernel32: Any) -> None:
         ),
         (user32, "UnhookWinEvent", [wintypes.HANDLE], wintypes.BOOL),
         (user32, "GetForegroundWindow", [], wintypes.HWND),
+        (user32, "GetGUIThreadInfo", [wintypes.DWORD, ctypes.c_void_p], wintypes.BOOL),
         (
             user32,
             "GetWindowThreadProcessId",

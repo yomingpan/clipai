@@ -56,7 +56,7 @@ class ActionExecutor:
                 return
             document = invocation.input_target.document or await self._run_blocking(
                 f"input:{invocation.invocation_id}",
-                lambda: self._input_resolver.resolve(action.input_mode, token),
+                lambda: self._input_resolver.resolve(action.input_mode, token, request=invocation.input_target.selection_request),
             )
             if workflow.update(
                 invocation.invocation_id,
