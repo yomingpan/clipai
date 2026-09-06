@@ -1154,7 +1154,15 @@ class ResultDialogPresenter:
                     else "Click to stop Voice Input"
                 ),
                 active=True,
+                countdown_seconds=remaining_seconds,
             )
+            set_countdown_warning = getattr(view.dialog, "set_countdown_warning", None)
+            if callable(set_countdown_warning):
+                set_countdown_warning(
+                    not finalizing
+                    and remaining_seconds is not None
+                    and remaining_seconds <= 30
+                )
             view.surface.set_follow_up_send_enabled(False)
             return
 
@@ -1187,6 +1195,9 @@ class ResultDialogPresenter:
             tooltip=tooltip,
             active=False,
         )
+        set_countdown_warning = getattr(view.dialog, "set_countdown_warning", None)
+        if callable(set_countdown_warning):
+            set_countdown_warning(False)
         view.surface.set_follow_up_send_enabled(
             snapshot.voice_capture_id is None
             and bool(view.surface.follow_entry.get().strip())

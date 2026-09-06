@@ -540,6 +540,17 @@ class VoiceCaptureCountdownTick:
 
 
 @dataclass(frozen=True)
+class VoiceCaptureCountdownTickForCapture:
+    capture_id: VoiceCaptureId
+    remaining_seconds: int
+
+
+@dataclass(frozen=True)
+class VoiceCaptureTimeout:
+    capture_id: VoiceCaptureId
+
+
+@dataclass(frozen=True)
 class VoiceSilenceWatchdogExpired:
     capture_id: VoiceCaptureId
 

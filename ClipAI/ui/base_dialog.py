@@ -186,6 +186,7 @@ class _VoiceWaveIndicator(tk.Canvas):
         self._word = "語音"
         self._listening = False
         self._silence = False
+        self._countdown_seconds: int | None = None
         self._enabled = False
         self._active = False
         self._command: Callable[[], None] | None = None
@@ -209,10 +210,12 @@ class _VoiceWaveIndicator(tk.Canvas):
         enabled: bool,
         active: bool,
         command: Callable[[], None] | None,
+        countdown_seconds: int | None = None,
     ) -> None:
         self._word = word
         self._listening = listening
         self._silence = silence
+        self._countdown_seconds = countdown_seconds
         self._enabled = enabled
         self._active = active
         self._command = command if enabled else None
@@ -301,16 +304,21 @@ class _VoiceWaveIndicator(tk.Canvas):
         pill_color, line_color, word_color = self._colors()
         radius = 6.0 * scaling
         self._draw_rounded_pill(0.0, 0.0, float(width), float(height), radius, pill_color)
+        countdown_seconds = getattr(self, "_countdown_seconds", None)
 
         font = self._scaled_font(scaling)
         padding = 7.0 * scaling
-        word_width = float(font.measure(self._word))
+        display_word = self._word
+        if countdown_seconds is not None:
+            minutes, seconds = divmod(max(0, countdown_seconds), 60)
+            display_word = f"{minutes}:{seconds:02d}"
+        word_width = float(font.measure(display_word))
         word_x = float(width) - padding
         center_y = float(height) / 2.0
         self.create_text(
             word_x,
             center_y,
-            text=self._word,
+            text=display_word,
             fill=word_color,
             font=font,
             anchor="e",
@@ -352,6 +360,9 @@ class _VoiceWaveIndicator(tk.Canvas):
         bottom: float,
         radius: float,
         color: str,
+        *,
+        outline: str = "",
+        outline_width: float = 1.0,
     ) -> None:
         self.create_polygon(
             left + radius,
@@ -371,7 +382,8 @@ class _VoiceWaveIndicator(tk.Canvas):
             left,
             top,
             fill=color,
-            outline="",
+            outline=outline,
+            width=outline_width,
             smooth=True,
             splinesteps=24,
         )
@@ -668,6 +680,8 @@ class BaseDialog:
         self._surface_inset = surface_inset
         self._corner_radius = corner_radius
         self._border_inset = max(1, surface_inset // 3)
+        self._focus_active = False
+        self._countdown_warning = False
 
         try:
             self.root = primary_surface_host.window
@@ -795,9 +809,19 @@ class BaseDialog:
         self._flash_controller.flash(state)
 
     def set_focus_active(self, active: bool) -> None:
-        self._flash_controller.set_idle_color(
-            self._state_colors.hex("idle") if active else "#5F6B78"
-        )
+        self._focus_active = active
+        self._refresh_idle_border()
+
+    def set_countdown_warning(self, enabled: bool) -> None:
+        self._countdown_warning = enabled
+        self._refresh_idle_border()
+
+    def _refresh_idle_border(self) -> None:
+        if self._countdown_warning:
+            color = "#F2C94C"
+        else:
+            color = self._state_colors.hex("idle") if self._focus_active else "#5F6B78"
+        self._flash_controller.set_idle_color(color)
 
     def set_pinned(self, pinned: bool) -> None:
         self.pinned = pinned
@@ -1851,6 +1875,7 @@ class BaseResultSurface:
         active: bool,
         command: Callable[[], None] | None,
         tooltip: str,
+        countdown_seconds: int | None = None,
     ) -> None:
         self.voice_input_button.update_state(
             word=word,
@@ -1860,6 +1885,7 @@ class BaseResultSurface:
             command=command,
             enabled=enabled,
             active=active,
+            countdown_seconds=countdown_seconds,
         )
         self.set_action_tooltip("voice_input", tooltip)
 

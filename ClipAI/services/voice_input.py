@@ -307,6 +307,18 @@ class VoiceInputController:
         self._message = self._listening_message(capture)
         return self._transition()
 
+    def note_capture_countdown_for_capture(
+        self,
+        capture_id: VoiceCaptureId,
+        remaining_seconds: int,
+    ) -> VoiceTransition:
+        capture = self._matching_capture(capture_id)
+        if capture is None or capture.stop_requested or remaining_seconds < 0:
+            return self._ignored()
+        capture.remaining_seconds = remaining_seconds
+        self._message = self._listening_message(capture)
+        return self._transition()
+
     def set_language(self, language: VoiceLanguage, operation_id: VoiceLanguageChangeId) -> VoiceTransition:
         if self._capture is not None or self._pending_language is not None or language == self._language:
             return self._ignored()

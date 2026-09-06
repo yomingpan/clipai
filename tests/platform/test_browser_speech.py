@@ -223,6 +223,27 @@ def test_capture_start_timeout_is_cancelled_when_the_browser_starts_listening() 
     assert received == [VoiceEngineListening("capture-1")]
 
 
+def test_capture_restart_after_listening_does_not_start_a_second_start_timeout() -> None:
+    received = []
+    timers: list[ManualTimer] = []
+
+    def schedule(_delay: float, callback) -> ManualTimer:
+        timer = ManualTimer(callback)
+        timers.append(timer)
+        return timer
+
+    engine = BrowserSpeechWebView2Engine(received.append, capture_start_timeout_schedule=schedule)
+    process = LiveProcess()
+    engine._process = process
+    engine.start_capture("capture-1", "zh-TW")
+    engine._deliver(process, VoiceEngineListening("capture-1"))
+    engine._deliver(process, VoiceEngineEnded("capture-1"))
+
+    engine.start_capture("capture-1", "zh-TW", sequence_start=1)
+
+    assert len(timers) == 1
+
+
 def test_capture_stop_timeout_settles_a_browser_host_that_never_ends() -> None:
     received = []
     timers: list[tuple[float, ManualTimer]] = []
