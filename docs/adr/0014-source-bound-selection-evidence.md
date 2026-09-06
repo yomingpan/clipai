@@ -2,6 +2,10 @@
 
 Status: accepted, 2026-09-05.
 
+Copy admission amended by [ADR-0015](0015-verified-selection-only-copy.md):
+a verified, source-bound selection-only Copy capability may use the same
+transaction. Unknown still never means no selection or old-clipboard fallback.
+
 ## Context
 
 The 20260905-145021 diagnostics show alternating selection availability in the same foreground window. Failed attempts take approximately the compatibility-copy timeout. A timeout used to return `empty`, and `SelectionReader.read_text` erased every non-text outcome. Neither a successful foreground check nor an unchanged clipboard proves the absence of a selection.

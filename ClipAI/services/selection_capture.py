@@ -63,9 +63,12 @@ class SelectionCaptureCoordinator:
                 outcome = SelectionCaptureOutcome(status="cancelled")
             elif not self._probe.source_is_current(source):
                 outcome = SelectionCaptureOutcome(reason="source_changed", strategy="uia")
-            elif outcome.status == "unknown" and outcome.selection_detected:
+            elif outcome.status == "unknown" and (
+                outcome.selection_detected or outcome.copy_selection_only
+            ):
                 # An unsupported editor may copy its entire current line.
-                # Require positive selection evidence before synthetic copy.
+                # Require positive selection evidence or a verified source whose
+                # Copy command cannot substitute unselected document/line text.
                 outcome = self._transactions.capture_selection(
                     operation_id, self._adapter, cancellation=cancellation,
                     modifier_release_timeout_sec=self._modifier_release_timeout_sec,

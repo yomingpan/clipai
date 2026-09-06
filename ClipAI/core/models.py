@@ -756,8 +756,12 @@ class SelectionCaptureOutcome:
     reason: str = ""
     strategy: str = ""
     selection_detected: bool = False
+    # Verified source capability, not evidence that a selection currently exists.
+    copy_selection_only: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.copy_selection_only) is not bool:
+            raise ValueError("copy_selection_only must be a boolean")
         if self.status not in {"selected", "none", "unknown", "cancelled"}:
             raise ValueError("invalid selection status")
         if self.status == "selected" and not self.text:

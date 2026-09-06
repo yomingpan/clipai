@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.models import SelectionCaptureOutcome
+from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest
 
 import pytest
 
@@ -11,12 +11,21 @@ class Reader:
     def __init__(self, text: str) -> None:
         self.text = text
         self.calls = 0
+        self.bound_request = None
+        self.captured_request = None
+        self.cancellation = None
+
+    def begin_capture(self, target=None):
+        self.bound_request = SelectionCaptureRequest("test-capture", None)
+        return self.bound_request
 
     def read_text(self) -> str:
         self.calls += 1
         return self.text
 
     def capture(self, cancellation=None, *, target=None, request=None):
+        self.captured_request = request
+        self.cancellation = cancellation
         text = self.read_text()
         return SelectionCaptureOutcome(text, "selected" if text else "none")
 
@@ -151,15 +160,27 @@ def test_each_trigger_reads_the_current_selection_again() -> None:
     assert selection.calls == 3
 
 
-def test_selection_is_captured_when_job_is_created_not_when_worker_runs() -> None:
+def test_selection_source_is_bound_at_admission_and_read_with_token_in_worker() -> None:
     coordinator, _clipboard, selection, speech, _tracker = make_coordinator()
     selection.text = "captured now"
     job = coordinator.create_job(clipboard_only=False)
-    selection.text = "changed later"
+    assert selection.bound_request is not None
+    assert selection.calls == 0
 
     job.run()
 
     assert speech.requests[0].text == "captured now"
+    assert selection.captured_request is selection.bound_request
+    assert selection.cancellation is speech.requests[0].cancellation
+
+
+def test_cancelled_global_job_never_probes_selection_or_reads_clipboard() -> None:
+    coordinator, clipboard, selection, speech, _tracker = make_coordinator()
+    job = coordinator.create_job(clipboard_only=False)
+    coordinator.cancel_operation(job.operation_id)
+    job.run()
+    assert selection.calls == clipboard.calls == 0
+    assert speech.requests == []
 
 
 def test_speech_speed_is_captured_when_worker_starts() -> None:

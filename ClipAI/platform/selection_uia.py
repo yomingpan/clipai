@@ -105,6 +105,7 @@ class WindowsSelectionProbe:
                 text=payload.get("text", ""), status=status,
                 reason=payload.get("reason", ""), strategy="uia",
                 selection_detected=payload.get("selection_detected", False),
+                copy_selection_only=payload.get("copy_selection_only", False),
             )
         except Exception:
             return SelectionCaptureOutcome(reason="uia_unavailable", strategy="uia")

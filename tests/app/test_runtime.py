@@ -1500,6 +1500,64 @@ def test_global_speech_command_is_supervised_without_creating_session() -> None:
     assert speech.calls == ["run"]
 
 
+@pytest.mark.parametrize("reason", ["unsupported", "timeout", "source_changed", "cancelled"])
+def test_global_speech_unknown_selection_reports_failure_without_breaking_pump(reason) -> None:
+    from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest
+    from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
+
+    class Selection:
+        def begin_capture(self, target=None):
+            return SelectionCaptureRequest("capture-1", None)
+
+        def capture(self, cancellation=None, *, request=None):
+            assert request.operation_id == "capture-1"
+            assert cancellation is not None
+            return SelectionCaptureOutcome(
+                status="cancelled" if reason == "cancelled" else "unknown", reason=reason
+            )
+
+    class Clipboard:
+        def read_text(self):
+            pytest.fail("unknown selection must not read stale clipboard")
+
+    class Speech:
+        def speak(self, request):
+            pytest.fail("unknown selection must not start TTS")
+
+        def stop(self):
+            pass
+
+    speech = SpeechCoordinator(clipboard=Clipboard(), selection_reader=Selection(),
+                               speech=Speech(), voice_selector=SpeechVoiceSelector("en-test"))
+    notifier = Notifier()
+    runtime, view, supervisor, _, _ = make_runtime(speech_coordinator=speech, notifier=notifier)
+    runtime.enqueue(ShortcutPressInvoked(ShortcutPressId(1), "speech", "short"))
+    runtime.drain_commands()
+    assert [result.state for result in view.output_results] == ["pending"]
+    for work in tuple(supervisor.work.values()):
+        work()
+    terminal = "cancelled" if reason == "cancelled" else "failed"
+    assert [result.state for result in view.output_results] == ["pending", terminal]
+    if reason == "cancelled":
+        assert notifier.messages == []
+    else:
+        assert "無法確認反白內容" in view.output_results[-1].error.message
+        assert "無法確認反白內容" in notifier.messages[-1][1]
+    assert speech.current_identity is None
+    assert view.snapshots == []
+
+
+def test_global_speech_submit_failure_releases_current_job() -> None:
+    speech = GlobalSpeech()
+    runtime, view, _, _, _ = make_runtime(
+        speech_coordinator=speech, submit_error=RuntimeError("worker unavailable")
+    )
+    runtime.enqueue(SpeakSelectionOrClipboard())
+    runtime.drain_commands()
+    assert [result.state for result in view.output_results] == ["pending", "failed"]
+    assert speech.current_identity is None
+
+
 def test_global_speech_shortcut_replaces_active_speech_with_latest_request() -> None:
     speech = GlobalSpeech()
     runtime, view, supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)

@@ -9,6 +9,7 @@ from typing import cast
 
 from ClipAI.core.models import ExternalWindowRef, SelectionCaptureOutcome, SelectionSource
 from ClipAI.platform.selection_uia import capture_windows_source
+from ClipAI.platform.selection_copy_profiles import AccessibleControlIdentity, supports_selection_only_copy
 
 
 def _unknown(reason: str, *, detected: bool = False) -> SelectionCaptureOutcome:
@@ -79,6 +80,24 @@ def read_selection(source: SelectionSource) -> SelectionCaptureOutcome:
                     "\n".join(parts), "selected", strategy="uia", selection_detected=True,
                 )
             break
+        if outcome.reason == "uia_unsupported":
+            ancestry = tuple(AccessibleControlIdentity(
+                str(node.Current.ClassName), str(node.Current.FrameworkId)
+            ) for node in path)
+            copy_supported = False
+            if supports_selection_only_copy("anki", ancestry):
+                from System.Diagnostics import Process
+
+                process = Process.GetProcessById(source.window.process_id)
+                try:
+                    copy_supported = supports_selection_only_copy(str(process.ProcessName), ancestry)
+                finally:
+                    process.Dispose()
+            if copy_supported:
+                outcome = SelectionCaptureOutcome(
+                    reason="selection_only_copy_available", strategy="uia",
+                    copy_selection_only=True,
+                )
         # An HWND may stay constant while focus moves between virtual controls.
         current = AutomationElement.FocusedElement
         if current is None or tuple(current.GetRuntimeId()) != focus_id:

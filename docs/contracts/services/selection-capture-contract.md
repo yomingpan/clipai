@@ -19,7 +19,15 @@
 | unknown | Unsupported, absent ranges, timeout, source change, or read failure | No |
 | cancelled | Operation no longer wanted | No |
 
-Positive selection evidence with failed text retrieval may use the existing controlled Ctrl+C transaction. Unsupported editors must not receive blind Ctrl+C: some copy the whole current line without a selection. Source checks precede clipboard mutation and copy and continue during polling. Copy timeout and empty copy never establish `none`.
+Positive selection evidence with failed text retrieval may use the existing controlled Ctrl+C transaction. A source-bound `copy_selection_only` capability may also permit that transaction: it means a verified adapter recognizes a source whose Copy command only copies selected content, not that a selection exists. Unsupported editors without this capability must not receive blind Ctrl+C: some copy the whole current line without a selection. Source checks precede clipboard mutation and copy and continue during polling. Copy timeout and empty copy never establish `none`, even for a verified source, and never permit automatic old-clipboard fallback.
+
+The first verified profile is Anki's main card WebView: process `anki`, Qt focused
+ancestry containing `MainWebView`, and exact top-level `AnkiQt` HWND/PID. Native
+and virtual focus, source ancestry and password checks still apply. Toolbars,
+editors, unrelated Qt apps, siblings and arbitrary unsupported controls are not
+covered. `platform/selection_copy_profiles.py` owns this recognition; services
+consume only the typed capability and reuse the single clipboard transaction
+owner. See ADR-0015 for evidence, limitations and the review trigger.
 
 ## Entry Panel and consumer policy
 
@@ -30,6 +38,13 @@ consume immutable `PreparedInput.resolve(mode)`. Clipboard-only Actions skip the
 selection probe. `PreparedInput.use_clipboard()` is the shared explicit source
 choice and never rereads external state. Unsupported selection is never converted
 to confirmed-none. Speech retains typed `SelectionUnavailableError` behavior.
+Global speech binds its capture request at intent admission, then resolves text
+in the supervised media worker with the speech operation's cancellation token.
+Job creation must not run UIA or compatibility copy on the Tk command pump.
+Input failure settles the existing output operation as failed and notifies the
+user without creating a Popup or invoking TTS. Capture cancellation settles as
+cancelled without an error notification. Superseded jobs cannot notify or settle
+the replacement operation; a rejected worker submission releases its speech job.
 
 `WorkflowController` owns direct Action input recovery in `AWAITING_INPUT_CHOICE`,
 including one recovery identity, the original resolved Action/press variant,

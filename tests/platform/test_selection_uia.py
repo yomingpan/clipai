@@ -66,6 +66,13 @@ def test_worker_receives_identity_only_and_uses_real_interpreter():
     assert calls[0][1]["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
+@pytest.mark.parametrize("capability", [True, False, "true"])
+def test_worker_copy_capability_is_typed_and_preserved(capability):
+    process = Process({"status": "unknown", "copy_selection_only": capability})
+    result = WindowsSelectionProbe(process_factory=lambda *a, **kw: process).probe(SOURCE, None)
+    assert result.copy_selection_only is (capability is True)
+
+
 class Range:
     def __init__(self, text="text", *, empty=False, fails=False):
         self.text, self.empty, self.fails = text, empty, fails
@@ -84,9 +91,9 @@ class Range:
 
 def install_provider(monkeypatch, *, ranges=None, supported=True, password=False, focus_changed=False, root_handle=1):
     pattern = SimpleNamespace(SupportedTextSelection="Single", GetSelection=lambda: ranges)
-    root = SimpleNamespace(Current=SimpleNamespace(NativeWindowHandle=root_handle, IsPassword=False))
+    root = SimpleNamespace(Current=SimpleNamespace(NativeWindowHandle=root_handle, IsPassword=False, ClassName="Window", FrameworkId="Test"))
     focused = SimpleNamespace(
-        Current=SimpleNamespace(NativeWindowHandle=2, IsPassword=password),
+        Current=SimpleNamespace(NativeWindowHandle=2, IsPassword=password, ClassName="Control", FrameworkId="Test"),
         GetRuntimeId=lambda: (42, 2),
         GetCurrentPropertyValue=lambda _: supported,
         GetCurrentPattern=lambda _: pattern,
@@ -151,3 +158,37 @@ def test_selection_changed_in_same_control_does_not_return_old_text(monkeypatch)
     result = worker.read_selection(SOURCE)
     assert result.status == "unknown"
     assert result.reason == "uia_selection_changed"
+
+
+@pytest.mark.parametrize("process_name,view_name,focus_changed,expected", [
+    ("anki", "MainWebView", False, True),
+    ("other", "MainWebView", False, False),
+    ("anki", "TopWebView", False, False),
+    ("anki", "EditorWebView", False, False),
+    ("anki", "MainWebView", True, False),
+])
+def test_anki_card_without_textpattern_offers_selection_only_copy(monkeypatch, process_name, view_name, focus_changed, expected):
+    install_provider(monkeypatch, supported=False)
+    api = sys.modules["System.Windows.Automation"]
+    focused = api.AutomationElement.FocusedElement
+    root = api.TreeWalker.RawViewWalker.GetParent(focused)
+    focused.Current.ClassName = "QObject"
+    focused.Current.FrameworkId = "Qt"
+    root.Current.ClassName = "AnkiQt"
+    root.Current.FrameworkId = "Qt"
+    webview = SimpleNamespace(Current=SimpleNamespace(
+        NativeWindowHandle=0, ClassName=view_name, FrameworkId="Qt", IsPassword=False
+    ), GetCurrentPropertyValue=lambda _: False)
+    api.TreeWalker.RawViewWalker.GetParent = lambda node: webview if node is focused else root
+    monkeypatch.setitem(sys.modules, "System.Diagnostics", SimpleNamespace(
+        Process=SimpleNamespace(GetProcessById=lambda _: SimpleNamespace(ProcessName=process_name, Dispose=lambda: None))
+    ))
+    if focus_changed:
+        ids = iter([(42, 2), (42, 3)])
+        focused.GetRuntimeId = lambda: next(ids)
+
+    result = worker.read_selection(SOURCE)
+
+    assert result.status == "unknown"  # capability does not prove a selection exists
+    assert result.copy_selection_only is expected
+    assert result.selection_detected is False

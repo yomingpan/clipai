@@ -240,6 +240,59 @@ def test_copy_timeout_is_unknown_never_confirmed_no_selection():
     assert clipboard.value == "old text"
 
 
+@pytest.mark.parametrize("selected", [True, False])
+def test_verified_selection_only_copy_reaches_speech_without_using_old_clipboard(selected):
+    from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
+    from ClipAI.core.errors import SelectionUnavailableError
+
+    clipboard = Clipboard("old text must never be spoken")
+    probe = Probe()
+    probe.probe = lambda *args: SelectionCaptureOutcome(copy_selection_only=True)
+    spoken = []
+
+    def copy():
+        if selected:
+            clipboard.write_text("She places a high value on open discussions.")
+
+    class Speech:
+        def speak(self, request):
+            spoken.append(request.text)
+
+        def stop(self):
+            pass
+
+    coordinator = SpeechCoordinator(
+        clipboard=clipboard,
+        selection_reader=reader(clipboard, probe=probe, copy_selection=copy, timeout_sec=.01, poll_sec=0),
+        speech=Speech(), voice_selector=SpeechVoiceSelector("en-test"),
+    )
+    job = coordinator.create_job(clipboard_only=False)
+    if selected:
+        job.run()
+        assert spoken == ["She places a high value on open discussions."]
+    else:
+        with pytest.raises(SelectionUnavailableError):
+            job.run()
+        assert spoken == []
+    assert clipboard.value == "old text must never be spoken"
+
+
+def test_verified_copy_capability_does_not_override_source_change():
+    clipboard = Clipboard("original")
+    probe = Probe()
+    current = [True]
+
+    def changed(*args):
+        current[0] = False
+        return SelectionCaptureOutcome(copy_selection_only=True)
+
+    probe.probe = changed
+    probe.source_is_current = lambda _: current[0]
+    result = reader(clipboard, probe=probe).capture()
+    assert result.reason == "source_changed"
+    assert clipboard.writes == []
+
+
 def test_source_is_frozen_before_panel_focus_changes():
     clipboard = Clipboard("old text")
     probe = Probe()
