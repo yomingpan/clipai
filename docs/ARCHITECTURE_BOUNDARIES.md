@@ -226,7 +226,9 @@ activation 與 ownership verification 由 `platform.window_activation` 單一 pr
 
 Selection evidence follows `docs/contracts/services/selection-capture-contract.md`
 and ADR-0014. `SelectionCaptureCoordinator` owns source-bound typed captures;
-`InputResolver` owns automatic fallback only from confirmed `none`. Native UIA
+`InputResolver` owns automatic fallback from confirmed `none` or an unconfigured
+selection adapter. Resolved fallback documents explicitly identify `clipboard` as
+their source. Native UIA
 is isolated in `platform` and must not erase unknown/cancelled outcomes into an
 empty string. Entry Panel and Workflow runtime bind native source identity before
 first projection; UIA work stays off the UI thread. Explicit Panel clipboard

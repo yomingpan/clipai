@@ -77,3 +77,17 @@ def test_only_primary_surface_host_creates_migrated_top_level_window() -> None:
     assert "CTkToplevel" not in result_source
     assert "CTkToplevel" not in entry_source
     assert not Path("ClipAI/ui/entry_panel_handoff.py").exists()
+
+
+def test_base_dialog_delegates_native_shell_actuation_to_primary_host() -> None:
+    source = Path("ClipAI/ui/base_dialog.py").read_text(encoding="utf-8")
+
+    forbidden = (
+        ".withdraw(",
+        ".deiconify(",
+        ".geometry(",
+        ".winfo_id(",
+        "_native_window_surface",
+        "popup_bounds_from_tk_geometry",
+    )
+    assert [value for value in forbidden if value in source] == []

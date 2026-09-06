@@ -227,3 +227,38 @@ def test_clipboard_fallback_is_frozen_before_selection_compatibility_copy():
     selection.capture = capture
     prepared = InputResolver(clipboard, selection).prepare_input()
     assert prepared.resolve("selection_or_clipboard").document.text == "original clipboard"
+
+
+def test_live_resolution_freezes_clipboard_before_selection_compatibility_copy():
+    clipboard = Clipboard(text="original clipboard")
+    selection = Selection()
+
+    def capture(*args, **kwargs):
+        clipboard.text = "compatibility copy"
+        return SelectionCaptureOutcome(status="none")
+
+    selection.capture = capture
+    resolver = InputResolver(clipboard, selection)
+
+    assert resolver.resolve("selection_or_clipboard") == InputDocument(
+        "original clipboard", "clipboard"
+    )
+
+
+def test_missing_selection_adapter_allows_identified_clipboard_fallback():
+    resolver = InputResolver(Clipboard(text="expected clipboard"))
+
+    assert resolver.resolve("selection_or_clipboard") == InputDocument(
+        "expected clipboard", "clipboard"
+    )
+    assert resolver.resolve_text() == InputDocument(
+        "expected clipboard", "clipboard"
+    )
+    prepared = resolver.prepare_input()
+    assert prepared.selection_outcome == SelectionCaptureOutcome(
+        status="unavailable", reason="selection_unavailable"
+    )
+    assert prepared.resolve("selection_or_clipboard").document == InputDocument(
+        "expected clipboard", "clipboard"
+    )
+    assert build_entry_input_preview(prepared).kind == "clipboard_text"

@@ -16,6 +16,7 @@
 |---|---|---|
 | selected | Nonempty text from the validated selection | No |
 | none | Supported source explicitly reports only caret ranges | Yes |
+| unavailable | No selection adapter is configured for this runtime | Yes |
 | unknown | Unsupported, absent ranges, timeout, source change, or read failure | No |
 | cancelled | Operation no longer wanted | No |
 
@@ -31,13 +32,15 @@ owner. See ADR-0015 for evidence, limitations and the review trigger.
 
 ## Entry Panel and consumer policy
 
-`PreparedInput` retains the selection outcome and a frozen clipboard fallback. Unknown selection disables selection-dependent Actions without erasing explicitly clipboard-only capabilities. `UseEntryPanelClipboard(panel_id)` applies only to the current Panel with prepared clipboard content, changes the source preview to clipboard, and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
+`PreparedInput` retains the selection outcome and a frozen clipboard fallback. A missing selection adapter uses that fallback automatically and the resolved document identifies `clipboard` as its source. Unknown selection disables selection-dependent Actions without erasing explicitly clipboard-only capabilities. `UseEntryPanelClipboard(panel_id)` applies only to the current Panel with prepared clipboard content, changes the source preview to clipboard, and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
 
 Direct visible Actions and Entry Panel both call `InputResolver.prepare_input` and
 consume immutable `PreparedInput.resolve(mode)`. Clipboard-only Actions skip the
 selection probe. `PreparedInput.use_clipboard()` is the shared explicit source
-choice and never rereads external state. Unsupported selection is never converted
-to confirmed-none. Speech retains typed `SelectionUnavailableError` behavior.
+choice and never rereads external state. Unsupported source evidence is never converted
+to confirmed-none; only an unconfigured selection adapter and confirmed `none` permit
+automatic clipboard fallback. Speech retains typed `SelectionUnavailableError` behavior
+for unknown source evidence and uses clipboard text when no selection adapter is configured.
 Global speech binds its capture request at intent admission, then resolves text
 in the supervised media worker with the speech operation's cancellation token.
 Job creation must not run UIA or compatibility copy on the Tk command pump.

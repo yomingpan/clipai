@@ -1063,7 +1063,6 @@ class ResultDialogPresenter:
             hide_from_task_switcher=True,
             show_on_create=show_on_create if primary_host is None else False,
             on_close_request=lambda sid=session_id: self._request_close(sid),
-            native_window_surface=self._native_window_surface,
             primary_surface_host=primary_host,
             primary_surface_lease=primary_lease,
             mount_primary_content=mount_primary_content,

@@ -752,7 +752,7 @@ class PreparedInput:
 @dataclass(frozen=True)
 class SelectionCaptureOutcome:
     text: str = field(default="", repr=False)
-    status: Literal["selected", "none", "unknown", "cancelled"] = "unknown"
+    status: Literal["selected", "none", "unavailable", "unknown", "cancelled"] = "unknown"
     reason: str = ""
     strategy: str = ""
     selection_detected: bool = False
@@ -762,7 +762,7 @@ class SelectionCaptureOutcome:
     def __post_init__(self) -> None:
         if type(self.copy_selection_only) is not bool:
             raise ValueError("copy_selection_only must be a boolean")
-        if self.status not in {"selected", "none", "unknown", "cancelled"}:
+        if self.status not in {"selected", "none", "unavailable", "unknown", "cancelled"}:
             raise ValueError("invalid selection status")
         if self.status == "selected" and not self.text:
             raise ValueError("selected requires nonempty original text")

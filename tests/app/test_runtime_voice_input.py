@@ -589,3 +589,45 @@ def test_popup_countdown_at_29_seconds_does_not_stop_capture() -> None:
     assert runtime.handle(VoiceCaptureCountdownTickForCapture("capture-1", 29)) is True
     assert engine.calls == [("start", "capture-1", "zh-TW", 0)]
     assert workflow.projections[-1].remaining_seconds == 29
+
+
+def test_popup_deadline_rechecks_early_timer_and_late_callback_is_inert_after_stop() -> None:
+    engine, workflows, dispatched, scheduled = Engine(), Workflows(), [], []
+    now = [100.0]
+    workflows.controllers["workflow-1"] = Workflow(SessionSnapshot(
+        "workflow-1",
+        4,
+        SessionStatus.COMPLETED,
+        "summarize",
+        "Summarize",
+        "model",
+        available_actions=("follow_up",),
+    ))
+
+    def schedule(delay, callback):
+        watchdog = Watchdog(callback)
+        scheduled.append((delay, watchdog))
+        return watchdog
+
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        dispatch=dispatched.append,
+        watchdog_schedule=schedule,
+        monotonic_clock=lambda: now[0],
+    )
+    runtime.handle(StartPopupVoiceCapture("workflow-1", "capture-1"))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("capture-1")))
+    expiry = next(watchdog for delay, watchdog in scheduled if delay == 120.0)
+
+    expiry.callback()
+    assert dispatched == []
+    rescheduled_expiry = scheduled[-1][1]
+
+    assert runtime.handle(StopVoiceCapture("capture-1")) is True
+    assert rescheduled_expiry.cancelled is True
+    now[0] = 220.0
+    rescheduled_expiry.callback()
+    assert dispatched == []

@@ -85,12 +85,12 @@ def make_coordinator(*, clipboard="clipboard", selection="selected", speech=None
     return coordinator, clipboard_reader, selection_reader, speech, tracker
 
 
-def test_selection_first_and_configured_english_voice() -> None:
+def test_frozen_clipboard_does_not_override_selection_or_configured_voice() -> None:
     coordinator, clipboard, selection, speech, tracker = make_coordinator()
     job = coordinator.create_job(clipboard_only=False)
     job.run()
     assert selection.calls == 1
-    assert clipboard.calls == 0
+    assert clipboard.calls == 1
     assert speech.requests[0].text == "selected"
     assert speech.requests[0].voice_override == "en-GB-TestVoice"
     assert tracker.calls == []

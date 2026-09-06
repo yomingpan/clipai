@@ -1509,7 +1509,8 @@ def test_global_speech_unknown_selection_reports_failure_without_breaking_pump(r
         def begin_capture(self, target=None):
             return SelectionCaptureRequest("capture-1", None)
 
-        def capture(self, cancellation=None, *, request=None):
+        def capture(self, cancellation=None, *, target=None, request=None):
+            assert target is None
             assert request.operation_id == "capture-1"
             assert cancellation is not None
             return SelectionCaptureOutcome(
@@ -1518,7 +1519,7 @@ def test_global_speech_unknown_selection_reports_failure_without_breaking_pump(r
 
     class Clipboard:
         def read_text(self):
-            pytest.fail("unknown selection must not read stale clipboard")
+            return "frozen clipboard must not be used"
 
     class Speech:
         def speak(self, request):

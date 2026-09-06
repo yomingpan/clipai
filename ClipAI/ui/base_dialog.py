@@ -11,10 +11,8 @@ from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PopupBounds, PresentationDocument
 from ClipAI.core.popup_presentation import PopupPresentationModel
-from ClipAI.core.ports import NativeWindowSurface
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
-from ClipAI.ui.popup_layout import popup_bounds_from_tk_geometry
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
 
@@ -659,7 +657,6 @@ class BaseDialog:
         hide_from_task_switcher: bool = False,
         show_on_create: bool = True,
         on_close_request: Callable[[], None] | None = None,
-        native_window_surface: NativeWindowSurface | None = None,
         primary_surface_host: PrimarySurfaceHost | None = None,
         primary_surface_lease: PrimarySurfaceLease | None = None,
         mount_primary_content: bool = True,
@@ -671,11 +668,10 @@ class BaseDialog:
         self.height = height
         self.pinned = False
         self._on_close_request = on_close_request
-        self._native_window_surface = native_window_surface
-        self._primary_surface_host = primary_surface_host
-        self._primary_surface_lease = primary_surface_lease
         if primary_surface_host is None or primary_surface_lease is None:
             raise ValueError("BaseDialog requires a primary surface host and lease")
+        self._primary_surface_host = primary_surface_host
+        self._primary_surface_lease = primary_surface_lease
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
         self._surface_inset = surface_inset
         self._corner_radius = corner_radius
@@ -717,7 +713,6 @@ class BaseDialog:
             self.main_frame = self.surface
 
             self.lifecycle = primary_surface_host.lifecycle
-            self._drag_controller = None
             self._flash_controller = SurfaceFlashController(
                 colors=self._state_colors,
                 apply_color=self._painter.draw,
@@ -767,43 +762,22 @@ class BaseDialog:
             return False
 
     @property
-    def primary_surface_host(self) -> PrimarySurfaceHost | None:
+    def primary_surface_host(self) -> PrimarySurfaceHost:
         return self._primary_surface_host
 
     @property
-    def primary_surface_lease(self) -> PrimarySurfaceLease | None:
+    def primary_surface_lease(self) -> PrimarySurfaceLease:
         return self._primary_surface_lease
 
     def is_primary_content_mounted(self) -> bool:
-        host = getattr(self, "_primary_surface_host", None)
-        lease = getattr(self, "_primary_surface_lease", None)
-        return host is None or (lease is not None and host.is_mounted(lease))
+        return self._primary_surface_host.is_mounted(self._primary_surface_lease)
 
     def show(self) -> bool:
         """Reveal a fully built dialog after a withdrawn construction."""
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            primary_lease = self._primary_surface_lease
-            assert primary_lease is not None
-            return primary_host.show(primary_lease)
-        try:
-            self.root.update_idletasks()
-            self.root.deiconify()
-        except tk.TclError:
-            return False
-        return True
+        return self._primary_surface_host.show(self._primary_surface_lease)
 
     def current_bounds(self) -> PopupBounds | None:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            return primary_host.current_bounds()
-        try:
-            self.root.update_idletasks()
-            return popup_bounds_from_tk_geometry(
-                str(self.root.geometry())
-            )
-        except (AttributeError, TypeError, ValueError, tk.TclError):
-            return None
+        return self._primary_surface_host.current_bounds()
 
     def flash(self, state: DialogState) -> None:
         self._flash_controller.flash(state)
@@ -831,11 +805,7 @@ class BaseDialog:
         return self.pinned
 
     def close(self) -> None:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            primary_host.close(self._primary_surface_lease)
-        else:
-            self.lifecycle.close()
+        self._primary_surface_host.close(self._primary_surface_lease)
 
     def mount_primary_content(self) -> bool:
         try:
@@ -854,71 +824,17 @@ class BaseDialog:
         self,
         visibility: Literal["hidden", "visible_activate", "visible_no_activate"],
     ) -> bool:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            return primary_host.apply_visibility(visibility)
-        if visibility == "hidden":
-            try:
-                self.root.withdraw()
-            except tk.TclError:
-                return False
-            return True
-        if visibility == "visible_activate":
-            try:
-                self.root.deiconify()
-            except tk.TclError:
-                return False
-            return self.lifecycle.focus()
-        if visibility == "visible_no_activate":
-            try:
-                self.root.deiconify()
-                self.root.update_idletasks()
-                child_id = int(self.root.winfo_id())
-            except (AttributeError, TypeError, ValueError, tk.TclError):
-                return False
-            native = self._native_window_surface
-            return native.show_without_activation(child_id) if native is not None else False
-        raise ValueError(f"unsupported popup visibility: {visibility}")
+        return self._primary_surface_host.apply_visibility(visibility)
 
     def native_owns_foreground(self) -> bool:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            return primary_host.owns_foreground()
-        native = self._native_window_surface
-        if native is None:
-            return False
-        try:
-            self.root.update_idletasks()
-            return native.owns_foreground(int(self.root.winfo_id()))
-        except (AttributeError, TypeError, ValueError, tk.TclError):
-            return False
+        return self._primary_surface_host.owns_foreground()
 
     def _activate_native_window(self, window: tk.Misc) -> bool:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            return primary_host.lifecycle.focus()
-        native = self._native_window_surface
-        if native is None:
-            return False
-        try:
-            window.deiconify()
-            window.update_idletasks()
-            return native.activate(int(window.winfo_id()))
-        except (AttributeError, TypeError, ValueError, tk.TclError):
-            return False
+        del window
+        return self._primary_surface_host.lifecycle.focus()
 
     def _hide_from_task_switcher(self) -> bool:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            return primary_host.hide_from_task_switcher()
-        native = self._native_window_surface
-        if native is None:
-            return False
-        try:
-            self.root.update_idletasks()
-            return native.hide_from_task_switcher(int(self.root.winfo_id()))
-        except (AttributeError, TypeError, ValueError, tk.TclError):
-            return False
+        return self._primary_surface_host.hide_from_task_switcher()
 
     def request_close(self) -> str | None:
         """Emit the semantic close request; only the presenter destroys views."""
@@ -931,23 +847,13 @@ class BaseDialog:
         return "break"
 
     def enable_drag(self, *widgets) -> None:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            primary_host.bind_drag(*widgets)
-        else:
-            self._drag_controller.bind(*widgets)
+        self._primary_surface_host.bind_drag(*widgets)
 
     def resize(self, width: int, height: int, *, x: int | None = None, y: int | None = None) -> None:
         if width == self.width and height == self.height and x is None and y is None:
             return
         self.width, self.height = width, height
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            primary_host.resize(width, height, x=x, y=y)
-            return
-        target_x = self.root.winfo_x() if x is None else x
-        target_y = self.root.winfo_y() if y is None else y
-        self.root.geometry(f"{width}x{height}+{target_x}+{target_y}")
+        self._primary_surface_host.resize(width, height, x=x, y=y)
 
     def _on_canvas_configure(self, event) -> None:
         actual_width = max(1, int(event.width))
