@@ -675,11 +675,23 @@ class ResultDialogPresenter:
                     rendered.voice_draft_revision += 1
                     self._command_sink(UpdateVoiceDraft(sid, expected_revision, text))
 
-                view.surface.set_editable_content(
-                    snapshot.content,
-                    update_voice_draft,
-                    caret_offset=caret_offset,
+                entered_voice_review = (
+                    previous is None
+                    or previous.status is not SessionStatus.VOICE_REVIEW
                 )
+                # Continuous edit snapshots acknowledge the canonical revision.
+                # Repainting them can erase a newer native widget mutation that
+                # has not reached the command pump yet.
+                if (
+                    entered_voice_review
+                    or caret_offset is not None
+                    or not view.voice_draft_editing
+                ):
+                    view.surface.set_editable_content(
+                        snapshot.content,
+                        update_voice_draft,
+                        caret_offset=caret_offset,
+                    )
                 if insertion is not None and caret_offset is not None:
                     view.applied_voice_insertion_revision = insertion.projection_revision
                 view.surface.set_voice_draft_editing(view.voice_draft_editing)
