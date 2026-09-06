@@ -337,7 +337,58 @@ def test_voice_draft_reading_mode_makes_content_read_only_until_reopened() -> No
     surface.set_voice_draft_editing(True)
 
     assert surface.content_text.states == ["disabled", "normal"]
-    assert surface.content_text.bindings["<KeyRelease>"] == surface._notify_editable_content_changed
+    assert surface.content_text.bindings["<<Modified>>"] == surface._notify_editable_content_changed
+
+
+def test_voice_draft_modified_event_reports_each_widget_mutation_once() -> None:
+    class ContentText:
+        def __init__(self) -> None:
+            self.modified = True
+
+        def edit_modified(self, value=None):
+            if value is None:
+                return self.modified
+            self.modified = value
+
+        def get(self, start, end) -> str:
+            assert (start, end) == ("1.0", "end-1c")
+            return "fast typing"
+
+    changed = []
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = ContentText()
+    surface._editable_content_changed = changed.append
+
+    surface._notify_editable_content_changed()
+    surface._notify_editable_content_changed()
+
+    assert changed == ["fast typing"]
+
+
+def test_voice_draft_editing_rebinds_exactly_one_modified_handler() -> None:
+    class ContentText:
+        def __init__(self) -> None:
+            self.bindings = []
+
+        def configure(self, **_values) -> None:
+            pass
+
+        def bind(self, sequence, callback) -> None:
+            self.bindings.append((sequence, callback))
+
+        def unbind(self, sequence) -> None:
+            self.bindings = [item for item in self.bindings if item[0] != sequence]
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = ContentText()
+    surface._editable_content_changed = lambda _text: None
+
+    surface.set_voice_draft_editing(True)
+    surface.set_voice_draft_editing(True)
+
+    assert surface.content_text.bindings == [
+        ("<<Modified>>", surface._notify_editable_content_changed),
+    ]
 
 
 def test_voice_draft_content_refresh_preserves_the_current_caret() -> None:
@@ -367,6 +418,9 @@ def test_voice_draft_content_refresh_preserves_the_current_caret() -> None:
             self.caret_updates.append((mark, index))
 
         def bind(self, _sequence, _callback) -> None:
+            pass
+
+        def unbind(self, _sequence) -> None:
             pass
 
     surface = BaseResultSurface.__new__(BaseResultSurface)
@@ -409,6 +463,9 @@ def test_finalized_voice_insertion_moves_caret_to_inserted_text_end() -> None:
             self.removed_tags.append((tag, start, end))
 
         def bind(self, _sequence, _callback) -> None:
+            pass
+
+        def unbind(self, _sequence) -> None:
             pass
 
     surface = BaseResultSurface.__new__(BaseResultSurface)

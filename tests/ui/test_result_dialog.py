@@ -1849,6 +1849,44 @@ def test_finalized_voice_insertion_projects_its_caret_endpoint_once() -> None:
     assert view.applied_voice_insertion_revision == 4
 
 
+def test_voice_draft_ack_does_not_overwrite_a_newer_local_mutation() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    target = PasteTarget("hwnd:10", 42, "Notepad", "Untitled", 1)
+    local = {"text": "a", "on_changed": None}
+
+    def render_editable(text, on_changed, *, caret_offset=None) -> None:
+        local["text"] = text
+        local["on_changed"] = on_changed
+
+    view.surface.set_editable_content = render_editable
+    initial = SessionSnapshot(
+        "s1",
+        1,
+        SessionStatus.VOICE_REVIEW,
+        "voice_input",
+        "Voice Input",
+        "",
+        content="a",
+        voice_origin=VoiceOrigin(target, "a", 0),
+    )
+    presenter._apply(initial)
+
+    local["text"] = "ab"
+    local["on_changed"]("ab")
+    local["text"] = "abc"
+    acknowledgement = replace(
+        initial,
+        revision=2,
+        content="ab",
+        voice_origin=VoiceOrigin(target, "ab", 1),
+    )
+
+    presenter._apply(acknowledgement)
+
+    assert local["text"] == "abc"
+
+
 def test_ctrl_e_toggles_pin_for_active_popup() -> None:
     class ShortcutRoot:
         def __init__(self) -> None:

@@ -1924,7 +1924,7 @@ class BaseResultSurface:
 
     def set_content_chunks(self, chunks: list[tuple[str, str]]) -> None:
         self._editable_content_changed = None
-        self.content_text.unbind("<KeyRelease>")
+        self.content_text.unbind("<<Modified>>")
         self._canonical_selection_segments = ()
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
@@ -1942,6 +1942,7 @@ class BaseResultSurface:
         """Render canonical Voice draft text and apply explicit insertion placement."""
         self._canonical_selection_segments = ()
         self._editable_content_changed = on_changed
+        self.content_text.unbind("<<Modified>>")
         self.content_text.configure(state="normal")
         try:
             current = self.content_text.get("1.0", "end-1c")
@@ -1967,16 +1968,21 @@ class BaseResultSurface:
                 self.content_text.mark_set("insert", preserved_caret)
             except (tk.TclError, AttributeError):
                 pass
-        self.content_text.bind("<KeyRelease>", self._notify_editable_content_changed)
+        try:
+            self.content_text.edit_modified(False)
+        except (tk.TclError, AttributeError):
+            pass
+        self.content_text.bind("<<Modified>>", self._notify_editable_content_changed)
 
     def set_voice_draft_editing(self, editing: bool) -> None:
         """Switch the rendered Voice Draft between editable and reading presentation."""
         if editing:
             self.content_text.configure(state="normal")
             if self._editable_content_changed is not None:
-                self.content_text.bind("<KeyRelease>", self._notify_editable_content_changed)
+                self.content_text.unbind("<<Modified>>")
+                self.content_text.bind("<<Modified>>", self._notify_editable_content_changed)
             return
-        self.content_text.unbind("<KeyRelease>")
+        self.content_text.unbind("<<Modified>>")
         self.content_text.configure(state="disabled")
 
     def semantic_content(self) -> str:
@@ -2001,6 +2007,12 @@ class BaseResultSurface:
             return (0, 0)
 
     def _notify_editable_content_changed(self, _event=None) -> None:
+        try:
+            if not self.content_text.edit_modified():
+                return
+            self.content_text.edit_modified(False)
+        except (tk.TclError, AttributeError):
+            pass
         callback = self._editable_content_changed
         if callback is not None:
             callback(self.semantic_content())

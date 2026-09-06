@@ -146,6 +146,12 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
   目前 caret，避免非使用者導覽造成插入游標跳動。Voice capture finalized 時則
   使用 revision-bound typed insertion projection，將 selection 收合並把 caret 放在
   本次插入文字的語意終點；UI 不得由前後文字 diff 猜測位置，也不得一律移到全文尾端。
+- Voice Review 連續編輯期間，使用者已在 widget 產生但尚未送達 Workflow 的修改
+  優先於較舊的 canonical acknowledgment。一般 edit acknowledgment 只能更新確認
+  revision，不得刪除並重建 live editor；只有進入 Voice Review 或具名的 finalized
+  insertion projection 可以替換 widget 內容。文字修改必須由 widget mutation 事件
+  回報，不得等到 physical key release 才觀察；同一個 editor 任一時刻只能綁定
+  一個 mutation handler，snapshot refresh 不得累積 callback。
 - Paste target 無效、已關閉或無法成為 foreground 時，系統不得向其他視窗
   fallback 或盲送 `Ctrl+V`，必須恢復 surface 並顯示失敗狀態。
 
