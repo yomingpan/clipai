@@ -640,6 +640,17 @@ def test_voice_status_word_keeps_phase_semantics_in_the_presenter() -> None:
         assert _voice_status_word(phase, silence_detected=True) == "整理"
 
 
+def test_voice_status_word_remains_stable_while_countdown_is_projected_elsewhere() -> None:
+    assert _voice_status_word(
+        VoiceCapturePhase.LISTENING,
+        silence_detected=False,
+    ) == "聆聽"
+    assert _voice_status_word(
+        VoiceCapturePhase.LISTENING,
+        silence_detected=False,
+    ) == "聆聽"
+
+
 def test_completed_popup_offers_voice_follow_up_and_emits_typed_start() -> None:
     presenter, events = presenter_with_selection(None)
     snapshot = SessionSnapshot(

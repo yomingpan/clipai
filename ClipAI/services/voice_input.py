@@ -130,6 +130,8 @@ class _Capture:
     audio_level: float = 0.0
     heard_audio: bool = False
     silence_detected: bool = False
+    remaining_seconds: int | None = None
+    safety_limit_reached: bool = False
 
     def __post_init__(self) -> None:
         if self.segments is None:
@@ -154,6 +156,7 @@ class VoiceInputController:
         self._disable_preference_result: str | object = _UNSET_DISABLE_RESULT
         self._pending_language: tuple[VoiceLanguageChangeId, VoiceLanguage] | None = None
         self._capture: _Capture | None = None
+        self._awaiting_release_press_id: ShortcutPressId | None = None
         self._message = ""
 
     @property
@@ -174,6 +177,7 @@ class VoiceInputController:
                 if capture is not None and isinstance(capture.target, VoiceFollowUpTarget)
                 else VoiceCaptureDestination.VOICE_DRAFT if capture is not None else None
             ),
+            capture.remaining_seconds if capture is not None else None,
         )
 
     def request_setup(self, setup_id: VoiceSetupId) -> VoiceTransition:
@@ -278,7 +282,30 @@ class VoiceInputController:
 
     def request_capture_for_press(self, press_id: ShortcutPressId, target: VoiceCaptureTarget) -> VoiceTransition:
         """Accept a physical PTT press without leaking press ownership to runtime."""
+        if self._awaiting_release_press_id is not None:
+            return self._ignored()
         return self.request_capture(VoiceCaptureId(f"voice-press-{press_id}"), target, press_id=press_id)
+
+    def press_id_for_capture(self, capture_id: VoiceCaptureId) -> ShortcutPressId | None:
+        capture = self._matching_capture(capture_id)
+        return capture.press_id if capture is not None else None
+
+    def note_capture_countdown(
+        self,
+        press_id: ShortcutPressId,
+        remaining_seconds: int,
+    ) -> VoiceTransition:
+        capture = self._capture
+        if (
+            capture is None
+            or capture.press_id != press_id
+            or capture.stop_requested
+            or remaining_seconds < 0
+        ):
+            return self._ignored()
+        capture.remaining_seconds = remaining_seconds
+        self._message = self._listening_message(capture)
+        return self._transition()
 
     def set_language(self, language: VoiceLanguage, operation_id: VoiceLanguageChangeId) -> VoiceTransition:
         if self._capture is not None or self._pending_language is not None or language == self._language:
@@ -300,6 +327,11 @@ class VoiceInputController:
         return self._transition()
 
     def request_release_for_press(self, press_id: ShortcutPressId) -> VoiceTransition:
+        if self._awaiting_release_press_id == press_id:
+            self._awaiting_release_press_id = None
+            capture = self._capture
+            if capture is None or capture.press_id != press_id or capture.stop_requested:
+                return self._transition()
         capture = self._capture
         if capture is None or capture.press_id != press_id:
             return self._ignored()
@@ -312,12 +344,14 @@ class VoiceInputController:
         return self.request_cancel(capture.capture_id)
 
     def expire_capture_watchdog(self, press_id: ShortcutPressId) -> VoiceTransition:
-        """Cancel only the capture still bound to the missing terminal press."""
+        """Gracefully stop the PTT capture at its safety limit and require release."""
         capture = self._capture
         if capture is None or capture.press_id != press_id or capture.stop_requested:
             return self._ignored()
-        transition = self.request_cancel(capture.capture_id)
-        self._message = "Voice Input cancelled because the shortcut release was not received."
+        capture.safety_limit_reached = True
+        self._awaiting_release_press_id = press_id
+        transition = self.request_stop(capture.capture_id)
+        self._message = "Voice Input time limit reached. Saving this section…"
         return self._transition(*transition.effects)
 
     def cancel_capture_for_workflow(self, workflow_id: str) -> VoiceTransition:
@@ -332,6 +366,7 @@ class VoiceInputController:
             return self._ignored()
         capture.stop_requested = True
         capture.phase = VoiceCapturePhase.FINALIZING
+        capture.remaining_seconds = None
         self._message = "Finalizing…"
         return self._transition(StopVoiceCapture(capture_id))
 
@@ -355,7 +390,7 @@ class VoiceInputController:
             if capture.stop_requested:
                 return self._ignored()
             capture.phase = VoiceCapturePhase.LISTENING
-            self._message = "Listening…"
+            self._message = self._listening_message(capture)
             return self._transition()
         if isinstance(event, VoiceEngineInterim):
             if capture.stop_requested:
@@ -369,7 +404,7 @@ class VoiceInputController:
             if event.level > 0.02:
                 capture.heard_audio = True
                 capture.silence_detected = False
-                self._message = "Listening…"
+                self._message = self._listening_message(capture)
             return self._transition()
         if isinstance(event, VoiceEngineFinalSegment):
             return self._observe_final_segment(capture, event)
@@ -411,7 +446,7 @@ class VoiceInputController:
                 return self._transition(self._restore_effect(capture.capture_id, target, self._message))
             capture.phase = VoiceCapturePhase.STARTING
             capture.interim_text = ""
-            self._message = "Listening…"
+            self._message = self._listening_message(capture)
             return self._transition(StartVoiceCapture(capture.capture_id, self._language, capture.next_sequence))
         text_parts = [capture.segments[sequence] for sequence in range(capture.next_sequence)]
         warning = (
@@ -419,6 +454,8 @@ class VoiceInputController:
             if any(sequence > capture.next_sequence for sequence in capture.segments)
             else ""
         )
+        if capture.safety_limit_reached:
+            warning = "The 2-minute Voice Input limit was reached. This section was saved; release the shortcut and press it again to continue."
         text = " ".join(part.strip() for part in text_parts if part.strip())
         capture_id, target, cancelled = capture.capture_id, capture.target, capture.cancelled
         self._capture = None
@@ -440,6 +477,19 @@ class VoiceInputController:
         }:
             self._capability = VoiceCapabilityPhase.PERMISSION_BLOCKED
         self._message = _failure_message(event.failure, event.detail)
+        if capture.cancelled:
+            return self._transition(self._restore_effect(event.capture_id, target, self._message))
+        assert capture.segments is not None
+        text = " ".join(
+            capture.segments[sequence].strip()
+            for sequence in range(capture.next_sequence)
+            if capture.segments[sequence].strip()
+        )
+        if text:
+            self._message = f"{self._message} Recognized content was preserved."
+            return self._transition(
+                self._finalize_effect(event.capture_id, target, text, self._message)
+            )
         return self._transition(self._restore_effect(event.capture_id, target, self._message))
 
     @staticmethod
@@ -470,6 +520,16 @@ class VoiceInputController:
     def _matching_capture(self, capture_id: VoiceCaptureId) -> _Capture | None:
         capture = self._capture
         return capture if capture is not None and capture.capture_id == capture_id else None
+
+    @staticmethod
+    def _listening_message(capture: _Capture) -> str:
+        remaining = capture.remaining_seconds
+        if remaining is not None and remaining <= 30:
+            return (
+                f"Listening… · {remaining} seconds remaining; "
+                "this section will be saved automatically."
+            )
+        return "Listening…"
 
     def _transition(self, *effects: VoiceEffect) -> VoiceTransition:
         return VoiceTransition(self.projection, effects)

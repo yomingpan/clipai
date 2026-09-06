@@ -65,6 +65,7 @@ def finalize(
     capture_id: VoiceCaptureId,
     target: VoiceFollowUpTarget,
     text: str,
+    message: str = "Review your dictation.",
 ) -> SessionSnapshot | None:
     if (
         target.workflow_id != snapshot.session_id
@@ -79,6 +80,6 @@ def finalize(
         voice_capture_phase=None,
         voice_audio_level=0.0,
         voice_silence_detected=False,
-        voice_status_text="Review your dictation.",
+        voice_status_text=message,
         voice_follow_up_insertion=VoiceFollowUpInsertion(capture_id, text),
     )

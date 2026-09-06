@@ -235,9 +235,10 @@ without presenting new evidence that makes the plan unsafe or impossible.
 - The existing Shortcut subsystem remains the sole owner of physical key truth.
   It emits identified press-started, press-ended, press-abandoned, and
   listener-stopped observations. The Voice controller owns only the resulting
-  capture restart/cancellation decision. A 120-second non-configurable V1 safety
-  watchdog cancels a capture that never receives a terminal press observation;
-  it never synthesizes a successful release.
+  capture restart/cancellation decision. A 120-second non-configurable V1 limit
+  starts when the engine enters Listening, projects its authoritative countdown,
+  then gracefully stops and preserves finalized content when reached. It never
+  synthesizes a successful release; the original press must end before rearming.
 - `Esc` is lifecycle-aware:
   - Setup: close setup and remain not ready.
   - Listening/Finalizing: cancel the active capture, discard its interim, retain

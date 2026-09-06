@@ -683,7 +683,15 @@ class ResultDialogPresenter:
                 if insertion is not None and caret_offset is not None:
                     view.applied_voice_insertion_revision = insertion.projection_revision
                 view.surface.set_voice_draft_editing(view.voice_draft_editing)
-                if not snapshot.content and snapshot.status_text:
+                voice_notice_changed = (
+                    bool(snapshot.voice_status_text)
+                    and snapshot.voice_status_text != "Review your dictation."
+                    and (
+                        previous is None
+                        or previous.voice_status_text != snapshot.voice_status_text
+                    )
+                )
+                if (not snapshot.content and snapshot.status_text) or voice_notice_changed:
                     view.dialog.flash("warning")
                     view.surface.show_action_message(snapshot.status_text, 4000)
         elif snapshot.status is SessionStatus.CONTEXT_QUESTION:
@@ -1105,6 +1113,12 @@ class ResultDialogPresenter:
         phase = snapshot.voice_capture_phase
         level = snapshot.voice_audio_level
         silence_detected = snapshot.voice_silence_detected
+        remaining_seconds = None
+        if (
+            global_projection is not None
+            and global_projection.capture_id == capture_id
+        ):
+            remaining_seconds = global_projection.remaining_seconds
         if (
             capture_id is None
             and global_projection is not None
@@ -1135,6 +1149,8 @@ class ResultDialogPresenter:
                     if finalizing
                     else "No sound detected; click to stop Voice Input"
                     if silence_detected
+                    else f"{remaining_seconds} seconds remaining; this section will be saved automatically"
+                    if remaining_seconds is not None and remaining_seconds <= 30
                     else "Click to stop Voice Input"
                 ),
                 active=True,

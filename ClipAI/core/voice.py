@@ -235,3 +235,4 @@ class VoiceProjection:
     audio_level: float = 0.0
     silence_detected: bool = False
     capture_destination: VoiceCaptureDestination | None = None
+    remaining_seconds: int | None = None

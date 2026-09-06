@@ -465,9 +465,16 @@ class WorkflowController:
         capture_id: VoiceCaptureId,
         target: VoiceFollowUpTarget,
         text: str,
+        message: str = "Review your dictation.",
     ) -> SessionSnapshot | None:
         with self._lock:
-            next_snapshot = voice_follow_up.finalize(self._snapshot, capture_id, target, text)
+            next_snapshot = voice_follow_up.finalize(
+                self._snapshot,
+                capture_id,
+                target,
+                text,
+                message,
+            )
             if next_snapshot is None:
                 return None
             self._snapshot = next_snapshot
@@ -485,10 +492,20 @@ class WorkflowController:
         self._presenter.render(snapshot)
         return snapshot
 
-    def apply_voice_finalization(self, target: VoiceDraftTarget, text: str) -> SessionSnapshot | None:
+    def apply_voice_finalization(
+        self,
+        target: VoiceDraftTarget,
+        text: str,
+        message: str = "Review your dictation.",
+    ) -> SessionSnapshot | None:
         """Apply one controller-settled capture only to its frozen Voice origin."""
         with self._lock:
-            next_snapshot = voice_draft.finalize_capture(self._snapshot, target, text)
+            next_snapshot = voice_draft.finalize_capture(
+                self._snapshot,
+                target,
+                text,
+                message,
+            )
             if next_snapshot is None:
                 return None
             self._snapshot = next_snapshot
