@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest
+
 import pytest
 
 from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
@@ -9,10 +11,23 @@ class Reader:
     def __init__(self, text: str) -> None:
         self.text = text
         self.calls = 0
+        self.bound_request = None
+        self.captured_request = None
+        self.cancellation = None
+
+    def begin_capture(self, target=None):
+        self.bound_request = SelectionCaptureRequest("test-capture", None)
+        return self.bound_request
 
     def read_text(self) -> str:
         self.calls += 1
         return self.text
+
+    def capture(self, cancellation=None, *, target=None, request=None):
+        self.captured_request = request
+        self.cancellation = cancellation
+        text = self.read_text()
+        return SelectionCaptureOutcome(text, "selected" if text else "none")
 
 
 class Speech:
@@ -70,12 +85,12 @@ def make_coordinator(*, clipboard="clipboard", selection="selected", speech=None
     return coordinator, clipboard_reader, selection_reader, speech, tracker
 
 
-def test_selection_first_and_configured_english_voice() -> None:
+def test_frozen_clipboard_does_not_override_selection_or_configured_voice() -> None:
     coordinator, clipboard, selection, speech, tracker = make_coordinator()
     job = coordinator.create_job(clipboard_only=False)
     job.run()
     assert selection.calls == 1
-    assert clipboard.calls == 0
+    assert clipboard.calls == 1
     assert speech.requests[0].text == "selected"
     assert speech.requests[0].voice_override == "en-GB-TestVoice"
     assert tracker.calls == []
@@ -145,15 +160,27 @@ def test_each_trigger_reads_the_current_selection_again() -> None:
     assert selection.calls == 3
 
 
-def test_selection_is_captured_when_job_is_created_not_when_worker_runs() -> None:
+def test_selection_source_is_bound_at_admission_and_read_with_token_in_worker() -> None:
     coordinator, _clipboard, selection, speech, _tracker = make_coordinator()
     selection.text = "captured now"
     job = coordinator.create_job(clipboard_only=False)
-    selection.text = "changed later"
+    assert selection.bound_request is not None
+    assert selection.calls == 0
 
     job.run()
 
     assert speech.requests[0].text == "captured now"
+    assert selection.captured_request is selection.bound_request
+    assert selection.cancellation is speech.requests[0].cancellation
+
+
+def test_cancelled_global_job_never_probes_selection_or_reads_clipboard() -> None:
+    coordinator, clipboard, selection, speech, _tracker = make_coordinator()
+    job = coordinator.create_job(clipboard_only=False)
+    coordinator.cancel_operation(job.operation_id)
+    job.run()
+    assert selection.calls == clipboard.calls == 0
+    assert speech.requests == []
 
 
 def test_speech_speed_is_captured_when_worker_starts() -> None:

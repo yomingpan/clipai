@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ClipAI.core.errors import InputError
-from ClipAI.core.models import ImageContent
+from ClipAI.core.models import ExternalWindowRef, ImageContent, SelectionCaptureOutcome, SelectionSource
 from ClipAI.platform.selection import SystemSelectionCaptureAdapter
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.selection_capture import SelectionCaptureCoordinator
 from ClipAI.core.state import CancellationToken
+import pytest
 
 
 @dataclass(frozen=True)
@@ -25,8 +26,20 @@ def reader(clipboard, **kwargs):
             copy_selection=copy_selection,
             modifier_is_pressed=modifier_is_pressed,
         ),
+        kwargs.pop("probe", Probe()),
         **kwargs,
     )
+
+
+class Probe:
+    def capture_source(self, target=None):
+        return SelectionSource(target or ExternalWindowRef("hwnd:1", 42, 0), "hwnd:2")
+
+    def source_is_current(self, source):
+        return True
+
+    def probe(self, source, cancellation):
+        return SelectionCaptureOutcome(reason="uia_text_failed", selection_detected=True)
 
 
 class Clipboard:
@@ -77,7 +90,7 @@ def test_selection_capture_restores_original_clipboard() -> None:
         clipboard.sequence += 1
 
     selection = reader(clipboard, copy_selection=copy_selection, timeout_sec=0.01, poll_sec=0)
-    assert selection.read_text() == "selected text"
+    assert selection.capture().text == "selected text"
     assert clipboard.value == "original"
 
 
@@ -91,7 +104,7 @@ def test_selection_capture_restores_original_non_text_content() -> None:
         clipboard.sequence += 1
 
     selection = reader(clipboard, copy_selection=copy_selection, timeout_sec=0.01, poll_sec=0)
-    assert selection.read_text() == "selected text"
+    assert selection.capture().text == "selected text"
     assert clipboard.image == image
 
 
@@ -123,7 +136,7 @@ def test_selection_capture_waits_for_physical_hotkey_modifiers_to_be_released() 
         poll_sec=0,
     )
 
-    assert selection.read_text() == "selected text"
+    assert selection.capture().text == "selected text"
     assert clipboard.value == "original"
 
 
@@ -144,7 +157,7 @@ def test_selection_capture_does_not_copy_or_mutate_clipboard_when_modifiers_stay
         poll_sec=0,
     )
 
-    assert selection.read_text() == ""
+    assert selection.capture().text == ""
     assert copy_calls == 0
     assert clipboard.value == "original"
     assert clipboard.writes == []
@@ -159,7 +172,7 @@ def test_selection_capture_does_not_overwrite_later_external_clipboard_update() 
         clipboard.external_after_sequence = "external update"
 
     selection = reader(clipboard, copy_selection=copy_selection, timeout_sec=0.01, poll_sec=0)
-    assert selection.read_text() == ""
+    assert selection.capture().text == ""
     assert clipboard.value == "external update"
 
 
@@ -171,7 +184,7 @@ def test_selection_capture_failure_falls_back_safely() -> None:
         timeout_sec=0.01,
         poll_sec=0,
     )
-    assert selection.read_text() == ""
+    assert selection.capture().text == ""
     assert clipboard.value == "original"
 
 
@@ -184,7 +197,7 @@ def test_selection_capture_snapshot_failure_falls_back_safely() -> None:
     clipboard.snapshot = fail_snapshot  # type: ignore[method-assign]
     selection = reader(clipboard, timeout_sec=0.01, poll_sec=0)
 
-    assert selection.read_text() == ""
+    assert selection.capture().text == ""
     assert clipboard.value == "original"
 
 
@@ -200,5 +213,119 @@ def test_selection_capture_observes_operation_cancellation() -> None:
         timeout_sec=1,
         poll_sec=0,
     )
-    assert selection.read_text(token) == ""
+    assert selection.capture(token).text == ""
     assert clipboard.writes == []
+
+
+@pytest.mark.parametrize("outcome", [
+    SelectionCaptureOutcome("  selected\n\t", "selected", strategy="uia"),
+    SelectionCaptureOutcome(status="none", strategy="uia"),
+    SelectionCaptureOutcome(reason="uia_unsupported", strategy="uia"),
+    SelectionCaptureOutcome(reason="uia_timeout", strategy="uia"),
+])
+def test_native_probe_preserves_all_states_without_touching_clipboard(outcome):
+    clipboard = Clipboard("old text")
+    probe = Probe()
+    probe.probe = lambda source, cancellation: outcome
+    selection = reader(clipboard, probe=probe, modifier_is_pressed=lambda _: True)
+    assert selection.capture() == outcome
+    assert clipboard.writes == []
+
+
+def test_copy_timeout_is_unknown_never_confirmed_no_selection():
+    clipboard = Clipboard("old text")
+    result = reader(clipboard, copy_selection=lambda: None, timeout_sec=0).capture()
+    assert result.status == "unknown"
+    assert result.reason == "copy_timeout"
+    assert clipboard.value == "old text"
+
+
+@pytest.mark.parametrize("selected", [True, False])
+def test_verified_selection_only_copy_reaches_speech_without_using_old_clipboard(selected):
+    from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
+    from ClipAI.core.errors import SelectionUnavailableError
+
+    clipboard = Clipboard("old text must never be spoken")
+    probe = Probe()
+    probe.probe = lambda *args: SelectionCaptureOutcome(copy_selection_only=True)
+    spoken = []
+
+    def copy():
+        if selected:
+            clipboard.write_text("She places a high value on open discussions.")
+
+    class Speech:
+        def speak(self, request):
+            spoken.append(request.text)
+
+        def stop(self):
+            pass
+
+    coordinator = SpeechCoordinator(
+        clipboard=clipboard,
+        selection_reader=reader(clipboard, probe=probe, copy_selection=copy, timeout_sec=.01, poll_sec=0),
+        speech=Speech(), voice_selector=SpeechVoiceSelector("en-test"),
+    )
+    job = coordinator.create_job(clipboard_only=False)
+    if selected:
+        job.run()
+        assert spoken == ["She places a high value on open discussions."]
+    else:
+        with pytest.raises(SelectionUnavailableError):
+            job.run()
+        assert spoken == []
+    assert clipboard.value == "old text must never be spoken"
+
+
+def test_verified_copy_capability_does_not_override_source_change():
+    clipboard = Clipboard("original")
+    probe = Probe()
+    current = [True]
+
+    def changed(*args):
+        current[0] = False
+        return SelectionCaptureOutcome(copy_selection_only=True)
+
+    probe.probe = changed
+    probe.source_is_current = lambda _: current[0]
+    result = reader(clipboard, probe=probe).capture()
+    assert result.reason == "source_changed"
+    assert clipboard.writes == []
+
+
+def test_source_is_frozen_before_panel_focus_changes():
+    clipboard = Clipboard("old text")
+    probe = Probe()
+    selection = reader(clipboard, probe=probe)
+    request = selection.begin_capture()
+    probe.capture_source = lambda target: pytest.fail("must not replace bound source")
+    probe.source_is_current = lambda source: False
+    probe.probe = lambda *args: pytest.fail("must not read from changed source")
+    result = selection.capture(request=request)
+    assert result.status == "unknown"
+    assert result.reason == "source_changed"
+    assert clipboard.writes == []
+
+
+def test_late_native_success_is_discarded_after_cancellation():
+    clipboard = Clipboard("old text")
+    token = CancellationToken()
+    probe = Probe()
+    def capture(source, cancellation):
+        cancellation.cancel()
+        return SelectionCaptureOutcome("late text", "selected")
+    probe.probe = capture
+    result = reader(clipboard, probe=probe).capture(token)
+    assert result.status == "cancelled"
+    assert result.text == ""
+    assert clipboard.writes == []
+
+
+def test_selection_diagnostics_never_include_source_text(caplog):
+    probe = Probe()
+    probe.probe = lambda *args: SelectionCaptureOutcome("private selected text", "selected", strategy="uia")
+    with caplog.at_level("INFO", logger="clipai.selection"):
+        reader(Clipboard("private clipboard"), probe=probe).capture()
+    assert "status=selected" in caplog.text
+    assert "private selected text" not in caplog.text
+    assert "private clipboard" not in caplog.text

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TypeAlias
 
 from ClipAI.core.errors import ActionLanguagePackErrorCode
-from ClipAI.core.models import EntryActionRef, EntryInputPreparationId, EntryPanelDensity, FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PreparedEntryInput, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
+from ClipAI.core.models import EntryActionRef, EntryInputPreparationId, EntryPanelDensity, FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PreparedInput, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
 from ClipAI.core.models import ControlSurfaceRef
 from ClipAI.core.voice import VoiceCaptureId, VoiceDisableId, VoiceEngineEvent, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
 
@@ -19,6 +19,18 @@ class StartAction:
 @dataclass(frozen=True)
 class OpenContextualQuestion:
     pass
+
+
+@dataclass(frozen=True)
+class UseWorkflowClipboard:
+    workflow_id: str
+    recovery_id: str
+
+
+@dataclass(frozen=True)
+class ExpireInputRecovery:
+    workflow_id: str
+    recovery_id: str
 
 
 @dataclass(frozen=True)
@@ -92,7 +104,7 @@ class EntryPanelDigitPressed:
 class EntryPanelInputPreparationCompleted:
     panel_id: str
     preparation_id: EntryInputPreparationId
-    prepared_input: PreparedEntryInput = field(repr=False)
+    prepared_input: PreparedInput = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -104,6 +116,11 @@ class EntryPanelInputPreparationFailed:
 
 @dataclass(frozen=True)
 class RetryEntryPanelInput:
+    panel_id: str
+
+
+@dataclass(frozen=True)
+class UseEntryPanelClipboard:
     panel_id: str
 
 
@@ -517,6 +534,23 @@ class VoiceCaptureWatchdogExpired:
 
 
 @dataclass(frozen=True)
+class VoiceCaptureCountdownTick:
+    press_id: ShortcutPressId
+    remaining_seconds: int
+
+
+@dataclass(frozen=True)
+class VoiceCaptureCountdownTickForCapture:
+    capture_id: VoiceCaptureId
+    remaining_seconds: int
+
+
+@dataclass(frozen=True)
+class VoiceCaptureTimeout:
+    capture_id: VoiceCaptureId
+
+
+@dataclass(frozen=True)
 class VoiceSilenceWatchdogExpired:
     capture_id: VoiceCaptureId
 
@@ -540,4 +574,4 @@ class UpdateVoiceDraft:
     text: str
 
 
-AppCommand: TypeAlias = ShortcutInputEvent | EntryPanelInputPreparationCompleted | EntryPanelInputPreparationFailed | RetryEntryPanelInput | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelBack | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft
+AppCommand: TypeAlias = ExpireInputRecovery | UseWorkflowClipboard | ShortcutInputEvent | EntryPanelInputPreparationCompleted | EntryPanelInputPreparationFailed | RetryEntryPanelInput | UseEntryPanelClipboard | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelBack | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureCountdownTick | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

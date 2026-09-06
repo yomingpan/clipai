@@ -48,7 +48,7 @@ tests/              # Unit sims 與 integration tests
 - Unified Entry Panel 的 ownership 依 ADR-0012 分離：`EntryPanelCoordinator`
   擁有純導覽、搜尋與資訊密度 projection，`EntryPanelRuntimeModule` 擁有唯一
   Panel lifetime、launch source、open-time input-preparation identity 與 frozen
-  `PreparedEntryInput`。Panel 顯示後由 interactive worker 準備 external input；
+  `PreparedInput`。Panel 顯示後由 interactive worker 準備 external input；
   Workflow selection／canonical content 則在 Panel 取得焦點前凍結。Action 選取
   只能查詢 frozen input 的 `InputMode` 相容性，不得重新讀取 clipboard、selection
   或 foreground。Runtime 只能透過
@@ -223,6 +223,22 @@ activation 與 ownership verification 由 `platform.window_activation` 單一 pr
 - Provider 選擇狀態屬於 `ProviderConfigurationCoordinator`；concrete provider 建構屬於 `app` composition adapter，`app/container.py` 負責初始組裝。
 
 ## Services
+
+Selection evidence follows `docs/contracts/services/selection-capture-contract.md`
+and ADR-0014. `SelectionCaptureCoordinator` owns source-bound typed captures;
+`InputResolver` owns automatic fallback from confirmed `none` or an unconfigured
+selection adapter. Resolved fallback documents explicitly identify `clipboard` as
+their source. Native UIA
+is isolated in `platform` and must not erase unknown/cancelled outcomes into an
+empty string. Entry Panel and Workflow runtime bind native source identity before
+first projection; UIA work stays off the UI thread. Explicit Panel clipboard
+choice is a typed intent against frozen prepared input.
+
+Direct visible Actions share `InputResolver.prepare_input` and `PreparedInput`
+with Entry Panel. `WorkflowController` exclusively owns the waiting clipboard
+choice and its recovery identity; runtime dispatches explicit choice/expiry
+commands, and Popup projects preview/availability without reading external input.
+The shared frozen input contract is independent of the destination surface.
 
 `services/` 是業務流程的大腦。
 

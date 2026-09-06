@@ -8,7 +8,7 @@ import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ArchiveResult, CopyResult, ExportDiagnostics, PasteOperationCompleted, PasteResult, SpeakSelectionOrClipboard, ToggleSpeech
-from ClipAI.core.errors import PASTE_FAILURE_MESSAGES, PasteFailure
+from ClipAI.core.errors import CancelledError, InputError, PASTE_FAILURE_MESSAGES, PasteFailure
 from ClipAI.core.models import OutputOperationIntent, OutputOperationResult, PasteOutcome, PasteRequest, PasteTarget
 from ClipAI.core.ports import DiagnosticsExporter, OperationTracker, OutputOperationPresenter, UserNotifier
 from ClipAI.services.output_actions import OutputActions
@@ -359,6 +359,22 @@ class ResultOutputRuntimeModule:
     def _run_speech_job(self, job, intent, controller) -> None:
         try:
             job.run()
+        except CancelledError:
+            current = self._operations.settle(OutputOperationResult(
+                intent.operation_id, intent.workflow_id, intent.kind, "cancelled"
+            ))
+            if current and controller is not None:
+                controller.set_speaking(False)
+            return
+        except InputError as exc:
+            current = self._operations.fail(intent, exc)
+            if current and controller is not None:
+                controller.set_speaking(False)
+            if current and intent.workflow_id == "global" and self._notifier is not None:
+                self._notifier.notify("ClipAI 朗讀", str(exc))
+            logger.info("Speech input unavailable operation_id=%s reason=%s",
+                        intent.operation_id, getattr(exc, "reason", exc.code))
+            return
         except BaseException as exc:
             current = self._operations.fail(intent, exc)
             if current and controller is not None:
@@ -407,6 +423,8 @@ class ResultOutputRuntimeModule:
                 cancellation_hook=cancellation_hook,
             )
         except BaseException as exc:
+            if cancellation_hook is not None:
+                cancellation_hook()
             self._operations.fail(intent, exc)
             logger.error("Could not schedule %s workflow_id=%s: %s", intent.kind, intent.workflow_id, exc)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureAdmission
-from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceSilenceWatchdogExpired
+from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceSetupId
@@ -26,8 +26,8 @@ class Workflow:
         self.follow_up_applied = []
         self.projections = []
         self.snapshot = snapshot or SessionSnapshot("workflow-1", 0, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model")
-    def apply_voice_finalization(self, target, text) -> None: self.applied.append((target, text))
-    def apply_voice_follow_up_finalization(self, capture_id, target, text) -> None: self.follow_up_applied.append((capture_id, target, text))
+    def apply_voice_finalization(self, target, text, message="") -> None: self.applied.append((target, text, message))
+    def apply_voice_follow_up_finalization(self, capture_id, target, text, message="") -> None: self.follow_up_applied.append((capture_id, target, text, message))
     def project_voice_capture(self, projection) -> None: self.projections.append(projection)
     def restore_voice_review(self, _target, _message) -> None: pass
     def restore_voice_follow_up(self, _capture_id, _target, _message) -> None: pass
@@ -372,8 +372,9 @@ def test_permission_settings_intent_does_not_mutate_voice_state() -> None:
     assert engine.calls == []
 
 
-def test_missing_ptt_release_is_cancelled_by_its_watchdog() -> None:
+def test_ptt_time_limit_starts_after_listening_and_saves_the_finalized_section() -> None:
     engine, workflows, dispatched, scheduled = Engine(), Workflows(), [], []
+    now = [100.0]
 
     def schedule(delay, callback):
         watchdog = Watchdog(callback)
@@ -387,15 +388,59 @@ def test_missing_ptt_release_is_cancelled_by_its_watchdog() -> None:
         paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
         dispatch=dispatched.append,
         watchdog_schedule=schedule,
+        monotonic_clock=lambda: now[0],
     )
 
     assert runtime.handle_shortcut_started(ShortcutPressStarted(9, "voice_input")) is True
+    assert scheduled == []
+    assert runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("voice-press-9"))) is True
     assert scheduled[0][0] == 120.0
+    scheduled[0][1].callback()
+    assert dispatched == []
+    now[0] = 220.0
     scheduled[0][1].callback()
     assert dispatched == [VoiceCaptureWatchdogExpired(9)]
     assert runtime.handle(dispatched.pop()) is True
-    assert scheduled[0][1].cancelled is True
-    assert engine.calls[-1] == ("cancel", "voice-press-9")
+    assert scheduled[-1][1].cancelled is True
+    assert engine.calls[-1] == ("stop", "voice-press-9")
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment("voice-press-9", 0, "keep this thought")))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded("voice-press-9")))
+    assert workflows.controllers[workflows.created[0][0]].applied[-1][1:] == (
+        "keep this thought",
+        "The 2-minute Voice Input limit was reached. This section was saved; release the shortcut and press it again to continue.",
+    )
+
+
+def test_ptt_countdown_uses_the_same_listening_deadline_as_the_safety_limit() -> None:
+    engine, workflows, dispatched, scheduled = Engine(), Workflows(), [], []
+    now = [100.0]
+
+    def schedule(delay, callback):
+        watchdog = Watchdog(callback)
+        scheduled.append((delay, watchdog))
+        return watchdog
+
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        dispatch=dispatched.append,
+        watchdog_schedule=schedule,
+        monotonic_clock=lambda: now[0],
+    )
+    runtime.handle_shortcut_started(ShortcutPressStarted(11, "voice_input"))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("voice-press-11")))
+
+    assert scheduled[0][0] == 120.0
+    assert scheduled[1][0] == 1.0
+    assert workflows.controllers[workflows.created[0][0]].projections[-1].remaining_seconds == 120
+
+    now[0] = 101.2
+    scheduled[1][1].callback()
+    assert dispatched == [VoiceCaptureCountdownTick(11, 119)]
+    assert runtime.handle(dispatched.pop()) is True
+    assert workflows.controllers[workflows.created[0][0]].projections[-1].remaining_seconds == 119
 
 
 def test_ptt_release_cancels_watchdog_before_a_late_callback_can_cancel_again() -> None:
@@ -415,11 +460,12 @@ def test_ptt_release_cancels_watchdog_before_a_late_callback_can_cancel_again() 
         watchdog_schedule=schedule,
     )
     runtime.handle_shortcut_started(ShortcutPressStarted(10, "voice_input"))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("voice-press-10")))
 
     assert runtime.handle_shortcut_ended(ShortcutPressEnded(10, "voice_input", "released")) is True
     assert scheduled[0].cancelled is True
     scheduled[0].callback()
-    assert runtime.handle(dispatched.pop()) is False
+    assert dispatched == []
     assert engine.calls == [("start", "voice-press-10", "zh-TW", 0), ("stop", "voice-press-10")]
 
 
@@ -509,8 +555,79 @@ def test_listening_schedules_non_terminal_two_second_silence_hint() -> None:
 
     runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("capture-1")))
 
-    assert scheduled[0][0] == 2.0
-    scheduled[0][1].callback()
+    silence_watchdog = next(watchdog for delay, watchdog in scheduled if delay == 2.0)
+    silence_watchdog.callback()
     assert dispatched == [VoiceSilenceWatchdogExpired("capture-1")]
     assert runtime.handle(dispatched.pop()) is True
     assert workflow.projections[-1].silence_detected is True
+
+
+def test_popup_countdown_at_29_seconds_does_not_stop_capture() -> None:
+    engine, workflows, dispatched, scheduled = Engine(), Workflows(), [], []
+    workflow = Workflow(SessionSnapshot(
+        "workflow-1",
+        4,
+        SessionStatus.COMPLETED,
+        "summarize",
+        "Summarize",
+        "model",
+        available_actions=("follow_up",),
+    ))
+    workflows.controllers["workflow-1"] = workflow
+
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        dispatch=dispatched.append,
+        watchdog_schedule=lambda delay, callback: Watchdog(callback),
+    )
+    runtime.handle(StartPopupVoiceCapture("workflow-1", "capture-1"))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("capture-1")))
+
+    assert runtime.handle(VoiceCaptureCountdownTickForCapture("capture-1", 29)) is True
+    assert engine.calls == [("start", "capture-1", "zh-TW", 0)]
+    assert workflow.projections[-1].remaining_seconds == 29
+
+
+def test_popup_deadline_rechecks_early_timer_and_late_callback_is_inert_after_stop() -> None:
+    engine, workflows, dispatched, scheduled = Engine(), Workflows(), [], []
+    now = [100.0]
+    workflows.controllers["workflow-1"] = Workflow(SessionSnapshot(
+        "workflow-1",
+        4,
+        SessionStatus.COMPLETED,
+        "summarize",
+        "Summarize",
+        "model",
+        available_actions=("follow_up",),
+    ))
+
+    def schedule(delay, callback):
+        watchdog = Watchdog(callback)
+        scheduled.append((delay, watchdog))
+        return watchdog
+
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        dispatch=dispatched.append,
+        watchdog_schedule=schedule,
+        monotonic_clock=lambda: now[0],
+    )
+    runtime.handle(StartPopupVoiceCapture("workflow-1", "capture-1"))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("capture-1")))
+    expiry = next(watchdog for delay, watchdog in scheduled if delay == 120.0)
+
+    expiry.callback()
+    assert dispatched == []
+    rescheduled_expiry = scheduled[-1][1]
+
+    assert runtime.handle(StopVoiceCapture("capture-1")) is True
+    assert rescheduled_expiry.cancelled is True
+    now[0] = 220.0
+    rescheduled_expiry.callback()
+    assert dispatched == []

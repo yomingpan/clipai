@@ -159,10 +159,13 @@ class FakeExecute:
 
 
 class ContextResolver:
+    def begin_selection(self, target=None):
+        return None
+
     def __init__(self) -> None:
         self.document = InputDocument("fixed selected source", "selection")
 
-    def resolve_text(self, _cancellation=None):
+    def resolve_text(self, _cancellation=None, *, request=None):
         return self.document
 
 
@@ -818,7 +821,7 @@ def test_contextual_question_failure_closes_draft_and_reports_clear_error() -> N
     notifier = Notifier()
     runtime, view, supervisor, _outputs, _listener = make_runtime(notifier=notifier)
 
-    def missing(_cancellation=None):
+    def missing(_cancellation=None, *, request=None):
         raise InputError("找不到文字。")
 
     runtime._workflow_module._input_resolver.resolve_text = missing
@@ -1495,6 +1498,65 @@ def test_global_speech_command_is_supervised_without_creating_session() -> None:
     work = supervisor.work["speech:tts:clipboard:unique"]
     work()
     assert speech.calls == ["run"]
+
+
+@pytest.mark.parametrize("reason", ["unsupported", "timeout", "source_changed", "cancelled"])
+def test_global_speech_unknown_selection_reports_failure_without_breaking_pump(reason) -> None:
+    from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest
+    from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
+
+    class Selection:
+        def begin_capture(self, target=None):
+            return SelectionCaptureRequest("capture-1", None)
+
+        def capture(self, cancellation=None, *, target=None, request=None):
+            assert target is None
+            assert request.operation_id == "capture-1"
+            assert cancellation is not None
+            return SelectionCaptureOutcome(
+                status="cancelled" if reason == "cancelled" else "unknown", reason=reason
+            )
+
+    class Clipboard:
+        def read_text(self):
+            return "frozen clipboard must not be used"
+
+    class Speech:
+        def speak(self, request):
+            pytest.fail("unknown selection must not start TTS")
+
+        def stop(self):
+            pass
+
+    speech = SpeechCoordinator(clipboard=Clipboard(), selection_reader=Selection(),
+                               speech=Speech(), voice_selector=SpeechVoiceSelector("en-test"))
+    notifier = Notifier()
+    runtime, view, supervisor, _, _ = make_runtime(speech_coordinator=speech, notifier=notifier)
+    runtime.enqueue(ShortcutPressInvoked(ShortcutPressId(1), "speech", "short"))
+    runtime.drain_commands()
+    assert [result.state for result in view.output_results] == ["pending"]
+    for work in tuple(supervisor.work.values()):
+        work()
+    terminal = "cancelled" if reason == "cancelled" else "failed"
+    assert [result.state for result in view.output_results] == ["pending", terminal]
+    if reason == "cancelled":
+        assert notifier.messages == []
+    else:
+        assert "無法確認反白內容" in view.output_results[-1].error.message
+        assert "無法確認反白內容" in notifier.messages[-1][1]
+    assert speech.current_identity is None
+    assert view.snapshots == []
+
+
+def test_global_speech_submit_failure_releases_current_job() -> None:
+    speech = GlobalSpeech()
+    runtime, view, _, _, _ = make_runtime(
+        speech_coordinator=speech, submit_error=RuntimeError("worker unavailable")
+    )
+    runtime.enqueue(SpeakSelectionOrClipboard())
+    runtime.drain_commands()
+    assert [result.state for result in view.output_results] == ["pending", "failed"]
+    assert speech.current_identity is None
 
 
 def test_global_speech_shortcut_replaces_active_speech_with_latest_request() -> None:
@@ -2828,3 +2890,56 @@ def test_failed_paste_fallback_copy_failure_settles_with_clipboard_reason() -> N
     assert view.output_results[-1].state == "failed"
     assert view.output_results[-1].reason == "clipboard_unavailable"
     assert outputs.clipboard_bits == b"\x00\xfforiginal\x00"
+
+
+def test_clipboard_recovery_dispatch_preserves_binding_and_rejects_duplicate_and_expired_intents():
+    from ClipAI.core.commands import UseWorkflowClipboard, ExpireInputRecovery
+    from ClipAI.core.models import PreparedInput, SelectionCaptureOutcome
+
+    runtime, view, supervisor, _, _ = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    controller = workflow(view, view.snapshots[-1].session_id)
+    first_id = controller.snapshot.active_invocation_id
+    supervisor.work[first_id]()
+    invocation = view.execute_action.invocations[-1]
+    resolved = view.execute_action.actions[-1]
+    original_binding = view.execute_action.bindings[-1]
+    controller.await_input_choice(invocation, resolved, PreparedInput(
+        clipboard_text_document=InputDocument("frozen", "clipboard"),
+        selection_outcome=SelectionCaptureOutcome(reason="unsupported"),
+    ))
+    recovery = controller.snapshot.input_recovery
+    runtime.enqueue(SelectProviderModel("openai", "new-model"))
+    runtime.drain_commands()
+    command = UseWorkflowClipboard(controller.snapshot.session_id, recovery.recovery_id)
+    runtime.enqueue(command)
+    runtime.enqueue(command)
+    runtime.enqueue(ExpireInputRecovery(command.workflow_id, command.recovery_id))
+    runtime.drain_commands()
+    next_id = controller.snapshot.active_invocation_id
+    assert next_id is not None and next_id != first_id
+    supervisor.work[next_id]()
+    assert len(view.execute_action.invocations) == 2
+    assert view.execute_action.invocations[-1].input_target.document.text == "frozen"
+    assert view.execute_action.bindings[-1] is original_binding
+    assert controller.snapshot.status is SessionStatus.PREPARING_REQUEST
+
+
+def test_unfocused_input_recovery_expiry_closes_only_matching_workflow():
+    from ClipAI.core.commands import ExpireInputRecovery
+    from ClipAI.core.models import PreparedInput, SelectionCaptureOutcome
+
+    runtime, view, supervisor, _, _ = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    controller = workflow(view, view.snapshots[-1].session_id)
+    supervisor.work[controller.snapshot.active_invocation_id]()
+    controller.await_input_choice(view.execute_action.invocations[-1], view.execute_action.actions[-1], PreparedInput(selection_outcome=SelectionCaptureOutcome(reason="unsupported")))
+    recovery = controller.snapshot.input_recovery
+    runtime.enqueue(ExpireInputRecovery(controller.snapshot.session_id, "old"))
+    runtime.drain_commands()
+    assert controller.snapshot.status is SessionStatus.AWAITING_INPUT_CHOICE
+    runtime.enqueue(ExpireInputRecovery(controller.snapshot.session_id, recovery.recovery_id))
+    runtime.drain_commands()
+    assert controller.snapshot.status is SessionStatus.CLOSED

@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from ClipAI.core.models import ImageContent, InputDocument, PreparedEntryInput
+from ClipAI.core.models import SelectionCaptureOutcome, ImageContent, InputDocument, PreparedInput
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.entry_input_preview import build_entry_input_preview
 
@@ -30,9 +30,9 @@ class Selection:
         self.text = text
         self.reads = 0
 
-    def read_text(self, _cancellation=None) -> str:
+    def capture(self, _cancellation=None, *, target=None, request=None):
         self.reads += 1
-        return self.text
+        return SelectionCaptureOutcome(self.text, "selected" if self.text else "none")
 
 
 def test_external_preparation_captures_each_input_fact_once() -> None:
@@ -40,7 +40,7 @@ def test_external_preparation_captures_each_input_fact_once() -> None:
     clipboard = Clipboard(text="clipboard", image=image)
     selection = Selection("selected")
 
-    prepared = InputResolver(clipboard, selection).prepare_entry_input()
+    prepared = InputResolver(clipboard, selection).prepare_input()
 
     assert selection.reads == 1
     assert clipboard.text_reads == 1
@@ -59,7 +59,7 @@ def test_external_preparation_captures_each_input_fact_once() -> None:
 def test_prepared_input_never_rereads_changed_external_state() -> None:
     clipboard = Clipboard(text="captured clipboard")
     selection = Selection("captured selection")
-    prepared = InputResolver(clipboard, selection).prepare_entry_input()
+    prepared = InputResolver(clipboard, selection).prepare_input()
     clipboard.text = "changed clipboard"
     selection.text = "changed selection"
 
@@ -77,7 +77,7 @@ def test_prepared_mode_priority_matches_existing_input_resolver() -> None:
     prepared = InputResolver(
         Clipboard(text="clipboard", image=image),
         Selection(""),
-    ).prepare_entry_input()
+    ).prepare_input()
 
     assert prepared.resolve("selection_or_clipboard").document == InputDocument(
         "", "clipboard", image=image
@@ -99,7 +99,7 @@ def test_prepared_mode_priority_matches_existing_input_resolver() -> None:
     ],
 )
 def test_prepared_input_reports_typed_mode_incompatibility(mode, reason) -> None:
-    resolution = PreparedEntryInput().resolve(mode)
+    resolution = PreparedInput().resolve(mode)
 
     assert resolution.document is None
     assert resolution.unavailable_reason == reason
@@ -112,14 +112,14 @@ def test_workflow_input_preserves_exact_lineage_for_every_mode() -> None:
         workflow_id="workflow-1",
         step_id="step-2",
     )
-    prepared = PreparedEntryInput(workflow_document=document)
+    prepared = PreparedInput(workflow_document=document)
 
     for mode in ("selection_or_clipboard", "clipboard", "clipboard_image"):
         assert prepared.resolve(mode).document is document
 
 
 def test_prepared_input_is_immutable_and_hides_sensitive_repr() -> None:
-    prepared = PreparedEntryInput(
+    prepared = PreparedInput(
         selection_document=InputDocument("private text", "selection")
     )
 
@@ -130,11 +130,11 @@ def test_prepared_input_is_immutable_and_hides_sensitive_repr() -> None:
 
 def test_workflow_preparation_rejects_missing_or_mixed_lineage() -> None:
     with pytest.raises(ValueError, match="exact lineage"):
-        PreparedEntryInput(
+        PreparedInput(
             workflow_document=InputDocument("result", "workflow_result")
         )
     with pytest.raises(ValueError, match="cannot contain external"):
-        PreparedEntryInput(
+        PreparedInput(
             workflow_document=InputDocument(
                 "result",
                 "workflow_result",
@@ -146,7 +146,7 @@ def test_workflow_preparation_rejects_missing_or_mixed_lineage() -> None:
 
 
 def test_source_preview_normalizes_whitespace_and_truncates_to_90_characters() -> None:
-    prepared = PreparedEntryInput(
+    prepared = PreparedInput(
         selection_document=InputDocument(
             "  " + "word \n\t" * 30,
             "selection",
@@ -162,7 +162,7 @@ def test_source_preview_normalizes_whitespace_and_truncates_to_90_characters() -
 
 
 def test_workflow_preview_distinguishes_selection_from_displayed_content() -> None:
-    prepared = PreparedEntryInput(
+    prepared = PreparedInput(
         workflow_document=InputDocument(
             "result",
             "workflow_result",
@@ -176,3 +176,89 @@ def test_workflow_preview_distinguishes_selection_from_displayed_content() -> No
         prepared,
         workflow_selection=True,
     ).kind == "workflow_selection"
+
+
+@pytest.mark.parametrize("reason", ["uia_unsupported", "uia_timeout", "source_changed", "copy_timeout"])
+def test_unknown_never_silently_uses_old_clipboard(reason):
+    from dataclasses import replace
+    from ClipAI.core.errors import SelectionUnavailableError
+
+    selection = Selection()
+    selection.capture = lambda *args, **kwargs: SelectionCaptureOutcome(reason=reason)
+    resolver = InputResolver(Clipboard(text="old clipboard"), selection)
+    for read in (lambda: resolver.resolve("selection_or_clipboard"), resolver.resolve_text):
+        with pytest.raises(SelectionUnavailableError) as error:
+            read()
+        assert error.value.reason == reason
+    prepared = resolver.prepare_input()
+    assert prepared.resolve("selection_or_clipboard").unavailable_reason == "selection_unknown"
+    preview = build_entry_input_preview(prepared)
+    assert preview.kind == "failed"
+    assert preview.clipboard_override_available
+    explicit = replace(prepared, clipboard_override=True)
+    assert explicit.resolve("selection_or_clipboard").document.text == "old clipboard"
+    assert build_entry_input_preview(explicit).kind == "clipboard_text"
+
+
+def test_cancelled_capture_cannot_create_prepared_input():
+    from ClipAI.core.errors import CancelledError
+    selection = Selection()
+    selection.capture = lambda *args, **kwargs: SelectionCaptureOutcome(status="cancelled")
+    with pytest.raises(CancelledError):
+        InputResolver(Clipboard(), selection).prepare_input()
+
+
+def test_native_selection_survives_unavailable_clipboard_and_retains_whitespace():
+    class LockedClipboard:
+        def read_text(self):
+            raise RuntimeError("locked")
+        def read_image(self):
+            raise RuntimeError("locked")
+    prepared = InputResolver(LockedClipboard(), Selection(" \nselected\t ")).prepare_input()
+    assert prepared.resolve("selection_or_clipboard").document.text == " \nselected\t "
+
+
+def test_clipboard_fallback_is_frozen_before_selection_compatibility_copy():
+    clipboard = Clipboard(text="original clipboard")
+    selection = Selection()
+    def capture(*args, **kwargs):
+        clipboard.text = "late clipboard"
+        return SelectionCaptureOutcome(status="none")
+    selection.capture = capture
+    prepared = InputResolver(clipboard, selection).prepare_input()
+    assert prepared.resolve("selection_or_clipboard").document.text == "original clipboard"
+
+
+def test_live_resolution_freezes_clipboard_before_selection_compatibility_copy():
+    clipboard = Clipboard(text="original clipboard")
+    selection = Selection()
+
+    def capture(*args, **kwargs):
+        clipboard.text = "compatibility copy"
+        return SelectionCaptureOutcome(status="none")
+
+    selection.capture = capture
+    resolver = InputResolver(clipboard, selection)
+
+    assert resolver.resolve("selection_or_clipboard") == InputDocument(
+        "original clipboard", "clipboard"
+    )
+
+
+def test_missing_selection_adapter_allows_identified_clipboard_fallback():
+    resolver = InputResolver(Clipboard(text="expected clipboard"))
+
+    assert resolver.resolve("selection_or_clipboard") == InputDocument(
+        "expected clipboard", "clipboard"
+    )
+    assert resolver.resolve_text() == InputDocument(
+        "expected clipboard", "clipboard"
+    )
+    prepared = resolver.prepare_input()
+    assert prepared.selection_outcome == SelectionCaptureOutcome(
+        status="unavailable", reason="selection_unavailable"
+    )
+    assert prepared.resolve("selection_or_clipboard").document == InputDocument(
+        "expected clipboard", "clipboard"
+    )
+    assert build_entry_input_preview(prepared).kind == "clipboard_text"

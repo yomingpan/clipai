@@ -109,6 +109,37 @@ def test_audio_level_projects_real_signal_and_clears_a_silence_hint() -> None:
     assert heard.projection.message == "Listening…"
 
 
+def test_controller_projects_authoritative_ptt_countdown_for_the_matching_press() -> None:
+    controller = ready_controller()
+    press_id = ShortcutPressId(7)
+    controller.request_capture_for_press(press_id, target())
+
+    initial = controller.note_capture_countdown(press_id, 120)
+    warning = controller.note_capture_countdown(press_id, 30)
+    urgent = controller.note_capture_countdown(press_id, 10)
+
+    assert initial.projection.remaining_seconds == 120
+    assert warning.projection.message == "Listening… · 30 seconds remaining; this section will be saved automatically."
+    assert urgent.projection.message == "Listening… · 10 seconds remaining; this section will be saved automatically."
+    assert controller.note_capture_countdown(ShortcutPressId(8), 8).ignored is True
+
+
+def test_audio_events_keep_the_countdown_appended_to_the_stable_listening_status() -> None:
+    controller = ready_controller()
+    press_id = ShortcutPressId(7)
+    capture = VoiceCaptureId("voice-press-7")
+    controller.request_capture_for_press(press_id, target())
+    controller.observe_engine(VoiceEngineListening(capture))
+    controller.note_capture_countdown(press_id, 30)
+
+    heard = controller.observe_engine(VoiceEngineAudioLevel(capture, 0.35))
+    ticked = controller.note_capture_countdown(press_id, 29)
+
+    expected = "Listening… · 29 seconds remaining; this section will be saved automatically."
+    assert heard.projection.message == "Listening… · 30 seconds remaining; this section will be saved automatically."
+    assert ticked.projection.message == expected
+
+
 def test_silence_timeout_is_ignored_after_real_signal() -> None:
     controller = ready_controller()
     capture = VoiceCaptureId("capture-1")
@@ -150,6 +181,28 @@ def test_missing_microphone_returns_a_retriable_review_with_a_remedy() -> None:
     )
 
 
+def test_transport_failure_preserves_contiguous_finalized_content() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-1")
+    frozen_target = target()
+    controller.request_capture(capture, frozen_target)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "keep this"))
+
+    transition = controller.observe_engine(VoiceEngineFailed(
+        capture,
+        VoiceTransportFailure.PROCESS_CRASHED,
+    ))
+
+    assert transition.effects == (
+        FinalizeVoiceDraft(
+            capture,
+            frozen_target,
+            "keep this",
+            "Voice Input stopped unexpectedly. Try again. Recognized content was preserved.",
+        ),
+    )
+
+
 def test_release_is_a_monotonic_stop_gate_and_late_interim_is_ignored() -> None:
     controller = ready_controller()
     capture = VoiceCaptureId("capture-1")
@@ -173,7 +226,7 @@ def test_controller_owns_press_to_capture_mapping_and_rejects_stale_release() ->
     assert controller.request_release_for_press(press_id).effects == (StopVoiceCapture(capture),)
 
 
-def test_watchdog_cancels_only_the_capture_bound_to_its_press() -> None:
+def test_safety_limit_gracefully_stops_only_the_capture_bound_to_its_press() -> None:
     controller = ready_controller()
     press_id = ShortcutPressId(7)
     capture = VoiceCaptureId("voice-press-7")
@@ -181,9 +234,21 @@ def test_watchdog_cancels_only_the_capture_bound_to_its_press() -> None:
 
     transition = controller.expire_capture_watchdog(press_id)
 
-    assert transition.effects == (CancelVoiceCapture(capture),)
-    assert "release was not received" in transition.projection.message
+    assert transition.effects == (StopVoiceCapture(capture),)
+    assert "time limit" in transition.projection.message.lower()
     assert controller.expire_capture_watchdog(ShortcutPressId(8)).ignored is True
+
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "keep this thought"))
+    terminal = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert terminal.effects == (
+        FinalizeVoiceDraft(
+            capture,
+            target(),
+            "keep this thought",
+            "The 2-minute Voice Input limit was reached. This section was saved; release the shortcut and press it again to continue.",
+        ),
+    )
 
 
 def test_workflow_close_cancels_only_its_active_capture() -> None:
@@ -283,9 +348,30 @@ def test_conflicting_duplicate_segment_fails_the_capture() -> None:
 
     transition = controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "different"))
 
-    assert transition.effects[0].message == "Voice Input received an invalid recognition response."
+    assert transition.effects == (
+        FinalizeVoiceDraft(
+            capture,
+            target(),
+            "first",
+            "Voice Input received an invalid recognition response. Recognized content was preserved.",
+        ),
+    )
     assert controller.projection.capture_id is None
     assert "invalid recognition response" in controller.projection.message
+
+
+def test_safety_limit_requires_the_timed_out_press_to_be_released_before_rearming() -> None:
+    controller = ready_controller()
+    press_id = ShortcutPressId(7)
+    capture = VoiceCaptureId("voice-press-7")
+    controller.request_capture_for_press(press_id, target())
+    controller.expire_capture_watchdog(press_id)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "saved"))
+    controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert controller.request_capture_for_press(ShortcutPressId(8), target()).ignored is True
+    assert controller.request_release_for_press(press_id).ignored is False
+    assert controller.request_capture_for_press(ShortcutPressId(8), target()).ignored is False
 
 
 def test_language_changes_apply_only_between_captures() -> None:

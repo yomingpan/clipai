@@ -248,6 +248,15 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 
 ### Canonical selection 與 presentation 測試
 
+- Direct Action 與 Entry Panel 使用同一 `PreparedInput` 判定矩陣：selected、
+  confirmed-none、unsupported、timeout、source-changed、cancelled 與空剪貼簿。
+- Popup recovery 不呼叫 provider、不建立輸入表單；明確選擇只使用預覽的 frozen
+  clipboard。變更系統剪貼簿不影響接續內容；重複、取消與過時選擇不得再次送出。
+- Recovery 保留原 Workflow 的 provider binding 與 Action variant。15 秒 expiry
+  只關閉 matching、未聚焦、未 pin 的等待視窗，不得關閉已接續的 Action。
+- `tests/ui/test_input_recovery.py -m integration` 驗證真實 Tk 按鈕 pending、
+  唯讀內容與同一 surface 的 recovery → request 投影。
+
 - 直接 Shortcut 的外部 text-capable Action 在 trigger time 擷取 selection；Unified
   Entry Panel 則在 Panel open intent 凍結 selection／clipboard，Action 選取不得
   再次擷取。有效 selection
@@ -385,6 +394,15 @@ Recipe 回饋與使用引導應測：
   WinEvent unhook 失敗時 callback 與 hook ownership 必須保留，且不得重複註冊。
 
 ## Marker 規則
+
+Selection evidence 的回歸測試必須區分 confirmed-none、unsupported、timeout、
+source-changed 與 cancelled；unknown 不得自動使用舊剪貼簿。UIA worker 必須有
+逾時／取消後終止及回收的測試，原視窗 ancestry、virtual focus 與選取 range
+變更必須丟棄結果。Entry Panel 必須驗證首次 projection 之前綁定來源，以及
+明確「使用剪貼簿」只使用 frozen input、拒絕過時 Panel intent。
+`tests/platform/test_selection_uia_integration.py` 是另行啟用的 Windows 真實
+RichTextBox 測試，涵蓋選取、重複相同選取與只有游標；不得將其當成所有 app
+皆受支援的證據。
 
 `integration` marker 表示測試會碰真實外部世界，例如：
 

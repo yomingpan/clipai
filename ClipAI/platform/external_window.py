@@ -67,6 +67,11 @@ class SystemExternalWindowActivator:
         target: ExternalWindowTarget,
         cancellation: CancellationToken,
     ) -> ExternalWindowActivationOutcome:
+        _raise_if_cancelled(cancellation)
+        # A read-only UIA capture can proceed while Alt is held. Do not disturb
+        # an already foreground source just to activate it again.
+        if isinstance(target, ExternalWindowRef) and self._target_is_valid(target) and self._target_is_foreground(target):
+            return self.confirm(target, cancellation)
         modifier_deadline = time.monotonic() + self._modifier_release_timeout_sec
         while any(self._modifier_is_pressed(modifier) is True for modifier in MODIFIER_KEYS):
             _raise_if_cancelled(cancellation)

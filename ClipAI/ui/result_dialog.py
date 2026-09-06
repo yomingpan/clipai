@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import queue
+import logging
 import threading
 import tkinter as tk
 import uuid
@@ -10,7 +11,7 @@ import webbrowser
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
+from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
 from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.popup_presentation import project_popup_presentation
@@ -26,6 +27,8 @@ from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
 from ClipAI.ui.unified_entry_panel import UnifiedEntryPanelDialog
 from ClipAI.ui.voice_setup import VoiceSetupDialog
 from ClipAI.ui.about import AboutDialog
+
+_LOGGER = logging.getLogger("clipai.ui.result_dialog")
 
 
 # Windows Tk maps Num Lock to Mod1 (0x0008), while physical Alt uses
@@ -595,6 +598,7 @@ class ResultDialogPresenter:
             and primary_entry.workflow_id == snapshot.session_id
             else None
         )
+        show_preparing = False
         if view is None:
             if primary_transition is not None:
                 result_lease = primary_transition.host.acquire()
@@ -607,7 +611,11 @@ class ResultDialogPresenter:
                     mount_primary_content=False,
                 )
             else:
-                view = self._create_view(snapshot.session_id)
+                if snapshot.status in {SessionStatus.CREATED, SessionStatus.READING_INPUT}:
+                    view = self._create_view(snapshot.session_id, show_on_create=False)
+                    show_preparing = True
+                else:
+                    view = self._create_view(snapshot.session_id)
             self._views[snapshot.session_id] = view
             if primary_transition is not None:
                 self._register_view(
@@ -617,7 +625,7 @@ class ResultDialogPresenter:
                     announce_shown=False,
                 )
             else:
-                self._register_view(snapshot.session_id, view)
+                self._register_view(snapshot.session_id, view, focus_on_show=snapshot.status not in {SessionStatus.CREATED, SessionStatus.READING_INPUT})
         previous = view.last_snapshot
         if snapshot.status is SessionStatus.VOICE_REVIEW and (
             previous is None or previous.status is not SessionStatus.VOICE_REVIEW
@@ -636,6 +644,14 @@ class ResultDialogPresenter:
             guidance_already_shown=guidance_key in view.shown_guidance_keys,
         )
         view.surface.render(popup_model)
+        if popup_model.input_recovery_id is not None and (
+            previous is None or previous.input_recovery is None
+            or previous.input_recovery.recovery_id != popup_model.input_recovery_id
+        ):
+            view.dialog.lifecycle.schedule(
+                15000,
+                lambda sid=snapshot.session_id, rid=popup_model.input_recovery_id: self._command_sink(ExpireInputRecovery(sid, rid)),
+            )
         if popup_model.guidance:
             view.shown_guidance_keys.add(guidance_key)
         if patch.header:
@@ -667,12 +683,31 @@ class ResultDialogPresenter:
                 if insertion is not None and caret_offset is not None:
                     view.applied_voice_insertion_revision = insertion.projection_revision
                 view.surface.set_voice_draft_editing(view.voice_draft_editing)
-                if not snapshot.content and snapshot.status_text:
+                voice_notice_changed = (
+                    bool(snapshot.voice_status_text)
+                    and snapshot.voice_status_text != "Review your dictation."
+                    and (
+                        previous is None
+                        or previous.voice_status_text != snapshot.voice_status_text
+                    )
+                )
+                if (not snapshot.content and snapshot.status_text) or voice_notice_changed:
                     view.dialog.flash("warning")
                     view.surface.show_action_message(snapshot.status_text, 4000)
         elif snapshot.status is SessionStatus.CONTEXT_QUESTION:
             if content_changed:
                 view.surface.set_content_chunks([])
+        elif snapshot.status is SessionStatus.AWAITING_INPUT_CHOICE:
+            if content_changed:
+                recovery = snapshot.input_recovery
+                message = snapshot.status_text
+                if recovery is not None:
+                    message += "\n\n" + (
+                        "可使用上方預覽的剪貼簿內容，繼續原本的任務。"
+                        if recovery.clipboard_document is not None
+                        else "請回到原應用程式，選取或複製內容後再試一次。"
+                    )
+                view.surface.set_content_chunks([(message, "body")])
         elif snapshot.status == SessionStatus.FAILED:
             view.dialog.flash("error")
             if content_changed:
@@ -742,11 +777,19 @@ class ResultDialogPresenter:
         view.speaking = snapshot.speaking
         if (
             previous is not None
-            and previous.status in {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING}
-            and snapshot.status is SessionStatus.VOICE_REVIEW
+            and (
+                (previous.status in {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING}
+                 and snapshot.status is SessionStatus.VOICE_REVIEW)
+                or (previous.status in {SessionStatus.CREATED, SessionStatus.READING_INPUT}
+                    and snapshot.status in {SessionStatus.PREPARING_REQUEST, SessionStatus.REQUESTING_PROVIDER, SessionStatus.PROCESSING_RESULT, SessionStatus.COMPLETED})
+            )
         ):
             self._schedule_initial_focus(snapshot.session_id, view)
         view.last_snapshot = snapshot
+        if show_preparing:
+            applied = view.dialog.apply_external_output_visibility("visible_no_activate")
+            if applied is False:
+                _LOGGER.warning("Input preparation visibility failed workflow_id=%s", snapshot.session_id)
         if primary_transition is not None:
             self._complete_primary_entry_transition(
                 snapshot.session_id,
@@ -1020,7 +1063,6 @@ class ResultDialogPresenter:
             hide_from_task_switcher=True,
             show_on_create=show_on_create if primary_host is None else False,
             on_close_request=lambda sid=session_id: self._request_close(sid),
-            native_window_surface=self._native_window_surface,
             primary_surface_host=primary_host,
             primary_surface_lease=primary_lease,
             mount_primary_content=mount_primary_content,
@@ -1032,6 +1074,9 @@ class ResultDialogPresenter:
         )
         surface.pin_button.configure(
             command=lambda sid=session_id: self._toggle_pin(sid)
+        )
+        surface.bind_clipboard_choice(
+            lambda recovery_id, sid=session_id: self._command_sink(UseWorkflowClipboard(sid, recovery_id))
         )
         surface.bind_back_action(
             lambda sid=session_id: self._navigate_back(sid)
@@ -1067,6 +1112,12 @@ class ResultDialogPresenter:
         phase = snapshot.voice_capture_phase
         level = snapshot.voice_audio_level
         silence_detected = snapshot.voice_silence_detected
+        remaining_seconds = None
+        if (
+            global_projection is not None
+            and global_projection.capture_id == capture_id
+        ):
+            remaining_seconds = global_projection.remaining_seconds
         if (
             capture_id is None
             and global_projection is not None
@@ -1097,10 +1148,20 @@ class ResultDialogPresenter:
                     if finalizing
                     else "No sound detected; click to stop Voice Input"
                     if silence_detected
+                    else f"{remaining_seconds} seconds remaining; this section will be saved automatically"
+                    if remaining_seconds is not None and remaining_seconds <= 30
                     else "Click to stop Voice Input"
                 ),
                 active=True,
+                countdown_seconds=remaining_seconds,
             )
+            set_countdown_warning = getattr(view.dialog, "set_countdown_warning", None)
+            if callable(set_countdown_warning):
+                set_countdown_warning(
+                    not finalizing
+                    and remaining_seconds is not None
+                    and remaining_seconds <= 30
+                )
             view.surface.set_follow_up_send_enabled(False)
             return
 
@@ -1133,6 +1194,9 @@ class ResultDialogPresenter:
             tooltip=tooltip,
             active=False,
         )
+        set_countdown_warning = getattr(view.dialog, "set_countdown_warning", None)
+        if callable(set_countdown_warning):
+            set_countdown_warning(False)
         view.surface.set_follow_up_send_enabled(
             snapshot.voice_capture_id is None
             and bool(view.surface.follow_entry.get().strip())
@@ -1267,6 +1331,8 @@ def _voice_draft_editing(view: _SessionView) -> bool | None:
 
 def _content_render_key(snapshot: SessionSnapshot) -> tuple[object, ...]:
     """Only content-affecting state may replace the textbox and reset its scroll."""
+    if snapshot.status is SessionStatus.AWAITING_INPUT_CHOICE:
+        return (snapshot.status, snapshot.status_text, snapshot.input_recovery.recovery_id if snapshot.input_recovery is not None else None)
     if snapshot.status == SessionStatus.FAILED:
         return (snapshot.status, snapshot.content, snapshot.error)
     if snapshot.status == SessionStatus.COMPLETED:

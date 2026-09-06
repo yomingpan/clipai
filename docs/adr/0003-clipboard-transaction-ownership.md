@@ -12,7 +12,7 @@ Selection capture and paste previously owned separate locks and restore paths. T
 
 One container-scoped `ClipboardTransactionCoordinator` owns every temporary clipboard mutation used by selection capture, speech selection, and paste. It serializes operations, records sequence ownership, polls cancellation during selection capture, and restores only when the clipboard sequence still belongs to that operation.
 
-Selection timing and fallback policy live in services. The platform adapter exposes only modifier state and Ctrl+C primitives. `ClipboardTransactionStore` is generic over an opaque snapshot type, so Windows stores lossless native clipboard-format bytes without leaking format knowledge into services. Provider-facing `read_image()` performs image decoding and PNG encoding only when an image input is requested.
+Selection timing and fallback policy live in services. The compatibility-copy adapter exposes modifier state and Ctrl+C primitives; a separate source-bound UIA probe provides read-only selection evidence (ADR-0014). `ClipboardTransactionStore` is generic over an opaque snapshot type, so Windows stores lossless native clipboard-format bytes without leaking format knowledge into services. Provider-facing `read_image()` performs image decoding and PNG encoding only when an image input is requested.
 
 ## Consequences
 

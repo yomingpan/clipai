@@ -72,6 +72,14 @@ class InputError(ClipAIError):
     code = "input.invalid"
 
 
+class SelectionUnavailableError(InputError):
+    code = "input.selection_unknown"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("無法確認反白內容。請重新選取後重試，或明確選擇使用剪貼簿。")
+        self.reason = reason
+
+
 class PersonalStyleUnavailableError(InputError):
     code = "personal_style.unavailable"
 

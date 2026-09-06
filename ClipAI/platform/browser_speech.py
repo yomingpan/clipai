@@ -63,6 +63,7 @@ class BrowserSpeechWebView2Engine:
         self._capture_id: VoiceCaptureId | None = None
         self._capture_start_timeout: tuple[VoiceCaptureId, object, object] | None = None
         self._capture_stop_timeout: tuple[VoiceCaptureId, object, object] | None = None
+        self._listened_capture_id: VoiceCaptureId | None = None
         self._terminal_captures: set[VoiceCaptureId] = set()
         self._lock = threading.RLock()
 
@@ -83,7 +84,8 @@ class BrowserSpeechWebView2Engine:
                 self._cancel_capture_stop_timeout()
                 self._ensure_process()
                 self._send({"command": "start", "capture_id": capture_id, "language": language, "sequence_start": sequence_start})
-                self._start_capture_timeout(capture_id)
+                if self._listened_capture_id != capture_id:
+                    self._start_capture_timeout(capture_id)
         except (BrokenPipeError, OSError, ValueError):
             self._settle_capture_write_failure(capture_id)
 
@@ -113,6 +115,7 @@ class BrowserSpeechWebView2Engine:
             process, self._process = self._process, None
             self._setup_id = None
             self._capture_id = None
+            self._listened_capture_id = None
             self._cancel_capture_start_timeout()
             self._cancel_capture_stop_timeout()
         if process is None:
@@ -212,6 +215,7 @@ class BrowserSpeechWebView2Engine:
                 if event.capture_id != self._capture_id:
                     return
                 if isinstance(event, VoiceEngineListening):
+                    self._listened_capture_id = event.capture_id
                     self._cancel_capture_start_timeout()
                 elif isinstance(event, VoiceEngineEnded):
                     if event.capture_id in self._terminal_captures:

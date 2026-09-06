@@ -91,6 +91,7 @@ def finalize_capture(
     snapshot: SessionSnapshot,
     target: VoiceDraftTarget,
     text: str,
+    message: str = "Review your dictation.",
 ) -> SessionSnapshot | None:
     """Apply settled capture text only to its frozen Voice Draft target."""
     if not text.strip():
@@ -142,7 +143,8 @@ def finalize_capture(
         voice_capture_phase=None,
         voice_audio_level=0.0,
         voice_silence_detected=False,
-        voice_status_text="Review your dictation.",
+        status_text=message,
+        voice_status_text=message,
     )
 
 

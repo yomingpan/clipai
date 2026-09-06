@@ -12,10 +12,12 @@ from ClipAI.core.models import (
     ExternalWindowActivationOutcome,
     ExternalWindowRef,
     InputDocument,
-    PreparedEntryInput,
+    PreparedInput,
 )
 from ClipAI.services.entry_panel import EntryPanelCoordinator
 from ClipAI.services.recent_actions import RecentActionHistory
+from ClipAI.core.commands import UseEntryPanelClipboard
+from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest, SelectionSource
 
 
 class Presenter:
@@ -88,13 +90,16 @@ class Activator:
 
 
 class Inputs:
-    def __init__(self, prepared: PreparedEntryInput | None = None) -> None:
-        self.prepared = prepared or PreparedEntryInput(
+    def begin_selection(self, target=None):
+        return None
+
+    def __init__(self, prepared: PreparedInput | None = None) -> None:
+        self.prepared = prepared or PreparedInput(
             selection_document=InputDocument("selected at open", "selection")
         )
         self.calls = 0
 
-    def prepare_entry_input(self, cancellation=None):
+    def prepare_input(self, cancellation=None, *, target=None, request=None):
         del cancellation
         self.calls += 1
         return self.prepared
@@ -205,7 +210,7 @@ def test_external_input_is_frozen_at_open_and_selection_never_recaptures() -> No
     module, coordinator, presenter, supervisor, workflows, activator, _inputs, commands, external = make_module(input_resolver=inputs)
     panel_id = module.open().panel_id
     complete_external_preparation(module, supervisor, commands)
-    inputs.prepared = PreparedEntryInput(
+    inputs.prepared = PreparedInput(
         selection_document=InputDocument("changed later", "selection")
     )
 
@@ -235,6 +240,44 @@ def test_entry_panel_action_trace_links_panel_to_admitted_workflow(caplog) -> No
     assert "workflow_id=workflow-1" in trace
     assert "action_id=shorten_content" in trace
     assert "press_type=short" in trace
+
+
+def test_explicit_clipboard_choice_uses_frozen_input_and_rejects_other_panel():
+    inputs = Inputs(PreparedInput(
+        clipboard_text_document=InputDocument("original clipboard", "clipboard"),
+        selection_outcome=SelectionCaptureOutcome(reason="uia_unsupported"),
+    ))
+    module, coordinator, presenter, supervisor, workflows, activator, _, commands, _ = make_module(input_resolver=inputs)
+    panel_id = module.open().panel_id
+    complete_external_preparation(module, supervisor, commands)
+    assert coordinator.snapshot.source_preview.clipboard_override_available
+    module.select_action(EntryActionRef("shorten_content", "short"))
+    assert not workflows.starts
+    module.handle(UseEntryPanelClipboard("stale-panel"))
+    assert coordinator.snapshot.source_preview.kind == "failed"
+    inputs.prepared = PreparedInput(clipboard_text_document=InputDocument("changed", "clipboard"))
+    module.handle(UseEntryPanelClipboard(panel_id))
+    assert coordinator.snapshot.source_preview.kind == "clipboard_text"
+    module.select_action(EntryActionRef("shorten_content", "short"))
+    assert workflows.starts[-1][3].document.text == "original clipboard"
+    assert inputs.calls == 1
+
+
+def test_source_binding_precedes_panel_projection_and_reaches_capture():
+    events = []
+    class BoundInputs(Inputs):
+        def begin_selection(self, target=None):
+            events.append("source:bound")
+            return SelectionCaptureRequest("request", SelectionSource(target, "hwnd:2"))
+        def prepare_input(self, cancellation=None, *, target=None, request=None):
+            assert request.source.window == target
+            assert request.source.focus_token == "hwnd:2"
+            return super().prepare_input(cancellation)
+    module, _, presenter, supervisor, _, _, _, commands, _ = make_module(input_resolver=BoundInputs())
+    presenter.events = events
+    module.open()
+    assert events[:2] == ["source:bound", "panel:presented"]
+    complete_external_preparation(module, supervisor, commands)
 
 
 def test_handoff_registration_still_precedes_first_popup_projection() -> None:
@@ -288,11 +331,11 @@ def test_external_capture_does_not_recapture_after_confirmed_focus_loss() -> Non
             super().__init__()
             self.activator = activator
 
-        def prepare_entry_input(self, cancellation=None):
-            prepared = super().prepare_entry_input(cancellation)
+        def prepare_input(self, cancellation=None, *, target=None, request=None):
+            prepared = super().prepare_input(cancellation)
             if self.calls == 1:
                 self.activator.foreground = False
-                return PreparedEntryInput(
+                return PreparedInput(
                     clipboard_text_document=InputDocument("untrusted", "clipboard")
                 )
             return prepared
@@ -327,7 +370,7 @@ def test_external_capture_fails_closed_without_using_untrusted_clipboard() -> No
 
     activator = UnstableActivator()
     inputs = Inputs(
-        PreparedEntryInput(
+        PreparedInput(
             clipboard_text_document=InputDocument("untrusted", "clipboard")
         )
     )
@@ -362,7 +405,7 @@ def test_external_capture_logs_stage_and_identity_without_clipboard_content(
     secret = "private clipboard content must not appear in diagnostics"
     activator = ConfirmationFailureActivator()
     inputs = Inputs(
-        PreparedEntryInput(
+        PreparedInput(
             clipboard_text_document=InputDocument(secret, "clipboard")
         )
     )
@@ -477,7 +520,7 @@ def test_provider_busy_still_prepares_but_never_queues_an_action() -> None:
 
 def test_mode_compatibility_disables_only_incompatible_actions() -> None:
     inputs = Inputs(
-        PreparedEntryInput(
+        PreparedInput(
             clipboard_text_document=InputDocument("clipboard text", "clipboard")
         )
     )

@@ -11,10 +11,8 @@ from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PopupBounds, PresentationDocument
 from ClipAI.core.popup_presentation import PopupPresentationModel
-from ClipAI.core.ports import NativeWindowSurface
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
-from ClipAI.ui.popup_layout import popup_bounds_from_tk_geometry
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
 
@@ -186,6 +184,7 @@ class _VoiceWaveIndicator(tk.Canvas):
         self._word = "語音"
         self._listening = False
         self._silence = False
+        self._countdown_seconds: int | None = None
         self._enabled = False
         self._active = False
         self._command: Callable[[], None] | None = None
@@ -209,10 +208,12 @@ class _VoiceWaveIndicator(tk.Canvas):
         enabled: bool,
         active: bool,
         command: Callable[[], None] | None,
+        countdown_seconds: int | None = None,
     ) -> None:
         self._word = word
         self._listening = listening
         self._silence = silence
+        self._countdown_seconds = countdown_seconds
         self._enabled = enabled
         self._active = active
         self._command = command if enabled else None
@@ -301,16 +302,21 @@ class _VoiceWaveIndicator(tk.Canvas):
         pill_color, line_color, word_color = self._colors()
         radius = 6.0 * scaling
         self._draw_rounded_pill(0.0, 0.0, float(width), float(height), radius, pill_color)
+        countdown_seconds = getattr(self, "_countdown_seconds", None)
 
         font = self._scaled_font(scaling)
         padding = 7.0 * scaling
-        word_width = float(font.measure(self._word))
+        display_word = self._word
+        if countdown_seconds is not None:
+            minutes, seconds = divmod(max(0, countdown_seconds), 60)
+            display_word = f"{minutes}:{seconds:02d}"
+        word_width = float(font.measure(display_word))
         word_x = float(width) - padding
         center_y = float(height) / 2.0
         self.create_text(
             word_x,
             center_y,
-            text=self._word,
+            text=display_word,
             fill=word_color,
             font=font,
             anchor="e",
@@ -352,6 +358,9 @@ class _VoiceWaveIndicator(tk.Canvas):
         bottom: float,
         radius: float,
         color: str,
+        *,
+        outline: str = "",
+        outline_width: float = 1.0,
     ) -> None:
         self.create_polygon(
             left + radius,
@@ -371,7 +380,8 @@ class _VoiceWaveIndicator(tk.Canvas):
             left,
             top,
             fill=color,
-            outline="",
+            outline=outline,
+            width=outline_width,
             smooth=True,
             splinesteps=24,
         )
@@ -647,7 +657,6 @@ class BaseDialog:
         hide_from_task_switcher: bool = False,
         show_on_create: bool = True,
         on_close_request: Callable[[], None] | None = None,
-        native_window_surface: NativeWindowSurface | None = None,
         primary_surface_host: PrimarySurfaceHost | None = None,
         primary_surface_lease: PrimarySurfaceLease | None = None,
         mount_primary_content: bool = True,
@@ -659,15 +668,16 @@ class BaseDialog:
         self.height = height
         self.pinned = False
         self._on_close_request = on_close_request
-        self._native_window_surface = native_window_surface
-        self._primary_surface_host = primary_surface_host
-        self._primary_surface_lease = primary_surface_lease
         if primary_surface_host is None or primary_surface_lease is None:
             raise ValueError("BaseDialog requires a primary surface host and lease")
+        self._primary_surface_host = primary_surface_host
+        self._primary_surface_lease = primary_surface_lease
         self._state_colors = SurfaceStateColors.from_mapping(state_colors)
         self._surface_inset = surface_inset
         self._corner_radius = corner_radius
         self._border_inset = max(1, surface_inset // 3)
+        self._focus_active = False
+        self._countdown_warning = False
 
         try:
             self.root = primary_surface_host.window
@@ -703,7 +713,6 @@ class BaseDialog:
             self.main_frame = self.surface
 
             self.lifecycle = primary_surface_host.lifecycle
-            self._drag_controller = None
             self._flash_controller = SurfaceFlashController(
                 colors=self._state_colors,
                 apply_color=self._painter.draw,
@@ -753,51 +762,40 @@ class BaseDialog:
             return False
 
     @property
-    def primary_surface_host(self) -> PrimarySurfaceHost | None:
+    def primary_surface_host(self) -> PrimarySurfaceHost:
         return self._primary_surface_host
 
     @property
-    def primary_surface_lease(self) -> PrimarySurfaceLease | None:
+    def primary_surface_lease(self) -> PrimarySurfaceLease:
         return self._primary_surface_lease
 
     def is_primary_content_mounted(self) -> bool:
-        host = getattr(self, "_primary_surface_host", None)
-        lease = getattr(self, "_primary_surface_lease", None)
-        return host is None or (lease is not None and host.is_mounted(lease))
+        return self._primary_surface_host.is_mounted(self._primary_surface_lease)
 
     def show(self) -> bool:
         """Reveal a fully built dialog after a withdrawn construction."""
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            primary_lease = self._primary_surface_lease
-            assert primary_lease is not None
-            return primary_host.show(primary_lease)
-        try:
-            self.root.update_idletasks()
-            self.root.deiconify()
-        except tk.TclError:
-            return False
-        return True
+        return self._primary_surface_host.show(self._primary_surface_lease)
 
     def current_bounds(self) -> PopupBounds | None:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            return primary_host.current_bounds()
-        try:
-            self.root.update_idletasks()
-            return popup_bounds_from_tk_geometry(
-                str(self.root.geometry())
-            )
-        except (AttributeError, TypeError, ValueError, tk.TclError):
-            return None
+        return self._primary_surface_host.current_bounds()
 
     def flash(self, state: DialogState) -> None:
         self._flash_controller.flash(state)
 
     def set_focus_active(self, active: bool) -> None:
-        self._flash_controller.set_idle_color(
-            self._state_colors.hex("idle") if active else "#5F6B78"
-        )
+        self._focus_active = active
+        self._refresh_idle_border()
+
+    def set_countdown_warning(self, enabled: bool) -> None:
+        self._countdown_warning = enabled
+        self._refresh_idle_border()
+
+    def _refresh_idle_border(self) -> None:
+        if self._countdown_warning:
+            color = "#F2C94C"
+        else:
+            color = self._state_colors.hex("idle") if self._focus_active else "#5F6B78"
+        self._flash_controller.set_idle_color(color)
 
     def set_pinned(self, pinned: bool) -> None:
         self.pinned = pinned
@@ -807,11 +805,7 @@ class BaseDialog:
         return self.pinned
 
     def close(self) -> None:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            primary_host.close(self._primary_surface_lease)
-        else:
-            self.lifecycle.close()
+        self._primary_surface_host.close(self._primary_surface_lease)
 
     def mount_primary_content(self) -> bool:
         try:
@@ -830,71 +824,17 @@ class BaseDialog:
         self,
         visibility: Literal["hidden", "visible_activate", "visible_no_activate"],
     ) -> bool:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            return primary_host.apply_visibility(visibility)
-        if visibility == "hidden":
-            try:
-                self.root.withdraw()
-            except tk.TclError:
-                return False
-            return True
-        if visibility == "visible_activate":
-            try:
-                self.root.deiconify()
-            except tk.TclError:
-                return False
-            return self.lifecycle.focus()
-        if visibility == "visible_no_activate":
-            try:
-                self.root.deiconify()
-                self.root.update_idletasks()
-                child_id = int(self.root.winfo_id())
-            except (AttributeError, TypeError, ValueError, tk.TclError):
-                return False
-            native = self._native_window_surface
-            return native.show_without_activation(child_id) if native is not None else False
-        raise ValueError(f"unsupported popup visibility: {visibility}")
+        return self._primary_surface_host.apply_visibility(visibility)
 
     def native_owns_foreground(self) -> bool:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            return primary_host.owns_foreground()
-        native = self._native_window_surface
-        if native is None:
-            return False
-        try:
-            self.root.update_idletasks()
-            return native.owns_foreground(int(self.root.winfo_id()))
-        except (AttributeError, TypeError, ValueError, tk.TclError):
-            return False
+        return self._primary_surface_host.owns_foreground()
 
     def _activate_native_window(self, window: tk.Misc) -> bool:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            return primary_host.lifecycle.focus()
-        native = self._native_window_surface
-        if native is None:
-            return False
-        try:
-            window.deiconify()
-            window.update_idletasks()
-            return native.activate(int(window.winfo_id()))
-        except (AttributeError, TypeError, ValueError, tk.TclError):
-            return False
+        del window
+        return self._primary_surface_host.lifecycle.focus()
 
     def _hide_from_task_switcher(self) -> bool:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            return primary_host.hide_from_task_switcher()
-        native = self._native_window_surface
-        if native is None:
-            return False
-        try:
-            self.root.update_idletasks()
-            return native.hide_from_task_switcher(int(self.root.winfo_id()))
-        except (AttributeError, TypeError, ValueError, tk.TclError):
-            return False
+        return self._primary_surface_host.hide_from_task_switcher()
 
     def request_close(self) -> str | None:
         """Emit the semantic close request; only the presenter destroys views."""
@@ -907,23 +847,13 @@ class BaseDialog:
         return "break"
 
     def enable_drag(self, *widgets) -> None:
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            primary_host.bind_drag(*widgets)
-        else:
-            self._drag_controller.bind(*widgets)
+        self._primary_surface_host.bind_drag(*widgets)
 
     def resize(self, width: int, height: int, *, x: int | None = None, y: int | None = None) -> None:
         if width == self.width and height == self.height and x is None and y is None:
             return
         self.width, self.height = width, height
-        primary_host = getattr(self, "_primary_surface_host", None)
-        if primary_host is not None:
-            primary_host.resize(width, height, x=x, y=y)
-            return
-        target_x = self.root.winfo_x() if x is None else x
-        target_y = self.root.winfo_y() if y is None else y
-        self.root.geometry(f"{width}x{height}+{target_x}+{target_y}")
+        self._primary_surface_host.resize(width, height, x=x, y=y)
 
     def _on_canvas_configure(self, event) -> None:
         actual_width = max(1, int(event.width))
@@ -1236,11 +1166,27 @@ class BaseResultSurface:
         self._action_message_revision = 0
         self._rendered_pinned_state: bool | None = None
         self._last_model: PopupPresentationModel | None = None
+        self._clipboard_choice: Callable[[str], None] | None = None
         self._build()
+
+    def bind_clipboard_choice(self, callback: Callable[[str], None]) -> None:
+        self._clipboard_choice = callback
+
+    def _choose_clipboard(self) -> None:
+        model = self._last_model
+        if model is not None and model.input_recovery_id and model.clipboard_choice_available and self._clipboard_choice is not None:
+            self.clipboard_choice_button.configure(state="disabled", text="正在接續…")
+            self._clipboard_choice(model.input_recovery_id)
 
     def render(self, model: PopupPresentationModel) -> None:
         """Render the content-free Popup model through field-group diffs."""
         previous = self._last_model
+        if previous is None or (previous.input_recovery_id, previous.clipboard_choice_available) != (model.input_recovery_id, model.clipboard_choice_available):
+            if model.clipboard_choice_available:
+                self.clipboard_choice_button.configure(state="normal", text="使用剪貼簿執行")
+                self.clipboard_choice_button.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 2))
+            else:
+                self.clipboard_choice_button.grid_remove()
         if previous is None or _popup_header_group(previous) != _popup_header_group(model):
             self.set_pinned_state(model.pinned)
             self.set_title(model.title)
@@ -1428,6 +1374,11 @@ class BaseResultSurface:
         self.footer = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.footer.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 2))
         self.footer.grid_columnconfigure(0, weight=1)
+
+        self.clipboard_choice_button = ctk.CTkButton(
+            self.footer, text="使用剪貼簿執行", height=28,
+            command=self._choose_clipboard,
+        )
 
         self.paste_target_label = ctk.CTkLabel(
             self.footer,
@@ -1830,6 +1781,7 @@ class BaseResultSurface:
         active: bool,
         command: Callable[[], None] | None,
         tooltip: str,
+        countdown_seconds: int | None = None,
     ) -> None:
         self.voice_input_button.update_state(
             word=word,
@@ -1839,6 +1791,7 @@ class BaseResultSurface:
             command=command,
             enabled=enabled,
             active=active,
+            countdown_seconds=countdown_seconds,
         )
         self.set_action_tooltip("voice_input", tooltip)
 

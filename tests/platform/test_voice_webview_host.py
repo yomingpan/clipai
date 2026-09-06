@@ -18,6 +18,12 @@ from ClipAI.platform.voice_webview_host import (
 from ClipAI.platform.voice_webview_profile import reset_voice_webview_profile
 
 
+def test_browser_speech_transient_errors_allow_the_capture_restart_path() -> None:
+    source = Path("ClipAI/platform/voice_webview_host.html").read_text(encoding="utf-8")
+
+    assert 'if (event.error === "no-speech" || event.error === "network") return;' in source
+
+
 class PermissionRequest:
     def __init__(self, kind: object) -> None:
         self.PermissionKind = kind

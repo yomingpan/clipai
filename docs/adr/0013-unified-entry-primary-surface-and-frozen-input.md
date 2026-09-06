@@ -248,7 +248,7 @@ for this Panel lifecycle. Opening performs the following in order:
    event loop.
 5. Publish completion only through the typed command queue with both Panel and
    preparation identities.
-6. Freeze the resulting `PreparedEntryInput` for the lifetime of that Panel.
+6. Freeze the resulting `PreparedInput` for the lifetime of that Panel.
 
 For a Workflow source, preparation synchronously freezes explicit semantic
 selection or, when none exists, the complete canonical displayed result. It
@@ -263,7 +263,7 @@ and clipboard image behavior required by OCR. It confirms that the original
 target still owns foreground after capture. A focus loss retries the complete
 operation once; a second loss fails closed.
 
-`PreparedEntryInput` is an immutable typed model, not a raw dictionary. It
+`PreparedInput` is an immutable typed model, not a raw dictionary. It
 answers whether a document is available for an `InputMode` and returns the
 already frozen `InputDocument`. Action selection never activates a window,
 captures selection or rereads clipboard.
@@ -345,7 +345,7 @@ Each step is cohesive and must keep direct shortcuts working.
    conflict matrix and direct-shortcut regression tests without changing
    runtime behavior.
 2. **Specify prepared-input contracts.** Add immutable preparation identity,
-   `PreparedEntryInput`, source-preview projection and typed completion/retry
+   `PreparedInput`, source-preview projection and typed completion/retry
    commands. Test selection, clipboard text/image, Workflow lineage, failure,
    cancellation and stale completion through public interfaces.
 3. **Move preparation to open.** Preserve the existing external-source capture

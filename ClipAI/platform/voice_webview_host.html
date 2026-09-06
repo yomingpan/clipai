@@ -101,6 +101,7 @@
         if (item.stopped) return;
         if (event.error === "not-allowed") return finish(item, "permission_denied", "Microphone permission was denied.");
         if (event.error === "audio-capture") return finish(item, "unavailable", "No microphone was detected. Connect one and try again.");
+        if (event.error === "no-speech" || event.error === "network") return;
         finish(item, "initialization_failed", "Voice Input could not start. Check your microphone and try again.");
       };
       recognition.onend = () => finish(item);

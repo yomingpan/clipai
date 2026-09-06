@@ -9,6 +9,7 @@ from ClipAI.core.models import SpeechRequest
 from ClipAI.core.ports import ClipboardReader, OperationHandle, OperationTracker, SelectionReader, SpeechOutput
 from ClipAI.core.state import CancellationToken
 from ClipAI.services.speech_text import SpeechTextPreprocessor
+from ClipAI.services.input_resolver import InputResolver
 
 
 class SpeechVoiceSelector:
@@ -64,12 +65,19 @@ class SpeechCoordinator:
     def create_job(self, *, clipboard_only: bool) -> SpeechJob:
         source = "clipboard" if clipboard_only else "selection"
         operation_id = f"tts:{source}:{uuid.uuid4().hex}"
-        text = self._read_text(clipboard_only=clipboard_only)
+        resolver = InputResolver(self._clipboard, self._selection_reader)
+        # Bind the source at admission; UIA/copy work belongs to the worker.
+        request = None if clipboard_only else resolver.begin_selection()
+        text = self._clipboard.read_text() if clipboard_only else ""
         return self._create_job(
             operation_id=operation_id,
             workflow_id="global",
             text=text,
             track=False,
+            resolve_text=(
+                None if clipboard_only
+                else lambda token: resolver.resolve_text(token, request=request).text
+            ),
         )
 
     def create_text_job(self, *, operation_id: str, workflow_id: str, text: str) -> SpeechJob:
@@ -99,6 +107,7 @@ class SpeechCoordinator:
         text: str,
         track: bool,
         token: CancellationToken | None = None,
+        resolve_text: Callable[[CancellationToken], str] | None = None,
     ) -> SpeechJob:
         self.cancel_current()
         token = token or CancellationToken()
@@ -110,7 +119,8 @@ class SpeechCoordinator:
             try:
                 if token.is_cancelled:
                     return
-                prepared = self._speech_text.prepare(text)
+                resolved = resolve_text(token) if resolve_text is not None else text
+                prepared = self._speech_text.prepare(resolved)
                 if prepared and not token.is_cancelled:
                     request = SpeechRequest(
                         prepared,
@@ -178,10 +188,3 @@ class SpeechCoordinator:
         if operation is not None:
             operation.cancel()
         self._speech.stop()
-
-    def _read_text(self, *, clipboard_only: bool) -> str:
-        if not clipboard_only:
-            selected = self._selection_reader.read_text().strip()
-            if selected:
-                return selected
-        return self._clipboard.read_text()

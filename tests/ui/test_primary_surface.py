@@ -182,6 +182,9 @@ def test_result_presenter_builds_existing_popup_content_in_primary_host(monkeypa
             events.append(("surface", dialog))
             self.close_button = type("Button", (), {"configure": lambda _self, **_kwargs: events.append("close-bound")})()
             self.pin_button = type("Button", (), {"configure": lambda _self, **_kwargs: events.append("pin-bound")})()
+        def bind_clipboard_choice(self, callback):
+            self.clipboard_choice = callback
+
         def bind_back_action(self, _callback):
             events.append("back-bound")
         def configure_standard_actions(self, **_callbacks):
@@ -245,6 +248,9 @@ def test_popup_callbacks_bind_once_and_feedback_reads_the_live_step(monkeypatch)
             self.close_button = Button()
             self.pin_button = Button()
             self.binding_counts = {"back": 0, "actions": 0, "feedback": 0}
+
+        def bind_clipboard_choice(self, callback):
+            self.clipboard_choice = callback
 
         def bind_back_action(self, _callback):
             self.binding_counts["back"] += 1

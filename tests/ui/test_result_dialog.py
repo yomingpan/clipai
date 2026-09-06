@@ -206,6 +206,50 @@ def test_voice_waveform_line_ends_before_the_measured_status_word() -> None:
     assert max(x_coordinates) <= measured_line_right
 
 
+def test_voice_waveform_uses_a_compact_minutes_and_seconds_countdown() -> None:
+    rendered: list[str] = []
+
+    class Font:
+        def measure(self, word: str) -> int:
+            return len(word)
+
+    class Indicator:
+        BASE_WIDTH = 82
+        BASE_HEIGHT = 22
+        _countdown_seconds = 90
+        _word = "聆聽"
+        _amplitude = 0.0
+        _phase = 0.0
+
+        def _widget_scaling(self) -> float:
+            return 1.0
+
+        def _scaled_font(self, _scaling: float) -> Font:
+            return Font()
+
+        def _colors(self):
+            return "pill", "line", "word"
+
+        def configure(self, **kwargs) -> None:
+            pass
+
+        def delete(self, _tag: str) -> None:
+            pass
+
+        def _draw_rounded_pill(self, *_args, **_kwargs) -> None:
+            pass
+
+        def create_text(self, *_args, **kwargs) -> None:
+            rendered.append(kwargs["text"])
+
+        def create_line(self, *_args, **_kwargs) -> None:
+            pass
+
+    _VoiceWaveIndicator._render(Indicator())
+
+    assert rendered == ["1:30"]
+
+
 class Root:
     def __init__(self, events: list[str]) -> None:
         self.events = events
@@ -286,6 +330,11 @@ class Surface:
                 "command",
                 kwargs.get("command", button.command),
             ),
+        })()
+        self.clipboard_choice_button = type("ChoiceButton", (), {
+            "configure": lambda button, **kw: button.__dict__.update(kw),
+            "grid": lambda button, **kw: setattr(button, "visible", True),
+            "grid_remove": lambda button: setattr(button, "visible", False),
         })()
         self._last_model = None
         self._feedback_submit = None
@@ -633,6 +682,17 @@ def test_voice_status_word_keeps_phase_semantics_in_the_presenter() -> None:
         VoiceCapturePhase.CANCEL_REQUESTED,
     ):
         assert _voice_status_word(phase, silence_detected=True) == "整理"
+
+
+def test_voice_status_word_remains_stable_while_countdown_is_projected_elsewhere() -> None:
+    assert _voice_status_word(
+        VoiceCapturePhase.LISTENING,
+        silence_detected=False,
+    ) == "聆聽"
+    assert _voice_status_word(
+        VoiceCapturePhase.LISTENING,
+        silence_detected=False,
+    ) == "聆聽"
 
 
 def test_completed_popup_offers_voice_follow_up_and_emits_typed_start() -> None:
@@ -2021,3 +2081,15 @@ def test_content_key_changes_for_new_content() -> None:
     snapshot = SessionSnapshot("s1", 0, SessionStatus.COMPLETED, "a", "A", "model", content="first")
     changed_content = snapshot.evolve(content="second")
     assert _content_render_key(changed_content) != _content_render_key(snapshot)
+
+
+def test_input_reading_popup_renders_before_show_and_does_not_request_focus():
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views.pop("s1")
+    presenter._create_view = lambda sid, *, show_on_create: view
+    presenter._register_view = lambda sid, current, *, focus_on_show: events.append(("focus", focus_on_show))
+    view.surface.set_loading = lambda text: events.append(("loading", text))
+    view.dialog.apply_external_output_visibility = lambda value: events.append(("visibility", value))
+    presenter._apply(SessionSnapshot("s1", 1, SessionStatus.READING_INPUT, "a", "Action", "model", status_text="Reading input"))
+    assert ("focus", False) in events
+    assert events.index(("loading", "Reading input")) < events.index(("visibility", "visible_no_activate"))

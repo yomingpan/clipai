@@ -63,45 +63,19 @@ from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 def test_external_output_visibility_actions_are_mechanical() -> None:
     events = []
 
-    class Window:
-        def withdraw(self) -> None:
-            events.append("withdraw")
-
-        def deiconify(self) -> None:
-            events.append("deiconify")
-
-        def update_idletasks(self) -> None:
-            pass
-
-        def winfo_id(self) -> int:
-            return 10
-
-    class Lifecycle:
-        def focus(self) -> bool:
-            events.append("focus")
+    class Host:
+        def apply_visibility(self, visibility: str) -> bool:
+            events.append(visibility)
             return True
 
     dialog = BaseDialog.__new__(BaseDialog)
-    dialog.root = Window()
-    dialog.lifecycle = Lifecycle()
-    class NativeWindowSurface:
-        def show_without_activation(self, child_id: int) -> bool:
-            events.append(("show_no_activate", child_id))
-            return True
-
-    dialog._native_window_surface = NativeWindowSurface()
+    dialog._primary_surface_host = Host()
 
     dialog.apply_external_output_visibility("hidden")
     dialog.apply_external_output_visibility("visible_activate")
     dialog.apply_external_output_visibility("visible_no_activate")
 
-    assert events == [
-        "withdraw",
-        "deiconify",
-        "focus",
-        "deiconify",
-        ("show_no_activate", 10),
-    ]
+    assert events == ["hidden", "visible_activate", "visible_no_activate"]
 
 
 class FakeCanvas:
@@ -636,62 +610,46 @@ def test_window_dpi_resample_rolls_back_cache_when_callback_fails(monkeypatch) -
 
 
 def test_dialog_resize_only_requests_logical_window_geometry() -> None:
-    class Root:
-        geometry_call = None
+    class Host:
+        resize_call = None
 
-        def winfo_x(self):
-            return 10
-
-        def winfo_y(self):
-            return 20
-
-        def geometry(self, value):
-            self.geometry_call = value
+        def resize(self, width, height, *, x=None, y=None):
+            self.resize_call = (width, height, x, y)
 
     dialog = BaseDialog.__new__(BaseDialog)
     dialog.width = 400
     dialog.height = 320
-    dialog.root = Root()
+    dialog._primary_surface_host = Host()
 
     dialog.resize(500, 400)
 
-    assert dialog.root.geometry_call == "500x400+10+20"
+    assert dialog._primary_surface_host.resize_call == (500, 400, None, None)
     assert (dialog.width, dialog.height) == (500, 400)
 
 
 def test_withdrawn_dialog_can_be_revealed_after_content_is_built() -> None:
-    events: list[str] = []
+    calls = []
 
-    class Root:
-        def update_idletasks(self) -> None:
-            events.append("layout")
-
-        def deiconify(self) -> None:
-            events.append("shown")
+    class Host:
+        def show(self, lease) -> bool:
+            calls.append(lease)
+            return True
 
     dialog = BaseDialog.__new__(BaseDialog)
-    dialog.root = Root()
+    dialog._primary_surface_host = Host()
+    dialog._primary_surface_lease = "result-lease"
 
     assert dialog.show() is True
-    assert events == ["layout", "shown"]
+    assert calls == ["result-lease"]
 
 
 def test_current_bounds_preserves_toolkit_logical_size() -> None:
-    class Root:
-        def update_idletasks(self) -> None:
-            pass
-
-        def geometry(self) -> str:
-            return "400x320+120+80"
-
-        def winfo_width(self) -> int:
-            return 600
-
-        def winfo_height(self) -> int:
-            return 480
+    class Host:
+        def current_bounds(self):
+            return PopupBounds(120, 80, 400, 320)
 
     dialog = BaseDialog.__new__(BaseDialog)
-    dialog.root = Root()
+    dialog._primary_surface_host = Host()
 
     assert dialog.current_bounds() == PopupBounds(120, 80, 400, 320)
 
@@ -754,8 +712,14 @@ def test_dialog_screen_bounds_include_only_points_inside_popup() -> None:
 
 
 def test_dialog_visibility_uses_toolkit_viewable_truth() -> None:
+    class Host:
+        def is_mounted(self, lease) -> bool:
+            return lease == "result-lease"
+
     dialog = BaseDialog.__new__(BaseDialog)
     dialog.root = type("Root", (), {"winfo_viewable": lambda _self: 1})()
+    dialog._primary_surface_host = Host()
+    dialog._primary_surface_lease = "result-lease"
     assert dialog.is_visible() is True
 
 
@@ -847,6 +811,10 @@ def test_native_close_request_uses_callback_instead_of_destroying_the_dialog() -
     dialog = BaseDialog.__new__(BaseDialog)
     dialog._on_close_request = lambda: events.append("close-requested")
     dialog.close = lambda: events.append("destroyed")
+    dialog._primary_surface_host = type(
+        "Host", (), {"is_mounted": lambda _self, _lease: True}
+    )()
+    dialog._primary_surface_lease = "result-lease"
 
     assert dialog.request_close() == "break"
     assert events == ["close-requested"]
@@ -865,12 +833,12 @@ def test_result_surface_escape_defers_to_the_global_gesture_owner() -> None:
 def test_base_dialog_delegates_drag_binding_to_shared_controller() -> None:
     calls = []
 
-    class DragController:
-        def bind(self, *widgets) -> None:
+    class Host:
+        def bind_drag(self, *widgets) -> None:
             calls.append(widgets)
 
     dialog = BaseDialog.__new__(BaseDialog)
-    dialog._drag_controller = DragController()
+    dialog._primary_surface_host = Host()
     handles = (object(), object())
 
     dialog.enable_drag(*handles)
@@ -1568,6 +1536,7 @@ def test_popup_render_is_the_content_free_field_group_projection_seam() -> None:
     )
     surface = BaseResultSurface.__new__(BaseResultSurface)
     surface._last_model = None
+    surface.clipboard_choice_button = type("ChoiceButton", (), {"grid_remove": lambda self: None})()
     surface._feedback_submit = lambda *_args: None
     surface.set_pinned_state = lambda value: events.append(("pinned", value))
     surface.set_title = lambda value: events.append(("title", value))

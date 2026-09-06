@@ -160,50 +160,66 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
         poll_sec: float = 0.02,
         monotonic: Callable[[], float] = time.monotonic,
         wait: Callable[[float], None] = time.sleep,
+        source_is_current: Callable[[], bool] = lambda: True,
     ) -> SelectionCaptureOutcome:
         with self._transaction(operation_id):
+            if self._cancelled(cancellation):
+                return SelectionCaptureOutcome(status="cancelled", strategy="copy")
+            if not source_is_current():
+                return SelectionCaptureOutcome(reason="source_changed", strategy="copy")
             modifier_deadline = monotonic() + modifier_release_timeout_sec
             while any(adapter.modifier_is_pressed(key) is True for key in _MODIFIER_KEYS):
                 if self._cancelled(cancellation):
                     return SelectionCaptureOutcome(status="cancelled")
                 if monotonic() >= modifier_deadline:
-                    return SelectionCaptureOutcome(status="modifier_timeout")
+                    return SelectionCaptureOutcome(reason="modifier_timeout", strategy="copy")
                 wait(poll_sec)
 
             try:
                 original = self._clipboard.snapshot()
             except Exception:
-                return SelectionCaptureOutcome(status="failed")
+                return SelectionCaptureOutcome(reason="snapshot_failed", strategy="copy")
             marker = f"__CLIPAI_SELECTION_{uuid.uuid4().hex}__"
             owned_sequence: int | None = None
             try:
+                if self._cancelled(cancellation):
+                    return SelectionCaptureOutcome(status="cancelled", strategy="copy")
+                if not source_is_current():
+                    return SelectionCaptureOutcome(reason="source_changed", strategy="copy")
                 self._clipboard.write_transient_text(marker)
                 owned_sequence = self._clipboard.sequence_number()
+                if not source_is_current():
+                    return SelectionCaptureOutcome(reason="source_changed", strategy="copy")
                 adapter.copy_selection()
                 deadline = monotonic() + timeout_sec
                 while monotonic() < deadline:
                     if self._cancelled(cancellation):
                         return SelectionCaptureOutcome(status="cancelled")
+                    if not source_is_current():
+                        return SelectionCaptureOutcome(reason="source_changed", strategy="copy")
                     value = self._clipboard.read_text()
                     if value != marker:
                         candidate_sequence = self._clipboard.sequence_number()
                         confirmed = self._clipboard.read_text()
                         if confirmed == value and self._clipboard.sequence_number() == candidate_sequence:
                             owned_sequence = candidate_sequence
-                            text = value.strip()
-                            return SelectionCaptureOutcome(text, "captured" if text else "empty")
+                            return (
+                                SelectionCaptureOutcome(value, "selected", strategy="copy", selection_detected=True)
+                                if value else SelectionCaptureOutcome(reason="copy_empty", strategy="copy")
+                            )
                         owned_sequence = None
-                        return SelectionCaptureOutcome(status="failed")
+                        return SelectionCaptureOutcome(reason="clipboard_changed", strategy="copy")
                     wait(poll_sec)
-                return SelectionCaptureOutcome(status="empty")
+                return SelectionCaptureOutcome(reason="copy_timeout", strategy="copy")
             except Exception:
-                return SelectionCaptureOutcome(status="failed")
+                return SelectionCaptureOutcome(reason="copy_failed", strategy="copy")
             finally:
                 if owned_sequence is not None:
                     try:
-                        self._clipboard.restore_if_unchanged(original, owned_sequence)
+                        restored = self._clipboard.restore_if_unchanged(original, owned_sequence)
+                        logger.info("Selection cleanup operation_id=%s restored=%s", operation_id, restored)
                     except Exception:
-                        pass
+                        logger.warning("Selection cleanup operation_id=%s reason=restore_failed", operation_id)
 
     @contextmanager
     def _transaction(self, operation_id: str) -> Iterator[None]:

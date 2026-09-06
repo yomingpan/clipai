@@ -51,7 +51,7 @@ python -m pytest -m integration tests/platform/test_voice_webview_host_integrati
 | Setup declined | Voice remains not ready and a later PTT opens setup again. |
 | Permission blocked | Tray/setup reports blocked state and directs the tester to repair permission. Select **Manage Microphone Permission** and confirm Windows opens the microphone privacy settings; it does not repeatedly record. |
 | PTT press/release | One capture only; release finalizes and never auto-pastes. |
-| Missing release watchdog | Hold PTT without a terminal press observation for 120 seconds. The active capture cancels with a missing-release message; it never finalizes or auto-pastes. |
+| PTT safety limit | Hold PTT after the engine enters Listening. The Listening label remains stable; for the final 30 seconds its status text appends the remaining seconds and automatic-save note without alternating back to bare Listening. At 120 seconds it gracefully stops and saves finalized speech into the current draft without submitting or pasting. Confirm another capture cannot start until the original shortcut is fully released and pressed again. |
 | Stop / Cancel / Esc during capture | Microphone stops; interim text is discarded; existing draft remains available. |
 | Natural recognition end before release | It restarts only for the same held press; release still stops it. |
 | No speech | Review remains available with a retry message and no invented text. |

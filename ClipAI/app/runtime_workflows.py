@@ -7,7 +7,7 @@ import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted, WorkflowStepAccepted
+from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted, WorkflowStepAccepted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActionAdmissionOrigin, ActionInvocation, ActionStartAdmission, ControlSurfaceRef, EntryActionRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, PressType, ResultRoute, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceCaptureContextReader, WorkflowAttentionPresenter, WorkflowContextReader
@@ -53,6 +53,8 @@ class WorkflowSnapshotReady:
 
 WorkflowRuntimeCommand: TypeAlias = (
     StartAction
+    | UseWorkflowClipboard
+    | ExpireInputRecovery
     | OpenContextualQuestion
     | SubmitContextualQuestion
     | ContextualSourceCaptured
@@ -447,6 +449,30 @@ class WorkflowRuntimeModule:
                 command.press_type,
                 result_route=command.result_route,
             )
+        elif isinstance(command, ExpireInputRecovery):
+            controller = self.controller_for(command.workflow_id)
+            if controller is None:
+                return
+            snapshot = controller.snapshot
+            recovery = snapshot.input_recovery
+            if (snapshot.status is SessionStatus.AWAITING_INPUT_CHOICE
+                and recovery is not None and recovery.recovery_id == command.recovery_id
+                and not snapshot.pinned
+                and (self._user_control is None or self._user_control.focused_surface != ControlSurfaceRef(command.workflow_id, "workflow"))):
+                self._close(command.workflow_id)
+        elif isinstance(command, UseWorkflowClipboard):
+            record = self._records.get(command.workflow_id)
+            if record is None or record.presentation != "visible":
+                return
+            choice = record.controller.consume_clipboard_choice(command.recovery_id)
+            if choice is None:
+                return
+            invocation, action = choice
+            record.controller.begin_invocation(invocation, action)
+            self._submit_invocation(
+                command.workflow_id, invocation.invocation_id,
+                lambda: self._execute_action.execute_invocation(action, invocation, record.controller, binding=record.binding),
+            )
         elif isinstance(command, OpenContextualQuestion):
             self._open_contextual_question()
         elif isinstance(command, SubmitContextualQuestion):
@@ -536,6 +562,8 @@ class WorkflowRuntimeModule:
             self._foreground_context(),
             action.external_fallback,
         )
+        if target.document is None and action.input_mode == "selection_or_clipboard" and self._input_resolver is not None:
+            target = replace(target, selection_request=self._input_resolver.begin_selection())
         projection_prepared = False
 
         def prepare_first_projection(workflow_id: str) -> None:
@@ -651,6 +679,8 @@ class WorkflowRuntimeModule:
     ) -> str:
         context = self._foreground_context()
         target = input_target or self._input_targets.resolve(context, action.external_fallback)
+        if target.document is None and action.input_mode == "selection_or_clipboard" and self._input_resolver is not None:
+            target = replace(target, selection_request=self._input_resolver.begin_selection())
         workflow_id = uuid.uuid4().hex
         controller = self._new_controller(
             SessionSnapshot(workflow_id, 0, SessionStatus.CREATED, action.id, action.name, self._provider_configuration.active_binding.model),
@@ -807,6 +837,7 @@ class WorkflowRuntimeModule:
 
         workflow_id = uuid.uuid4().hex
         capture_id = uuid.uuid4().hex
+        selection_request = self._input_resolver.begin_selection()
         controller = self._new_controller(
             SessionSnapshot(
                 workflow_id,
@@ -831,7 +862,7 @@ class WorkflowRuntimeModule:
 
         def capture() -> None:
             try:
-                document = resolver.resolve_text(token)
+                document = resolver.resolve_text(token, request=selection_request)
             except InputError as error:
                 self._enqueue(ContextualSourceCaptureFailed(workflow_id, capture_id, str(error)))
             except BaseException:

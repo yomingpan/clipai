@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 import logging
 import uuid
 from typing import Protocol, TypeAlias
 
 from ClipAI.app.task_supervisor import TaskSupervisor
+from ClipAI.core.commands import UseEntryPanelClipboard
 from ClipAI.core.commands import CloseEntryPanel, EntryPanelActionSelected, EntryPanelBack, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, OpenUnifiedEntryPanel, RetryEntryPanelInput, SetEntryPanelDensity
 from ClipAI.core.errors import CancelledError, InputError
 from ClipAI.core.models import (
@@ -20,7 +22,7 @@ from ClipAI.core.models import (
     ExternalWindowRef,
     InputTarget,
     ModifierHoldId,
-    PreparedEntryInput,
+    PreparedInput,
     PressType,
     ResultRoute,
 )
@@ -61,6 +63,7 @@ EntryPanelRuntimeCommand: TypeAlias = (
     | EntryPanelInputPreparationCompleted
     | EntryPanelInputPreparationFailed
     | RetryEntryPanelInput
+    | UseEntryPanelClipboard
     | CloseEntryPanel
     | EntryPanelActionSelected
     | EntryPanelSlotSelected
@@ -104,7 +107,7 @@ class EntryPanelRuntimeModule:
         self._source: EntryPanelSource | None = None
         self._task_id: str | None = None
         self._preparation_id: EntryInputPreparationId | None = None
-        self._prepared_input: PreparedEntryInput | None = None
+        self._prepared_input: PreparedInput | None = None
         self._workflow_selection = False
         self._hold_id: ModifierHoldId | None = None
 
@@ -134,6 +137,7 @@ class EntryPanelRuntimeModule:
             self._source = EntryPanelSource(
                 "external" if external is not None else "unavailable",
                 external_window=external,
+                selection_request=self._input_resolver.begin_selection(external) if external is not None else None,
             )
             self._workflow_selection = False
         panel_id = uuid.uuid4().hex
@@ -167,7 +171,7 @@ class EntryPanelRuntimeModule:
                 self._enqueue(EntryPanelInputPreparationCompleted(
                     panel_id,
                     preparation_id,
-                    PreparedEntryInput(workflow_document=target.document),
+                    PreparedInput(workflow_document=target.document),
                 ))
         else:
             self._schedule_external_preparation(panel_id, preparation_id, source)
@@ -211,6 +215,15 @@ class EntryPanelRuntimeModule:
                 self._presenter.present_entry_panel(snapshot)
             elif isinstance(command, RetryEntryPanelInput):
                 self._retry_preparation()
+            elif isinstance(command, UseEntryPanelClipboard):
+                prepared = self._prepared_input
+                if prepared is not None and self._preparation_id is not None and (
+                    prepared.clipboard_text_document is not None or prepared.clipboard_image is not None
+                ):
+                    self._complete_preparation(EntryPanelInputPreparationCompleted(
+                        command.panel_id, self._preparation_id,
+                        prepared.use_clipboard(),
+                    ))
 
     def close(self, panel_id: str) -> None:
         current = self._coordinator.snapshot
@@ -439,7 +452,10 @@ class EntryPanelRuntimeModule:
                         activation.message or "The original window could not be activated.",
                     ))
                     return
-                prepared = self._input_resolver.prepare_entry_input(cancellation)
+                request = source.selection_request
+                if request is not None:
+                    request = replace(request, operation_id=f"selection:{preparation_id}")
+                prepared = self._input_resolver.prepare_input(cancellation, target=target, request=request)
                 logger.info(
                     "Entry input trace stage=capture panel_id=%s preparation_id=%s "
                     "target_window=%s selection_available=%s "
@@ -552,7 +568,7 @@ class EntryPanelRuntimeModule:
     def _disabled_actions(
         self,
         *,
-        prepared: PreparedEntryInput | None = None,
+        prepared: PreparedInput | None = None,
         preparing: bool = False,
         failure: str = "",
     ) -> dict[EntryActionRef, str]:
@@ -589,6 +605,8 @@ class EntryPanelRuntimeModule:
 
     @staticmethod
     def _input_unavailable_message(reason: str | None) -> str:
+        if reason == "selection_unknown":
+            return "無法確認反白內容，請重試或選擇使用剪貼簿。"
         if reason == "clipboard_image_unavailable":
             return "此功能需要剪貼簿截圖。"
         return "找不到可用的選取內容或剪貼簿內容。"
