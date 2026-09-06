@@ -30,7 +30,7 @@ def test_action_selection_cannot_recapture_external_input_or_foreground() -> Non
     }
 
     assert referenced_attributes.isdisjoint({
-        "prepare_entry_input",
+        "prepare_input",
         "capture_selection",
         "read_text",
         "read_image",
@@ -61,7 +61,7 @@ def test_entry_panel_view_does_not_cross_semantic_or_actuation_boundaries() -> N
         "InputResolver",
         "ClipboardTransactionCoordinator",
         "WorkflowRuntimeModule",
-        "prepare_entry_input(",
+        "prepare_input(",
         "start_action(",
     )
 

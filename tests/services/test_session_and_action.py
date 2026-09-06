@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import pytest
 from dataclasses import replace
 
 from ClipAI.core.models import SelectionCaptureOutcome, ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
@@ -172,6 +173,82 @@ def test_execute_action_uses_selection_before_clipboard() -> None:
     assert session.snapshot.content == "result"
 
 
+@pytest.mark.parametrize("reason", ["unsupported", "uia_timeout", "source_changed", "uia_worker_failed"])
+def test_direct_action_shares_panel_evidence_and_requires_explicit_frozen_clipboard_choice(reason) -> None:
+    class UnknownSelection:
+        def capture(self, cancellation=None, **kwargs):
+            return SelectionCaptureOutcome(reason=reason)
+
+    class NeverProvider:
+        async def execute(self, *args, **kwargs):
+            raise AssertionError("unconfirmed input must not call provider")
+            yield
+
+    clipboard = FakeClipboard("original clipboard")
+    selection = UnknownSelection()
+    executor = workflow(clipboard, selection)
+    panel_input = InputResolver(clipboard, selection).prepare_input()
+    controller = run_invocation(executor, provider=NeverProvider())
+    recovery = controller.snapshot.input_recovery
+    assert recovery is not None
+    assert recovery.prepared == panel_input
+    assert controller.snapshot.active_invocation_id is None
+    assert "original clipboard" in controller.snapshot.source_preview
+    assert controller.snapshot.error == ""
+    clipboard.text = "changed while reading the preview"
+    choice = controller.consume_clipboard_choice(recovery.recovery_id)
+    assert choice is not None
+    assert controller.consume_clipboard_choice(recovery.recovery_id) is None
+    invocation, resolved = choice
+    controller.begin_invocation(invocation, resolved)
+    asyncio.run(executor.execute_invocation(resolved, invocation, controller, binding=binding()))
+    assert controller.snapshot.status is SessionStatus.COMPLETED
+    assert controller.snapshot.original_input == "original clipboard"
+    assert len(controller.snapshot.steps) == 1
+
+
+@pytest.mark.parametrize("interruption", ["cancel", "stop", "replace", "stale"])
+def test_input_recovery_rejects_cancelled_replaced_or_stale_choice(interruption) -> None:
+    class UnknownSelection:
+        def capture(self, cancellation=None, **kwargs):
+            return SelectionCaptureOutcome(reason="unsupported")
+
+    controller = run_invocation(workflow(FakeClipboard("frozen"), UnknownSelection()))
+    recovery = controller.snapshot.input_recovery
+    assert recovery is not None
+    recovery_id = recovery.recovery_id
+    if interruption == "cancel":
+        controller.cancel_active()
+    elif interruption == "stop":
+        controller.stop_active()
+        assert controller.snapshot.input_recovery is None
+    elif interruption == "replace":
+        controller.begin_invocation(ActionInvocation("new", "english", "short", InputTarget("external_text")), action())
+    else:
+        recovery_id = "old-choice"
+    assert controller.consume_clipboard_choice(recovery_id) is None
+
+
+def test_cancelled_capture_never_offers_clipboard_recovery() -> None:
+    class CancelledSelection:
+        def capture(self, cancellation=None, **kwargs):
+            cancellation.cancel()
+            return SelectionCaptureOutcome(status="cancelled")
+
+    controller = run_invocation(workflow(FakeClipboard("frozen"), CancelledSelection()))
+    assert controller.snapshot.input_recovery is None
+    assert controller.snapshot.steps == ()
+
+
+def test_clipboard_only_action_never_probes_selection() -> None:
+    class NoProbe:
+        def capture(self, *args, **kwargs):
+            raise AssertionError("clipboard intent must not probe selection")
+
+    controller = run_invocation(workflow(FakeClipboard("explicit"), NoProbe()), resolved_action=replace(action(), input_mode="clipboard"))
+    assert controller.snapshot.original_input == "explicit"
+
+
 def test_execute_invocation_appends_successful_workflow_step() -> None:
     presenter = RecordingPresenter()
     controller = WorkflowController(
@@ -273,15 +350,17 @@ def test_missing_provider_key_fails_before_input_or_provider_call() -> None:
     assert session.snapshot.error == issue.message
 
 
-def test_empty_input_fails_without_calling_provider() -> None:
+def test_empty_input_offers_nonblocking_recovery_without_calling_provider() -> None:
     class NeverProvider:
         async def execute(self, request, cancellation, *, stream):
             raise AssertionError("provider must not be called")
             yield
 
     session = run_invocation(workflow(FakeClipboard(""), FakeSelection("")), provider=NeverProvider())
-    assert session.snapshot.status == SessionStatus.FAILED
-    assert "No text found" in session.snapshot.error
+    assert session.snapshot.status == SessionStatus.AWAITING_INPUT_CHOICE
+    assert session.snapshot.input_recovery is not None
+    assert session.snapshot.input_recovery.clipboard_document is None
+    assert session.snapshot.error == ""
 
 
 def test_follow_up_keeps_previous_context() -> None:

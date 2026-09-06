@@ -1568,6 +1568,7 @@ def test_popup_render_is_the_content_free_field_group_projection_seam() -> None:
     )
     surface = BaseResultSurface.__new__(BaseResultSurface)
     surface._last_model = None
+    surface.clipboard_choice_button = type("ChoiceButton", (), {"grid_remove": lambda self: None})()
     surface._feedback_submit = lambda *_args: None
     surface.set_pinned_state = lambda value: events.append(("pinned", value))
     surface.set_title = lambda value: events.append(("title", value))

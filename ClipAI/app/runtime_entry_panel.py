@@ -22,7 +22,7 @@ from ClipAI.core.models import (
     ExternalWindowRef,
     InputTarget,
     ModifierHoldId,
-    PreparedEntryInput,
+    PreparedInput,
     PressType,
     ResultRoute,
 )
@@ -107,7 +107,7 @@ class EntryPanelRuntimeModule:
         self._source: EntryPanelSource | None = None
         self._task_id: str | None = None
         self._preparation_id: EntryInputPreparationId | None = None
-        self._prepared_input: PreparedEntryInput | None = None
+        self._prepared_input: PreparedInput | None = None
         self._workflow_selection = False
         self._hold_id: ModifierHoldId | None = None
 
@@ -171,7 +171,7 @@ class EntryPanelRuntimeModule:
                 self._enqueue(EntryPanelInputPreparationCompleted(
                     panel_id,
                     preparation_id,
-                    PreparedEntryInput(workflow_document=target.document),
+                    PreparedInput(workflow_document=target.document),
                 ))
         else:
             self._schedule_external_preparation(panel_id, preparation_id, source)
@@ -222,7 +222,7 @@ class EntryPanelRuntimeModule:
                 ):
                     self._complete_preparation(EntryPanelInputPreparationCompleted(
                         command.panel_id, self._preparation_id,
-                        replace(prepared, clipboard_override=True),
+                        prepared.use_clipboard(),
                     ))
 
     def close(self, panel_id: str) -> None:
@@ -455,7 +455,7 @@ class EntryPanelRuntimeModule:
                 request = source.selection_request
                 if request is not None:
                     request = replace(request, operation_id=f"selection:{preparation_id}")
-                prepared = self._input_resolver.prepare_entry_input(cancellation, target=target, request=request)
+                prepared = self._input_resolver.prepare_input(cancellation, target=target, request=request)
                 logger.info(
                     "Entry input trace stage=capture panel_id=%s preparation_id=%s "
                     "target_window=%s selection_available=%s "
@@ -568,7 +568,7 @@ class EntryPanelRuntimeModule:
     def _disabled_actions(
         self,
         *,
-        prepared: PreparedEntryInput | None = None,
+        prepared: PreparedInput | None = None,
         preparing: bool = False,
         failure: str = "",
     ) -> dict[EntryActionRef, str]:

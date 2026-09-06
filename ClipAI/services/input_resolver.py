@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.errors import CancelledError, InputError, SelectionUnavailableError
-from ClipAI.core.models import ExternalWindowRef, InputDocument, InputMode, PreparedEntryInput, SelectionCaptureOutcome, SelectionCaptureRequest
+from ClipAI.core.models import ExternalWindowRef, InputDocument, InputMode, PreparedInput, SelectionCaptureOutcome, SelectionCaptureRequest
 from ClipAI.core.ports import ClipboardReader, SelectionReader
 from ClipAI.core.state import CancellationToken
 
@@ -45,13 +45,14 @@ class InputResolver:
             raise InputError("找不到文字。請先反白一段內容，或將文字複製到剪貼簿後再試一次。")
         return InputDocument(text=clipboard_text, source="clipboard")
 
-    def prepare_entry_input(
+    def prepare_input(
         self,
         cancellation: CancellationToken | None = None,
         *,
         target: ExternalWindowRef | None = None,
         request: SelectionCaptureRequest | None = None,
-    ) -> PreparedEntryInput:
+        probe_selection: bool = True,
+    ) -> PreparedInput:
         """Capture all supported external input facts once for later mode lookup."""
 
         if cancellation is not None and cancellation.is_cancelled:
@@ -68,7 +69,7 @@ class InputResolver:
             clipboard_text = ""
         outcome = (
             self._selection.capture(cancellation, target=target, request=request)
-            if self._selection is not None
+            if probe_selection and self._selection is not None
             else SelectionCaptureOutcome(reason="selection_unavailable")
         )
         if outcome.status == "cancelled" or (cancellation is not None and cancellation.is_cancelled):
@@ -76,7 +77,7 @@ class InputResolver:
         selection_document = (
             InputDocument(outcome.text, "selection") if outcome.status == "selected" else None
         )
-        return PreparedEntryInput(
+        return PreparedInput(
             selection_document=selection_document,
             clipboard_text_document=(
                 InputDocument(clipboard_text, "clipboard")

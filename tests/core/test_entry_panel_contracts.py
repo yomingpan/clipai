@@ -8,7 +8,7 @@ from ClipAI.core.models import (
     EntryActionRef,
     EntryInputPreparationId,
     InputDocument,
-    PreparedEntryInput,
+    PreparedInput,
 )
 
 
@@ -47,7 +47,7 @@ def test_preparation_completion_repr_does_not_expose_frozen_input() -> None:
     command = EntryPanelInputPreparationCompleted(
         "panel-1",
         EntryInputPreparationId("preparation-1"),
-        PreparedEntryInput(
+        PreparedInput(
             selection_document=InputDocument("private text", "selection")
         ),
     )

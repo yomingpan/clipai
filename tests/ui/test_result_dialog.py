@@ -287,6 +287,11 @@ class Surface:
                 kwargs.get("command", button.command),
             ),
         })()
+        self.clipboard_choice_button = type("ChoiceButton", (), {
+            "configure": lambda button, **kw: button.__dict__.update(kw),
+            "grid": lambda button, **kw: setattr(button, "visible", True),
+            "grid_remove": lambda button: setattr(button, "visible", False),
+        })()
         self._last_model = None
         self._feedback_submit = None
 
@@ -2021,3 +2026,15 @@ def test_content_key_changes_for_new_content() -> None:
     snapshot = SessionSnapshot("s1", 0, SessionStatus.COMPLETED, "a", "A", "model", content="first")
     changed_content = snapshot.evolve(content="second")
     assert _content_render_key(changed_content) != _content_render_key(snapshot)
+
+
+def test_input_reading_popup_renders_before_show_and_does_not_request_focus():
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views.pop("s1")
+    presenter._create_view = lambda sid, *, show_on_create: view
+    presenter._register_view = lambda sid, current, *, focus_on_show: events.append(("focus", focus_on_show))
+    view.surface.set_loading = lambda text: events.append(("loading", text))
+    view.dialog.apply_external_output_visibility = lambda value: events.append(("visibility", value))
+    presenter._apply(SessionSnapshot("s1", 1, SessionStatus.READING_INPUT, "a", "Action", "model", status_text="Reading input"))
+    assert ("focus", False) in events
+    assert events.index(("loading", "Reading input")) < events.index(("visibility", "visible_no_activate"))

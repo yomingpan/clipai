@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal, NewType
 
 from ClipAI.core.errors import ActionLanguagePackErrorCode, PasteFailureReason
@@ -646,7 +646,7 @@ class InputDocument:
 
 
 @dataclass(frozen=True)
-class PreparedEntryInputResolution:
+class PreparedInputResolution:
     document: InputDocument | None = field(default=None, repr=False)
     unavailable_reason: PreparedInputUnavailableReason | None = None
 
@@ -658,8 +658,8 @@ class PreparedEntryInputResolution:
 
 
 @dataclass(frozen=True)
-class PreparedEntryInput:
-    """Memory-only input facts captured once for one Entry Panel lifecycle."""
+class PreparedInput:
+    """Memory-only source facts shared by Entry Panel and direct Actions."""
 
     workflow_document: InputDocument | None = field(default=None, repr=False)
     selection_document: InputDocument | None = field(default=None, repr=False)
@@ -667,6 +667,19 @@ class PreparedEntryInput:
     clipboard_image: ImageContent | None = field(default=None, repr=False)
     selection_outcome: SelectionCaptureOutcome | None = None
     clipboard_override: bool = False
+
+    def use_clipboard(self) -> PreparedInput:
+        """Explicit source choice; never performs a live clipboard read."""
+        return replace(self, clipboard_override=True)
+
+    def clipboard_preview(self, mode: InputMode = "clipboard") -> str:
+        document = self.use_clipboard().resolve(mode).document
+        if document is None:
+            return ""
+        if document.image is not None:
+            return "剪貼簿圖片"
+        text = " ".join(document.text.split())
+        return "剪貼簿：" + (text if len(text) <= 90 else text[:89].rstrip() + "…")
 
     def __post_init__(self) -> None:
         external_values = (
@@ -697,15 +710,15 @@ class PreparedEntryInput:
         ):
             raise ValueError("prepared clipboard text must use the clipboard source")
 
-    def resolve(self, mode: InputMode) -> PreparedEntryInputResolution:
+    def resolve(self, mode: InputMode) -> PreparedInputResolution:
         if self.workflow_document is not None:
-            return PreparedEntryInputResolution(document=self.workflow_document)
+            return PreparedInputResolution(document=self.workflow_document)
         if mode == "clipboard_image":
             if self.clipboard_image is None:
-                return PreparedEntryInputResolution(
+                return PreparedInputResolution(
                     unavailable_reason="clipboard_image_unavailable"
                 )
-            return PreparedEntryInputResolution(
+            return PreparedInputResolution(
                 document=InputDocument(
                     "",
                     "screenshot",
@@ -718,16 +731,16 @@ class PreparedEntryInput:
             and self.selection_outcome is not None
             and self.selection_outcome.status in {"unknown", "cancelled"}
         ):
-            return PreparedEntryInputResolution(unavailable_reason="selection_unknown")
+            return PreparedInputResolution(unavailable_reason="selection_unknown")
         if mode == "selection_or_clipboard" and not self.clipboard_override and self.selection_document is not None:
-            return PreparedEntryInputResolution(document=self.selection_document)
+            return PreparedInputResolution(document=self.selection_document)
         if self.clipboard_image is not None:
-            return PreparedEntryInputResolution(
+            return PreparedInputResolution(
                 document=InputDocument("", "clipboard", image=self.clipboard_image)
             )
         if self.clipboard_text_document is not None:
-            return PreparedEntryInputResolution(document=self.clipboard_text_document)
-        return PreparedEntryInputResolution(
+            return PreparedInputResolution(document=self.clipboard_text_document)
+        return PreparedInputResolution(
             unavailable_reason=(
                 "selection_or_clipboard_unavailable"
                 if mode == "selection_or_clipboard"
@@ -751,6 +764,25 @@ class SelectionCaptureOutcome:
             raise ValueError("selected requires nonempty original text")
         if self.status != "selected" and self.text:
             raise ValueError("only selected may contain text")
+
+
+@dataclass(frozen=True)
+class InputRecovery:
+    recovery_id: str
+    invocation: ActionInvocation = field(repr=False)
+    action: ResolvedAction = field(repr=False)
+    prepared: PreparedInput = field(repr=False)
+
+    @property
+    def clipboard_document(self) -> InputDocument | None:
+        return self.prepared.use_clipboard().resolve(self.action.input_mode).document
+
+    @property
+    def message(self) -> str:
+        reason = self.prepared.resolve(self.action.input_mode).unavailable_reason
+        if reason == "selection_unknown":
+            return "這次未能確認反白內容。"
+        return "這次沒有取得可用的內容。"
 
 
 @dataclass(frozen=True)

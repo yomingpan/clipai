@@ -27,6 +27,8 @@ class PopupPresentationModel:
     enabled_actions: tuple[str, ...]
     speaking: bool
     feedback: PopupFeedbackModel | None
+    input_recovery_id: str | None = None
+    clipboard_choice_available: bool = False
 
 
 def project_popup_presentation(
@@ -36,6 +38,11 @@ def project_popup_presentation(
 ) -> PopupPresentationModel:
     """Project Workflow state into the stable, content-free Popup interface."""
     displayed_step_id = _displayed_step_id(snapshot)
+    recovery = (
+        snapshot.input_recovery
+        if snapshot.status is SessionStatus.AWAITING_INPUT_CHOICE
+        else None
+    )
     feedback = None
     if (
         snapshot.status is SessionStatus.COMPLETED
@@ -69,6 +76,8 @@ def project_popup_presentation(
         enabled_actions=enabled_actions,
         speaking=snapshot.speaking,
         feedback=feedback,
+        input_recovery_id=recovery.recovery_id if recovery is not None else None,
+        clipboard_choice_available=recovery is not None and recovery.clipboard_document is not None,
     )
 
 

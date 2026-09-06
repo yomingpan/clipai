@@ -6,13 +6,14 @@ import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, PresentationDocument, ResultCompleteness, WorkflowStep
+    from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, InputRecovery, PresentationDocument, ResultCompleteness, WorkflowStep
     from ClipAI.core.voice import VoiceCaptureId, VoiceCapturePhase, VoiceFollowUpInsertion, VoiceOrigin
 
 
 class SessionStatus(str, Enum):
     CREATED = "created"
     READING_INPUT = "reading_input"
+    AWAITING_INPUT_CHOICE = "awaiting_input_choice"
     PREPARING_REQUEST = "preparing_request"
     REQUESTING_PROVIDER = "requesting_provider"
     PROCESSING_RESULT = "processing_result"
@@ -37,8 +38,9 @@ TERMINAL_STATUSES = {
 }
 
 ALLOWED_TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
+    SessionStatus.AWAITING_INPUT_CHOICE: {SessionStatus.PREPARING_REQUEST, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.CREATED: {SessionStatus.READING_INPUT, SessionStatus.VOICE_PREPARING, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
-    SessionStatus.READING_INPUT: {SessionStatus.PREPARING_REQUEST, SessionStatus.CONTEXT_QUESTION, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
+    SessionStatus.READING_INPUT: {SessionStatus.AWAITING_INPUT_CHOICE, SessionStatus.PREPARING_REQUEST, SessionStatus.CONTEXT_QUESTION, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.PREPARING_REQUEST: {SessionStatus.REQUESTING_PROVIDER, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.REQUESTING_PROVIDER: {SessionStatus.PROCESSING_RESULT, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
     SessionStatus.PROCESSING_RESULT: {SessionStatus.COMPLETED, SessionStatus.VOICE_PREPARING, SessionStatus.FAILED, SessionStatus.STOPPED, SessionStatus.CANCELLED, SessionStatus.CLOSED},
@@ -107,6 +109,7 @@ class SessionSnapshot:
     contextual_source_text: str = field(default="", repr=False)
     contextual_source_kind: str = ""
     question_composer_revision: int = 0
+    input_recovery: InputRecovery | None = field(default=None, repr=False)
 
     def evolve(self, **changes: object) -> SessionSnapshot:
         return replace(self, revision=self.revision + 1, **changes)

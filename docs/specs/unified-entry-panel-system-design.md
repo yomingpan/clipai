@@ -349,9 +349,9 @@ preferences) or `WorkflowController` history (per-workflow accepted steps).
 | `EntryPanelCatalog` | services/config | Validated, display-only mapping to existing Action ID and press-type references. |
 | `ActionStartAdmission` | core/app boundary | Exact accepted/rejected/blocked start result; only accepted permits Panel close. |
 | `EntryInputPreparationId` | core/app boundary | Prevents late open-time input preparation from acting on a closed, retried, reopened or newer Panel. |
-| `PreparedEntryInput` | core immutable model | Holds the frozen selection, clipboard text and clipboard image candidates captured when the Panel opens. |
+| `PreparedInput` | core immutable model | Holds the frozen selection, clipboard text and clipboard image candidates captured when the Panel opens. |
 | `EntryPanelInputPreparationCompleted` / `EntryPanelInputPreparationFailed` | core commands | Return frozen input or typed preparation failure through the ordered command queue. |
-| `InputTarget` | existing core model use | Carries the Action-compatible document resolved only from `PreparedEntryInput`; the executor skips duplicate capture. |
+| `InputTarget` | existing core model use | Carries the Action-compatible document resolved only from `PreparedInput`; the executor skips duplicate capture. |
 | `WorkflowStepAccepted` | core/app command | Minimal accepted-step identity emitted only after controller acceptance; never carries user content. |
 | `RecentActionRef` | core/services | Minimal replay reference; no user content or window metadata. |
 | modifier-hold press identity | platform internal | Bounds timers, release, stale recovery and shutdown to one physical hold. |

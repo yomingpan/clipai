@@ -23,9 +23,34 @@ Positive selection evidence with failed text retrieval may use the existing cont
 
 ## Entry Panel and consumer policy
 
-`PreparedEntryInput` retains the selection outcome and a frozen clipboard fallback. Unknown selection disables selection-dependent Actions without erasing explicitly clipboard-only capabilities. `UseEntryPanelClipboard(panel_id)` applies only to the current Panel with prepared clipboard content, changes the source preview to clipboard, and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
+`PreparedInput` retains the selection outcome and a frozen clipboard fallback. Unknown selection disables selection-dependent Actions without erasing explicitly clipboard-only capabilities. `UseEntryPanelClipboard(panel_id)` applies only to the current Panel with prepared clipboard content, changes the source preview to clipboard, and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
 
-Source errors propagate as typed `SelectionUnavailableError` for direct Actions and speech. Diagnostics include operation identity, source token, status, reason, strategy, elapsed time, and restoration outcome, never the selected text or clipboard content.
+Direct visible Actions and Entry Panel both call `InputResolver.prepare_input` and
+consume immutable `PreparedInput.resolve(mode)`. Clipboard-only Actions skip the
+selection probe. `PreparedInput.use_clipboard()` is the shared explicit source
+choice and never rereads external state. Unsupported selection is never converted
+to confirmed-none. Speech retains typed `SelectionUnavailableError` behavior.
+
+`WorkflowController` owns direct Action input recovery in `AWAITING_INPUT_CHOICE`,
+including one recovery identity, the original resolved Action/press variant,
+invocation lineage, and frozen input. There is no active provider request while
+waiting for the choice. `UseWorkflowClipboard(workflow_id, recovery_id)` consumes
+the matching choice once; runtime resumes the same Workflow with a fresh invocation
+and its existing provider binding. Cancel, stop, replacement and close invalidate
+the choice. Failed capture leaves successful-step history intact but exposes no
+output actions or editable input form.
+
+Popup presentation projects the frozen clipboard preview and one recovery button.
+Initial input-reading views show without requesting focus. A 15-second UI lifecycle
+timer emits `ExpireInputRecovery`; runtime closes only a matching, still-waiting,
+unfocused and unpinned Workflow. Expiry never closes a resumed/newer task. Focused
+or pinned recovery stays available for reading and keyboard interaction. Entry
+Panel retains its navigation and does not expire; both surfaces use the same
+frozen source decision. A missing compatible clipboard yields guidance without
+an enabled recovery button.
+
+Diagnostics include operation identity, source token, status, reason, strategy,
+elapsed time, and restoration outcome, never selected text or clipboard content.
 
 ## Validation
 

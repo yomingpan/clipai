@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import threading
+import uuid
+from dataclasses import replace
 
-from ClipAI.core.models import ActionInvocation, InputDocument, PresentationDocument, ResolvedAction, WorkflowStep
+from ClipAI.core.models import ActionInvocation, InputDocument, InputRecovery, InputTarget, PreparedInput, PresentationDocument, ResolvedAction, WorkflowStep
 from ClipAI.core.ports import ResultPresenter
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureDestination, VoiceCaptureId, VoiceDraftTarget, VoiceFollowUpTarget, VoiceProjection
@@ -169,6 +171,7 @@ class WorkflowController:
                 status_text=status_text,
                 error="",
                 active_invocation_id=invocation.invocation_id,
+                input_recovery=None,
                 speaking=False,
                 action_feedback_contract=action.feedback_contract,
                 input_source=(
@@ -187,6 +190,51 @@ class WorkflowController:
             token = self._active_token
         self._presenter.render(snapshot)
         return token
+
+    def await_input_choice(
+        self,
+        invocation: ActionInvocation,
+        action: ResolvedAction,
+        prepared: PreparedInput,
+    ) -> SessionSnapshot | None:
+        with self._lock:
+            if self._snapshot.active_invocation_id != invocation.invocation_id or self._active_token.is_cancelled:
+                return None
+            recovery = InputRecovery(uuid.uuid4().hex, invocation, action, prepared)
+            self._snapshot = self._snapshot.evolve(
+                status=SessionStatus.AWAITING_INPUT_CHOICE,
+                active_invocation_id=None,
+                input_recovery=recovery,
+                status_text=recovery.message,
+                source_preview=prepared.clipboard_preview(action.input_mode),
+                content="",
+                error="",
+                presentation=None,
+                available_actions=(),
+                result_completeness="none",
+            )
+            snapshot = self._snapshot
+        self._presenter.render(snapshot)
+        return snapshot
+
+    def consume_clipboard_choice(self, recovery_id: str) -> tuple[ActionInvocation, ResolvedAction] | None:
+        """Consume one explicit choice against the displayed, frozen source."""
+        with self._lock:
+            recovery = self._snapshot.input_recovery
+            if (
+                self._snapshot.status is not SessionStatus.AWAITING_INPUT_CHOICE
+                or recovery is None
+                or recovery.recovery_id != recovery_id
+                or self._active_token.is_cancelled
+                or recovery.clipboard_document is None
+            ):
+                return None
+            invocation = replace(
+                recovery.invocation, invocation_id=uuid.uuid4().hex,
+                input_target=InputTarget("external_text", recovery.clipboard_document),
+            )
+            self._snapshot = self._snapshot.evolve(input_recovery=None)
+            return invocation, recovery.action
 
     def update(self, invocation_id: str, status: SessionStatus, **changes: object) -> SessionSnapshot | None:
         with self._lock:
@@ -310,6 +358,8 @@ class WorkflowController:
         with self._lock:
             self._active_token.cancel()
             self._context_capture_token.cancel()
+            if self._snapshot.input_recovery is not None:
+                self._snapshot = self._snapshot.evolve(input_recovery=None)
             if self._snapshot.active_invocation_id is None:
                 return
             self._snapshot = self._snapshot.evolve(active_invocation_id=None)
@@ -317,10 +367,11 @@ class WorkflowController:
     def stop_active(self) -> str | None:
         with self._lock:
             invocation_id = self._snapshot.active_invocation_id
-            if invocation_id is None:
+            recovering = self._snapshot.input_recovery is not None
+            if invocation_id is None and not recovering:
                 return None
             self._active_token.cancel()
-            if self._snapshot.displayed_step_index >= 0:
+            if self._snapshot.displayed_step_index >= 0 and not recovering:
                 self._snapshot = self._snapshot.evolve(
                     status=SessionStatus.COMPLETED,
                     status_text="Stopped",
@@ -332,6 +383,7 @@ class WorkflowController:
                     status=SessionStatus.STOPPED,
                     status_text="Stopped",
                     active_invocation_id=None,
+                    input_recovery=None,
                     speaking=False,
                 )
             snapshot = self._snapshot

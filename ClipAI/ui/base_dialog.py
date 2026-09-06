@@ -1236,11 +1236,27 @@ class BaseResultSurface:
         self._action_message_revision = 0
         self._rendered_pinned_state: bool | None = None
         self._last_model: PopupPresentationModel | None = None
+        self._clipboard_choice: Callable[[str], None] | None = None
         self._build()
+
+    def bind_clipboard_choice(self, callback: Callable[[str], None]) -> None:
+        self._clipboard_choice = callback
+
+    def _choose_clipboard(self) -> None:
+        model = self._last_model
+        if model is not None and model.input_recovery_id and model.clipboard_choice_available and self._clipboard_choice is not None:
+            self.clipboard_choice_button.configure(state="disabled", text="正在接續…")
+            self._clipboard_choice(model.input_recovery_id)
 
     def render(self, model: PopupPresentationModel) -> None:
         """Render the content-free Popup model through field-group diffs."""
         previous = self._last_model
+        if previous is None or (previous.input_recovery_id, previous.clipboard_choice_available) != (model.input_recovery_id, model.clipboard_choice_available):
+            if model.clipboard_choice_available:
+                self.clipboard_choice_button.configure(state="normal", text="使用剪貼簿執行")
+                self.clipboard_choice_button.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 2))
+            else:
+                self.clipboard_choice_button.grid_remove()
         if previous is None or _popup_header_group(previous) != _popup_header_group(model):
             self.set_pinned_state(model.pinned)
             self.set_title(model.title)
@@ -1428,6 +1444,11 @@ class BaseResultSurface:
         self.footer = ctk.CTkFrame(self.root, fg_color=SURFACE_BG)
         self.footer.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 2))
         self.footer.grid_columnconfigure(0, weight=1)
+
+        self.clipboard_choice_button = ctk.CTkButton(
+            self.footer, text="使用剪貼簿執行", height=28,
+            command=self._choose_clipboard,
+        )
 
         self.paste_target_label = ctk.CTkLabel(
             self.footer,

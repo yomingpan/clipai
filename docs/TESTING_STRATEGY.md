@@ -248,6 +248,15 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 
 ### Canonical selection 與 presentation 測試
 
+- Direct Action 與 Entry Panel 使用同一 `PreparedInput` 判定矩陣：selected、
+  confirmed-none、unsupported、timeout、source-changed、cancelled 與空剪貼簿。
+- Popup recovery 不呼叫 provider、不建立輸入表單；明確選擇只使用預覽的 frozen
+  clipboard。變更系統剪貼簿不影響接續內容；重複、取消與過時選擇不得再次送出。
+- Recovery 保留原 Workflow 的 provider binding 與 Action variant。15 秒 expiry
+  只關閉 matching、未聚焦、未 pin 的等待視窗，不得關閉已接續的 Action。
+- `tests/ui/test_input_recovery.py -m integration` 驗證真實 Tk 按鈕 pending、
+  唯讀內容與同一 surface 的 recovery → request 投影。
+
 - 直接 Shortcut 的外部 text-capable Action 在 trigger time 擷取 selection；Unified
   Entry Panel 則在 Panel open intent 凍結 selection／clipboard，Action 選取不得
   再次擷取。有效 selection

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from ClipAI.core.models import EntryInputSourcePreview, PreparedEntryInput
+from ClipAI.core.models import EntryInputSourcePreview, PreparedInput
 
 
 _PREVIEW_LIMIT = 90
 
 
 def build_entry_input_preview(
-    prepared: PreparedEntryInput,
+    prepared: PreparedInput,
     *,
     workflow_selection: bool = False,
 ) -> EntryInputSourcePreview:
@@ -24,12 +24,12 @@ def build_entry_input_preview(
         and not prepared.clipboard_override
     ):
         return EntryInputSourcePreview(
-            "failed", "無法確認反白內容",
+            "failed", "這次未能確認反白內容。" + (" " + prepared.clipboard_preview() if prepared.clipboard_preview() else ""),
             clipboard_override_available=(
                 prepared.clipboard_text_document is not None or prepared.clipboard_image is not None
             ),
         )
-    if selection is not None:
+    if selection is not None and not prepared.clipboard_override:
         return EntryInputSourcePreview("selection_text", _compact(selection.text))
     if prepared.clipboard_image is not None:
         return EntryInputSourcePreview("clipboard_image")

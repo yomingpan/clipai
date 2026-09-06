@@ -54,10 +54,24 @@ class ActionExecutor:
         try:
             if self._fail_workflow_if_not_ready(workflow, invocation.invocation_id, binding):
                 return
-            document = invocation.input_target.document or await self._run_blocking(
-                f"input:{invocation.invocation_id}",
-                lambda: self._input_resolver.resolve(action.input_mode, token, request=invocation.input_target.selection_request),
-            )
+            document = invocation.input_target.document
+            if document is None and invocation.result_route == "popup":
+                prepared = await self._run_blocking(
+                    f"input:{invocation.invocation_id}",
+                    lambda: self._input_resolver.prepare_input(
+                        token, request=invocation.input_target.selection_request,
+                        probe_selection=action.input_mode == "selection_or_clipboard",
+                    ),
+                )
+                document = prepared.resolve(action.input_mode).document
+                if document is None:
+                    workflow.await_input_choice(invocation, action, prepared)
+                    return
+            elif document is None:
+                document = await self._run_blocking(
+                    f"input:{invocation.invocation_id}",
+                    lambda: self._input_resolver.resolve(action.input_mode, token, request=invocation.input_target.selection_request),
+                )
             if workflow.update(
                 invocation.invocation_id,
                 SessionStatus.PREPARING_REQUEST,

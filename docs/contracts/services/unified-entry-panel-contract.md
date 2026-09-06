@@ -16,7 +16,7 @@ then requests admission through the existing Workflow runtime.
   existing user-preferences lifecycle persists later density changes.
 - `EntryPanelRuntimeModule` owns the one live Panel lifecycle ID, captured source
   reference, open-time preparation scheduling/cancellation, frozen
-  `PreparedEntryInput` and the transition to Workflow admission.
+  `PreparedInput` and the transition to Workflow admission.
 - `UnifiedEntryPanelDialog` owns only toolkit widgets, focus evidence, placement,
   hide-before-destroy teardown and mechanical rendering. Header dragging reuses
   the UI-layer window drag controller; every semantic user operation emits a
@@ -91,7 +91,7 @@ presentation actuation only and does not merge Panel navigation with
   after preparation settles or through a later explicit user interaction.
 - Failure does not substitute the current foreground window or a later clipboard
   value.
-- `PreparedEntryInput` resolves the already frozen `InputDocument` for the
+- `PreparedInput` resolves the already frozen `InputDocument` for the
   selected Action's `InputMode`; it enters Workflow admission through
   `InputTarget`, so neither runtime selection nor `ActionExecutor` captures a
   second time.
