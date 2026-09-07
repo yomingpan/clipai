@@ -350,6 +350,15 @@ Recipe 回饋與使用引導應測：
 
 ### Unified Entry Panel
 
+- External readiness 使用虛擬時鐘驗證 480/540 ms、2.8 秒恢復、3 秒逾時、
+  來源失效與取消；activation 與 capture 後 confirmation 共用 3 秒額度，
+  selection reading 不計入焦點等待。累積等待超過 500 ms 才送 typed
+  waiting notice，每段等待最多一次，回到擷取時切回 reading，UI 維持 neutral
+  preparing；成功清除，逾時與來源失效須區分。
+  close/reopen/retry/terminal 後的舊 notice 不得改變投影。真實 Tk smoke 驗證
+  提示原地更新、card 不重建與 Esc close intent。公司負載下的實際延遲仍需以
+  activation/capture/confirmation elapsed_ms 分段日誌驗證。
+
 - Catalog tests 以 PRD literal 驗證 `0`–`2` recent、`3`–`6` root category、
   `1`–`4` flagship 與 More 無數字；未知 Action/press type、重複候選、重複 slot、
   多於四個 flagship 與未知欄位都必須 fail closed。

@@ -1,4 +1,5 @@
 import tkinter as tk
+from dataclasses import replace
 
 import customtkinter as ctk
 import pytest
@@ -16,6 +17,8 @@ from ClipAI.core.models import DisplayMetrics, EntryActionRef, EntryInputSourceP
 from ClipAI.ui.base_dialog import ACTION_HOVER_COLOR
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
 from ClipAI.ui.unified_entry_panel import EntryPanelIntentAdapter, UnifiedEntryPanelDialog, _body_render_key, _source_preview_text
+from ClipAI.services.entry_panel import EntryPanelCoordinator
+from ClipAI.app.config_loader import load_config_bundle
 
 
 @pytest.mark.integration
@@ -37,6 +40,7 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
     master.withdraw()
     dialog = None
     host = None
+    commands = []
     try:
         host = PrimarySurfaceHost(
             master,
@@ -46,7 +50,7 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         lease = host.acquire()
         dialog = UnifiedEntryPanelDialog(
             master,
-            lambda _command: None,
+            commands.append,
             NativeSurface(),
             MetricsReader(),
             primary_surface_host=host,
@@ -128,6 +132,26 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         assert dialog._density.get() == 1
         assert divider.winfo_height() >= 2
         assert all(card.winfo_height() >= 48 for card in dialog._option_buttons)
+
+        coordinator = EntryPanelCoordinator(load_config_bundle().entry_panel)
+        coordinator.open("panel-1", preparing=True)
+        waiting_message = coordinator.show_input_progress("waiting_for_window").message
+        preparing = replace(
+            root_snapshot, status="preparing", message="正在讀取來源內容…",
+            options=tuple(replace(option, pending=option.action is not None) for option in root_snapshot.options),
+        )
+        dialog.apply(preparing)
+        cards = tuple(dialog._option_buttons)
+        dialog.apply(replace(preparing, message=waiting_message))
+        master.update_idletasks()
+        assert tuple(dialog._option_buttons) == cards
+        assert dialog._message_label.cget("text") == waiting_message
+        assert dialog._message_label.cget("text_color") != "#F6A9A9"
+        dialog._escape_button.invoke()
+        assert commands[-1] == CloseEntryPanel("panel-1")
+        dialog.apply(root_snapshot)
+        master.update_idletasks()
+        assert dialog._message_label is None
     finally:
         if host is not None:
             host.close()

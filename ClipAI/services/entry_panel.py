@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from ClipAI.core.models import EntryInputPreparationPhase
 from ClipAI.core.models import EntryActionRef, EntryInputSourcePreview, EntryPanelDecision, EntryPanelDensity, EntryPanelOption, EntryPanelSnapshot
 from ClipAI.services.action_catalog import ActionCatalog
 
@@ -260,6 +261,15 @@ class EntryPanelCoordinator:
             message="",
             source_preview=source_preview,
             options=self._project_option_lifecycle(self._snapshot.options),
+        )
+        return self._snapshot
+
+    def show_input_progress(self, phase: EntryInputPreparationPhase) -> EntryPanelSnapshot:
+        if self._snapshot is None or self._snapshot.status != "preparing":
+            raise RuntimeError("entry input preparation is not active")
+        self._snapshot = replace(
+            self._snapshot,
+            message=("正在等待原視窗就緒…（Esc 可取消）" if phase == "waiting_for_window" else "正在讀取來源內容…"),
         )
         return self._snapshot
 

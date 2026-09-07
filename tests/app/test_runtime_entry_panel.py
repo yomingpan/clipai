@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import pytest
 
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
@@ -17,7 +18,9 @@ from ClipAI.core.models import (
 from ClipAI.services.entry_panel import EntryPanelCoordinator
 from ClipAI.services.recent_actions import RecentActionHistory
 from ClipAI.core.commands import UseEntryPanelClipboard
+from ClipAI.core.commands import CloseEntryPanel, EntryPanelInputPreparationProgress
 from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest, SelectionSource
+from ClipAI.platform.external_window import SystemExternalWindowActivator
 
 
 class Presenter:
@@ -80,12 +83,12 @@ class Activator:
         self.outcome = outcome
         self.targets = []
 
-    def activate(self, target, cancellation):
+    def activate(self, target, cancellation, *, wait_policy=None, on_waiting=None):
         del cancellation
         self.targets.append(target)
         return self.outcome
 
-    def confirm(self, _target, _cancellation=None):
+    def confirm(self, _target, _cancellation=None, *, wait_policy=None, on_waiting=None):
         return self.outcome
 
 
@@ -152,6 +155,127 @@ def complete_external_preparation(module, supervisor, commands) -> str:
     supervisor.work[task_id]()
     module.handle(commands.pop(0))
     return task_id
+
+
+@pytest.mark.parametrize("activation_delay, confirmation_delay, expected", [
+    (0, 0, "idle"), (0.3, 0.3, "idle"), (0.54, 0, "idle"),
+    (0, 2.8, "idle"), (1.8, 0.8, "idle"), (1.8, 1.4, "error"),
+])
+def test_real_focus_wait_shares_budget_and_projects_only_actual_waiting(
+    monkeypatch, activation_delay, confirmation_delay, expected,
+):
+    clock = [0.0]
+    capture_done = [False]
+    capture_completed_at = [0.0]
+    monkeypatch.setattr("ClipAI.platform.external_window.time.monotonic", lambda: clock[0])
+    class SlowInputs(Inputs):
+        def prepare_input(self, cancellation=None, *, target=None, request=None):
+            # Reading selected text has its own timeout, outside the focus budget.
+            clock[0] += 5.0
+            capture_done[0] = True
+            capture_completed_at[0] = clock[0]
+            return super().prepare_input(cancellation, target=target, request=request)
+    inputs = SlowInputs()
+    def wait(seconds):
+        clock[0] += seconds
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _: False,
+        target_is_valid=lambda _: True,
+        target_is_foreground=lambda _: (
+            clock[0] - capture_completed_at[0] >= confirmation_delay - 1e-9
+            if capture_done[0] else clock[0] >= activation_delay - 1e-9
+        ),
+        activate_target=lambda _: True,
+        wait=wait,
+    )
+    module, coordinator, presenter, supervisor, workflows, _, _, commands, _ = make_module(
+        external_window_activator=activator, input_resolver=inputs,
+    )
+    module.open()
+    before = len(presenter.snapshots)
+    supervisor.work[next(iter(supervisor.work))]()
+    assert len(presenter.snapshots) == before  # worker only enqueues typed commands
+    notices = [command for command in commands if isinstance(command, EntryPanelInputPreparationProgress) and command.phase == "waiting_for_window"]
+    expected_notices = int(activation_delay > 0.5) + int(confirmation_delay > 0 and activation_delay + confirmation_delay > 0.5)
+    assert len(notices) == expected_notices
+    while commands:
+        command = commands.pop(0)
+        module.handle(command)
+        if isinstance(command, EntryPanelInputPreparationProgress):
+            assert coordinator.snapshot.status == "preparing"
+            expected_message = "正在等待原視窗就緒…（Esc 可取消）" if command.phase == "waiting_for_window" else "正在讀取來源內容…"
+            assert coordinator.snapshot.message == expected_message
+    assert inputs.calls == 1
+    assert coordinator.snapshot.status == expected
+    assert clock[0] - 5.0 == pytest.approx(min(activation_delay + confirmation_delay, 3.0), abs=0.04)
+    assert not workflows.starts
+    if expected == "error":
+        assert coordinator.snapshot.message == "等待原視窗就緒逾時，請重試。"
+        assert coordinator.snapshot.source_preview.kind == "failed"
+    else:
+        assert coordinator.snapshot.message == ""
+
+
+@pytest.mark.parametrize("transition", ["success", "failure", "retry", "close", "reopen"])
+def test_late_wait_notice_cannot_overwrite_terminal_or_replaced_preparation(transition):
+    class ReportingActivator(Activator):
+        def activate(self, target, cancellation, *, wait_policy=None, on_waiting=None):
+            on_waiting()
+            return super().activate(target, cancellation)
+    activator = ReportingActivator(ExternalWindowActivationOutcome(
+        "activated" if transition == "success" else "target_focus_timeout",
+    ))
+    module, coordinator, presenter, supervisor, _, _, _, commands, _ = make_module(
+        external_window_activator=activator,
+    )
+    panel_id = module.open().panel_id
+    supervisor.work[next(iter(supervisor.work))]()
+    notice, terminal = commands[0], commands[-1]
+    module.handle(terminal)
+    if transition == "retry":
+        module.handle(RetryEntryPanelInput(panel_id))
+    elif transition in {"close", "reopen"}:
+        module.handle(CloseEntryPanel(panel_id))
+        if transition == "reopen":
+            module.open()
+    before = coordinator.snapshot
+    renders = len(presenter.snapshots)
+    module.handle(notice)
+    assert coordinator.snapshot == before
+    assert len(presenter.snapshots) == renders
+
+
+def test_close_during_slow_native_wait_cancels_worker_and_never_captures(monkeypatch):
+    class CancellableSupervisor(Supervisor):
+        def submit(self, task_id, work, on_unhandled_error, *, task_class="interactive", cancellation_hook=None):
+            super().submit(task_id, work, on_unhandled_error, task_class=task_class)
+            self.cancel_hook = cancellation_hook
+        def cancel(self, task_id):
+            super().cancel(task_id)
+            self.cancel_hook()
+    clock = [0.0]
+    monkeypatch.setattr("ClipAI.platform.external_window.time.monotonic", lambda: clock[0])
+    def wait(seconds):
+        clock[0] += seconds
+        while commands:
+            module.handle(commands.pop(0))
+        if clock[0] >= 0.8:
+            assert module.request_escape()
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _: False, target_is_valid=lambda _: True,
+        target_is_foreground=lambda _: False, activate_target=lambda _: True, wait=wait,
+    )
+    module, coordinator, presenter, supervisor, workflows, _, inputs, commands, _ = make_module(
+        external_window_activator=activator, supervisor=CancellableSupervisor(),
+    )
+    panel_id = module.open().panel_id
+    supervisor.work[next(iter(supervisor.work))]()
+    assert any(snapshot and "等待原視窗" in snapshot.message for snapshot in presenter.snapshots)
+    assert coordinator.snapshot is None
+    assert clock[0] == pytest.approx(0.8, abs=0.021)
+    assert inputs.calls == 0
+    assert not commands
+    assert not workflows.starts
 
 
 def test_external_source_is_captured_before_panel_and_work_starts_after_projection() -> None:
@@ -316,12 +440,12 @@ def test_external_capture_does_not_recapture_after_confirmed_focus_loss() -> Non
             self.foreground = False
             self.activations = 0
 
-        def activate(self, _target, _cancellation):
+        def activate(self, _target, _cancellation, *, wait_policy=None, on_waiting=None):
             self.activations += 1
             self.foreground = True
             return ExternalWindowActivationOutcome("activated")
 
-        def confirm(self, _target, _cancellation=None):
+        def confirm(self, _target, _cancellation=None, *, wait_policy=None, on_waiting=None):
             if self.foreground:
                 return ExternalWindowActivationOutcome("activated")
             return ExternalWindowActivationOutcome("target_changed", "target changed")
@@ -361,11 +485,11 @@ def test_external_capture_fails_closed_without_using_untrusted_clipboard() -> No
         def __init__(self) -> None:
             self.activations = 0
 
-        def activate(self, _target, _cancellation):
+        def activate(self, _target, _cancellation, *, wait_policy=None, on_waiting=None):
             self.activations += 1
             return ExternalWindowActivationOutcome("activated")
 
-        def confirm(self, _target, _cancellation=None):
+        def confirm(self, _target, _cancellation=None, *, wait_policy=None, on_waiting=None):
             return ExternalWindowActivationOutcome("target_changed", "target changed")
 
     activator = UnstableActivator()
@@ -393,10 +517,10 @@ def test_external_capture_logs_stage_and_identity_without_clipboard_content(
     caplog,
 ) -> None:
     class ConfirmationFailureActivator:
-        def activate(self, _target, _cancellation):
+        def activate(self, _target, _cancellation, *, wait_policy=None, on_waiting=None):
             return ExternalWindowActivationOutcome("activated")
 
-        def confirm(self, _target, _cancellation=None):
+        def confirm(self, _target, _cancellation=None, *, wait_policy=None, on_waiting=None):
             return ExternalWindowActivationOutcome(
                 "target_changed",
                 "target changed",

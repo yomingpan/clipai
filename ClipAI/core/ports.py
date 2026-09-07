@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
+from ClipAI.core.models import ExternalWindowWaitPolicy
 from ClipAI.core.models import ActionFeedbackRecord, ActionLanguagePackSelectionRead, ActionLanguagePackSelectionState, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EntryPanelSnapshot, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, ModifierHoldId, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest, SelectionSource
@@ -165,12 +166,18 @@ class ExternalWindowActivator(Protocol):
         self,
         target: ExternalWindowRef,
         cancellation: CancellationToken,
+        *,
+        wait_policy: ExternalWindowWaitPolicy | None = None,
+        on_waiting: Callable[[], None] | None = None,
     ) -> ExternalWindowActivationOutcome: ...
 
     def confirm(
         self,
         target: ExternalWindowRef,
         cancellation: CancellationToken | None = None,
+        *,
+        wait_policy: ExternalWindowWaitPolicy | None = None,
+        on_waiting: Callable[[], None] | None = None,
     ) -> ExternalWindowActivationOutcome: ...
 
 

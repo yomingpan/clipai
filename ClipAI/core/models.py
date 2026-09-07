@@ -821,6 +821,17 @@ class EntryPanelSource:
 
 
 @dataclass(frozen=True)
+class ExternalWindowWaitPolicy:
+    """One caller's remaining focus-wait budget; capture time is separate."""
+
+    timeout_sec: float = 3.0
+    notice_after_sec: float = 0.5
+
+
+EntryInputPreparationPhase = Literal["waiting_for_window", "reading"]
+
+
+@dataclass(frozen=True)
 class ExternalWindowActivationOutcome:
     state: ExternalWindowActivationState
     message: str = ""

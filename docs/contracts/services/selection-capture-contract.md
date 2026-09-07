@@ -32,6 +32,39 @@ owner. See ADR-0015 for evidence, limitations and the review trigger.
 
 ## Entry Panel and consumer policy
 
+### Bounded external-window readiness
+
+Entry Panel input preparation passes an immutable `ExternalWindowWaitPolicy`
+through `ExternalWindowActivator`: 3 seconds of combined activation and
+post-capture confirmation time, with a waiting notice after 500 ms. Selection
+reading has its own cancellation/timeout and does not consume this focus budget.
+Runtime passes only the remaining budget to post-capture confirmation; retries
+explicitly requested by the user create a new preparation identity and budget.
+The native adapter returns immediately when the exact original target is ready,
+validates the original HWND/PID throughout waiting, and stops on cancellation or
+invalid source. It never substitutes the current foreground window. Native API
+calls and OS scheduling can delay observation beyond the deadline; the bound
+limits polling/retries, not the duration of a blocked OS call.
+
+Only actual native waiting emits `on_waiting`. The worker enqueues
+`EntryPanelInputPreparationProgress(panel_id, preparation_id, phase)` once per
+waiting episode; runtime accepts
+it only for the matching, still-preparing operation. The coordinator projects
+“正在等待原視窗就緒…（Esc 可取消）” in the existing neutral message area. No timer,
+extra capture, UI-thread native work, or focus request is introduced by the
+notice. Activation success returns the message to reading while selection is
+captured; a subsequent confirmation wait can report waiting again using the
+remaining notice threshold/budget. Completion clears it; timeout projects “等待原視窗就緒逾時，請重試。”;
+invalid-source guidance remains distinct. Esc closes/cancels preparation, and
+late notices cannot resurrect a closed, retried, failed, or completed operation.
+
+`target_focus_timeout` means foreground did not return within the bound;
+`target_changed` means source validation failed. Neither permits implicit
+clipboard fallback. Paste retains its existing default activation timing;
+the longer readiness policy is explicitly supplied by Entry Panel only.
+Activation, selection capture, and confirmation log separate elapsed times and
+operation identities without source/clipboard content.
+
 `PreparedInput` retains the selection outcome and a frozen clipboard fallback. A missing selection adapter uses that fallback automatically and the resolved document identifies `clipboard` as its source. Unknown selection disables selection-dependent Actions without erasing explicitly clipboard-only capabilities. `UseEntryPanelClipboard(panel_id)` applies only to the current Panel with prepared clipboard content, changes the source preview to clipboard, and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
 
 Direct visible Actions and Entry Panel both call `InputResolver.prepare_input` and

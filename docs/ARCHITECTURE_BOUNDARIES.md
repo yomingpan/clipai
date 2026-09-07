@@ -176,6 +176,13 @@ activation 與 ownership verification 由 `platform.window_activation` 單一 pr
 `ExternalWindowActivator` 負責驗證精確外部 HWND/PID 與有界重試；兩者不得各自複製
 另一套 `AttachThreadInput`／`SetForegroundWindow` 流程。
 
+Entry Panel 的 readiness policy 透過 immutable `ExternalWindowWaitPolicy`
+傳入既有 activator；runtime 協調擷取前後共用的剩餘等待額度，native adapter
+擁有 deadline polling 與實際 waiting 回報。Worker 只 enqueue 帶 Panel 與
+preparation identity 的 `EntryPanelInputPreparationProgress`；coordinator 投影
+neutral message，UI 不建立第二套等待 timer 或 focus policy。詳見
+`docs/contracts/services/selection-capture-contract.md`。
+
 不得放入：
 
 - Prompt 決策。
