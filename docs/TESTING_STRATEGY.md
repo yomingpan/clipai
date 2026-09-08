@@ -278,6 +278,17 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 
 ### Physical-key release 測試
 
+- 已成立的單按 Alt 長按必須在 Windows hook 轉交原生 Alt-up 前執行一次
+  menu mask；不得等到 pynput queued on_release。短按、Alt+Tab／其他未成立
+  chord、injected input、已停止或已結束 hold 不執行 mask。原生 release 先於
+  deadline 時，即使 semantic release 尚未處理，late timer 也不得開 Panel。
+- Mask 使用 balanced unassigned VK_E8，不送文字、Ctrl、Esc 或替代 Alt-up；
+  SendInput 失敗仍須轉交 physical release，且不得污染 pynput 的 ctypes signature。
+  `tests/platform/test_anki_alt_menu_integration.py -m integration` 在明確設定
+  `CLIPAI_TEST_ANKI_TARGET=hwnd:HEX,PID` 後，驗證真實 Anki 卡片的五次長按與
+  短按選單切換。此測試僅在測試 listener 接受合成 Alt；production injected gate
+  保持啟用。測試不呼叫 provider，也不變更剪貼簿。
+
 - 每個完整 shortcut match 建立獨立 press identity，直到 non-modifier
   function key release 或明確 cancellation 才結束。
 - Release 必須能以 physical／virtual-key identity 對應原 press；modifier

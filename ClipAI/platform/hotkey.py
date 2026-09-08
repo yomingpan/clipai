@@ -9,6 +9,7 @@ from ClipAI.core.hotkeys import GRAVE_KEY_ALIASES, GRAVE_KEY_TOKEN, canonicalize
 from ClipAI.core.commands import EntryPanelDigitPressed, InterruptionRequested, OpenUnifiedEntryPanel, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted
 from ClipAI.core.models import ModifierHoldId, ShortcutObservationSnapshot, ShortcutPressId, ShortcutPressRef
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_key_is_pressed
+from ClipAI.platform.keyboard_menu import mask_alt_menu
 
 logger = logging.getLogger("clipai.hotkey")
 
@@ -49,6 +50,34 @@ def _allow_physical_windows_key(_message, data) -> bool:
     try:
         return not bool(int(data.flags) & _LLKHF_INJECTED)
     except (AttributeError, TypeError, ValueError):
+        return True
+
+
+class _WindowsHotkeyEventFilter:
+    """Mask native menu activation before pynput queues semantic key release.
+
+    No second hold registry: the dispatcher owns whether this release belongs
+    to a consumed Entry Panel hold. Injected mask keys pass to Windows, but are
+    excluded from ClipAI intent processing by the existing injected-event gate.
+    """
+
+    def __init__(self, dispatcher: _HotkeyDispatcher, mask_menu: Callable[[], None] = mask_alt_menu) -> None:
+        self._dispatcher = dispatcher
+        self._mask_menu = mask_menu
+
+    def __call__(self, message, data) -> bool:
+        if not _allow_physical_windows_key(message, data):
+            return False
+        if (
+            message in (0x0101, 0x0105)  # WM_KEYUP / WM_SYSKEYUP
+            and int(data.vkCode) in (0x12, 0xA4, 0xA5)
+            and self._dispatcher.consume_entry_alt_release()
+        ):
+            try:
+                self._mask_menu()
+            except Exception:
+                # Never lose physical Alt-up or stop the hook on injection failure.
+                logger.warning("[clipai] Alt menu mask failed", exc_info=True)
         return True
 
 
@@ -125,6 +154,7 @@ class _ModifierHoldState:
     hold_id: ModifierHoldId
     timer: threading.Timer | None = None
     opened: bool = False
+    native_release_seen: bool = False
 
 
 class _ShortcutObservationLease:
@@ -261,6 +291,15 @@ class _HotkeyDispatcher:
             self._pressed.discard("alt")
             self._report_key_state()
 
+    def consume_entry_alt_release(self) -> bool:
+        """Claim native cleanup once, before the queued semantic release."""
+        with self._lock:
+            state = self._entry_hold
+            if self._stopped or state is None or state.native_release_seen:
+                return False
+            state.native_release_seen = True
+            return state.opened
+
     def stop(self) -> None:
         with self._lock:
             if self._stopped:
@@ -323,6 +362,7 @@ class _HotkeyDispatcher:
                     or current is None
                     or current.hold_id != hold_id
                     or current.timer_generation != timer_generation
+                    or current.native_release_seen
                     or self._pressed != {"alt"}
                 ):
                     return
@@ -689,7 +729,7 @@ def register_hotkeys_with_long_press(
     listener = keyboard.Listener(
         on_press=dispatcher.on_press,
         on_release=dispatcher.on_release,
-        win32_event_filter=_allow_physical_windows_key,
+        win32_event_filter=_WindowsHotkeyEventFilter(dispatcher),
     )
     listener.start()
     return HotkeyListener(listener, dispatcher)

@@ -34,6 +34,16 @@ owner. See ADR-0015 for evidence, limitations and the review trigger.
 
 ### Bounded external-window readiness
 
+Bare Alt Entry Panel gestures also require native menu masking. The platform
+hotkey dispatcher owns the consumed hold and whether its native release was seen;
+the Windows hook inserts a balanced unassigned `VK_E8` pair before forwarding that
+hold's physical Alt-up. This prevents Qt/Windows menu navigation from moving
+virtual focus off the selected control while the same HWND remains foreground.
+Short Alt, unclaimed chords and injected input are not masked. A native release
+seen before the hold deadline rejects the late timer even when pynput's semantic
+release is still queued. No new focus restoration or capture owner is introduced.
+The Anki copy profile continues to reject menu-bar ancestry.
+
 Entry Panel input preparation passes an immutable `ExternalWindowWaitPolicy`
 through `ExternalWindowActivator`: 3 seconds of combined activation and
 post-capture confirmation time, with a waiting notice after 500 ms. Selection
