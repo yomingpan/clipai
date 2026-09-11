@@ -432,6 +432,12 @@ clipboard 變更取代。
 `tests/platform/test_selection_uia_integration.py` 是另行啟用的 Windows 真實
 RichTextBox 測試，涵蓋選取、重複相同選取與只有游標；不得將其當成所有 app
 皆受支援的證據。
+同一 probe 必須跨三次讀取重用，finally 同時清理 probe 與 UI host。
+`tests/platform/test_selection_worker_lifecycle.py -m integration` 使用受控真實
+子行程驗證 reuse、retirement、EOF、malformed response、取消、overflow 並行停止、
+停止後拒絕新請求與晚到 process 清理；不讀取使用者來源或剪貼簿。
+停止的 2 秒是所有 worker 共用額度，必須涵蓋強制終止與退出確認；無法確認
+時回報失敗並保留 ownership，不得將 timeout 當成成功。
 
 `scripts/selection_reliability_gate.py` 每個 seed 執行 480 案 deterministic policy
 matrix 並輸出 JSONL；其延遲只屬 simulation，不得當作裝置證據。

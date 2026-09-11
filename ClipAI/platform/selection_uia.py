@@ -62,6 +62,9 @@ class WindowsSelectionProbe:
         self._max_requests_per_worker = max_requests_per_worker
         self._process_factory = process_factory
         self._owned_lock = threading.Lock()
+        self._lifecycle_lock = threading.Lock()
+        self._stopped = threading.Event()
+        self._workers: set[_WorkerProcess] = set()
         self._owned_worker: _WorkerProcess | None = None
         self._owned_source: tuple[str, int] | None = None
         self._owned_requests = 0
@@ -70,8 +73,22 @@ class WindowsSelectionProbe:
         """Workers are source-bound and therefore start lazily on first use."""
 
     def stop(self) -> None:
-        with self._owned_lock:
-            self._retire_owned()
+        deadline = time.monotonic() + 2.0
+        with self._lifecycle_lock:
+            self._stopped.set()
+            workers = tuple(self._workers)
+        # Initiate every cleanup before waiting: the budget is container-wide.
+        for worker in workers:
+            worker.begin_retirement()
+        failed = False
+        for worker in workers:
+            if worker.retire(deadline):
+                with self._lifecycle_lock:
+                    self._workers.discard(worker)
+            else:
+                failed = True
+        if failed:
+            raise RuntimeError("Selection worker cleanup could not confirm process exit")
 
     def capture_source(self, target: ExternalWindowRef | None) -> SelectionSource | None:
         return capture_windows_source(target)
@@ -80,7 +97,7 @@ class WindowsSelectionProbe:
         return capture_windows_source(source.window) == source
 
     def probe(self, source: SelectionSource, cancellation: CancellationToken | None) -> SelectionCaptureOutcome:
-        if cancellation is not None and cancellation.is_cancelled:
+        if self._stopped.is_set() or (cancellation is not None and cancellation.is_cancelled):
             return SelectionCaptureOutcome(status="cancelled", strategy="uia")
         if self._owned_lock.acquire(blocking=False):
             try:
@@ -104,6 +121,8 @@ class WindowsSelectionProbe:
                 self._owned_requests = 0
             except Exception:
                 self._retire_owned()
+                if self._stopped.is_set():
+                    return SelectionCaptureOutcome(status="cancelled", strategy="uia")
                 return SelectionCaptureOutcome(reason="uia_unavailable", strategy="uia")
 
         outcome, healthy = self._owned_worker.request(
@@ -127,13 +146,23 @@ class WindowsSelectionProbe:
             )
             return outcome
         except Exception:
+            if self._stopped.is_set():
+                return SelectionCaptureOutcome(status="cancelled", strategy="uia")
             return SelectionCaptureOutcome(reason="uia_unavailable", strategy="uia")
         finally:
             if worker is not None:
-                worker.retire()
+                self._retire_worker(worker)
 
     def _start_worker(self) -> _WorkerProcess:
-        process = self._process_factory(
+        with self._lifecycle_lock:
+            if self._stopped.is_set():
+                raise RuntimeError("Selection probe is stopped")
+            worker = _WorkerProcess(self._launch_process)
+            self._workers.add(worker)
+            return worker
+
+    def _launch_process(self):
+        return self._process_factory(
             # Windows venv python.exe can be a redirector with a child process.
             # Launch the real interpreter so killing this PID kills the UIA call.
             [
@@ -146,11 +175,16 @@ class WindowsSelectionProbe:
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        return _WorkerProcess(process)
+
+    def _retire_worker(self, worker: _WorkerProcess) -> None:
+        if not worker.retire(time.monotonic() + 2.0):
+            raise RuntimeError("Selection worker cleanup could not confirm process exit")
+        with self._lifecycle_lock:
+            self._workers.discard(worker)
 
     def _retire_owned(self) -> None:
         if self._owned_worker is not None:
-            self._owned_worker.retire()
+            self._retire_worker(self._owned_worker)
         self._owned_worker = None
         self._owned_source = None
         self._owned_requests = 0
@@ -166,8 +200,25 @@ def _request_payload(source: SelectionSource) -> str:
 
 
 class _WorkerProcess:
-    def __init__(self, process: Any) -> None:
-        self._process = process
+    """Contain launch, blocking pipes and retirement behind bounded waits."""
+
+    def __init__(self, launch) -> None:
+        self._process: Any = None
+        self._ready = threading.Event()
+        self._retiring = threading.Event()
+        self._retired = threading.Event()
+        self._retirement_lock = threading.Lock()
+        self._io_thread: threading.Thread | None = None
+
+        def guarded_start() -> None:
+            try:
+                self._process = launch()
+            except Exception:
+                pass  # request reports unavailable; no native details escape.
+            finally:
+                self._ready.set()
+
+        threading.Thread(target=guarded_start, daemon=True).start()
 
     def request(
         self,
@@ -177,27 +228,27 @@ class _WorkerProcess:
     ) -> tuple[SelectionCaptureOutcome, bool]:
         responses: queue.Queue[object] = queue.Queue(maxsize=1)
         try:
-            if self._process.stdin is None or self._process.stdout is None:
-                return SelectionCaptureOutcome(reason="uia_worker_failed", strategy="uia"), False
-            self._process.stdin.write(request + "\n")
-            self._process.stdin.flush()
-
             def read_response() -> None:
                 try:
+                    self._ready.wait()
+                    if self._retiring.is_set() or self._process is None:
+                        responses.put("")
+                        return
+                    self._process.stdin.write(request + "\n")
+                    self._process.stdin.flush()
                     responses.put(self._process.stdout.readline())
                 except Exception as exc:
                     responses.put(exc)
 
-            threading.Thread(target=read_response, daemon=True).start()
+            self._io_thread = threading.Thread(target=read_response, daemon=True)
+            self._io_thread.start()
             deadline = time.monotonic() + timeout_sec
             while True:
-                if cancellation is not None and cancellation.is_cancelled:
+                if self._retiring.is_set() or (cancellation is not None and cancellation.is_cancelled):
                     return SelectionCaptureOutcome(status="cancelled", strategy="uia"), False
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return SelectionCaptureOutcome(reason="uia_timeout", strategy="uia"), False
-                if self._process.poll() is not None:
-                    return SelectionCaptureOutcome(reason="uia_worker_failed", strategy="uia"), False
                 try:
                     response = responses.get(timeout=min(0.02, remaining))
                 except queue.Empty:
@@ -207,6 +258,10 @@ class _WorkerProcess:
                 payload = json.loads(response)
                 break
             status = payload.get("status")
+            if type(payload.get("worker_reusable")) is not bool:
+                return SelectionCaptureOutcome(reason="uia_invalid_result", strategy="uia"), False
+            if not isinstance(payload.get("text", ""), str) or not isinstance(payload.get("reason", ""), str):
+                return SelectionCaptureOutcome(reason="uia_invalid_result", strategy="uia"), False
             if status not in {"selected", "none", "unknown"}:
                 return SelectionCaptureOutcome(reason="uia_invalid_result", strategy="uia"), False
             for capability in ("selection_detected", "copy_selection_only", "focus_restored"):
@@ -219,38 +274,57 @@ class _WorkerProcess:
                 copy_selection_only=payload.get("copy_selection_only") is True,
                 focus_restored=payload.get("focus_restored") is True,
             )
-            healthy = not (
-                outcome.reason.endswith("_failed")
-                or outcome.reason == "uia_invalid_request"
-            )
-            return outcome, healthy
+            if self._retiring.is_set() or (cancellation is not None and cancellation.is_cancelled):
+                return SelectionCaptureOutcome(status="cancelled", strategy="uia"), False
+            return outcome, payload["worker_reusable"]
         except Exception:
             return SelectionCaptureOutcome(reason="uia_invalid_result", strategy="uia"), False
 
-    def retire(self) -> None:
+    def begin_retirement(self) -> None:
+        with self._retirement_lock:
+            if self._retiring.is_set():
+                return
+            self._retiring.set()
+            threading.Thread(target=self._cleanup, daemon=True).start()
+
+    def retire(self, deadline: float) -> bool:
+        self.begin_retirement()
+        return self._retired.wait(max(0.0, deadline - time.monotonic()))
+
+    def _cleanup(self) -> None:
+        # A slow launch remains owned even after stop reports its deadline.
+        self._ready.wait()
         process = self._process
+        if process is None:
+            self._retired.set()
+            return
+
+        def close_input() -> None:
+            try:
+                if process.stdin is not None:
+                    process.stdin.close()
+            except (OSError, ValueError):
+                pass
+
+        # close() may contend with a blocked pipe write. Never block the caller.
+        closer = threading.Thread(target=close_input, daemon=True)
+        closer.start()
         try:
-            if process.stdin is not None:
-                process.stdin.close()
-        except OSError:
-            pass
-        if process.poll() is None:
             try:
                 process.wait(timeout=0.2)
-            except (OSError, subprocess.TimeoutExpired):
+            except subprocess.TimeoutExpired:
                 pass
-        if process.poll() is None:
-            try:
+            if process.poll() is None:
                 process.kill()
-            except OSError:
-                pass
-            try:
-                process.wait(timeout=1)
-            except (OSError, subprocess.TimeoutExpired):
-                pass
-        for stream in (process.stdout, process.stderr):
-            if stream is not None:
-                try:
+                process.wait(timeout=1.0)
+            if process.poll() is None:
+                return
+            if self._io_thread is not None:
+                self._io_thread.join()
+            closer.join()
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
                     stream.close()
-                except OSError:
-                    pass
+            self._retired.set()
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return  # Retain ownership; bounded retire reports cleanup failure.

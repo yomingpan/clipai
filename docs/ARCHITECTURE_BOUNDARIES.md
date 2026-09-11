@@ -244,6 +244,13 @@ while overlap uses an isolated overflow process. The probe is an app-owned
 outcomes into an empty string. Entry Panel and Workflow runtime bind native source
 identity before first projection; UIA work stays off the UI thread.
 
+The probe owns launching, reusable and overflow processes in one registry.
+Stopping closes admission permanently and shares a two-second cleanup deadline
+across all workers. Unconfirmed cleanup is reported and remains owned, including
+late process creation. Native detection emits explicit worker reuse evidence;
+transport must not infer lifecycle from diagnostic reason strings. This private
+platform metadata does not change the core selection outcome interface.
+
 `SelectionCaptureCoordinator` is the only owner of the physical modifier-release
 gate and enforces modifier-release → source-current → probe. A platform adapter
 may restore focus only inside a verified source and reports the immutable

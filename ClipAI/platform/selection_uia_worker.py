@@ -1,7 +1,7 @@
 """Private, content-in-memory UIA worker. Never logs selection text."""
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 import json
 import sys
 import time
@@ -17,8 +17,17 @@ from ClipAI.platform.selection_copy_profiles import (
 )
 
 
-def _unknown(reason: str, *, detected: bool = False) -> SelectionCaptureOutcome:
-    return SelectionCaptureOutcome(reason=reason, strategy="uia", selection_detected=detected)
+@dataclass(frozen=True)
+class NativeSelectionResult:
+    outcome: SelectionCaptureOutcome
+    worker_reusable: bool = True
+
+
+def _unknown(reason: str, *, detected: bool = False, reusable: bool = True) -> NativeSelectionResult:
+    return NativeSelectionResult(
+        SelectionCaptureOutcome(reason=reason, strategy="uia", selection_detected=detected),
+        reusable,
+    )
 
 
 def _ancestry(focused, walker, expected_hwnd: int):
@@ -98,7 +107,7 @@ def _restore_card_focus(api, walker, root, expected_hwnd: int):
     return None
 
 
-def read_selection(source: SelectionSource) -> SelectionCaptureOutcome:
+def read_selection(source: SelectionSource) -> NativeSelectionResult:
     if capture_windows_source(source.window) != source:
         return _unknown("source_changed")
     try:
@@ -132,7 +141,7 @@ def read_selection(source: SelectionSource) -> SelectionCaptureOutcome:
         ):
             restored = _restore_card_focus(api=AutomationElement, walker=walker, root=path[-1], expected_hwnd=expected_hwnd)
             if restored is None:
-                return _unknown("uia_focus_restore_failed")
+                return _unknown("uia_focus_restore_failed", reusable=False)
             focused, path = restored
             focus_restored = True
             ancestry = _identity(path)
@@ -158,33 +167,33 @@ def read_selection(source: SelectionSource) -> SelectionCaptureOutcome:
                 TextPatternRangeEndpoint.Start, r, TextPatternRangeEndpoint.End,
             ) != 0]
             if not selected:
-                outcome = SelectionCaptureOutcome(status="none", reason="uia_caret_only", strategy="uia")
+                outcome = NativeSelectionResult(SelectionCaptureOutcome(status="none", reason="uia_caret_only", strategy="uia"))
                 break
             try:
                 # UIA RichEdit uses CR paragraph separators; preserve logical lines
                 # as LF without trimming indentation or trailing selected whitespace.
                 parts = [str(r.GetText(-1)).replace("\r\n", "\n").replace("\r", "\n") for r in selected]
             except Exception:
-                outcome = _unknown("uia_text_failed", detected=True)
+                outcome = _unknown("uia_text_failed", detected=True, reusable=False)
                 break
             if any(not part for part in parts):
                 outcome = _unknown("uia_selected_text_unavailable", detected=True)
             else:
-                outcome = SelectionCaptureOutcome(
+                outcome = NativeSelectionResult(SelectionCaptureOutcome(
                     "\n".join(parts), "selected", strategy="uia", selection_detected=True,
-                )
+                ))
             break
-        if outcome.reason == "uia_unsupported":
+        if outcome.outcome.reason == "uia_unsupported":
             if supports_selection_only_copy(process_name, executable_path, ancestry):
-                outcome = SelectionCaptureOutcome(
+                outcome = NativeSelectionResult(SelectionCaptureOutcome(
                     reason="selection_only_copy_available", strategy="uia",
                     copy_selection_only=True,
-                )
+                ))
         # An HWND may stay constant while focus moves between virtual controls.
         current = AutomationElement.FocusedElement
         if current is None or tuple(current.GetRuntimeId()) != focus_id:
             return _unknown("uia_focus_changed")
-        if outcome.status in {"selected", "none"}:
+        if outcome.outcome.status in {"selected", "none"}:
             final_ranges = pattern.GetSelection()
             if final_ranges is None or len(final_ranges) != len(original_ranges) or not all(
                 before.Compare(after) for before, after in zip(original_ranges, final_ranges)
@@ -198,9 +207,9 @@ def read_selection(source: SelectionSource) -> SelectionCaptureOutcome:
             or (not focus_restored and current_source != source)
         ):
             return _unknown("source_changed")
-        return replace(outcome, focus_restored=focus_restored)
+        return replace(outcome, outcome=replace(outcome.outcome, focus_restored=focus_restored))
     except Exception:
-        return _unknown("uia_provider_failed")
+        return _unknown("uia_provider_failed", reusable=False)
 
 
 def main() -> None:
@@ -215,9 +224,14 @@ def main() -> None:
             )
             outcome = read_selection(source)
         except Exception:
-            outcome = _unknown("uia_invalid_request")
-        sys.stdout.write(json.dumps(asdict(outcome), ensure_ascii=True) + "\n")
+            outcome = _unknown("uia_invalid_request", reusable=False)
+        sys.stdout.write(json.dumps(worker_response(outcome), ensure_ascii=True) + "\n")
         sys.stdout.flush()
+
+
+def worker_response(result: NativeSelectionResult) -> dict[str, object]:
+    """Native evidence owns reuse admission; diagnostics never drive transport."""
+    return {**asdict(result.outcome), "worker_reusable": result.worker_reusable}
 
 
 if __name__ == "__main__":

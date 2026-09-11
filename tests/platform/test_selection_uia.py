@@ -21,7 +21,7 @@ SOURCE = SelectionSource(ExternalWindowRef("hwnd:1", 42, 0), "hwnd:2")
 
 class Process:
     def __init__(self, payload=None, *, blocked=False, token=None):
-        self.payload = payload or {"status": "none"}
+        self.payload = {"worker_reusable": True, **(payload or {"status": "none"})}
         self.blocked = blocked
         self.token = token
         self.returncode = None
@@ -152,8 +152,8 @@ def test_switching_top_level_source_retires_previous_worker_before_starting_next
 @pytest.mark.parametrize("payload", [
     {"status": "broken"},
     {"status": "unknown", "copy_selection_only": "true"},
-    {"status": "unknown", "reason": "uia_provider_failed"},
-    {"status": "unknown", "reason": "uia_text_failed", "selection_detected": True},
+    {"status": "unknown", "reason": "uia_provider_failed", "worker_reusable": False},
+    {"status": "unknown", "reason": "uia_text_failed", "selection_detected": True, "worker_reusable": False},
 ])
 def test_invalid_or_failed_owned_worker_is_retired_before_next_request(payload):
     processes = []
@@ -182,7 +182,7 @@ def test_concurrent_probe_uses_isolated_overflow_worker():
         def readline(self, *args, **kwargs):
             first_entered.set()
             release_first.wait(1)
-            return json.dumps({"status": "none"}) + "\n"
+            return json.dumps({"status": "none", "worker_reusable": True}) + "\n"
 
     def start(*args, **kwargs):
         process = Process({"status": "none"})
@@ -271,7 +271,9 @@ def install_provider(monkeypatch, *, ranges=None, supported=True, password=False
 ])
 def test_provider_evidence_distinguishes_none_from_unavailable(monkeypatch, ranges, supported, status, reason):
     install_provider(monkeypatch, ranges=ranges, supported=supported)
-    result = worker.read_selection(SOURCE)
+    native = worker.read_selection(SOURCE)
+    result = native.outcome
+    assert native.worker_reusable is (reason != "uia_text_failed")
     assert (result.status, result.reason) == (status, reason)
     if status == "selected":
         assert result.text == " \ntext\t "
@@ -285,7 +287,7 @@ def test_provider_evidence_distinguishes_none_from_unavailable(monkeypatch, rang
 ])
 def test_provider_rejects_wrong_or_changed_source(monkeypatch, kwargs, reason):
     install_provider(monkeypatch, ranges=[Range()], **kwargs)
-    result = worker.read_selection(SOURCE)
+    result = worker.read_selection(SOURCE).outcome
     assert result.status == "unknown"
     assert result.reason == reason
     assert not result.text
@@ -295,7 +297,7 @@ def test_selection_changed_in_same_control_does_not_return_old_text(monkeypatch)
     pattern = install_provider(monkeypatch)
     values = iter([[Range("first")], [Range("second")]])
     pattern.GetSelection = lambda: next(values)
-    result = worker.read_selection(SOURCE)
+    result = worker.read_selection(SOURCE).outcome
     assert result.status == "unknown"
     assert result.reason == "uia_selection_changed"
 
@@ -335,7 +337,7 @@ def test_anki_card_without_textpattern_offers_selection_only_copy(monkeypatch, p
         ids = iter([(42, 2), (42, 3)])
         focused.GetRuntimeId = lambda: next(ids)
 
-    result = worker.read_selection(SOURCE)
+    result = worker.read_selection(SOURCE).outcome
 
     assert result.status == "unknown"  # capability does not prove a selection exists
     assert result.copy_selection_only is expected
@@ -407,7 +409,7 @@ def test_gray_anki_card_restores_only_inner_card_focus(
     ))
     monkeypatch.setattr(worker, "capture_windows_source", lambda _: SOURCE)
 
-    result = worker.read_selection(SOURCE)
+    result = worker.read_selection(SOURCE).outcome
 
     assert result.focus_restored is restored
     assert result.copy_selection_only is restored

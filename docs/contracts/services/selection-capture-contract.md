@@ -13,6 +13,31 @@
 
 ## Results
 
+### Worker lifecycle
+
+`WindowsSelectionProbe` owns all launched and launching processes, including
+overflow. `stop()` permanently closes admission, initiates cleanup concurrently,
+and waits at most two seconds total, including graceful exit, forced termination
+and exit confirmation. A subsequent `start()` does not reopen this owner.
+Unconfirmed cleanup raises `RuntimeError`; runtime teardown logs it and continues
+other cleanup. Failed or late-launch workers remain owned, and a late process
+still receives cleanup. Repeating `stop()` can confirm a completed late cleanup.
+No timeout is represented as confirmed process exit.
+
+The private native result carries explicit `worker_reusable` truth separately
+from the semantic selection outcome. Transport requires a boolean field and
+validates the response; diagnostic reason spelling never determines reuse.
+Provider, text retrieval and focus restoration failures explicitly reject reuse
+at their detection sites. Missing or malformed lifecycle evidence retires the
+worker. Lifecycle metadata stays in platform and does not enter core outcomes.
+
+Process launch and pipe I/O never hold the lifecycle admission lock. Retirement
+can interrupt an outstanding exchange; pipe cleanup is only confirmed after the
+process exits and exchange/close threads finish. OS launch/cleanup that cannot
+settle within the bound is reported rather than blocking shutdown indefinitely.
+
+### Semantic outcomes
+
 | Status | Meaning | Automatic clipboard fallback |
 |---|---|---|
 | selected | Nonempty text from the validated selection | No |
@@ -129,6 +154,11 @@ The content-free probe hashes HWND/PID identity and never emits executable paths
 
 Simulated tests cover unknown versus none, stale source and late cancellation, timeout cleanup, provider ancestry/focus/range changes, exact whitespace preservation, unavailable clipboard, and explicit frozen clipboard choice. Architecture tests forbid the old string-only selection port and require native probe wiring with one clipboard transaction owner.
 
-Opt-in Windows test: `python -m pytest tests/platform/test_selection_uia_integration.py -m integration`. It opens an owned temporary RichTextBox and checks selected text, repeated identical selection, and caret-only state, then cleans up its host. Run on an interactive desktop. This is not a substitute for testing the user's specific apps, web pages, PDFs, and permission levels.
+Opt-in Windows test: `python -m pytest tests/platform/test_selection_uia_integration.py -m integration`. It opens an owned temporary RichTextBox and checks selected text, repeated identical selection, and caret-only state through one probe, then cleans up both probe and host in nested finally blocks. Run on an interactive desktop. This is not a substitute for testing the user's specific apps, web pages, PDFs, and permission levels.
+
+`tests/platform/test_selection_worker_lifecycle.py -m integration` uses controlled
+real subprocesses without UIA, clipboard or external source access. It verifies
+reuse, retirement, malformed replies, EOF, cancellation, concurrent overflow stop,
+terminal admission and late-launch cleanup against the public probe interface.
 
 Limitations: UIA is not an atomic snapshot at physical key-down; sources are bound at intent admission and verified around the subsequent read. Clipboard sequence changes do not provide cryptographic proof of the copy producer. Unsupported or incomplete providers require a separate verified adapter; screenshots are not silently substituted.
