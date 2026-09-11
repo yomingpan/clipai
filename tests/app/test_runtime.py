@@ -2481,6 +2481,57 @@ def test_runtime_starts_and_stops_foreground_monitor() -> None:
     assert monitor.stopped is True
 
 
+def test_runtime_starts_background_components_before_input_and_stops_them() -> None:
+    runtime, _view, _supervisor, _outputs, listener = make_runtime()
+    events = []
+
+    class Component:
+        def start(self): events.append("component:start")
+        def stop(self): events.append("component:stop")
+
+    runtime._background_components = (Component(),)
+    runtime._hotkey_registrar = lambda *_args: events.append("input:start") or listener
+
+    runtime.start()
+    runtime.stop()
+
+    assert events[:2] == ["component:start", "input:start"]
+    assert "component:stop" in events
+
+
+def test_runtime_shutdown_continues_after_one_teardown_fails() -> None:
+    runtime, view, supervisor, _outputs, listener = make_runtime()
+    events = []
+
+    class BrokenComponent:
+        def start(self): pass
+        def stop(self):
+            events.append("component:failed")
+            raise RuntimeError("stop failed")
+
+    runtime._background_components = (BrokenComponent(),)
+    runtime.start()
+    runtime.stop()
+
+    assert events == ["component:failed"]
+    assert listener.stopped and supervisor.closed and view.stopped
+
+
+def test_run_forever_cleans_up_when_start_fails() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+
+    class BrokenComponent:
+        def start(self): raise RuntimeError("start failed")
+        def stop(self): pass
+
+    runtime._background_components = (BrokenComponent(),)
+
+    with pytest.raises(RuntimeError, match="start failed"):
+        runtime.run_forever()
+
+    assert supervisor.closed and view.stopped
+
+
 def test_tray_exit_uses_typed_shutdown_command() -> None:
     runtime, view, supervisor, _outputs, listener = make_runtime(with_tray=True)
     runtime.start()

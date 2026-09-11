@@ -6,7 +6,8 @@
 
 - `begin_capture` performs only cheap native identity reads; it does not call UIA, mutate the clipboard, or move focus. `SelectionCaptureRequest` binds HWND, PID, and native focus. A failed binding remains unavailable; capture must not silently bind a new source.
 - Entry Panel binds before presenting its preparing view. Action and contextual-question runtime bind before creating their first Workflow projection. Retries retain the original source and get a fresh preparation-scoped capture identity.
-- UIA lives in a hidden child process, receives only source identity via stdin, and returns a typed result via stdout. The parent polls cancellation and enforces a two-second deadline, then terminates/reaps the actual worker process and closes redirected handles.
+- UIA lives in a hidden child process and exchanges newline-delimited, identity-only requests and typed results. One probe owns one healthy worker for a single top-level HWND/PID, serves requests sequentially, and retires it after 64 requests. Switching top-level source retires the old worker before reuse. Timeout, cancellation, malformed results and provider/restore failure retire and reap the worker immediately. An overlapping request uses an isolated one-request overflow process; there is no disposable worker pool.
+- `SelectionCaptureCoordinator` alone gates capture on physical `ctrl`, `alt`, and `shift` release. The fixed order is modifier release, current-source validation, then probe. Timeout returns `modifier_timeout`; cancellation returns `cancelled`; neither checks the source, probes UIA, or mutates the clipboard.
 - UIA focus must belong to the original top-level window. Search only its focused element's ancestry, not arbitrary desktop elements. Password controls are unavailable. Full document text, Name, and Value cannot substitute for selection.
 - UIA focus and selection ranges are checked again after reading. Original logical lines, indentation, and trailing whitespace survive; CR/CRLF are represented as LF. Disjoint ranges are joined with LF in provider order.
 
@@ -22,13 +23,23 @@
 
 Positive selection evidence with failed text retrieval may use the existing controlled Ctrl+C transaction. A source-bound `copy_selection_only` capability may also permit that transaction: it means a verified adapter recognizes a source whose Copy command only copies selected content, not that a selection exists. Unsupported editors without this capability must not receive blind Ctrl+C: some copy the whole current line without a selection. Source checks precede clipboard mutation and copy and continue during polling. Copy timeout and empty copy never establish `none`, even for a verified source, and never permit automatic old-clipboard fallback.
 
-The first verified profile is Anki's main card WebView: process `anki`, Qt focused
-ancestry containing `MainWebView`, and exact top-level `AnkiQt` HWND/PID. Native
+The first verified profile is Anki's main card WebView: verified `anki.exe`, or
+the launcher layout `AnkiProgramFiles/python/cpython-<version>-windows-x86_64-none/pythonw.exe`,
+Qt focused ancestry containing `MainWebView`, and exact top-level `AnkiQt` HWND/PID. Native
 and virtual focus, source ancestry and password checks still apply. Toolbars,
 editors, unrelated Qt apps, siblings and arbitrary unsupported controls are not
 covered. `platform/selection_copy_profiles.py` owns this recognition; services
 consume only the typed capability and reuse the single clipboard transaction
 owner. See ADR-0015 for evidence, limitations and the review trigger.
+
+A verified Anki shell may authorize one narrower side effect when its card is
+gray/unfocused: the worker finds `MainWebView`, calls `SetFocus` only on its inner
+card element, polls for bounded settlement, and rereads focused ancestry. It does
+not activate a top-level window, synthesize input, or touch the clipboard. The
+typed `focus_restored` flag requires the coordinator to recapture the same
+top-level HWND/PID before staleness validation. A missing/different source is
+`source_changed`. Copy trust is still granted only by the restored focused
+`MainWebView` ancestry; application identity alone never grants Copy.
 
 ## Entry Panel and consumer policy
 
@@ -75,7 +86,7 @@ the longer readiness policy is explicitly supplied by Entry Panel only.
 Activation, selection capture, and confirmation log separate elapsed times and
 operation identities without source/clipboard content.
 
-`PreparedInput` retains the selection outcome and a frozen clipboard fallback. A missing selection adapter uses that fallback automatically and the resolved document identifies `clipboard` as its source. Unknown selection disables selection-dependent Actions without erasing explicitly clipboard-only capabilities. `UseEntryPanelClipboard(panel_id)` applies only to the current Panel with prepared clipboard content, changes the source preview to clipboard, and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
+`PreparedInput` retains the selection outcome and a frozen clipboard fallback. A missing selection adapter uses that fallback automatically and the resolved document identifies `clipboard` as its source. For the Entry Panel only, an `unknown` selection with frozen clipboard text/image automatically applies `PreparedInput.use_clipboard()` and keeps the clipboard preview visible; unknown with no clipboard remains retryable. Direct Actions, contextual questions and global speech retain correctness-first `selection_unknown` behavior. `UseEntryPanelClipboard(panel_id)` remains an idempotent typed intent against current frozen input and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
 
 Direct visible Actions and Entry Panel both call `InputResolver.prepare_input` and
 consume immutable `PreparedInput.resolve(mode)`. Clipboard-only Actions skip the
@@ -112,6 +123,7 @@ an enabled recovery button.
 
 Diagnostics include operation identity, source token, status, reason, strategy,
 elapsed time, and restoration outcome, never selected text or clipboard content.
+The content-free probe hashes HWND/PID identity and never emits executable paths.
 
 ## Validation
 

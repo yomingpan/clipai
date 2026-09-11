@@ -366,7 +366,7 @@ def test_entry_panel_action_trace_links_panel_to_admitted_workflow(caplog) -> No
     assert "press_type=short" in trace
 
 
-def test_explicit_clipboard_choice_uses_frozen_input_and_rejects_other_panel():
+def test_unknown_capture_auto_uses_frozen_clipboard_only_in_entry_panel():
     inputs = Inputs(PreparedInput(
         clipboard_text_document=InputDocument("original clipboard", "clipboard"),
         selection_outcome=SelectionCaptureOutcome(reason="uia_unsupported"),
@@ -374,17 +374,28 @@ def test_explicit_clipboard_choice_uses_frozen_input_and_rejects_other_panel():
     module, coordinator, presenter, supervisor, workflows, activator, _, commands, _ = make_module(input_resolver=inputs)
     panel_id = module.open().panel_id
     complete_external_preparation(module, supervisor, commands)
-    assert coordinator.snapshot.source_preview.clipboard_override_available
-    module.select_action(EntryActionRef("shorten_content", "short"))
-    assert not workflows.starts
-    module.handle(UseEntryPanelClipboard("stale-panel"))
-    assert coordinator.snapshot.source_preview.kind == "failed"
-    inputs.prepared = PreparedInput(clipboard_text_document=InputDocument("changed", "clipboard"))
-    module.handle(UseEntryPanelClipboard(panel_id))
     assert coordinator.snapshot.source_preview.kind == "clipboard_text"
+    assert not coordinator.snapshot.source_preview.clipboard_override_available
+    module.handle(UseEntryPanelClipboard("stale-panel"))
+    assert coordinator.snapshot.source_preview.kind == "clipboard_text"
+    inputs.prepared = PreparedInput(clipboard_text_document=InputDocument("changed", "clipboard"))
     module.select_action(EntryActionRef("shorten_content", "short"))
     assert workflows.starts[-1][3].document.text == "original clipboard"
     assert inputs.calls == 1
+
+
+def test_unknown_capture_with_empty_clipboard_stays_retryable():
+    inputs = Inputs(PreparedInput(
+        selection_outcome=SelectionCaptureOutcome(reason="uia_timeout"),
+    ))
+    module, coordinator, _presenter, supervisor, workflows, _activator, _, commands, _ = make_module(input_resolver=inputs)
+
+    module.open()
+    complete_external_preparation(module, supervisor, commands)
+
+    assert coordinator.snapshot.source_preview.kind == "failed"
+    module.select_action(EntryActionRef("shorten_content", "short"))
+    assert workflows.starts == []
 
 
 def test_source_binding_precedes_panel_projection_and_reaches_capture():

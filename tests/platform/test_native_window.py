@@ -100,12 +100,28 @@ def test_windows_surface_activates_and_verifies_foreground_ownership() -> None:
 
 def test_windows_surface_shows_without_activation_and_restores_external_foreground() -> None:
     user32 = User32()
+    original_show = user32.ShowWindow
+    def stealing_show(hwnd: int, command: int) -> bool:
+        original_show(hwnd, command)
+        user32.foreground = hwnd
+        return True
+    user32.ShowWindow = stealing_show
     surface = WindowsNativeWindowSurface(user32=user32, kernel32=Kernel32())
 
     assert surface.show_without_activation(10) is True
 
     assert user32.shown == [(20, 4)]
     assert user32.restored == [30]
+
+
+def test_windows_surface_does_not_reactivate_when_no_activate_show_preserves_foreground() -> None:
+    user32 = User32()
+    surface = WindowsNativeWindowSurface(user32=user32, kernel32=Kernel32())
+
+    assert surface.show_without_activation(10) is True
+
+    assert user32.shown == [(20, 4)]
+    assert user32.restored == []
 
 
 def test_windows_surface_owns_icon_handles_until_explicit_destroy() -> None:

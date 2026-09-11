@@ -71,7 +71,12 @@ class WindowsNativeWindowSurface:
             previous_foreground = int(self._user32.GetForegroundWindow())
             hwnd = self._top_level(toolkit_child_id)
             self._user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
-            if previous_foreground and previous_foreground != hwnd:
+            foreground_after_show = int(self._user32.GetForegroundWindow())
+            if (
+                previous_foreground
+                and previous_foreground != hwnd
+                and foreground_after_show == hwnd
+            ):
                 activate_top_level_window(
                     previous_foreground,
                     user32=self._user32,

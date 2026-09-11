@@ -28,6 +28,7 @@ from ClipAI.ui.base_dialog import (
     TC_FONT_FAMILY,
     _Tooltip,
 )
+from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
 
@@ -139,6 +140,12 @@ class UnifiedEntryPanelDialog:
             raise ValueError("UnifiedEntryPanelDialog requires a primary surface host and lease")
         self._window = primary_surface_host.window
         self._lifecycle = primary_surface_host.lifecycle
+        # Panel-owned delayed work must be cancellable on reclaim without
+        # cancelling jobs that belong to a Popup mounted in the same host.
+        self._schedule_lifecycle = DialogLifecycle(
+            self._window,
+            owns_mainloop=False,
+        )
         self._window.bind("<Escape>", self._on_escape, add="+")
         self._window.bind("<Control-z>", self._on_back, add="+")
         self._window.bind("<KeyPress>", self._on_key, add="+")
@@ -193,7 +200,7 @@ class UnifiedEntryPanelDialog:
         self._density_tooltip = _Tooltip(
             self._density,
             "顯示詳細說明，點擊切換精簡模式",
-            self._lifecycle,
+            self._schedule_lifecycle,
         )
         self._escape_button = ctk.CTkButton(
             header,
@@ -313,6 +320,8 @@ class UnifiedEntryPanelDialog:
         return snapshot is not None and snapshot.panel_id == panel_id
 
     def close(self) -> None:
+        self._density_tooltip._hide()
+        self._schedule_lifecycle.cancel_scheduled()
         self._snapshot = None
 
     @property

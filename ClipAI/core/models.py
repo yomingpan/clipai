@@ -758,10 +758,14 @@ class SelectionCaptureOutcome:
     selection_detected: bool = False
     # Verified source capability, not evidence that a selection currently exists.
     copy_selection_only: bool = False
+    # A verified adapter restored focus only inside the bound top-level source.
+    focus_restored: bool = False
 
     def __post_init__(self) -> None:
         if type(self.copy_selection_only) is not bool:
             raise ValueError("copy_selection_only must be a boolean")
+        if type(self.focus_restored) is not bool:
+            raise ValueError("focus_restored must be a boolean")
         if self.status not in {"selected", "none", "unavailable", "unknown", "cancelled"}:
             raise ValueError("invalid selection status")
         if self.status == "selected" and not self.text:

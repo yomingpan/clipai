@@ -334,15 +334,25 @@ class EntryPanelRuntimeModule:
         ):
             return
         self._task_id = None
-        self._prepared_input = command.prepared_input
+        prepared = command.prepared_input
+        if (
+            prepared.selection_outcome is not None
+            and prepared.selection_outcome.status == "unknown"
+            and (
+                prepared.clipboard_text_document is not None
+                or prepared.clipboard_image is not None
+            )
+        ):
+            prepared = prepared.use_clipboard()
+        self._prepared_input = prepared
         self._coordinator.complete_input_preparation(
             build_entry_input_preview(
-                command.prepared_input,
+                prepared,
                 workflow_selection=self._workflow_selection,
             )
         )
         snapshot = self._coordinator.set_disabled(
-            self._disabled_actions(prepared=command.prepared_input)
+            self._disabled_actions(prepared=prepared)
         )
         assert snapshot is not None
         self._presenter.present_entry_panel(snapshot)

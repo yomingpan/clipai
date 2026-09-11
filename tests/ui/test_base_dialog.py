@@ -794,6 +794,27 @@ def test_dialog_lifecycle_exposes_closed_state() -> None:
     assert lifecycle.is_closed is True
 
 
+def test_dialog_lifecycle_can_cancel_scheduled_work_without_closing_window() -> None:
+    class Root:
+        def __init__(self):
+            self.cancelled = []
+            self.destroyed = False
+        def after(self, _delay, _callback): return "job-1"
+        def after_cancel(self, job): self.cancelled.append(job)
+        def destroy(self): self.destroyed = True
+        def quit(self): pass
+
+    root = Root()
+    lifecycle = DialogLifecycle(root)
+    lifecycle.schedule(10, lambda: None)
+
+    lifecycle.cancel_scheduled()
+
+    assert root.cancelled == ["job-1"]
+    assert lifecycle.is_closed is False
+    assert root.destroyed is False
+
+
 def test_dialog_lifecycle_focus_reports_verified_toolkit_focus() -> None:
     class Root:
         def __init__(self) -> None:

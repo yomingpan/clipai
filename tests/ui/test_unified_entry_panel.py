@@ -537,6 +537,27 @@ def test_current_bounds_is_projected_by_primary_host() -> None:
     assert dialog.current_bounds() == PopupBounds(135, 95, 440, 330)
 
 
+def test_reclaim_cancels_only_panel_scheduled_work_without_closing_shared_host() -> None:
+    events = []
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog._snapshot = object()
+    dialog._schedule_lifecycle = type(
+        "ScheduleLifecycle",
+        (),
+        {"cancel_scheduled": lambda _self: events.append("panel-jobs-cancelled")},
+    )()
+    dialog._density_tooltip = type(
+        "Tooltip",
+        (),
+        {"_hide": lambda _self: events.append("tooltip-hidden")},
+    )()
+
+    dialog.close()
+
+    assert dialog._snapshot is None
+    assert events == ["tooltip-hidden", "panel-jobs-cancelled"]
+
+
 def test_close_releases_projection_without_destroying_shared_host() -> None:
     events: list[str] = []
 
@@ -551,9 +572,15 @@ def test_close_releases_projection_without_destroying_shared_host() -> None:
     dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
     dialog._window = Window()
     dialog._lifecycle = Lifecycle()
+    dialog._schedule_lifecycle = type(
+        "ScheduleLifecycle", (), {"cancel_scheduled": lambda _self: events.append("cancelled")}
+    )()
+    dialog._density_tooltip = type(
+        "Tooltip", (), {"_hide": lambda _self: events.append("tooltip-hidden")}
+    )()
     dialog._snapshot = object()
 
     dialog.close()
 
-    assert events == []
+    assert events == ["tooltip-hidden", "cancelled"]
     assert dialog._snapshot is None

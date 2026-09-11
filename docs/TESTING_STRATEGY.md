@@ -420,13 +420,25 @@ Recipe 回饋與使用引導應測：
 ## Marker 規則
 
 Selection evidence 的回歸測試必須區分 confirmed-none、unsupported、timeout、
-source-changed 與 cancelled；unknown 不得自動使用舊剪貼簿。UIA worker 必須有
-逾時／取消後終止及回收的測試，原視窗 ancestry、virtual focus 與選取 range
-變更必須丟棄結果。Entry Panel 必須驗證首次 projection 之前綁定來源，以及
-明確「使用剪貼簿」只使用 frozen input、拒絕過時 Panel intent。
+source-changed、modifier-timeout 與 cancelled。Direct Action／朗讀的 unknown
+不得自動使用舊剪貼簿；Entry Panel 只在已有 frozen clipboard 時自動採用，空
+clipboard 維持 retry。UIA worker 必須驗證同 HWND/PID 順序重用、64 次回收、
+換來源先退役、並發 overflow 隔離，以及逾時／取消／錯型／失敗後立即終止回收。
+原視窗 ancestry、virtual focus 與選取 range 變更必須丟棄結果。modifier gate
+必須證明在來源檢查與 probe 之前。Anki 灰卡測試須拒絕泛用 Python／寬鬆路徑，
+且只在 inner card SetFocus 後的 MainWebView ancestry 授予 Copy。
+Entry Panel 必須驗證首次 projection 之前綁定來源，以及 frozen input 不被 live
+clipboard 變更取代。
 `tests/platform/test_selection_uia_integration.py` 是另行啟用的 Windows 真實
 RichTextBox 測試，涵蓋選取、重複相同選取與只有游標；不得將其當成所有 app
 皆受支援的證據。
+
+`scripts/selection_reliability_gate.py` 每個 seed 執行 480 案 deterministic policy
+matrix 並輸出 JSONL；其延遲只屬 simulation，不得當作裝置證據。
+`scripts/selection_probe_content_free.py` 在互動桌面輸出 status/reason/capability/
+elapsed 與雜湊來源 identity，不記文字或 executable path。
+`scripts/popup_first_frame_benchmark.py` 量測真實 Windows first frame 與同 host
+Entry Panel → Popup reclaim，預設 p95 門檻 150 ms，結果以 JSONL 保存。
 
 `integration` marker 表示測試會碰真實外部世界，例如：
 

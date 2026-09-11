@@ -152,6 +152,19 @@ def test_host_owns_drag_and_resize_for_every_mounted_view() -> None:
     assert window.events[-1] == ("geometry", "460x350+50+60")
 
 
+def test_known_position_and_native_id_skip_redundant_layout_flushes() -> None:
+    host, window, _native = make_host()
+    lease = host.acquire()
+    host.mount(lease, View())
+    baseline_updates = window.events.count("update")
+
+    host.resize(460, 350, x=90, y=100)
+    host.apply_visibility("visible_no_activate")
+
+    assert window.events.count("update") == baseline_updates
+    assert ("geometry", "460x350+90+100") in window.events
+
+
 def test_result_presenter_builds_existing_popup_content_in_primary_host(monkeypatch) -> None:
     events = []
 

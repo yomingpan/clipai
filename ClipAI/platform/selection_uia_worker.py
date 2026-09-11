@@ -1,19 +1,101 @@
 """Private, content-in-memory UIA worker. Never logs selection text."""
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 import sys
+import time
 from io import TextIOWrapper
 from typing import cast
 
 from ClipAI.core.models import ExternalWindowRef, SelectionCaptureOutcome, SelectionSource
 from ClipAI.platform.selection_uia import capture_windows_source
-from ClipAI.platform.selection_copy_profiles import AccessibleControlIdentity, supports_selection_only_copy
+from ClipAI.platform.selection_copy_profiles import (
+    AccessibleControlIdentity,
+    supports_card_focus_restore,
+    supports_selection_only_copy,
+)
 
 
 def _unknown(reason: str, *, detected: bool = False) -> SelectionCaptureOutcome:
     return SelectionCaptureOutcome(reason=reason, strategy="uia", selection_detected=detected)
+
+
+def _ancestry(focused, walker, expected_hwnd: int):
+    path = []
+    element = focused
+    for _ in range(32):
+        if element is None:
+            return None
+        path.append(element)
+        if int(element.Current.NativeWindowHandle) == expected_hwnd:
+            return path
+        element = walker.GetParent(element)
+    return None
+
+
+def _identity(path) -> tuple[AccessibleControlIdentity, ...]:
+    return tuple(
+        AccessibleControlIdentity(str(node.Current.ClassName), str(node.Current.FrameworkId))
+        for node in path
+    )
+
+
+def _process_identity(process_id: int) -> tuple[str, str]:
+    from System.Diagnostics import Process
+
+    process = Process.GetProcessById(process_id)
+    try:
+        return str(process.ProcessName), str(process.MainModule.FileName)
+    finally:
+        process.Dispose()
+
+
+def _find_main_webview(root, walker):
+    first_child = getattr(walker, "GetFirstChild", None)
+    next_sibling = getattr(walker, "GetNextSibling", None)
+    if not callable(first_child) or not callable(next_sibling):
+        return None
+    pending = [first_child(root)]
+    visited = 0
+    while pending and visited < 128:
+        element = pending.pop()
+        if element is None:
+            continue
+        visited += 1
+        if (
+            str(element.Current.ClassName) == "MainWebView"
+            and str(element.Current.FrameworkId) == "Qt"
+        ):
+            return element
+        sibling = next_sibling(element)
+        child = first_child(element)
+        if sibling is not None:
+            pending.append(sibling)
+        if child is not None:
+            pending.append(child)
+    return None
+
+
+def _restore_card_focus(api, walker, root, expected_hwnd: int):
+    webview = _find_main_webview(root, walker)
+    if webview is None:
+        return None
+    first_child = getattr(walker, "GetFirstChild", None)
+    target = first_child(webview) if callable(first_child) else None
+    target = target or webview
+    try:
+        target.SetFocus()
+    except Exception:
+        return None
+    deadline = time.monotonic() + 0.15
+    while time.monotonic() < deadline:
+        focused = api.FocusedElement
+        path = _ancestry(focused, walker, expected_hwnd) if focused is not None else None
+        if path is not None and AccessibleControlIdentity("MainWebView", "Qt") in _identity(path):
+            return focused, path
+        time.sleep(0.01)
+    return None
 
 
 def read_selection(source: SelectionSource) -> SelectionCaptureOutcome:
@@ -30,20 +112,32 @@ def read_selection(source: SelectionSource) -> SelectionCaptureOutcome:
         focused = AutomationElement.FocusedElement
         if focused is None or focused.Current.IsPassword:
             return _unknown("uia_protected_or_unavailable")
-        focus_id = tuple(focused.GetRuntimeId())
         # Require the focused element's ancestry to contain this exact top-level HWND.
-        path = []
-        element = focused
         expected_hwnd = int(source.window.window_token.removeprefix("hwnd:"), 16)
-        for _ in range(32):
-            if element is None:
-                return _unknown("uia_source_mismatch")
-            path.append(element)
-            if int(element.Current.NativeWindowHandle) == expected_hwnd:
-                break
-            element = TreeWalker.RawViewWalker.GetParent(element)
-        else:
+        walker = TreeWalker.RawViewWalker
+        path = _ancestry(focused, walker, expected_hwnd)
+        if path is None:
             return _unknown("uia_source_mismatch")
+
+        focus_restored = False
+        process_name = executable_path = ""
+        try:
+            process_name, executable_path = _process_identity(source.window.process_id)
+        except Exception:
+            pass
+        ancestry = _identity(path)
+        if (
+            AccessibleControlIdentity("MainWebView", "Qt") not in ancestry
+            and supports_card_focus_restore(process_name, executable_path, ancestry)
+        ):
+            restored = _restore_card_focus(api=AutomationElement, walker=walker, root=path[-1], expected_hwnd=expected_hwnd)
+            if restored is None:
+                return _unknown("uia_focus_restore_failed")
+            focused, path = restored
+            focus_restored = True
+            ancestry = _identity(path)
+
+        focus_id = tuple(focused.GetRuntimeId())
 
         outcome = _unknown("uia_unsupported")
         for element in path:
@@ -81,19 +175,7 @@ def read_selection(source: SelectionSource) -> SelectionCaptureOutcome:
                 )
             break
         if outcome.reason == "uia_unsupported":
-            ancestry = tuple(AccessibleControlIdentity(
-                str(node.Current.ClassName), str(node.Current.FrameworkId)
-            ) for node in path)
-            copy_supported = False
-            if supports_selection_only_copy("anki", ancestry):
-                from System.Diagnostics import Process
-
-                process = Process.GetProcessById(source.window.process_id)
-                try:
-                    copy_supported = supports_selection_only_copy(str(process.ProcessName), ancestry)
-                finally:
-                    process.Dispose()
-            if copy_supported:
+            if supports_selection_only_copy(process_name, executable_path, ancestry):
                 outcome = SelectionCaptureOutcome(
                     reason="selection_only_copy_available", strategy="uia",
                     copy_selection_only=True,
@@ -108,9 +190,15 @@ def read_selection(source: SelectionSource) -> SelectionCaptureOutcome:
                 before.Compare(after) for before, after in zip(original_ranges, final_ranges)
             ):
                 return _unknown("uia_selection_changed")
-        if capture_windows_source(source.window) != source:
+        current_source = capture_windows_source(source.window)
+        if (
+            current_source is None
+            or current_source.window.window_token != source.window.window_token
+            or current_source.window.process_id != source.window.process_id
+            or (not focus_restored and current_source != source)
+        ):
             return _unknown("source_changed")
-        return outcome
+        return replace(outcome, focus_restored=focus_restored)
     except Exception:
         return _unknown("uia_provider_failed")
 
@@ -118,16 +206,18 @@ def read_selection(source: SelectionSource) -> SelectionCaptureOutcome:
 def main() -> None:
     cast(TextIOWrapper, sys.stdin).reconfigure(encoding="utf-8")
     cast(TextIOWrapper, sys.stdout).reconfigure(encoding="utf-8")
-    try:
-        payload = json.loads(sys.stdin.read())
-        source = SelectionSource(
-            ExternalWindowRef(payload["window_token"], payload["process_id"], payload["observation_sequence"]),
-            payload["focus_token"],
-        )
-        outcome = read_selection(source)
-    except Exception:
-        outcome = _unknown("uia_invalid_request")
-    sys.stdout.write(json.dumps(asdict(outcome), ensure_ascii=True))
+    for line in sys.stdin:
+        try:
+            payload = json.loads(line)
+            source = SelectionSource(
+                ExternalWindowRef(payload["window_token"], payload["process_id"], payload["observation_sequence"]),
+                payload["focus_token"],
+            )
+            outcome = read_selection(source)
+        except Exception:
+            outcome = _unknown("uia_invalid_request")
+        sys.stdout.write(json.dumps(asdict(outcome), ensure_ascii=True) + "\n")
+        sys.stdout.flush()
 
 
 if __name__ == "__main__":

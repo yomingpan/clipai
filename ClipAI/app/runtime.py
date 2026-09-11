@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActionFeedbackCompleted, ActionLanguagePackSelectionCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, CloseAbout, CloseEntryPanel, ClosePersonalStyles, CloseProviderSettings, CloseSession, CloseShortcutGuide, ContextualSourceCaptured, ContextualSourceCaptureFailed, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, DisableVoiceInput, EnableVoiceInput, EntryPanelActionSelected, EntryPanelBack, EntryPanelDensityPreferencesCompleted, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelInputPreparationProgress, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, ImportPersonalStyle, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenAbout, OpenContextualQuestion, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenUnifiedEntryPanel, OpenVoicePermissionSettings, OpenVoiceSetup, PasteOperationCompleted, PasteResult, PersonalStyleOperationCompleted, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, RetryEntryPanelInput, UseEntryPanelClipboard, RetryVoiceInputSetup, SelectActionLanguagePack, SelectPersonalStyle, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetEntryPanelDensity, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, ValidateAndSaveProviderSettings, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired, WorkflowAttentionCompleted, WorkflowStepAccepted
 from collections.abc import Callable
+from contextlib import ExitStack
 from typing import cast
+import logging
 import queue
 
 from ClipAI.app.runtime_outputs import ResultOutputRuntimeCommand, ResultOutputRuntimeModule
@@ -43,6 +45,7 @@ _SHORTCUT_INPUT_EVENTS = (
 )
 _VOICE_COMMANDS = (OpenVoiceSetup, OpenVoicePermissionSettings, EnableVoiceInput, RetryVoiceInputSetup, DisableVoiceInput, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved, StartPopupVoiceCapture, StopVoiceCapture, CancelVoiceCapture, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceSilenceWatchdogExpired, SetVoiceLanguage, VoiceLanguagePreferenceSaved, UpdateVoiceDraft)
 _ENTRY_PANEL_COMMANDS = (OpenUnifiedEntryPanel, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelInputPreparationProgress, RetryEntryPanelInput, UseEntryPanelClipboard, CloseEntryPanel, EntryPanelActionSelected, EntryPanelSlotSelected, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelToggleDensity, EntryPanelBack)
+logger = logging.getLogger("clipai.runtime")
 
 
 class AppRuntime:
@@ -76,6 +79,7 @@ class AppRuntime:
         personal_styles: PersonalStyleRuntimeModule | None = None,
         entry_panel: EntryPanelRuntimeModule | None = None,
         action_language: ActionLanguageRuntimeModule | None = None,
+        background_components: tuple[RuntimeComponent, ...] = (),
     ) -> None:
         self._shortcuts = shortcuts
         self._view = view
@@ -96,6 +100,7 @@ class AppRuntime:
         self._personal_styles_module = personal_styles
         self._entry_panel_module = entry_panel
         self._action_language_module = action_language
+        self._background_components = background_components
         self._workflow_module.bind_user_control(self._user_control)
         self._result_output_module.bind_user_control(self._user_control)
         self._provider_configuration_module.bind_user_control(self._user_control)
@@ -131,6 +136,8 @@ class AppRuntime:
             self._commands.put(command)
 
     def start(self) -> None:
+        for component in self._background_components:
+            component.start()
         if self._foreground_monitor is not None:
             self._foreground_monitor.start()
         self._listener = self._hotkey_registrar(
@@ -142,8 +149,8 @@ class AppRuntime:
             self._tray.start()
 
     def run_forever(self) -> None:
-        self.start()
         try:
+            self.start()
             self._view.run(self.drain_commands)
         finally:
             self.stop()
@@ -160,26 +167,40 @@ class AppRuntime:
         if self._stopping:
             return
         self._stopping = True
-        if self._foreground_monitor is not None:
-            self._foreground_monitor.stop()
-        self._workflow_module.stop()
-        if self._entry_panel_module is not None:
-            self._entry_panel_module.stop()
-        if self._voice_input_module is not None:
-            self._voice_input_module.stop()
-        self._result_output_module.stop()
-        self._close_shortcut_observation()
-        if self._listener is not None:
-            self._listener.stop()
-        self._listener = None
-        if self._tray is not None:
-            self._tray.stop()
-        self._tray = None
-        self._provider_execution.shutdown()
-        self._supervisor.shutdown()
-        if self._operation_tracker is not None:
-            self._operation_tracker.stop()
-        self._view.stop()
+        teardown = [
+            self._foreground_monitor.stop if self._foreground_monitor is not None else None,
+            self._workflow_module.stop,
+            self._entry_panel_module.stop if self._entry_panel_module is not None else None,
+            self._voice_input_module.stop if self._voice_input_module is not None else None,
+            self._result_output_module.stop,
+            self._close_shortcut_observation,
+            self._stop_listener,
+            self._stop_tray,
+            self._provider_execution.shutdown,
+            self._supervisor.shutdown,
+            self._operation_tracker.stop if self._operation_tracker is not None else None,
+            *(component.stop for component in self._background_components),
+            self._view.stop,
+        ]
+        with ExitStack() as stack:
+            for callback in reversed([item for item in teardown if item is not None]):
+                stack.callback(self._safe_teardown, callback)
+
+    def _safe_teardown(self, callback: Callable[[], None]) -> None:
+        try:
+            callback()
+        except Exception:
+            logger.exception("Runtime teardown failed callback_type=%s", type(callback).__name__)
+
+    def _stop_listener(self) -> None:
+        listener, self._listener = self._listener, None
+        if listener is not None:
+            listener.stop()
+
+    def _stop_tray(self) -> None:
+        tray, self._tray = self._tray, None
+        if tray is not None:
+            tray.stop()
 
     def show_last_error(self) -> None:
         self._workflow_module.show_last_error()

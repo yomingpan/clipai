@@ -4,6 +4,8 @@ import io
 import json
 import subprocess
 import sys
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -24,15 +26,27 @@ class Process:
         self.token = token
         self.returncode = None
         self.killed = False
-        self.stdin, self.stdout, self.stderr = io.StringIO(), io.StringIO(), io.StringIO()
+        self.requests: list[dict[str, object]] = []
+        process = self
 
-    def communicate(self, request=None, timeout=None):
-        if not self.killed and self.token is not None:
-            self.token.cancel()
-        if not self.killed and self.blocked:
-            raise subprocess.TimeoutExpired("worker", timeout)
-        self.returncode = 0
-        return json.dumps(self.payload), ""
+        class Input(io.StringIO):
+            def flush(self):
+                value = self.getvalue()
+                if value.endswith("\n"):
+                    process.requests.append(json.loads(value.splitlines()[-1]))
+
+        class Output(io.StringIO):
+            def readline(self, *args, **kwargs):
+                if process.token is not None:
+                    process.token.cancel()
+                    process.token = None
+                while process.blocked and not process.killed:
+                    time.sleep(0.001)
+                if process.killed:
+                    return ""
+                return json.dumps(process.payload) + "\n"
+
+        self.stdin, self.stdout, self.stderr = Input(), Output(), io.StringIO()
 
     def poll(self):
         return self.returncode
@@ -40,6 +54,9 @@ class Process:
     def kill(self):
         self.killed = True
         self.returncode = -1
+
+    def wait(self, timeout=None):
+        return self.returncode
 
 
 @pytest.mark.parametrize("cancel", [False, True])
@@ -60,10 +77,133 @@ def test_worker_receives_identity_only_and_uses_real_interpreter():
     def start(args, **kwargs):
         calls.append((args, kwargs))
         return Process({"status": "selected", "text": "sample", "selection_detected": True})
-    result = WindowsSelectionProbe(process_factory=start).probe(SOURCE, None)
+    probe = WindowsSelectionProbe(process_factory=start)
+    result = probe.probe(SOURCE, None)
     assert result.text == "sample"
     assert calls[0][0][0] == getattr(sys, "_base_executable", sys.executable)
     assert calls[0][1]["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    probe.stop()
+
+
+def test_same_window_reuses_one_owned_worker_in_request_order():
+    processes = []
+
+    def start(*args, **kwargs):
+        process = Process({"status": "none"})
+        processes.append(process)
+        return process
+
+    probe = WindowsSelectionProbe(process_factory=start)
+
+    assert probe.probe(SOURCE, None).status == "none"
+    assert probe.probe(
+        SelectionSource(SOURCE.window, "hwnd:3"), None,
+    ).status == "none"
+
+    assert len(processes) == 1
+    assert [request["focus_token"] for request in processes[0].requests] == ["hwnd:2", "hwnd:3"]
+    assert not processes[0].killed
+    probe.stop()
+    assert processes[0].killed
+
+
+def test_owned_worker_retires_after_64_requests():
+    processes = []
+
+    def start(*args, **kwargs):
+        process = Process({"status": "none"})
+        processes.append(process)
+        return process
+
+    probe = WindowsSelectionProbe(process_factory=start, max_requests_per_worker=64)
+
+    for _ in range(65):
+        assert probe.probe(SOURCE, None).status == "none"
+
+    assert len(processes) == 2
+    assert processes[0].killed
+    assert len(processes[0].requests) == 64
+    assert len(processes[1].requests) == 1
+    probe.stop()
+
+
+def test_switching_top_level_source_retires_previous_worker_before_starting_next():
+    lifecycle = []
+
+    class TrackedProcess(Process):
+        def kill(self):
+            lifecycle.append("retire")
+            super().kill()
+
+    def start(*args, **kwargs):
+        lifecycle.append("start")
+        return TrackedProcess({"status": "none"})
+
+    probe = WindowsSelectionProbe(process_factory=start)
+    other = SelectionSource(ExternalWindowRef("hwnd:9", 99, 0), "hwnd:a")
+
+    probe.probe(SOURCE, None)
+    probe.probe(other, None)
+
+    assert lifecycle[:3] == ["start", "retire", "start"]
+    probe.stop()
+
+
+@pytest.mark.parametrize("payload", [
+    {"status": "broken"},
+    {"status": "unknown", "copy_selection_only": "true"},
+    {"status": "unknown", "reason": "uia_provider_failed"},
+    {"status": "unknown", "reason": "uia_text_failed", "selection_detected": True},
+])
+def test_invalid_or_failed_owned_worker_is_retired_before_next_request(payload):
+    processes = []
+
+    def start(*args, **kwargs):
+        process = Process(payload if not processes else {"status": "none"})
+        processes.append(process)
+        return process
+
+    probe = WindowsSelectionProbe(process_factory=start)
+
+    probe.probe(SOURCE, None)
+    assert probe.probe(SOURCE, None).status == "none"
+
+    assert len(processes) == 2
+    assert processes[0].killed
+    probe.stop()
+
+
+def test_concurrent_probe_uses_isolated_overflow_worker():
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    processes = []
+
+    class BlockingOutput(io.StringIO):
+        def readline(self, *args, **kwargs):
+            first_entered.set()
+            release_first.wait(1)
+            return json.dumps({"status": "none"}) + "\n"
+
+    def start(*args, **kwargs):
+        process = Process({"status": "none"})
+        if not processes:
+            process.stdout = BlockingOutput()
+        processes.append(process)
+        return process
+
+    probe = WindowsSelectionProbe(process_factory=start)
+    thread = threading.Thread(target=lambda: probe.probe(SOURCE, None))
+    thread.start()
+    assert first_entered.wait(1)
+
+    assert probe.probe(SOURCE, None).status == "none"
+    release_first.set()
+    thread.join(1)
+
+    assert len(processes) == 2
+    assert not processes[0].killed
+    assert processes[1].killed
+    probe.stop()
 
 
 @pytest.mark.parametrize("capability", [True, False, "true"])
@@ -181,7 +321,15 @@ def test_anki_card_without_textpattern_offers_selection_only_copy(monkeypatch, p
     ), GetCurrentPropertyValue=lambda _: False)
     api.TreeWalker.RawViewWalker.GetParent = lambda node: webview if node is focused else root
     monkeypatch.setitem(sys.modules, "System.Diagnostics", SimpleNamespace(
-        Process=SimpleNamespace(GetProcessById=lambda _: SimpleNamespace(ProcessName=process_name, Dispose=lambda: None))
+        Process=SimpleNamespace(GetProcessById=lambda _: SimpleNamespace(
+            ProcessName=process_name,
+            MainModule=SimpleNamespace(FileName=(
+                r"C:\Program Files\Anki\anki.exe"
+                if process_name == "anki"
+                else rf"C:\Program Files\{process_name}\{process_name}.exe"
+            )),
+            Dispose=lambda: None,
+        ))
     ))
     if focus_changed:
         ids = iter([(42, 2), (42, 3)])
@@ -192,3 +340,75 @@ def test_anki_card_without_textpattern_offers_selection_only_copy(monkeypatch, p
     assert result.status == "unknown"  # capability does not prove a selection exists
     assert result.copy_selection_only is expected
     assert result.selection_detected is False
+
+
+@pytest.mark.parametrize("process_name,executable,restored", [
+    ("anki", r"C:\Program Files\Anki\anki.exe", True),
+    ("pythonw", r"C:\Python313\pythonw.exe", False),
+])
+def test_gray_anki_card_restores_only_inner_card_focus(
+    monkeypatch, process_name, executable, restored,
+):
+    state = {"focused": None, "set_focus_calls": 0}
+
+    def element(name, handle=0):
+        return SimpleNamespace(
+            Current=SimpleNamespace(
+                NativeWindowHandle=handle,
+                IsPassword=False,
+                ClassName=name,
+                FrameworkId="Qt",
+            ),
+            GetRuntimeId=lambda: (42, hash(name)),
+            GetCurrentPropertyValue=lambda _: False,
+        )
+
+    root = element("AnkiQt", 1)
+    menu = element("QMenuBar")
+    webview = element("MainWebView")
+    inner = element("QObject")
+
+    def set_focus():
+        state["set_focus_calls"] += 1
+        state["focused"] = inner
+
+    inner.SetFocus = set_focus
+    state["focused"] = menu
+    parent = {id(menu): root, id(inner): webview, id(webview): root}
+    child = {id(root): webview, id(webview): inner}
+
+    class API:
+        IsTextPatternAvailableProperty = "TextPattern"
+
+        @property
+        def FocusedElement(self):
+            return state["focused"]
+
+    walker = SimpleNamespace(
+        GetParent=lambda node: parent.get(id(node)),
+        GetFirstChild=lambda node: child.get(id(node)),
+        GetNextSibling=lambda node: None,
+    )
+    monkeypatch.setitem(sys.modules, "clr", SimpleNamespace(AddReference=lambda _: None))
+    monkeypatch.setitem(sys.modules, "System.Windows.Automation", SimpleNamespace(
+        AutomationElement=API(),
+        TextPattern=SimpleNamespace(Pattern="TextPattern"),
+        TreeWalker=SimpleNamespace(RawViewWalker=walker),
+    ))
+    monkeypatch.setitem(sys.modules, "System.Windows.Automation.Text", SimpleNamespace(
+        TextPatternRangeEndpoint=SimpleNamespace(Start=0, End=1),
+    ))
+    monkeypatch.setitem(sys.modules, "System.Diagnostics", SimpleNamespace(
+        Process=SimpleNamespace(GetProcessById=lambda _: SimpleNamespace(
+            ProcessName=process_name,
+            MainModule=SimpleNamespace(FileName=executable),
+            Dispose=lambda: None,
+        )),
+    ))
+    monkeypatch.setattr(worker, "capture_windows_source", lambda _: SOURCE)
+
+    result = worker.read_selection(SOURCE)
+
+    assert result.focus_restored is restored
+    assert result.copy_selection_only is restored
+    assert state["set_focus_calls"] == int(restored)

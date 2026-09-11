@@ -233,13 +233,22 @@ neutral message，UI 不建立第二套等待 timer 或 focus policy。詳見
 
 Selection evidence follows `docs/contracts/services/selection-capture-contract.md`
 and ADR-0014. `SelectionCaptureCoordinator` owns source-bound typed captures;
-`InputResolver` owns automatic fallback from confirmed `none` or an unconfigured
-selection adapter. Resolved fallback documents explicitly identify `clipboard` as
-their source. Native UIA
-is isolated in `platform` and must not erase unknown/cancelled outcomes into an
-empty string. Entry Panel and Workflow runtime bind native source identity before
-first projection; UIA work stays off the UI thread. Explicit Panel clipboard
-choice is a typed intent against frozen prepared input.
+`InputResolver` owns shared fallback from confirmed `none` or an unconfigured
+selection adapter. `EntryPanelRuntimeModule` owns the sole surface-specific
+exception: unknown plus an available frozen clipboard automatically selects that
+frozen input; every direct consumer remains fail-closed. Resolved fallback
+documents explicitly identify `clipboard` as their source. Native UIA is isolated
+in `platform`; one source-bound worker is reused for at most 64 sequential requests,
+while overlap uses an isolated overflow process. The probe is an app-owned
+`background_components` RuntimeComponent. It must not erase unknown/cancelled
+outcomes into an empty string. Entry Panel and Workflow runtime bind native source
+identity before first projection; UIA work stays off the UI thread.
+
+`SelectionCaptureCoordinator` is the only owner of the physical modifier-release
+gate and enforces modifier-release → source-current → probe. A platform adapter
+may restore focus only inside a verified source and reports the immutable
+`focus_restored` capability; services re-baseline the same HWND/PID before
+staleness checks. UI, clipboard transactions and callers do not own this policy.
 
 Direct visible Actions share `InputResolver.prepare_input` and `PreparedInput`
 with Entry Panel. `WorkflowController` exclusively owns the waiting clipboard

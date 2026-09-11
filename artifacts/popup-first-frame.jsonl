@@ -1,0 +1,1 @@
+{"schema": 1, "gate": "popup-first-frame-live", "iterations": 5, "first_frame_ms": {"p50": 46.148, "p95": 101.27}, "reclaim_ms": {"p50": 7.535, "p95": 9.279}, "threshold_ms": 150.0, "passed": true}

@@ -12,7 +12,8 @@ def test_selection_reader_cannot_erase_capture_status():
 def test_production_assembly_wires_native_probe_and_sole_clipboard_owner():
     source = Path("ClipAI/app/container.py").read_text(encoding="utf-8")
     assert source.count("ClipboardTransactionCoordinator(clipboard)") == 1
-    assert "WindowsSelectionProbe()," in source
+    assert "selection_probe = WindowsSelectionProbe()" in source
+    assert "background_components=(selection_probe,)" in source
 
 
 def test_uia_worker_has_no_clipboard_or_keyboard_side_effects():

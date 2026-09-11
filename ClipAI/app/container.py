@@ -208,10 +208,11 @@ def build_runtime(
         else None
     )
     clipboard_transactions = ClipboardTransactionCoordinator(clipboard)
+    selection_probe = WindowsSelectionProbe()
     selection_reader = SelectionCaptureCoordinator(
         clipboard_transactions,
         SystemSelectionCaptureAdapter(),
-        WindowsSelectionProbe(),
+        selection_probe,
     )
     voice_selector = SpeechVoiceSelector(
         bundle.tts.english_voice,
@@ -465,6 +466,7 @@ def build_runtime(
         personal_styles=personal_styles_module,
         entry_panel=entry_panel_module,
         action_language=action_language_module,
+        background_components=(selection_probe,),
     )
     runtime_holder.append(runtime)
     if _needs_provider_setup(readiness_issues):
