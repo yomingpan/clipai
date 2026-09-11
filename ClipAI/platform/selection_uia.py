@@ -248,6 +248,8 @@ class _WorkerProcess:
                     return SelectionCaptureOutcome(status="cancelled", strategy="uia"), False
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
+                    if cancellation is not None and cancellation.is_cancelled:
+                        return SelectionCaptureOutcome(status="cancelled", strategy="uia"), False
                     return SelectionCaptureOutcome(reason="uia_timeout", strategy="uia"), False
                 try:
                     response = responses.get(timeout=min(0.02, remaining))
