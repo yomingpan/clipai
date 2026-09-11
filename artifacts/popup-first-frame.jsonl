@@ -1,1 +1,2 @@
 {"schema": 1, "gate": "popup-first-frame-live", "iterations": 5, "first_frame_ms": {"p50": 46.148, "p95": 101.27}, "reclaim_ms": {"p50": 7.535, "p95": 9.279}, "threshold_ms": 150.0, "passed": true}
+{"schema": 1, "gate": "popup-first-frame-live", "iterations": 30, "first_frame_ms": {"p50": 49.614, "p95": 60.423}, "reclaim_ms": {"p50": 7.537, "p95": 9.801}, "threshold_ms": 150.0, "passed": true}
