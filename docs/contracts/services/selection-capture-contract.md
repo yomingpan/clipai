@@ -58,8 +58,11 @@ consume only the typed capability and reuse the single clipboard transaction
 owner. See ADR-0015 for evidence, limitations and the review trigger.
 
 A verified Anki shell may authorize one narrower side effect when its card is
-gray/unfocused: the worker finds `MainWebView`, calls `SetFocus` only on its inner
-card element, polls for bounded settlement, and rereads focused ancestry. It does
+gray/unfocused and focus remains on inert `QWidget`/`QObject` shell ancestry: the
+profile returns an immutable focus-repair plan, and the generic worker finds its
+target, calls `SetFocus` only on the inner card element, polls for bounded
+settlement, and rereads focused ancestry. Menu, editor, toolbar, sibling WebView,
+and arbitrary Qt ancestry are rejected before repair. It does
 not activate a top-level window, synthesize input, or touch the clipboard. The
 typed `focus_restored` flag requires the coordinator to recapture the same
 top-level HWND/PID before staleness validation. A missing/different source is
@@ -78,7 +81,7 @@ virtual focus off the selected control while the same HWND remains foreground.
 Short Alt, unclaimed chords and injected input are not masked. A native release
 seen before the hold deadline rejects the late timer even when pynput's semantic
 release is still queued. No new focus restoration or capture owner is introduced.
-The Anki copy profile continues to reject menu-bar ancestry.
+The Anki copy profile and focus-repair plan reject menu-bar ancestry.
 
 Entry Panel input preparation passes an immutable `ExternalWindowWaitPolicy`
 through `ExternalWindowActivator`: 3 seconds of combined activation and

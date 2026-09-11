@@ -13,6 +13,7 @@ from ClipAI.core.models import ExternalWindowRef, SelectionCaptureOutcome, Selec
 from ClipAI.core.state import CancellationToken
 from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinator
 from ClipAI.services.selection_capture import SelectionCaptureCoordinator
+from ClipAI.support.statistics import percentile
 
 
 @dataclass(frozen=True)
@@ -69,11 +70,6 @@ _SCENARIOS = (
 )
 
 
-def _percentile(values: list[float], fraction: float) -> float:
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, max(0, round((len(ordered) - 1) * fraction)))]
-
-
 def run(seed: int, cases: int = 480) -> dict[str, object]:
     rng = random.Random(seed)
     samples = [rng.choice(_SCENARIOS) for _ in range(cases - len(_SCENARIOS))] + list(_SCENARIOS)
@@ -115,8 +111,8 @@ def run(seed: int, cases: int = 480) -> dict[str, object]:
         "exact_available_rate": exact_available / exact_expected if exact_expected else 1.0,
         "latency_ms": {
             "p50": round(statistics.median(latencies), 3),
-            "p90": round(_percentile(latencies, .90), 3),
-            "p95": round(_percentile(latencies, .95), 3),
+            "p90": round(percentile(latencies, .90), 3),
+            "p95": round(percentile(latencies, .95), 3),
         },
         "content_recorded": False,
         "device_evidence": False,

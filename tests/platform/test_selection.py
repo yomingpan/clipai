@@ -436,10 +436,23 @@ def test_late_native_success_is_discarded_after_cancellation():
 
 
 def test_selection_diagnostics_never_include_source_text(caplog):
+    clipboard = Clipboard("private clipboard")
     probe = Probe()
-    probe.probe = lambda *args: SelectionCaptureOutcome("private selected text", "selected", strategy="uia")
+    probe.probe = lambda *args: SelectionCaptureOutcome(
+        reason="selection_only_copy_available",
+        strategy="uia",
+        copy_selection_only=True,
+        focus_restored=True,
+    )
     with caplog.at_level("INFO", logger="clipai.selection"):
-        reader(Clipboard("private clipboard"), probe=probe).capture()
+        reader(
+            clipboard,
+            probe=probe,
+            copy_selection=lambda: clipboard.write_text("private selected text"),
+            timeout_sec=0.001,
+            poll_sec=0,
+        ).capture()
     assert "status=selected" in caplog.text
+    assert "focus_restored=True" in caplog.text
     assert "private selected text" not in caplog.text
     assert "private clipboard" not in caplog.text

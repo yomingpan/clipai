@@ -1,7 +1,7 @@
 from ClipAI.platform.selection_copy_profiles import (
     AccessibleControlIdentity,
-    supports_card_focus_restore,
-    supports_selection_only_copy,
+    FocusRepairPlan,
+    selection_source_policy,
 )
 
 
@@ -15,13 +15,20 @@ ANKI_MENU = (
     AccessibleControlIdentity("QMenuBar", "Qt"),
     AccessibleControlIdentity("AnkiQt", "Qt"),
 )
+ANKI_SHELL = (
+    AccessibleControlIdentity("QWidget", "Qt"),
+    AccessibleControlIdentity("AnkiQt", "Qt"),
+)
 
 
 def test_native_anki_identity_allows_card_focus_restore_and_card_copy():
     executable = r"C:\Program Files\Anki\anki.exe"
 
-    assert supports_card_focus_restore("anki", executable, ANKI_MENU)
-    assert supports_selection_only_copy("anki", executable, ANKI_CARD)
+    assert selection_source_policy("anki", executable, ANKI_SHELL).focus_repair == FocusRepairPlan(
+        AccessibleControlIdentity("MainWebView", "Qt"),
+        focus_first_child=True,
+    )
+    assert selection_source_policy("anki", executable, ANKI_CARD).copy_selection_only
 
 
 def test_version_variable_embedded_cpython_identity_is_verified():
@@ -30,8 +37,8 @@ def test_version_variable_embedded_cpython_identity_is_verified():
         r"\cpython-3.13.7-windows-x86_64-none\pythonw.exe"
     )
 
-    assert supports_card_focus_restore("pythonw", executable, ANKI_MENU)
-    assert supports_selection_only_copy("pythonw", executable, ANKI_CARD)
+    assert selection_source_policy("pythonw", executable, ANKI_SHELL).focus_repair is not None
+    assert selection_source_policy("pythonw", executable, ANKI_CARD).copy_selection_only
 
 
 def test_focus_restore_identity_rejects_broad_anki_or_python_matches():
@@ -44,16 +51,15 @@ def test_focus_restore_identity_rejects_broad_anki_or_python_matches():
     )
 
     for process_name, executable in rejected:
-        assert not supports_card_focus_restore(process_name, executable, ANKI_MENU)
-        assert not supports_selection_only_copy(process_name, executable, ANKI_CARD)
+        assert selection_source_policy(process_name, executable, ANKI_SHELL).focus_repair is None
+        assert not selection_source_policy(process_name, executable, ANKI_CARD).copy_selection_only
 
 
-def test_copy_trust_still_requires_focused_main_webview_ancestry():
+def test_menu_and_editor_ancestry_cannot_authorize_focus_repair_or_copy():
     executable = r"C:\Program Files\Anki\anki.exe"
 
-    assert supports_card_focus_restore("anki", executable, ANKI_MENU)
-    assert not supports_selection_only_copy("anki", executable, ANKI_MENU)
-    assert not supports_selection_only_copy(
+    menu_policy = selection_source_policy("anki", executable, ANKI_MENU)
+    editor_policy = selection_source_policy(
         "anki",
         executable,
         (
@@ -62,3 +68,8 @@ def test_copy_trust_still_requires_focused_main_webview_ancestry():
             AccessibleControlIdentity("AnkiQt", "Qt"),
         ),
     )
+
+    assert menu_policy.focus_repair is None
+    assert not menu_policy.copy_selection_only
+    assert editor_policy.focus_repair is None
+    assert not editor_policy.copy_selection_only

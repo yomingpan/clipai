@@ -12,38 +12,58 @@ class AccessibleControlIdentity:
     framework: str
 
 
-def supports_selection_only_copy(
+@dataclass(frozen=True)
+class FocusRepairPlan:
+    """Platform-only instructions for a bounded in-window focus repair."""
+
+    target: AccessibleControlIdentity
+    focus_first_child: bool = False
+
+
+@dataclass(frozen=True)
+class SelectionSourcePolicy:
+    """Capabilities established by one source profile evaluation."""
+
+    copy_selection_only: bool = False
+    focus_repair: FocusRepairPlan | None = None
+
+
+_ANKI_ROOT = AccessibleControlIdentity("AnkiQt", "Qt")
+_ANKI_CARD = AccessibleControlIdentity("MainWebView", "Qt")
+_ANKI_REPAIRABLE_SHELL_CONTROLS = frozenset(
+    {
+        AccessibleControlIdentity("AnkiQt", "Qt"),
+        AccessibleControlIdentity("QWidget", "Qt"),
+        AccessibleControlIdentity("QObject", "Qt"),
+    }
+)
+
+
+def selection_source_policy(
     process_name: str,
     executable_path: str,
     ancestry: tuple[AccessibleControlIdentity, ...],
-) -> bool:
-    """Anki's main card view routes Ctrl+C to QWebEnginePage.WebAction.Copy.
+) -> SelectionSourcePolicy:
+    """Evaluate verified capabilities without leaking app identity to callers.
 
-    Require the actual process and the focused control's validated ancestry.
-    Toolbars, editors, arbitrary Qt windows and sibling WebViews are excluded.
-    The caller must independently validate HWND/PID, focus and password state.
+    Anki is currently the only evidenced profile. Its card routes Ctrl+C to a
+    selection-only action. Focus repair is admitted only from its inert Qt shell;
+    menus, editors, toolbars, sibling WebViews and arbitrary controls fail closed.
     """
-    return (
-        _is_verified_anki_process(process_name, executable_path)
-        and bool(ancestry)
-        and ancestry[-1] == AccessibleControlIdentity("AnkiQt", "Qt")
-        and AccessibleControlIdentity("MainWebView", "Qt") in ancestry[:-1]
-        and all(control.framework == "Qt" for control in ancestry)
-    )
-
-
-def supports_card_focus_restore(
-    process_name: str,
-    executable_path: str,
-    ancestry: tuple[AccessibleControlIdentity, ...],
-) -> bool:
-    """Authorize only an in-window focus repair for a verified Anki shell."""
-    return (
-        _is_verified_anki_process(process_name, executable_path)
-        and bool(ancestry)
-        and ancestry[-1] == AccessibleControlIdentity("AnkiQt", "Qt")
-        and all(control.framework == "Qt" for control in ancestry)
-    )
+    if (
+        not _is_verified_anki_process(process_name, executable_path)
+        or not ancestry
+        or ancestry[-1] != _ANKI_ROOT
+        or any(control.framework != "Qt" for control in ancestry)
+    ):
+        return SelectionSourcePolicy()
+    if _ANKI_CARD in ancestry[:-1]:
+        return SelectionSourcePolicy(copy_selection_only=True)
+    if all(control in _ANKI_REPAIRABLE_SHELL_CONTROLS for control in ancestry):
+        return SelectionSourcePolicy(
+            focus_repair=FocusRepairPlan(_ANKI_CARD, focus_first_child=True)
+        )
+    return SelectionSourcePolicy()
 
 
 def _is_verified_anki_process(process_name: str, executable_path: str) -> bool:

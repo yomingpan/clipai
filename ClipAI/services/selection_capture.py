@@ -49,6 +49,7 @@ class SelectionCaptureCoordinator:
         started = time.monotonic()
         source = None
         outcome = SelectionCaptureOutcome(reason="source_unavailable")
+        focus_restored = False
         try:
             if cancellation is not None and cancellation.is_cancelled:
                 outcome = SelectionCaptureOutcome(status="cancelled")
@@ -63,6 +64,7 @@ class SelectionCaptureCoordinator:
                 outcome = SelectionCaptureOutcome(reason="source_changed")
                 return outcome
             outcome = self._probe.probe(source, cancellation)
+            focus_restored = outcome.focus_restored
             if cancellation is not None and cancellation.is_cancelled:
                 outcome = SelectionCaptureOutcome(status="cancelled")
             elif outcome.focus_restored:
@@ -95,9 +97,9 @@ class SelectionCaptureCoordinator:
         finally:
             logger.info(
                 "Selection capture operation_id=%s target=%s status=%s reason=%s "
-                "strategy=%s elapsed_ms=%d", operation_id,
+                "strategy=%s focus_restored=%s elapsed_ms=%d", operation_id,
                 source.window.window_token if source is not None else "unavailable",
-                outcome.status, outcome.reason, outcome.strategy,
+                outcome.status, outcome.reason, outcome.strategy, focus_restored,
                 int((time.monotonic() - started) * 1000),
             )
 

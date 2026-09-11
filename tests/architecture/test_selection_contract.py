@@ -23,3 +23,14 @@ def test_uia_worker_has_no_clipboard_or_keyboard_side_effects():
     assert "ClipAI.platform.clipboard" not in modules
     assert "pynput.keyboard" not in modules
     assert "GetText(-1)" in source
+
+
+def test_application_specific_selection_identity_stays_in_profile_module():
+    for path in (
+        "ClipAI/platform/selection_uia_worker.py",
+        "ClipAI/services/selection_capture.py",
+        "ClipAI/app/runtime.py",
+    ):
+        source = Path(path).read_text(encoding="utf-8").casefold()
+        assert "anki" not in source
+        assert "mainwebview" not in source

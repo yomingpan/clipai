@@ -443,8 +443,10 @@ RichTextBox 測試，涵蓋選取、重複相同選取與只有游標；不得�
 matrix 並輸出 JSONL；其延遲只屬 simulation，不得當作裝置證據。
 `scripts/selection_probe_content_free.py` 在互動桌面輸出 status/reason/capability/
 elapsed 與雜湊來源 identity，不記文字或 executable path。
-`scripts/popup_first_frame_benchmark.py` 量測真實 Windows first frame 與同 host
-Entry Panel → Popup reclaim，預設 p95 門檻 150 ms，結果以 JSONL 保存。
+`scripts/popup_first_frame_benchmark.py` 建立 production Entry Panel／result Popup，
+處理真實 Tk idle layout/paint，驗證 surface 可見，再以 `DwmFlush` 等待 Windows compositor
+settlement；它量測 first frame 與同 host Entry Panel → Popup reclaim，預設 p95
+門檻 150 ms，結果以 JSONL 保存。Synthetic frame construction 不得標示為此 gate。
 
 `integration` marker 表示測試會碰真實外部世界，例如：
 

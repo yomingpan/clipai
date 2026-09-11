@@ -4,9 +4,10 @@ Status: accepted, 2026-09-11.
 
 ## 1. Executive judgment
 
-Yellow, resolved by a local incremental migration with high confidence in the
-automated policy and lifecycle behavior. The main reason is duplicated modifier
-ownership plus per-request UIA process startup, not a need to rebuild the domain.
+Yellow. Selection-worker ownership is resolved by a local incremental migration
+with high confidence in the automated policy and lifecycle behavior. Corrected
+production-surface measurement leaves first-frame performance open; resolving it
+may require a separate prebuild or staged-rendering decision.
 
 ## 2. Triggering evidence
 
@@ -72,9 +73,12 @@ make regressions comparable without recording user content or executable paths.
 ## 10. Verification, uncertainty, and review trigger
 
 The deterministic gate passed 480/480 for each of three seeds with 100% exact
-availability for expected cases. A five-iteration interactive Windows benchmark
-measured first-frame p95 101.270 ms and reclaim p95 9.279 ms against 150 ms.
-The non-integration suite passed 1358 tests; 14 integration tests were deselected.
+availability for expected cases. The earlier synthetic-frame measurements were
+invalidated. A corrected 20-iteration Windows run built the production Entry
+Panel and result Popup, verified Tk visibility, and waited for `DwmFlush`; it
+measured first-frame p95 168.392 ms and reclaim p95 87.853 ms against 150 ms.
+Reclaim passes while first frame remains above the release gate.
+The non-integration suite passed 1370 tests; 26 integration tests were deselected.
 This run did not execute the opt-in real Anki selection smoke, so exact Anki/Qt
 version behavior remains device evidence to collect. Review on any wrong-source
 text, unknown direct fallback, worker leak, profile ancestry change, or first-frame

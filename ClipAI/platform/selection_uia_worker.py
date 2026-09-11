@@ -12,8 +12,8 @@ from ClipAI.core.models import ExternalWindowRef, SelectionCaptureOutcome, Selec
 from ClipAI.platform.selection_uia import capture_windows_source
 from ClipAI.platform.selection_copy_profiles import (
     AccessibleControlIdentity,
-    supports_card_focus_restore,
-    supports_selection_only_copy,
+    FocusRepairPlan,
+    selection_source_policy,
 )
 
 
@@ -60,7 +60,7 @@ def _process_identity(process_id: int) -> tuple[str, str]:
         process.Dispose()
 
 
-def _find_main_webview(root, walker):
+def _find_repair_target(root, walker, target_identity: AccessibleControlIdentity):
     first_child = getattr(walker, "GetFirstChild", None)
     next_sibling = getattr(walker, "GetNextSibling", None)
     if not callable(first_child) or not callable(next_sibling):
@@ -72,10 +72,9 @@ def _find_main_webview(root, walker):
         if element is None:
             continue
         visited += 1
-        if (
-            str(element.Current.ClassName) == "MainWebView"
-            and str(element.Current.FrameworkId) == "Qt"
-        ):
+        if AccessibleControlIdentity(
+            str(element.Current.ClassName), str(element.Current.FrameworkId)
+        ) == target_identity:
             return element
         sibling = next_sibling(element)
         child = first_child(element)
@@ -86,13 +85,17 @@ def _find_main_webview(root, walker):
     return None
 
 
-def _restore_card_focus(api, walker, root, expected_hwnd: int):
-    webview = _find_main_webview(root, walker)
-    if webview is None:
+def _execute_focus_repair(api, walker, root, expected_hwnd: int, plan: FocusRepairPlan):
+    repair_target = _find_repair_target(root, walker, plan.target)
+    if repair_target is None:
         return None
     first_child = getattr(walker, "GetFirstChild", None)
-    target = first_child(webview) if callable(first_child) else None
-    target = target or webview
+    target = (
+        first_child(repair_target)
+        if plan.focus_first_child and callable(first_child)
+        else None
+    )
+    target = target or repair_target
     try:
         target.SetFocus()
     except Exception:
@@ -101,7 +104,7 @@ def _restore_card_focus(api, walker, root, expected_hwnd: int):
     while time.monotonic() < deadline:
         focused = api.FocusedElement
         path = _ancestry(focused, walker, expected_hwnd) if focused is not None else None
-        if path is not None and AccessibleControlIdentity("MainWebView", "Qt") in _identity(path):
+        if path is not None and plan.target in _identity(path):
             return focused, path
         time.sleep(0.01)
     return None
@@ -135,16 +138,21 @@ def read_selection(source: SelectionSource) -> NativeSelectionResult:
         except Exception:
             pass
         ancestry = _identity(path)
-        if (
-            AccessibleControlIdentity("MainWebView", "Qt") not in ancestry
-            and supports_card_focus_restore(process_name, executable_path, ancestry)
-        ):
-            restored = _restore_card_focus(api=AutomationElement, walker=walker, root=path[-1], expected_hwnd=expected_hwnd)
+        policy = selection_source_policy(process_name, executable_path, ancestry)
+        if policy.focus_repair is not None:
+            restored = _execute_focus_repair(
+                api=AutomationElement,
+                walker=walker,
+                root=path[-1],
+                expected_hwnd=expected_hwnd,
+                plan=policy.focus_repair,
+            )
             if restored is None:
                 return _unknown("uia_focus_restore_failed", reusable=False)
             focused, path = restored
             focus_restored = True
             ancestry = _identity(path)
+            policy = selection_source_policy(process_name, executable_path, ancestry)
 
         focus_id = tuple(focused.GetRuntimeId())
 
@@ -184,7 +192,7 @@ def read_selection(source: SelectionSource) -> NativeSelectionResult:
                 ))
             break
         if outcome.outcome.reason == "uia_unsupported":
-            if supports_selection_only_copy(process_name, executable_path, ancestry):
+            if policy.copy_selection_only:
                 outcome = NativeSelectionResult(SelectionCaptureOutcome(
                     reason="selection_only_copy_available", strategy="uia",
                     copy_selection_only=True,

@@ -151,6 +151,8 @@ def test_switching_top_level_source_retires_previous_worker_before_starting_next
 
 @pytest.mark.parametrize("payload", [
     {"status": "broken"},
+    {"status": "selected", "text": ""},
+    {"status": "none", "text": "unexpected"},
     {"status": "unknown", "copy_selection_only": "true"},
     {"status": "unknown", "reason": "uia_provider_failed", "worker_reusable": False},
     {"status": "unknown", "reason": "uia_text_failed", "selection_detected": True, "worker_reusable": False},
@@ -366,7 +368,7 @@ def test_gray_anki_card_restores_only_inner_card_focus(
         )
 
     root = element("AnkiQt", 1)
-    menu = element("QMenuBar")
+    shell_content = element("QWidget")
     webview = element("MainWebView")
     inner = element("QObject")
 
@@ -375,8 +377,8 @@ def test_gray_anki_card_restores_only_inner_card_focus(
         state["focused"] = inner
 
     inner.SetFocus = set_focus
-    state["focused"] = menu
-    parent = {id(menu): root, id(inner): webview, id(webview): root}
+    state["focused"] = shell_content
+    parent = {id(shell_content): root, id(inner): webview, id(webview): root}
     child = {id(root): webview, id(webview): inner}
 
     class API:
@@ -414,3 +416,61 @@ def test_gray_anki_card_restores_only_inner_card_focus(
     assert result.focus_restored is restored
     assert result.copy_selection_only is restored
     assert state["set_focus_calls"] == int(restored)
+
+
+def test_anki_menu_focus_is_rejected_without_repair(monkeypatch):
+    state = {"set_focus_calls": 0}
+
+    def element(name, handle=0):
+        return SimpleNamespace(
+            Current=SimpleNamespace(
+                NativeWindowHandle=handle,
+                IsPassword=False,
+                ClassName=name,
+                FrameworkId="Qt",
+            ),
+            GetRuntimeId=lambda: (42, hash(name)),
+            GetCurrentPropertyValue=lambda _: False,
+        )
+
+    root = element("AnkiQt", 1)
+    menu = element("QMenuBar")
+    webview = element("MainWebView")
+    inner = element("QObject")
+    inner.SetFocus = lambda: state.__setitem__("set_focus_calls", state["set_focus_calls"] + 1)
+    parent = {id(menu): root, id(inner): webview, id(webview): root}
+    child = {id(root): webview, id(webview): inner}
+
+    class API:
+        IsTextPatternAvailableProperty = "TextPattern"
+        FocusedElement = menu
+
+    walker = SimpleNamespace(
+        GetParent=lambda node: parent.get(id(node)),
+        GetFirstChild=lambda node: child.get(id(node)),
+        GetNextSibling=lambda node: None,
+    )
+    monkeypatch.setitem(sys.modules, "clr", SimpleNamespace(AddReference=lambda _: None))
+    monkeypatch.setitem(sys.modules, "System.Windows.Automation", SimpleNamespace(
+        AutomationElement=API,
+        TextPattern=SimpleNamespace(Pattern="TextPattern"),
+        TreeWalker=SimpleNamespace(RawViewWalker=walker),
+    ))
+    monkeypatch.setitem(sys.modules, "System.Windows.Automation.Text", SimpleNamespace(
+        TextPatternRangeEndpoint=SimpleNamespace(Start=0, End=1),
+    ))
+    monkeypatch.setitem(sys.modules, "System.Diagnostics", SimpleNamespace(
+        Process=SimpleNamespace(GetProcessById=lambda _: SimpleNamespace(
+            ProcessName="anki",
+            MainModule=SimpleNamespace(FileName=r"C:\Program Files\Anki\anki.exe"),
+            Dispose=lambda: None,
+        )),
+    ))
+    monkeypatch.setattr(worker, "capture_windows_source", lambda _: SOURCE)
+
+    result = worker.read_selection(SOURCE).outcome
+
+    assert result.reason == "uia_unsupported"
+    assert not result.focus_restored
+    assert not result.copy_selection_only
+    assert state["set_focus_calls"] == 0

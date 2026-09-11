@@ -254,7 +254,9 @@ platform metadata does not change the core selection outcome interface.
 `SelectionCaptureCoordinator` is the only owner of the physical modifier-release
 gate and enforces modifier-release → source-current → probe. A platform adapter
 may restore focus only inside a verified source and reports the immutable
-`focus_restored` capability; services re-baseline the same HWND/PID before
+`focus_restored` capability; source-specific widget identity and focus target
+remain in a single platform profile decision, while the generic UIA worker only
+executes its immutable repair plan. Services re-baseline the same HWND/PID before
 staleness checks. UI, clipboard transactions and callers do not own this policy.
 
 Direct visible Actions share `InputResolver.prepare_input` and `PreparedInput`
