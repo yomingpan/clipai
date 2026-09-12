@@ -12,7 +12,7 @@ Every artifact has `schema_version: 1`, `artifact_kind`, `transaction_id`, and
 
 | `artifact_kind` | Required payload fields |
 | --- | --- |
-| `request` | `installed_version`, `target_version`, `bundle_path`, `install_root`, `shared_root`, `managed_install_id` |
+| `request` | `installed_version`, `target_version`, `installed_executable`, `bundle_path`, `bundle_size`, `bundle_sha256`, `manifest_sha256`, `key_id`, `install_root`, `shared_root`, `managed_install_id` |
 | `handoff_ready` | `candidate_root`, `candidate_python`, `manifest_sha256`, `expected_version` |
 | `launch_receipt` | `launch_attempt_id`, `expected_version`, `executable_path`, `process_id` |
 | `startup_health` | `launch_attempt_id`, `expected_version`, `actual_version`, `executable_path`, `healthy` |
@@ -21,6 +21,8 @@ Every artifact has `schema_version: 1`, `artifact_kind`, `transaction_id`, and
 No artifact may infer identity from a filename. `startup_health` is accepted
 only when transaction, launch attempt, expected version, actual version, and
 the resolved executable inside the committed version all match.
+`bundle_size` is a positive catalog-bound admission limit checked before the
+bundle is read or extracted.
 
 ## Transaction state machine
 
@@ -97,3 +99,11 @@ and version manifest agree under one install root; no editable `direct_url.json`
 or `.git`/worktree evidence exists; shared `ApplicationPaths` are outside the
 immutable version tree; and the update mutex is held. Unknown identity is
 check-only and fails closed for apply.
+
+`managed-install.json` uses `schema_version: 1`, `marker_kind:
+clipai-managed-install-v1`, `managed_install_id`, canonical `install_root` and
+`shared_root`, `launcher_version`, and `key_id`; its detached signature uses
+namespace `clipai.managed-update.install.v1`. `install-state.json` uses
+`schema_version: 1`, `state_kind: clipai-managed-install-state-v1`, the same
+install identity, monotonic `revision`, `current_version`, and nullable
+`previous_version`. Versions resolve only as `install_root/versions/{version}`.

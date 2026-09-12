@@ -13,7 +13,7 @@ NOW = datetime(2026, 9, 13, tzinfo=timezone.utc).isoformat()
 
 
 def test_request_artifact_round_trips_with_exact_transaction(tmp_path: Path):
-    artifact = UpdateRequestArtifact(transaction_id("tx-1"), NOW, "3.7.3", "3.8.0", (tmp_path / "b.zip").resolve(), (tmp_path / "install").resolve(), (tmp_path / "shared").resolve(), "managed-1")
+    artifact = UpdateRequestArtifact(transaction_id("tx-1"), NOW, "3.7.3", "3.8.0", (tmp_path / "python.exe").resolve(), (tmp_path / "b.zip").resolve(), 42, "a" * 64, "b" * 64, "release-key", (tmp_path / "install").resolve(), (tmp_path / "shared").resolve(), "managed-1")
     path = tmp_path / "request.json"
     write_artifact(path, artifact)
     assert read_artifact(path, expected_kind="request", expected_transaction_id="tx-1") == artifact
@@ -32,6 +32,6 @@ def test_launch_health_relation_requires_attempt_version_executable_and_health(t
 
 def test_artifacts_reject_unknown_fields_and_relative_paths(tmp_path: Path):
     path = tmp_path / "request.json"
-    atomic_write_json(path, {"schema_version": 1, "artifact_kind": "request", "transaction_id": "tx", "created_at": NOW, "installed_version": "3.7.3", "target_version": "3.8.0", "bundle_path": "relative.zip", "install_root": str(tmp_path.resolve()), "shared_root": str(tmp_path.resolve()), "managed_install_id": "id", "extra": True})
+    atomic_write_json(path, {"schema_version": 1, "artifact_kind": "request", "transaction_id": "tx", "created_at": NOW, "installed_version": "3.7.3", "target_version": "3.8.0", "installed_executable": str((tmp_path / "python.exe").resolve()), "bundle_path": "relative.zip", "bundle_size": 42, "bundle_sha256": "a" * 64, "manifest_sha256": "b" * 64, "key_id": "key", "install_root": str(tmp_path.resolve()), "shared_root": str(tmp_path.resolve()), "managed_install_id": "id", "extra": True})
     with pytest.raises(ArtifactValidationError, match="fields"):
         read_artifact(path, expected_kind="request")

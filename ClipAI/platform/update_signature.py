@@ -16,6 +16,7 @@ from ClipAI.platform.managed_update_fs import (
 
 
 SIGNING_NAMESPACE = "clipai.managed-update.manifest.v1"
+INSTALL_SIGNING_NAMESPACE = "clipai.managed-update.install.v1"
 TEST_KEY_ID = "clipai-managed-update-test-v1"
 _KEY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -45,6 +46,7 @@ class Ed25519ManifestVerifier:
         environment: Mapping[str, str],
         allow_test_keys: bool = False,
         timeout_sec: float = 12.0,
+        namespace: str = SIGNING_NAMESPACE,
     ) -> None:
         self._ssh_keygen = Path(ssh_keygen).resolve()
         self._trusted_keys = dict(trusted_keys)
@@ -52,6 +54,7 @@ class Ed25519ManifestVerifier:
         self._environment = dict(environment)
         self._allow_test_keys = allow_test_keys
         self._timeout_sec = timeout_sec
+        self._namespace = namespace
 
     def verify(
         self,
@@ -92,7 +95,7 @@ class Ed25519ManifestVerifier:
                         "-I",
                         principal,
                         "-n",
-                        SIGNING_NAMESPACE,
+                        self._namespace,
                         "-s",
                         str(native_path(signature_path)),
                     ],

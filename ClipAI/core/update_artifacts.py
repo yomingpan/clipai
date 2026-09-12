@@ -13,7 +13,12 @@ class UpdateRequestArtifact:
     created_at: str
     installed_version: str
     target_version: str
+    installed_executable: Path
     bundle_path: Path
+    bundle_size: int
+    bundle_sha256: str
+    manifest_sha256: str
+    key_id: str
     install_root: Path
     shared_root: Path
     managed_install_id: str

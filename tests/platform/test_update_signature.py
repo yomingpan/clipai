@@ -10,6 +10,7 @@ from ClipAI.platform.managed_update_fs import atomic_write_bytes
 from ClipAI.platform.managed_release_builder import OpenSshManifestSigner
 from ClipAI.platform.update_signature import (
     Ed25519ManifestVerifier,
+    INSTALL_SIGNING_NAMESPACE,
     SIGNING_NAMESPACE,
     TEST_KEY_ID,
     SignatureVerificationError,
@@ -17,7 +18,7 @@ from ClipAI.platform.update_signature import (
 )
 
 
-def _signed_manifest(tmp_path: Path) -> tuple[Path, Path, str, Path]:
+def _signed_manifest(tmp_path: Path, *, namespace: str = SIGNING_NAMESPACE) -> tuple[Path, Path, str, Path]:
     ssh_keygen = shutil.which("ssh-keygen")
     assert ssh_keygen is not None, "Windows OpenSSH ssh-keygen is required"
     private_key = tmp_path / "fixture-key"
@@ -32,7 +33,7 @@ def _signed_manifest(tmp_path: Path) -> tuple[Path, Path, str, Path]:
         canonical_json_bytes({"key_id": TEST_KEY_ID, "schema_version": 1}),
     )
     subprocess.run(
-        [ssh_keygen, "-q", "-Y", "sign", "-f", str(private_key), "-n", SIGNING_NAMESPACE, str(manifest)],
+        [ssh_keygen, "-q", "-Y", "sign", "-f", str(private_key), "-n", namespace, str(manifest)],
         check=True,
         capture_output=True,
     )
@@ -40,13 +41,14 @@ def _signed_manifest(tmp_path: Path) -> tuple[Path, Path, str, Path]:
     return manifest, Path(f"{manifest}.sig"), public_key, Path(ssh_keygen)
 
 
-def _verifier(tmp_path: Path, public_key: str, executable: Path, *, allow_test_keys: bool):
+def _verifier(tmp_path: Path, public_key: str, executable: Path, *, allow_test_keys: bool, namespace: str = SIGNING_NAMESPACE):
     return Ed25519ManifestVerifier(
         ssh_keygen=executable,
         trusted_keys={TEST_KEY_ID: public_key},
         work_root=tmp_path / "verify",
         environment=dict(os.environ),
         allow_test_keys=allow_test_keys,
+        namespace=namespace,
     )
 
 
@@ -106,3 +108,23 @@ def test_openssh_signer_adapter_interoperates_with_verifier(tmp_path: Path):
         signature,
         key_id=TEST_KEY_ID,
     )
+
+
+def test_managed_install_marker_uses_separate_signature_namespace(tmp_path: Path):
+    manifest, signature, public_key, executable = _signed_manifest(
+        tmp_path,
+        namespace=INSTALL_SIGNING_NAMESPACE,
+    )
+    _verifier(
+        tmp_path,
+        public_key,
+        executable,
+        allow_test_keys=True,
+        namespace=INSTALL_SIGNING_NAMESPACE,
+    ).verify(manifest, signature, key_id=TEST_KEY_ID)
+    with pytest.raises(SignatureVerificationError, match="invalid"):
+        _verifier(tmp_path, public_key, executable, allow_test_keys=True).verify(
+            manifest,
+            signature,
+            key_id=TEST_KEY_ID,
+        )

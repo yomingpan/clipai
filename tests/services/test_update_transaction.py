@@ -63,7 +63,7 @@ class Journal:
 
 
 def _request(tmp_path: Path):
-    return UpdateRequestArtifact(transaction_id("tx"), NOW, "3.7.3", "3.8.0", (tmp_path / "b.zip").resolve(), (tmp_path / "install").resolve(), (tmp_path / "shared").resolve(), "managed")
+    return UpdateRequestArtifact(transaction_id("tx"), NOW, "3.7.3", "3.8.0", (tmp_path / "old" / "python.exe").resolve(), (tmp_path / "b.zip").resolve(), 42, "a" * 64, "b" * 64, "release-key", (tmp_path / "install").resolve(), (tmp_path / "shared").resolve(), "managed")
 
 
 def _transaction(tmp_path: Path, backend_fail=None, lifecycle_fail=None):

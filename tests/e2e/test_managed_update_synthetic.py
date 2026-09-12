@@ -47,7 +47,7 @@ def test_synthetic_catalog_to_extracted_bundle_and_request(tmp_path: Path):
     extracted_root = tmp_path / "candidate"
     extract_prefixed_zip(bundle, extracted_root)
     parsed_manifest = parse_install_manifest(read_json(extracted_root / "install-manifest.json"))
-    request = UpdateRequestArtifact(transaction_id("synthetic-transaction"), "2026-09-13T00:00:00+00:00", "3.7.3", parsed_manifest.app_version, bundle.resolve(), (tmp_path / "install").resolve(), (tmp_path / "shared").resolve(), "synthetic-install")
+    request = UpdateRequestArtifact(transaction_id("synthetic-transaction"), "2026-09-13T00:00:00+00:00", "3.7.3", parsed_manifest.app_version, (tmp_path / "old-python.exe").resolve(), bundle.resolve(), bundle.stat().st_size, built.bundle_sha256, built.manifest_sha256, "synthetic-key", (tmp_path / "install").resolve(), (tmp_path / "shared").resolve(), "synthetic-install")
     request_path = tmp_path / "request.json"
     write_artifact(request_path, request)
     assert read_artifact(request_path, expected_kind="request", expected_transaction_id="synthetic-transaction") == request
