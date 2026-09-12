@@ -75,6 +75,13 @@ def atomic_write_bytes(path: str | Path, content: bytes) -> None:
             pass
 
 
+def unlink_file(path: str | Path) -> None:
+    try:
+        native_path(path).unlink(missing_ok=True)
+    except OSError as exc:
+        raise ManagedUpdateFileError("unable to remove managed update file") from exc
+
+
 def extract_prefixed_zip(
     archive_path: str | Path,
     destination_root: str | Path,
