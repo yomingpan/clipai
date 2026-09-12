@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path, PurePosixPath
 import re
 import uuid
 from typing import Any
-from zipfile import ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 
 class ManagedUpdateFileError(ValueError):
@@ -82,6 +83,57 @@ def unlink_file(path: str | Path) -> None:
         raise ManagedUpdateFileError("unable to remove managed update file") from exc
 
 
+def regular_file_inventory(root: str | Path) -> tuple[str, ...]:
+    resolved = Path(root).resolve()
+    native_root = native_path(resolved)
+    if not native_root.is_dir():
+        raise ManagedUpdateFileError("managed update directory is missing")
+    inventory: list[str] = []
+    for directory, directory_names, file_names in os.walk(native_root):
+        directory_names.sort()
+        file_names.sort()
+        current = Path(directory)
+        for name in file_names:
+            candidate = current / name
+            if candidate.is_symlink() or not candidate.is_file():
+                raise ManagedUpdateFileError("managed update tree contains non-regular file")
+            inventory.append(candidate.relative_to(native_root).as_posix())
+    return tuple(inventory)
+
+
+def file_sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with native_path(path).open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_prefixed_zip(
+    destination_path: str | Path,
+    members: dict[str, bytes],
+    *,
+    prefix: str = "clipai-managed-v1/",
+) -> None:
+    destination = Path(destination_path).resolve()
+    native_path(destination.parent).mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with ZipFile(native_path(temporary), "x", compression=ZIP_DEFLATED) as archive:
+            for relative, content in sorted(members.items()):
+                normalized = _normalized_archive_relative(relative)
+                info = ZipInfo(prefix + normalized, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = ZIP_DEFLATED
+                info.external_attr = 0o100644 << 16
+                archive.writestr(info, content)
+        os.replace(native_path(temporary), native_path(destination))
+    finally:
+        try:
+            native_path(temporary).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def extract_prefixed_zip(
     archive_path: str | Path,
     destination_root: str | Path,
@@ -123,3 +175,18 @@ def extract_prefixed_zip(
                 atomic_write_bytes(output, source.read())
             extracted.append(output)
     return tuple(extracted)
+
+
+def _normalized_archive_relative(value: str) -> str:
+    if "\\" in value or re.match(r"^[A-Za-z]:", value):
+        raise ManagedUpdateFileError("archive member path is not normalized")
+    relative = PurePosixPath(value)
+    if (
+        not value
+        or relative.is_absolute()
+        or ".." in relative.parts
+        or "." in relative.parts
+        or relative.as_posix() != value
+    ):
+        raise ManagedUpdateFileError("archive member escapes payload root")
+    return value

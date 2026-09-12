@@ -19,3 +19,10 @@ def test_managed_update_platform_io_has_one_declared_owner():
     assert "ClipAI.platform.managed_update_fs" in contract
     assert "CandidateEnvironmentBuilder" in contract
     assert "ManagedApplicationLifecycle" in contract
+
+
+def test_release_builder_has_one_core_and_one_thin_cli():
+    scripts = [path.name for path in (ROOT / "scripts").glob("*managed*release*.py")]
+    assert scripts == ["build_managed_release.py"]
+    cli = (ROOT / "scripts" / scripts[0]).read_text(encoding="utf-8")
+    assert "ManagedReleaseBuilder(signer).build(" in cli

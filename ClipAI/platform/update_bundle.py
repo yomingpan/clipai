@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 import re
 from typing import Any
 
@@ -8,6 +8,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 from ClipAI.core.update_bundle import InstallManifest, ManifestFile
+from ClipAI.platform.managed_update_fs import file_sha256, native_path, regular_file_inventory
 from ClipAI.platform.update_signature import SIGNING_NAMESPACE
 
 
@@ -56,6 +57,19 @@ def parse_install_manifest(payload: object) -> InstallManifest:
     if not any(item.role == "wheel" and item.path.startswith("wheelhouse/") for item in files):
         raise BundleValidationError("wheelhouse must contain an offline wheel")
     return InstallManifest(version, BUNDLE_FORMAT, entrypoint, python_requires, lock_hash, files, SIGNING_NAMESPACE, key_id)
+
+
+def verify_bundle_inventory(root: str | Path, manifest: InstallManifest) -> None:
+    bundle_root = Path(root)
+    expected = {item.path: item for item in manifest.files}
+    ignored = {"install-manifest.json", "install-manifest.json.sig"}
+    actual = set(regular_file_inventory(bundle_root)) - ignored
+    if actual != set(expected):
+        raise BundleValidationError("bundle inventory does not match manifest")
+    for relative, item in expected.items():
+        path = bundle_root.joinpath(*PurePosixPath(relative).parts)
+        if native_path(path).stat().st_size != item.size or file_sha256(path) != item.sha256:
+            raise BundleValidationError(f"bundle file identity does not match: {relative}")
 
 
 def _file(value: object) -> ManifestFile:

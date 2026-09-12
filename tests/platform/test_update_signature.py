@@ -7,6 +7,7 @@ import subprocess
 import pytest
 
 from ClipAI.platform.managed_update_fs import atomic_write_bytes
+from ClipAI.platform.managed_release_builder import OpenSshManifestSigner
 from ClipAI.platform.update_signature import (
     Ed25519ManifestVerifier,
     SIGNING_NAMESPACE,
@@ -88,3 +89,20 @@ def test_production_policy_rejects_test_fixture_identity(tmp_path: Path):
             signature,
             key_id=TEST_KEY_ID,
         )
+
+
+def test_openssh_signer_adapter_interoperates_with_verifier(tmp_path: Path):
+    manifest, _old_signature, public_key, executable = _signed_manifest(tmp_path)
+    signer = OpenSshManifestSigner(
+        ssh_keygen=executable,
+        private_key=tmp_path / "fixture-key",
+        work_root=tmp_path / "signer-work",
+        environment=dict(os.environ),
+    )
+    signature = tmp_path / "adapter.sig"
+    atomic_write_bytes(signature, signer.sign(manifest.read_bytes()))
+    _verifier(tmp_path, public_key, executable, allow_test_keys=True).verify(
+        manifest,
+        signature,
+        key_id=TEST_KEY_ID,
+    )
