@@ -125,6 +125,18 @@ def file_sha256(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def copy_regular_tree(source_root: str | Path, destination_root: str | Path) -> tuple[Path, ...]:
+    source = Path(source_root).resolve()
+    destination = Path(destination_root).resolve()
+    copied: list[Path] = []
+    for relative in regular_file_inventory(source):
+        parts = PurePosixPath(relative).parts
+        output = require_contained(destination, destination.joinpath(*parts))
+        _copy_file_atomically(source.joinpath(*parts), output)
+        copied.append(output)
+    return tuple(copied)
+
+
 def write_prefixed_zip(
     destination_path: str | Path,
     members: dict[str, bytes],
@@ -155,12 +167,14 @@ def extract_prefixed_zip(
     destination_root: str | Path,
     *,
     prefix: str = "clipai-managed-v1/",
+    maximum_uncompressed_size: int = 2 * 1024 * 1024 * 1024,
 ) -> tuple[Path, ...]:
     """Extract a regular-file-only archive after validating every member."""
     destination = Path(destination_root).resolve()
     native_path(destination).mkdir(parents=True, exist_ok=True)
-    planned: list[tuple[object, Path]] = []
+    planned: list[tuple[ZipInfo, Path]] = []
     seen: set[str] = set()
+    total_size = 0
     with ZipFile(native_path(archive_path), "r") as archive:
         for member in archive.infolist():
             name = member.filename
@@ -175,20 +189,22 @@ def extract_prefixed_zip(
             if relative.is_absolute() or ".." in relative.parts or "." in relative.parts:
                 raise ManagedUpdateFileError("archive member escapes payload root")
             normalized = relative.as_posix()
-            if normalized in seen:
+            collision_key = normalized.casefold()
+            if collision_key in seen:
                 raise ManagedUpdateFileError("archive contains duplicate member")
-            seen.add(normalized)
+            seen.add(collision_key)
             file_type = (member.external_attr >> 16) & 0o170000
             if file_type not in (0, 0o100000):
                 raise ManagedUpdateFileError("archive contains non-regular member")
+            total_size += member.file_size
+            if total_size > maximum_uncompressed_size:
+                raise ManagedUpdateFileError("archive exceeds uncompressed size limit")
             output = require_contained(destination, destination.joinpath(*relative.parts))
             planned.append((member, output))
 
         extracted: list[Path] = []
         for member, output in planned:
-            native_path(output.parent).mkdir(parents=True, exist_ok=True)
-            with archive.open(member, "r") as source:
-                atomic_write_bytes(output, source.read())
+            _extract_member_atomically(archive, member, output)
             extracted.append(output)
     return tuple(extracted)
 
@@ -206,3 +222,45 @@ def _normalized_archive_relative(value: str) -> str:
     ):
         raise ManagedUpdateFileError("archive member escapes payload root")
     return value
+
+
+def _extract_member_atomically(archive: ZipFile, member: ZipInfo, destination: Path) -> None:
+    output = destination.resolve()
+    native_path(output.parent).mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.{uuid.uuid4().hex[:8]}.tmp")
+    written = 0
+    try:
+        with archive.open(member, "r") as source, native_path(temporary).open("xb") as target:
+            while chunk := source.read(1024 * 1024):
+                written += len(chunk)
+                if written > member.file_size:
+                    raise ManagedUpdateFileError("archive member exceeds declared size")
+                target.write(chunk)
+            target.flush()
+            os.fsync(target.fileno())
+        if written != member.file_size:
+            raise ManagedUpdateFileError("archive member size does not match")
+        os.replace(native_path(temporary), native_path(output))
+    finally:
+        try:
+            native_path(temporary).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _copy_file_atomically(source: Path, destination: Path) -> None:
+    output = destination.resolve()
+    native_path(output.parent).mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with native_path(source).open("rb") as source_handle, native_path(temporary).open("xb") as target:
+            while chunk := source_handle.read(1024 * 1024):
+                target.write(chunk)
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(native_path(temporary), native_path(output))
+    finally:
+        try:
+            native_path(temporary).unlink(missing_ok=True)
+        except OSError:
+            pass

@@ -12,6 +12,7 @@ from ClipAI.core.update_catalog import ManagedUpdateCatalog, ManagedUpdateReleas
 
 
 CATALOG_KIND = "clipai-managed-update-v1"
+MAX_BUNDLE_SIZE = 2 * 1024 * 1024 * 1024
 _CATALOG_FIELDS = {"schema_version", "catalog_kind", "channel", "generated_at", "releases"}
 _RELEASE_FIELDS = {
     "version",
@@ -80,8 +81,8 @@ def _release(value: object, channel: str) -> ManagedUpdateRelease:
     if parsed_url.scheme != "https" or not parsed_url.netloc or parsed_url.username:
         raise CatalogValidationError("release.bundle_url must be HTTPS")
     size = data["bundle_size"]
-    if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
-        raise CatalogValidationError("release.bundle_size must be positive")
+    if isinstance(size, bool) or not isinstance(size, int) or size <= 0 or size > MAX_BUNDLE_SIZE:
+        raise CatalogValidationError("release.bundle_size is outside the supported range")
     bundle_hash = _hash(data["bundle_sha256"], "release.bundle_sha256")
     manifest_hash = _hash(data["manifest_sha256"], "release.manifest_sha256")
     key_id = _text(data["key_id"], "release.key_id")

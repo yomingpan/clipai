@@ -47,3 +47,22 @@ def test_prefixed_archive_rejects_wrong_prefix_and_traversal(tmp_path: Path, mem
         archive.writestr(member, json.dumps({"bad": True}))
     with pytest.raises(ManagedUpdateFileError):
         extract_prefixed_zip(archive_path, tmp_path / "candidate")
+
+
+def test_prefixed_archive_rejects_excessive_uncompressed_size_before_writing(tmp_path: Path):
+    archive_path = tmp_path / "large.zip"
+    with ZipFile(archive_path, "w") as archive:
+        archive.writestr("clipai-managed-v1/payload/main.py", b"x" * 11)
+    destination = tmp_path / "candidate"
+    with pytest.raises(ManagedUpdateFileError, match="size limit"):
+        extract_prefixed_zip(archive_path, destination, maximum_uncompressed_size=10)
+    assert not (destination / "payload" / "main.py").exists()
+
+
+def test_prefixed_archive_rejects_case_collisions_on_windows_targets(tmp_path: Path):
+    archive_path = tmp_path / "collision.zip"
+    with ZipFile(archive_path, "w") as archive:
+        archive.writestr("clipai-managed-v1/payload/Main.py", b"first")
+        archive.writestr("clipai-managed-v1/payload/main.py", b"second")
+    with pytest.raises(ManagedUpdateFileError, match="duplicate"):
+        extract_prefixed_zip(archive_path, tmp_path / "candidate")

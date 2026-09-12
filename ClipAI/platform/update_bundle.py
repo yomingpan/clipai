@@ -16,7 +16,11 @@ BUNDLE_FORMAT = "clipai-managed-v1"
 _FIELDS = {"schema_version", "app_version", "bundle_format", "entrypoint", "python_requires", "requirements_lock_sha256", "files", "signing_namespace", "key_id"}
 _FILE_FIELDS = {"path", "size", "sha256", "role"}
 _ROLES = {"payload", "wheel", "metadata"}
-_DENIED = {".env", ".git", ".venv", "data", "logs", "diagnostics", "launcher", "updater", "update-journal.json"}
+_DENIED = {
+    ".candidate-owner.json", ".env", ".git", ".venv", "data", "diagnostics",
+    "install-state.json", "launcher", "logs", "managed-install.json", "updater",
+    "update-journal.json",
+}
 _KEY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 

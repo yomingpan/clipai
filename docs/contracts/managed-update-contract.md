@@ -58,7 +58,10 @@ clipai-managed-v1/
 Paths must be normalized, unique, contained, and must not name `.env`, `.git`,
 `.venv`, `data`, `logs`, `diagnostics`, launcher, updater, or update journal.
 Candidate installation uses only `requirements.lock` and `wheelhouse/`; network
-access and machine truststore injection are disabled.
+access and machine truststore injection are disabled. Admission compares the
+catalog-bound compressed size and hash before extraction, caps total
+uncompressed size, then verifies manifest hash, signature, and complete file
+inventory before candidate preparation.
 
 ## Signing
 
@@ -107,3 +110,8 @@ namespace `clipai.managed-update.install.v1`. `install-state.json` uses
 `schema_version: 1`, `state_kind: clipai-managed-install-state-v1`, the same
 install identity, monotonic `revision`, `current_version`, and nullable
 `previous_version`. Versions resolve only as `install_root/versions/{version}`.
+An existing target version root is never replaced unless its exact sibling
+`versions/.{target}.candidate-owner.json` names the same transaction and target
+version. Prepare copies only from the already verified staging tree, verifies
+the copied inventory again, and removes the reservation only after candidate
+executable/version proof succeeds.

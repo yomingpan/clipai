@@ -50,6 +50,7 @@ def test_catalog_returns_none_for_equal_or_older_releases():
         (_catalog(_release("3.8.0rc1")), "prerelease"),
         (_catalog(_release(bundle_url="http://example/bundle.zip")), "HTTPS"),
         (_catalog(_release(bundle_sha256="A" * 64)), "SHA-256"),
+        (_catalog(_release(bundle_size=2 * 1024 * 1024 * 1024 + 1)), "supported range"),
         (_catalog(_release("3.8.0"), _release("3.8.0")), "duplicate"),
         (_catalog(_release(), catalog_kind="other"), "identity"),
     ],

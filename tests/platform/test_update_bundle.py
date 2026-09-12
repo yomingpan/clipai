@@ -44,3 +44,10 @@ def test_install_manifest_accepts_complete_offline_bundle_inventory():
 def test_install_manifest_fails_closed(mutation: dict[str, object], message: str):
     with pytest.raises(BundleValidationError, match=message):
         parse_install_manifest(_manifest(**mutation))
+
+
+def test_install_manifest_cannot_overwrite_candidate_or_install_control_files():
+    files = list(_manifest()["files"])
+    files.append({"path": ".candidate-owner.json", "size": 1, "sha256": "d" * 64, "role": "metadata"})
+    with pytest.raises(BundleValidationError, match="user-owned"):
+        parse_install_manifest(_manifest(files=files))
