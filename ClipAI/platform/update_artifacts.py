@@ -15,6 +15,7 @@ from ClipAI.core.update_artifacts import (
     UpdateArtifact,
     UpdateRequestArtifact,
     UpdateResultArtifact,
+    validate_health_relation as _validate_health_relation,
 )
 from ClipAI.platform.managed_update_fs import atomic_write_json, read_json
 
@@ -38,6 +39,13 @@ _KINDS = {
 
 class ArtifactValidationError(ValueError):
     pass
+
+
+def validate_health_relation(launch: LaunchReceiptArtifact, health: StartupHealthArtifact) -> None:
+    try:
+        _validate_health_relation(launch, health)
+    except ValueError as exc:
+        raise ArtifactValidationError(str(exc)) from exc
 
 
 def write_artifact(path: str | Path, artifact: UpdateArtifact) -> None:
@@ -97,21 +105,6 @@ def read_artifact(
         tid, created_at, outcome, _version(payload["active_version"]),
         _failure(payload["failure_code"]), _failure(payload["rollback_failure_code"]),
     )
-
-
-def validate_health_relation(
-    launch: LaunchReceiptArtifact,
-    health: StartupHealthArtifact,
-) -> None:
-    if (
-        launch.transaction_id != health.transaction_id
-        or launch.launch_attempt_id != health.launch_attempt_id
-        or launch.expected_version != health.expected_version
-        or health.actual_version != launch.expected_version
-        or launch.executable_path.resolve() != health.executable_path.resolve()
-        or not health.healthy
-    ):
-        raise ArtifactValidationError("startup health does not match launch")
 
 
 def _json_values(value: object) -> object:

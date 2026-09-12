@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 import re
 from typing import NewType
 
@@ -38,3 +40,35 @@ class FailureCode(StrEnum):
     HEALTH_TIMEOUT = "health_timeout"
     ROLLBACK_FAILED = "rollback_failed"
     INTERNAL_ERROR = "internal_error"
+
+
+class ManagedUpdateFailure(RuntimeError):
+    def __init__(self, code: FailureCode, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class TransactionPhase(StrEnum):
+    VERIFY = "verify"
+    PREPARE = "prepare"
+    SHUTDOWN = "shutdown"
+    COMMIT = "commit"
+    LAUNCH = "launch"
+    HEALTH = "health"
+    ROLLBACK = "rollback"
+    FINALIZE = "finalize"
+
+
+@dataclass(frozen=True)
+class TransactionSnapshot:
+    transaction_id: TransactionId
+    phase: TransactionPhase
+    installed_version: str
+    target_version: str
+    failure_code: FailureCode | None = None
+
+
+@dataclass(frozen=True)
+class CommitReceipt:
+    previous_root: Path
+    candidate_root: Path

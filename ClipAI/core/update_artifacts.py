@@ -70,3 +70,18 @@ UpdateArtifact: TypeAlias = (
     | StartupHealthArtifact
     | UpdateResultArtifact
 )
+
+
+def validate_health_relation(
+    launch: LaunchReceiptArtifact,
+    health: StartupHealthArtifact,
+) -> None:
+    if (
+        launch.transaction_id != health.transaction_id
+        or launch.launch_attempt_id != health.launch_attempt_id
+        or launch.expected_version != health.expected_version
+        or health.actual_version != launch.expected_version
+        or launch.executable_path.resolve() != health.executable_path.resolve()
+        or not health.healthy
+    ):
+        raise ValueError("startup health does not match launch")
