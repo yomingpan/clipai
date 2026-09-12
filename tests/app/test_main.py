@@ -26,7 +26,7 @@ class InstanceGate:
 def test_config_error_uses_startup_error_surface(monkeypatch) -> None:
     messages: list[str] = []
     monkeypatch.setattr(main, "load_dotenv", None)
-    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store: (_ for _ in ()).throw(ConfigError("bad config")))
+    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store, **_paths: (_ for _ in ()).throw(ConfigError("bad config")))
     monkeypatch.setattr(main, "show_startup_error", messages.append)
 
     with pytest.raises(SystemExit) as caught:
@@ -37,15 +37,17 @@ def test_config_error_uses_startup_error_surface(monkeypatch) -> None:
 
 
 def test_main_loads_dotenv_with_file_precedence(monkeypatch) -> None:
-    calls: list[dict[str, bool]] = []
+    calls: list[tuple[object, bool]] = []
     runtime = type("Runtime", (), {"run_forever": lambda self: None})()
-    monkeypatch.setattr(main, "load_dotenv", lambda **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store: SimpleNamespace(bundle=object()))
-    monkeypatch.setattr(main, "build_runtime", lambda _bundle: runtime)
+    monkeypatch.setattr(main, "load_dotenv", lambda path, *, override: calls.append((path, override)))
+    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store, **_paths: SimpleNamespace(bundle=object()))
+    monkeypatch.setattr(main, "build_runtime", lambda _bundle, *, paths: runtime)
 
     main.main(instance_gate=InstanceGate(Lease()))
 
-    assert calls == [{"override": True}]
+    assert len(calls) == 1
+    assert calls[0][0].name == ".env"
+    assert calls[0][1] is True
 
 
 def test_second_instance_stops_before_loading_configuration(monkeypatch) -> None:

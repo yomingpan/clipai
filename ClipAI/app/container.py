@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 import os
-from pathlib import Path
 import uuid
 
 from ClipAI.app.config_schema import ConfigBundle
+from ClipAI.app.application_paths import resolve_runtime_file
 from ClipAI.app.language_pack_bootstrap import ActionLanguageBootstrapResult
 from ClipAI.core.errors import ConfigError
+from ClipAI.core.application_paths import ApplicationPaths
 from ClipAI.app.provider_configuration import AppProviderConfigurationBackend, build_provider_snapshot
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.app.readiness import assess_provider_readiness
@@ -93,6 +95,8 @@ def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
 
 def build_runtime(
     configuration: ConfigBundle | ActionLanguageBootstrapResult,
+    *,
+    paths: ApplicationPaths,
 ) -> AppRuntime:
     bootstrap = (
         configuration
@@ -100,9 +104,10 @@ def build_runtime(
         else None
     )
     bundle = bootstrap.bundle if bootstrap is not None else configuration
-    configure_logging(bundle.logging)
+    log_path = resolve_runtime_file(bundle.logging.file_path, paths.logs_root, "logs")
+    configure_logging(replace(bundle.logging, file_path=str(log_path)))
     application_version = _application_version()
-    settings_store = DotenvModelPreferenceStore()
+    settings_store = DotenvModelPreferenceStore(paths.secrets_file)
     provider_transport = HttpxAsyncTransport()
     provider_execution = ProviderExecutionModule(provider_transport)
     snapshot = build_provider_snapshot(bundle, os.environ, provider_transport)
@@ -122,12 +127,12 @@ def build_runtime(
     clipboard = SystemClipboard()
     speech_available = bundle.tts.enabled and bool(bundle.tts.voice)
     user_preferences = UserPreferencesCoordinator(
-        JsonUserPreferencesStore(),
+        JsonUserPreferencesStore(paths.state_file("user_preferences.json")),
         base_speech_rate=bundle.tts.rate,
         speech_available=speech_available,
     )
     personal_styles = PersonalStyleCoordinator(
-        JsonPersonalStyleStore(),
+        JsonPersonalStyleStore(paths.state_file("personal_styles.json")),
         Utf8PersonalStyleFileReader(),
     )
     runtime_holder: list[AppRuntime] = []
@@ -199,7 +204,8 @@ def build_runtime(
                 list(bootstrap.diagnostic_codes) if bootstrap is not None else []
             ),
         },
-        log_path=bundle.logging.file_path,
+        log_path=log_path,
+        output_dir=paths.diagnostics_root,
         sensitive_values=((credential.value,) if credential and credential.value else ()),
     )
     speech = (
@@ -232,7 +238,7 @@ def build_runtime(
     )
     output_actions = OutputActions(
         clipboard=clipboard_transactions,
-        archive=JsonlArchiveStore(),
+        archive=JsonlArchiveStore(paths.state_file("archive.jsonl")),
     )
     paste_operations = PasteOperationCoordinator(
         clipboard_transactions=clipboard_transactions,
@@ -276,8 +282,7 @@ def build_runtime(
 
     user_control = UserControlCoordinator()
     incident_reporter = IncidentReporter()
-    local_app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-    recent_store = JsonRecentActionStore(local_app_data / "ClipAI" / "recent_actions.json")
+    recent_store = JsonRecentActionStore(paths.recent_actions_file)
     valid_recent = []
     for ref in recent_store.load():
         if bundle.entry_panel.recent_candidate_for_action(ref) is not None:
@@ -338,7 +343,9 @@ def build_runtime(
         supervisor=supervisor,
         workflow_controller=workflow_module.controller_for,
         enqueue=enqueue,
-        action_feedback=ActionFeedbackService(JsonlActionFeedbackStore()),
+        action_feedback=ActionFeedbackService(
+            JsonlActionFeedbackStore(paths.state_file("action_feedback.jsonl"))
+        ),
     )
     user_preferences_module = UserPreferencesRuntimeModule(
         supervisor=supervisor,
