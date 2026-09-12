@@ -33,6 +33,11 @@ atomically restores the old pointer, launches that version, requires matching
 health, then finalizes as `rolled_back`. Journal writes precede each side
 effect and settlement is exactly once.
 
+`journal.json` is an atomic latest-intent record with `schema_version: 1`,
+`journal_kind: clipai-managed-update-journal-v1`, monotonic `revision`, exact
+transaction/version identity, `phase`, and nullable `failure_code`. The journal
+is written before every phase side effect and rejects skipped transitions.
+
 `FailureCode` values are stable machine codes grouped as `identity_*`,
 `catalog_*`, `download_*`, `signature_*`, `bundle_*`, `prepare_*`,
 `shutdown_*`, `commit_*`, `launch_*`, `health_*`, `rollback_*`, and
