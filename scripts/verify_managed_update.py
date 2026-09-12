@@ -27,10 +27,22 @@ def main() -> int:
     python = args.python.resolve()
     if not python.is_file():
         parser.error(f"Python environment is unavailable: {python}")
-    if args.stage != "fast":
+    fast_result = _run([str(python), str(ROOT / "scripts" / "run_unit_tests.py")])
+    if fast_result != 0 or args.stage == "fast":
+        return fast_result
+    if args.stage == "synthetic":
+        return _run(
+            [
+                str(python),
+                str(ROOT / "scripts" / "run_unit_tests.py"),
+                "--",
+                "tests/e2e/test_managed_update_synthetic.py",
+                "-q",
+            ]
+        )
+    else:
         print(f"[error] managed-update stage is not implemented yet: {args.stage}", file=sys.stderr)
         return 2
-    return _run([str(python), str(ROOT / "scripts" / "run_unit_tests.py")])
 
 
 if __name__ == "__main__":
