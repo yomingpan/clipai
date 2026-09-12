@@ -5,6 +5,8 @@ import hashlib
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
+import time
 import uuid
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
@@ -81,6 +83,20 @@ def unlink_file(path: str | Path) -> None:
         native_path(path).unlink(missing_ok=True)
     except OSError as exc:
         raise ManagedUpdateFileError("unable to remove managed update file") from exc
+
+
+def remove_tree(path: str | Path, *, attempts: int = 5, delay_sec: float = 0.05) -> None:
+    target = native_path(path)
+    for attempt in range(attempts):
+        try:
+            shutil.rmtree(target)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != 145 or attempt + 1 == attempts:
+                raise ManagedUpdateFileError("unable to remove managed update directory") from exc
+            time.sleep(delay_sec)
 
 
 def regular_file_inventory(root: str | Path) -> tuple[str, ...]:
