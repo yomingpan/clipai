@@ -26,6 +26,9 @@ class Backend:
         self._step("prepare")
         candidate = self.root / "new"
         return CandidateEnvironment(candidate, candidate / "python.exe", candidate / "main.py", request.target_version)
+    def known_good_root(self, request):
+        self._step("known_good_root")
+        return self.root / "old"
     def commit(self, candidate):
         self._step("commit")
         return CommitReceipt(self.root / "old", candidate.root)
@@ -79,15 +82,24 @@ def test_happy_path_journals_before_every_side_effect_and_finalizes_after_health
     result = transaction.execute(_request(tmp_path))
     assert result.outcome == "updated"
     assert [snapshot.phase for snapshot in journal.snapshots] == list(TransactionPhase)[:6] + [TransactionPhase.FINALIZE]
-    assert events == ["journal:verify", "verify", "journal:prepare", "prepare", "journal:shutdown", "shutdown", "journal:commit", "commit", "journal:launch", "launch", "journal:health", "health", "journal:finalize", "finalize"]
+    assert events == ["journal:verify", "verify", "journal:prepare", "prepare", "known_good_root", "journal:shutdown", "shutdown", "journal:commit", "commit", "journal:launch", "launch", "journal:health", "health", "journal:finalize", "finalize"]
 
 
-@pytest.mark.parametrize("failure,code", [("verify", FailureCode.BUNDLE_INVALID), ("prepare", FailureCode.PREPARE_FAILED), ("shutdown", FailureCode.SHUTDOWN_FAILED), ("commit", FailureCode.COMMIT_FAILED)])
+@pytest.mark.parametrize("failure,code", [("verify", FailureCode.BUNDLE_INVALID), ("prepare", FailureCode.PREPARE_FAILED), ("shutdown", FailureCode.SHUTDOWN_FAILED)])
 def test_precommit_failure_leaves_old_version_active_without_rollback(tmp_path: Path, failure: str, code: FailureCode):
     transaction, events, _journal = _transaction(tmp_path, backend_fail=failure if failure != "shutdown" else None, lifecycle_fail=failure if failure == "shutdown" else None)
     result = transaction.execute(_request(tmp_path))
     assert result.outcome == "failed" and result.active_version == "3.7.3" and result.failure_code == code
     assert "rollback" not in events
+
+
+def test_commit_failure_relaunches_known_good_version_after_completed_shutdown(tmp_path: Path):
+    transaction, events, _journal = _transaction(tmp_path, backend_fail="commit")
+    result = transaction.execute(_request(tmp_path))
+    assert result.outcome == "rolled_back"
+    assert result.failure_code is FailureCode.COMMIT_FAILED
+    assert "rollback" not in events
+    assert events.index("journal:rollback") < events.index("rollback_launch") < events.index("rollback_health")
 
 
 @pytest.mark.parametrize("failure,code", [("launch", FailureCode.LAUNCH_FAILED), ("health", FailureCode.HEALTH_TIMEOUT), ("finalize", FailureCode.INTERNAL_ERROR)])

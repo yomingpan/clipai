@@ -141,6 +141,9 @@ class FilesystemManagedUpdateBackend:
         except Exception as exc:
             raise ManagedUpdateFailure(FailureCode.PREPARE_FAILED, "offline candidate preparation failed") from exc
 
+    def known_good_root(self, request: UpdateRequestArtifact) -> Path:
+        return self._layout.version_root(request.installed_version)
+
     def commit(self, candidate: CandidateEnvironment) -> CommitReceipt:
         if _path_key(candidate.root) not in self._candidate_transactions:
             raise ManagedUpdateFailure(FailureCode.COMMIT_FAILED, "candidate is not owned by a prepared transaction")

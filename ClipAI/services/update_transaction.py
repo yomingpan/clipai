@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 from ClipAI.core.managed_update import (
     CommitReceipt,
@@ -27,6 +28,8 @@ class ManagedUpdateTransaction:
 
     def execute(self, request: UpdateRequestArtifact) -> UpdateResultArtifact:
         receipt: CommitReceipt | None = None
+        known_good_root: Path | None = None
+        shutdown_completed = False
         phase = TransactionPhase.VERIFY
         try:
             self._record(request, phase)
@@ -34,9 +37,11 @@ class ManagedUpdateTransaction:
             phase = TransactionPhase.PREPARE
             self._record(request, phase)
             candidate = self._backend.prepare(request)
+            known_good_root = self._backend.known_good_root(request)
             phase = TransactionPhase.SHUTDOWN
             self._record(request, phase)
             self._lifecycle.request_shutdown(request.transaction_id)
+            shutdown_completed = True
             phase = TransactionPhase.COMMIT
             self._record(request, phase)
             receipt = self._backend.commit(candidate)
@@ -59,15 +64,24 @@ class ManagedUpdateTransaction:
         except Exception as exc:
             failure = _failure_code(phase, exc)
             if receipt is None:
+                if shutdown_completed and known_good_root is not None:
+                    return self._rollback(request, None, known_good_root, failure)
                 return UpdateResultArtifact(request.transaction_id, self._now(), "failed", request.installed_version, failure)
-            return self._rollback(request, receipt, failure)
+            return self._rollback(request, receipt, receipt.previous_root, failure)
 
-    def _rollback(self, request: UpdateRequestArtifact, receipt: CommitReceipt, failure: FailureCode) -> UpdateResultArtifact:
+    def _rollback(
+        self,
+        request: UpdateRequestArtifact,
+        receipt: CommitReceipt | None,
+        known_good_root: Path,
+        failure: FailureCode,
+    ) -> UpdateResultArtifact:
         try:
             self._record(request, TransactionPhase.ROLLBACK, failure)
-            self._backend.rollback(receipt)
+            if receipt is not None:
+                self._backend.rollback(receipt)
             launch = self._lifecycle.launch(
-                version_root=receipt.previous_root,
+                version_root=known_good_root,
                 transaction_id=request.transaction_id,
                 launch_attempt_id=self._launch_attempt_factory(),
                 expected_version=request.installed_version,

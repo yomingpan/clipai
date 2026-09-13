@@ -34,10 +34,12 @@ substring, or later PID polling for the retained handle.
 
 Legal forward transitions are `verify -> prepare -> shutdown -> commit ->
 launch -> health -> finalize`. A failure before commit finalizes with the old
-pointer unchanged. A failure at or after commit transitions to `rollback`,
-atomically restores the old pointer, launches that version, requires matching
-health, then finalizes as `rolled_back`. Journal writes precede each side
-effect and settlement is exactly once.
+pointer unchanged. Before shutdown, the backend supplies the exact known-good
+version root. Once shutdown completes, every later failure transitions to
+`rollback`: a commit failure relies on the atomic pointer remaining unchanged,
+while a post-commit failure atomically restores it. Both paths launch that
+known-good root and require matching health before settling as `rolled_back`.
+Journal writes precede each side effect and settlement is exactly once.
 
 `journal.json` is an atomic latest-intent record with `schema_version: 1`,
 `journal_kind: clipai-managed-update-journal-v1`, monotonic `revision`, exact
