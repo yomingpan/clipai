@@ -128,6 +128,12 @@ from it without applying `CLIPAI_INSTANCE_NAME` a second time.
 The dispatcher converts argv into one of four immutable core command models and
 crosses one `execute(command)` composition seam; subcommands do not own separate
 entry scripts or duplicate parsing.
+The app composition root supplies one typed command executor to that seam.
+`install` returns success only after the verified candidate, revision-zero
+state, and managed marker are durable; it does not implicitly launch the app.
+`launch` alone enters the application runtime, and `host` alone owns an update
+transaction. Command-specific dependencies are composed lazily so a launch
+does not require signing tools or a trusted-key file.
 For `host`, command roots and transaction identity must match the request before
 an installed-process handle is acquired. The host retains that verified handle
 through transaction settlement, writes exactly one `result` artifact, and then
