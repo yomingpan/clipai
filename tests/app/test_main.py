@@ -164,6 +164,9 @@ def test_managed_launch_cli_uses_explicit_paths_and_reports_runtime_readiness(mo
 def _install_managed_version(tmp_path: Path) -> tuple[int, Path, Path, Path]:
     launcher_root = (tmp_path / "stable-launcher").resolve()
     launcher_root.mkdir()
+    (launcher_root / "managed-update-trusted-keys.json").write_text(
+        '{"bootstrap":"trusted"}\n', encoding="utf-8"
+    )
     install_root = (tmp_path / "install").resolve()
     shared_root = (tmp_path / "shared").resolve()
     payload = tmp_path / "payload"
@@ -234,6 +237,26 @@ def test_managed_install_cli_publishes_verified_initial_install_without_launchin
     assert exit_code == 0
     assert read_json(install_root / "install-state.json")["current_version"] == "2.0"
     assert read_json(install_root / "managed-install.json")["managed_install_id"] == "managed-1"
+    assert (install_root / "launcher" / "managed-update-trusted-keys.json").is_file()
+
+
+def test_stable_launcher_entrypoint_resolves_fixed_root_and_delegates_current_launch(monkeypatch, tmp_path) -> None:
+    launcher_root = (tmp_path / "install" / "launcher").resolve()
+    entrypoint = launcher_root / "payload" / "main.py"
+    versioned_entrypoint = tmp_path / "install" / "versions" / "2.0" / "payload" / "main.py"
+    assert main._entry_application_root(entrypoint) == launcher_root
+    assert main._entry_application_root(versioned_entrypoint) == versioned_entrypoint.parent
+
+    marker = SimpleNamespace(shared_root=(tmp_path / "shared").resolve())
+    calls = []
+    monkeypatch.setattr(main, "_entry_application_root", lambda _entrypoint: launcher_root)
+    monkeypatch.setattr(main, "read_stable_launcher_marker", lambda root: marker if root == launcher_root else None)
+    monkeypatch.setattr(main, "_launch_managed_current", lambda root, identity, environment: calls.append((root, identity, environment)))
+    monkeypatch.setattr(main, "build_application_paths", lambda *_args: (_ for _ in ()).throw(AssertionError("must not enter source runtime")))
+
+    main.main()
+
+    assert calls and calls[0][0:2] == (launcher_root, marker)
 
 
 def test_managed_selfcheck_cli_proves_current_version_without_mutating_state(tmp_path) -> None:

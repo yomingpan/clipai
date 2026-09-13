@@ -152,6 +152,11 @@ to a signed manifest whose install identity, exact version-root venv Python,
 distribution metadata, non-editable provenance, and entrypoint all agree. It
 does not repair, switch, launch, or mutate install or user state; malformed or
 incomplete evidence fails closed with a non-zero result.
+Normal managed startup is not a fifth subcommand. The stable launcher resolves
+and verifies the atomic current pointer, creates a fresh startup transaction and
+launch attempt, starts that exact version through the same `launch` CLI contract,
+and returns success only after matching startup health. The versioned process
+never reads or chooses the current pointer.
 For `host`, command roots and transaction identity must match the request before
 an installed-process handle is acquired. The host retains that verified handle
 through transaction settlement, writes exactly one `result` artifact, and then
@@ -219,9 +224,13 @@ same install identity, monotonic `revision`, `current_version`, and nullable
 `previous_version`. Versions resolve only as `install_root/versions/{version}`.
 Initial install first atomically copies its external archive into the
 transaction root, admits it through the shared bundle stager, and builds the
-complete candidate. It then publishes revision-zero state followed by the
-managed marker; neither control file may exist before candidate proof, and an
-existing marker, state, or target version is never overwritten.
+complete candidate. From that same verified staging tree it also builds the
+fixed `install_root/launcher` environment and atomically copies the installer's
+trusted public-key file there. The launcher is never selected by or stored
+inside the current-version pointer. It then publishes revision-zero state
+followed by the managed marker; neither control file may exist before both
+environments and the keyring are proven, and an existing marker, state, target
+version, or launcher is never overwritten.
 An existing target version root is never replaced unless its exact sibling
 `versions/.{target}.candidate-owner.json` names the same transaction and target
 version. Prepare copies only from the already verified staging tree, verifies

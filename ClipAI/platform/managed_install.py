@@ -15,6 +15,7 @@ from ClipAI.core.update_artifacts import UpdateRequestArtifact
 from ClipAI.core.update_ports import CandidateEnvironment
 from ClipAI.platform.managed_update_fs import (
     atomic_write_json,
+    canonical_path,
     native_path,
     read_bytes,
     read_json,
@@ -219,6 +220,20 @@ class ManagedInstallLayout:
             "current_version": state.current_version,
             "previous_version": state.previous_version,
         })
+
+
+def read_stable_launcher_marker(application_root: str | Path) -> ManagedInstallMarker | None:
+    """Return verified local layout identity only for the fixed launcher root."""
+    launcher_root = canonical_path(application_root)
+    if launcher_root.name.casefold() != "launcher":
+        return None
+    marker_path = launcher_root.parent / "managed-install.json"
+    if not native_path(marker_path).is_file():
+        return None
+    marker = _parse_marker(read_json(marker_path))
+    if not _same_path(marker.install_root, launcher_root.parent):
+        raise ValueError("stable launcher marker install root does not match")
+    return marker
 
 
 def _parse_marker(value: object) -> ManagedInstallMarker:

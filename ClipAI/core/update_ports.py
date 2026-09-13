@@ -59,6 +59,10 @@ class ManagedUpdateHandoff(Protocol):
     def prepare(self, request: UpdateRequestArtifact) -> HandoffReadyArtifact: ...
 
 
+class ManagedInstallReader(Protocol):
+    def prove_current_install(self) -> CandidateEnvironment: ...
+
+
 class ManagedApplicationLifecycle(Protocol):
     def request_shutdown(self, transaction_id: TransactionId) -> None: ...
 

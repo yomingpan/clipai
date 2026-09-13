@@ -7,7 +7,7 @@ import pytest
 from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure, transaction_id
 from ClipAI.core.update_artifacts import UpdateRequestArtifact
 from ClipAI.core.update_ports import CandidateEnvironment
-from ClipAI.platform.managed_install import ManagedInstallLayout
+from ClipAI.platform.managed_install import ManagedInstallLayout, read_stable_launcher_marker
 from ClipAI.platform.managed_update_fs import atomic_write_json, read_json
 
 
@@ -212,3 +212,15 @@ def test_state_and_marker_identity_must_agree_and_roots_must_be_disjoint(tmp_pat
     with pytest.raises(ManagedUpdateFailure) as overlap:
         nested_layout.assert_update_eligible(nested_request)
     assert overlap.value.code is FailureCode.IDENTITY_INELIGIBLE
+
+
+def test_only_fixed_launcher_root_discovers_the_managed_marker(tmp_path: Path) -> None:
+    layout, _, _ = _write_install(tmp_path)
+    launcher = layout.install_root / "launcher"
+    launcher.mkdir()
+
+    marker = read_stable_launcher_marker(launcher)
+
+    assert marker is not None
+    assert marker.install_root == layout.install_root
+    assert read_stable_launcher_marker(layout.version_root("1.0")) is None

@@ -39,10 +39,12 @@ class FilesystemManagedInstaller:
         *,
         manifest_verifier: DocumentVerifier,
         candidate_builder: CandidateEnvironmentBuilder,
+        trusted_keyring_path: str | Path,
         update_gate_factory: Callable[[Path], ManagedUpdateGate] = WindowsManagedUpdateGate,
     ) -> None:
         self._stager = VerifiedManagedBundleStager(manifest_verifier=manifest_verifier)
         self._candidate_builder = candidate_builder
+        self._trusted_keyring_path = canonical_path(trusted_keyring_path)
         self._update_gate_factory = update_gate_factory
 
     def install(self, command: InstallManagedCommand) -> CandidateEnvironment:
@@ -61,7 +63,8 @@ class FilesystemManagedInstaller:
             install_root / "versions",
             install_root / "versions" / command.expected_version,
         )
-        if any(native_path(path).exists() for path in (state_path, marker_path, target_root)):
+        launcher_root = require_contained(install_root, install_root / "launcher")
+        if any(native_path(path).exists() for path in (state_path, marker_path, target_root, launcher_root)):
             raise ManagedUpdateFailure(FailureCode.IDENTITY_INELIGIBLE, "managed install target already exists")
 
         lease = self._update_gate_factory(install_root).acquire()
@@ -98,6 +101,21 @@ class FilesystemManagedInstaller:
             )
             candidate = self._candidate_builder.build(build_request)
             validate_candidate_environment(candidate, build_request)
+            copy_regular_tree(verified.staging_root, launcher_root)
+            launcher_request = CandidateBuildRequest(
+                transaction_id=command.transaction_id,
+                candidate_root=launcher_root,
+                base_python=command.base_python,
+                expected_version=command.expected_version,
+                entrypoint=verified.manifest.entrypoint,
+            )
+            launcher = self._candidate_builder.build(launcher_request)
+            validate_candidate_environment(launcher, launcher_request)
+            copy_file_atomically(
+                self._trusted_keyring_path,
+                launcher_root / "managed-update-trusted-keys.json",
+                maximum_size=1024 * 1024,
+            )
             atomic_write_json(state_path, {
                 "schema_version": 1,
                 "state_kind": STATE_KIND,
@@ -117,22 +135,28 @@ class FilesystemManagedInstaller:
             })
             return candidate
         except ManagedUpdateFailure:
-            self._cleanup_failed_install(target_root, state_path, marker_path)
+            self._cleanup_failed_install(target_root, launcher_root, state_path, marker_path)
             raise
         except Exception as exc:
-            self._cleanup_failed_install(target_root, state_path, marker_path)
+            self._cleanup_failed_install(target_root, launcher_root, state_path, marker_path)
             code = FailureCode.DOWNLOAD_FAILED if isinstance(exc, ManagedUpdateFileError) else FailureCode.PREPARE_FAILED
             raise ManagedUpdateFailure(code, "managed initial installation failed") from exc
         finally:
             lease.close()
 
     @staticmethod
-    def _cleanup_failed_install(target_root: Path, state_path: Path, marker_path: Path) -> None:
+    def _cleanup_failed_install(
+        target_root: Path,
+        launcher_root: Path,
+        state_path: Path,
+        marker_path: Path,
+    ) -> None:
         if native_path(marker_path).exists():
             return
         for cleanup in (
             lambda: unlink_file(state_path),
             lambda: remove_tree(target_root),
+            lambda: remove_tree(launcher_root),
         ):
             try:
                 cleanup()

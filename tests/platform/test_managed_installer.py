@@ -45,6 +45,14 @@ class _FailingBuilder:
         raise RuntimeError("candidate build failed")
 
 
+class _FailingLauncherBuilder(_Builder):
+    def build(self, request):
+        if self.requests:
+            request.candidate_root.mkdir(parents=True, exist_ok=True)
+            raise RuntimeError("launcher build failed")
+        return super().build(request)
+
+
 class _BusyGate:
     def acquire(self):
         return None
@@ -105,6 +113,13 @@ def _command(tmp_path: Path) -> InstallManagedCommand:
     )
 
 
+def _keyring(tmp_path: Path) -> Path:
+    path = (tmp_path / "bootstrap" / "managed-update-trusted-keys.json").resolve()
+    path.parent.mkdir()
+    path.write_text('{"trusted":"bootstrap"}\n', encoding="utf-8")
+    return path
+
+
 def test_initial_installer_publishes_identity_only_after_verified_candidate(tmp_path: Path):
     command = _command(tmp_path)
     builder = _Builder(command.install_root)
@@ -112,6 +127,7 @@ def test_initial_installer_publishes_identity_only_after_verified_candidate(tmp_
     installer = FilesystemManagedInstaller(
         manifest_verifier=_Verifier(),
         candidate_builder=builder,
+        trusted_keyring_path=_keyring(tmp_path),
         update_gate_factory=lambda _install_root: _FreeGate(lease),
     )
 
@@ -120,6 +136,12 @@ def test_initial_installer_publishes_identity_only_after_verified_candidate(tmp_
     assert candidate.root == command.install_root / "versions" / "2.0"
     assert candidate.entrypoint.read_text(encoding="utf-8") == "print('installed')\n"
     assert builder.requests[0].base_python == command.base_python
+    assert [item.candidate_root for item in builder.requests] == [
+        command.install_root / "versions" / "2.0",
+        command.install_root / "launcher",
+    ]
+    assert (command.install_root / "launcher" / "payload" / "main.py").is_file()
+    assert (command.install_root / "launcher" / "managed-update-trusted-keys.json").read_text(encoding="utf-8") == '{"trusted":"bootstrap"}\n'
     state = read_json(command.install_root / "install-state.json")
     marker = read_json(command.install_root / "managed-install.json")
     assert (state["revision"], state["current_version"], state["previous_version"]) == (0, "2.0", None)
@@ -136,6 +158,7 @@ def test_initial_installer_removes_partial_version_without_publishing_eligibilit
     installer = FilesystemManagedInstaller(
         manifest_verifier=_Verifier(),
         candidate_builder=_FailingBuilder(),
+        trusted_keyring_path=_keyring(tmp_path),
     )
 
     with pytest.raises(ManagedUpdateFailure) as failure:
@@ -145,6 +168,25 @@ def test_initial_installer_removes_partial_version_without_publishing_eligibilit
     assert not (command.install_root / "versions" / "2.0").exists()
     assert not (command.install_root / "install-state.json").exists()
     assert not (command.install_root / "managed-install.json").exists()
+    assert not (command.install_root / "launcher").exists()
+
+
+def test_initial_installer_removes_candidate_and_launcher_when_stable_build_fails(tmp_path: Path):
+    command = _command(tmp_path)
+    installer = FilesystemManagedInstaller(
+        manifest_verifier=_Verifier(),
+        candidate_builder=_FailingLauncherBuilder(command.install_root),
+        trusted_keyring_path=_keyring(tmp_path),
+    )
+
+    with pytest.raises(ManagedUpdateFailure) as failure:
+        installer.install(command)
+
+    assert failure.value.code is FailureCode.PREPARE_FAILED
+    assert not (command.install_root / "versions" / "2.0").exists()
+    assert not (command.install_root / "launcher").exists()
+    assert not (command.install_root / "install-state.json").exists()
+    assert not (command.install_root / "managed-install.json").exists()
 
 
 def test_initial_installer_fails_busy_before_admitting_the_bundle(tmp_path: Path):
@@ -152,6 +194,7 @@ def test_initial_installer_fails_busy_before_admitting_the_bundle(tmp_path: Path
     installer = FilesystemManagedInstaller(
         manifest_verifier=_Verifier(),
         candidate_builder=_Builder(command.install_root),
+        trusted_keyring_path=_keyring(tmp_path),
         update_gate_factory=lambda _install_root: _BusyGate(),
     )
 
