@@ -113,7 +113,8 @@ def test_postcommit_failure_restores_and_health_checks_old_version(tmp_path: Pat
     if failure == "launch":
         assert "stop" not in events
     else:
-        assert events.index("journal:rollback") < events.index("stop") < events.index("rollback")
+        assert events.index("journal:rollback") < events.index("rollback") < events.index("stop")
+        assert events.index("stop") < events.index("rollback_launch")
 
 
 def test_candidate_stop_failure_fails_closed_without_restoring_or_launching_old(tmp_path: Path):
@@ -126,16 +127,17 @@ def test_candidate_stop_failure_fails_closed_without_restoring_or_launching_old(
     assert result.outcome == "failed"
     assert result.failure_code is FailureCode.INTERNAL_ERROR
     assert result.rollback_failure_code is FailureCode.ROLLBACK_FAILED
-    assert "rollback" not in events
+    assert events.index("rollback") < events.index("stop")
     assert "rollback_launch" not in events
 
 
 def test_rollback_failure_is_explicit_and_never_claims_update_success(tmp_path: Path):
-    transaction, _events, _journal = _transaction(tmp_path, backend_fail="rollback", lifecycle_fail="health")
+    transaction, events, _journal = _transaction(tmp_path, backend_fail="rollback", lifecycle_fail="health")
     result = transaction.execute(_request(tmp_path))
     assert result.outcome == "failed"
     assert result.failure_code == FailureCode.HEALTH_TIMEOUT
     assert result.rollback_failure_code == FailureCode.ROLLBACK_FAILED
+    assert "stop" not in events
 
 
 def test_typed_backend_failure_code_is_preserved(tmp_path: Path):

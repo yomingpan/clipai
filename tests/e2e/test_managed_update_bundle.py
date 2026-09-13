@@ -720,7 +720,8 @@ def test_transaction_fault_matrix_preserves_user_data_then_happy_path_finalizes(
         if failure in {"commit", "launch", "health", "finalize"}:
             assert "1.0" in processes.launched_versions
         if failure in {"health", "finalize"}:
-            assert events.index("stop:2.0") < events.index("rollback")
+            assert events.index("rollback") < events.index("stop:2.0")
+            assert events.index("stop:2.0") < events.index("launch:1.0")
 
         target = layout.version_root("2.0")
         if native_path(target).exists():

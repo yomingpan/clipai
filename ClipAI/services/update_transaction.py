@@ -88,10 +88,10 @@ class ManagedUpdateTransaction:
     ) -> UpdateResultArtifact:
         try:
             self._record(request, TransactionPhase.ROLLBACK, failure)
-            if candidate_launch is not None:
-                self._lifecycle.stop(candidate_launch, timeout_sec=self._stop_timeout_sec)
             if receipt is not None:
                 self._backend.rollback(receipt)
+            if candidate_launch is not None:
+                self._lifecycle.stop(candidate_launch, timeout_sec=self._stop_timeout_sec)
             launch = self._lifecycle.launch(
                 version_root=known_good_root,
                 transaction_id=request.transaction_id,

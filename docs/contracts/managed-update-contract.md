@@ -62,9 +62,10 @@ Journal writes precede each side effect and settlement is exactly once.
 `ManagedApplicationLifecycle` exclusively owns every process handle it starts.
 If rollback follows a successful candidate launch, the transaction must ask the
 lifecycle to stop that exact transaction + launch-attempt + process identity and
-prove it exited before restoring the pointer or launching the known-good
-version. Failure to quiesce the candidate makes rollback fail closed; the old
-version is never launched concurrently. A launch that fails after creating a
+prove it exited before launching the known-good version. The pointer is restored
+first: a pointer-restore failure leaves the current candidate process untouched,
+while a later quiesce failure leaves a durable known-good pointer but does not
+launch the old process concurrently. A launch that fails after creating a
 process must clean up that process inside the lifecycle adapter.
 
 The managed-bundle transaction gate starts from a real signed v1 installation
