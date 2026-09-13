@@ -62,6 +62,27 @@ class _InstalledProcess:
         self.closed = True
 
 
+class _BusyGate:
+    def acquire(self):
+        return None
+
+
+class _Lease:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FreeGate:
+    def __init__(self, lease: _Lease) -> None:
+        self.lease = lease
+
+    def acquire(self):
+        return self.lease
+
+
 def _write_current_install(install_root: Path, shared_root: Path) -> Path:
     current = install_root / "versions" / "1.0"
     python = current / ".venv" / "Scripts" / "python.exe"
@@ -142,6 +163,7 @@ def _write_request(tmp_path: Path) -> tuple[HostManagedCommand, UpdateRequestArt
 def test_host_executes_verified_transaction_and_publishes_updated_result(tmp_path: Path):
     command, request = _write_request(tmp_path)
     installed_processes: list[_InstalledProcess] = []
+    lease = _Lease()
 
     def open_installed_process(*, process_id, expected_executable):
         assert (process_id, expected_executable) == (1234, request.installed_executable)
@@ -171,6 +193,7 @@ def test_host_executes_verified_transaction_and_publishes_updated_result(tmp_pat
         now=lambda: NOW,
         launch_attempt_factory=lambda: next(attempts),
         process_handle_factory=open_installed_process,
+        update_gate_factory=lambda _install_root: _FreeGate(lease),
         start_process=start_process,
     )
 
@@ -181,6 +204,7 @@ def test_host_executes_verified_transaction_and_publishes_updated_result(tmp_pat
     assert (request.install_root / "versions" / "1.0").is_dir()
     assert installed_processes[0].waited is True
     assert installed_processes[0].closed is True
+    assert lease.closed is True
 
 
 def test_host_process_identity_failure_publishes_terminal_result_before_bundle_access(tmp_path: Path):
@@ -204,5 +228,31 @@ def test_host_process_identity_failure_publishes_terminal_result_before_bundle_a
         "failed",
         "1.0",
         FailureCode.IDENTITY_INELIGIBLE,
+    )
+    assert not (request.shared_root / "managed-update" / "transactions" / "tx-1" / "journal.json").exists()
+
+
+def test_host_busy_publishes_terminal_result_before_opening_installed_process(tmp_path: Path):
+    command, request = _write_request(tmp_path)
+
+    def must_not_open_process(**_identity):
+        raise AssertionError("busy host must not open the installed process")
+
+    executor = ManagedUpdateHostExecutor(
+        manifest_verifier=_Verifier(),
+        candidate_builder=_CandidateBuilder(),
+        environment={},
+        now=lambda: NOW,
+        launch_attempt_factory=lambda: launch_attempt_id("unused-attempt"),
+        process_handle_factory=must_not_open_process,
+        update_gate_factory=lambda _install_root: _BusyGate(),
+    )
+
+    assert executor.execute(command) == 1
+    result = ManagedUpdateArtifactStore(shared_root=request.shared_root, transaction_id="tx-1").read("result")
+    assert (result.outcome, result.active_version, result.failure_code) == (
+        "failed",
+        "1.0",
+        FailureCode.UPDATE_BUSY,
     )
     assert not (request.shared_root / "managed-update" / "transactions" / "tx-1" / "journal.json").exists()

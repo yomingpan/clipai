@@ -29,6 +29,14 @@ class CandidateEnvironmentBuilder(Protocol):
     def build(self, request: CandidateBuildRequest) -> CandidateEnvironment: ...
 
 
+class ManagedUpdateLease(Protocol):
+    def close(self) -> None: ...
+
+
+class ManagedUpdateGate(Protocol):
+    def acquire(self) -> ManagedUpdateLease | None: ...
+
+
 class ManagedApplicationLifecycle(Protocol):
     def request_shutdown(self, transaction_id: TransactionId) -> None: ...
 

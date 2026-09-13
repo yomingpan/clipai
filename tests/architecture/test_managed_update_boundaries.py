@@ -73,3 +73,15 @@ def test_signing_namespace_and_test_identity_have_one_core_owner():
     assert definitions == [owner]
     verifier = (ROOT / "ClipAI" / "platform" / "update_signature.py").read_text(encoding="utf-8")
     assert "from ClipAI.core.update_signing import SIGNING_NAMESPACE, TEST_KEY_ID" in verifier
+
+
+def test_windows_named_mutex_has_one_native_owner():
+    platform_root = ROOT / "ClipAI" / "platform"
+    owners = [
+        path.name
+        for path in platform_root.glob("*.py")
+        if "CreateMutexW" in path.read_text(encoding="utf-8")
+    ]
+    assert owners == ["application_instance.py"]
+    managed = (platform_root / "managed_update_mutex.py").read_text(encoding="utf-8")
+    assert "WindowsNamedMutexGate" in managed

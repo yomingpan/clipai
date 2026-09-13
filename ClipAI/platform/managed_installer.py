@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure
 from ClipAI.core.managed_update_commands import InstallManagedCommand
 from ClipAI.core.update_bundle import BundleAdmissionRequest
-from ClipAI.core.update_ports import CandidateBuildRequest, CandidateEnvironment, CandidateEnvironmentBuilder
+from ClipAI.core.update_ports import (
+    CandidateBuildRequest,
+    CandidateEnvironment,
+    CandidateEnvironmentBuilder,
+    ManagedUpdateGate,
+)
 from ClipAI.platform.candidate_environment import validate_candidate_environment
 from ClipAI.platform.managed_install import DocumentVerifier, MARKER_KIND, STATE_KIND
 from ClipAI.platform.managed_update_fs import (
@@ -19,6 +25,7 @@ from ClipAI.platform.managed_update_fs import (
     require_contained,
     unlink_file,
 )
+from ClipAI.platform.managed_update_mutex import WindowsManagedUpdateGate
 from ClipAI.platform.update_bundle import verify_bundle_inventory
 from ClipAI.platform.update_catalog import MAX_BUNDLE_SIZE
 from ClipAI.platform.verified_managed_bundle import VerifiedManagedBundleStager
@@ -32,9 +39,11 @@ class FilesystemManagedInstaller:
         *,
         manifest_verifier: DocumentVerifier,
         candidate_builder: CandidateEnvironmentBuilder,
+        update_gate_factory: Callable[[Path], ManagedUpdateGate] = WindowsManagedUpdateGate,
     ) -> None:
         self._stager = VerifiedManagedBundleStager(manifest_verifier=manifest_verifier)
         self._candidate_builder = candidate_builder
+        self._update_gate_factory = update_gate_factory
 
     def install(self, command: InstallManagedCommand) -> CandidateEnvironment:
         install_root = canonical_path(command.install_root)
@@ -55,6 +64,9 @@ class FilesystemManagedInstaller:
         if any(native_path(path).exists() for path in (state_path, marker_path, target_root)):
             raise ManagedUpdateFailure(FailureCode.IDENTITY_INELIGIBLE, "managed install target already exists")
 
+        lease = self._update_gate_factory(install_root).acquire()
+        if lease is None:
+            raise ManagedUpdateFailure(FailureCode.UPDATE_BUSY, "managed install is busy")
         transaction_root = require_contained(
             shared_root,
             shared_root / "managed-update" / "transactions" / str(command.transaction_id),
@@ -111,6 +123,8 @@ class FilesystemManagedInstaller:
             self._cleanup_failed_install(target_root, state_path, marker_path)
             code = FailureCode.DOWNLOAD_FAILED if isinstance(exc, ManagedUpdateFileError) else FailureCode.PREPARE_FAILED
             raise ManagedUpdateFailure(code, "managed initial installation failed") from exc
+        finally:
+            lease.close()
 
     @staticmethod
     def _cleanup_failed_install(target_root: Path, state_path: Path, marker_path: Path) -> None:

@@ -46,7 +46,7 @@ Journal writes precede each side effect and settlement is exactly once.
 transaction/version identity, `phase`, and nullable `failure_code`. The journal
 is written before every phase side effect and rejects skipped transitions.
 
-`FailureCode` values are stable machine codes grouped as `identity_*`,
+`FailureCode` values are stable machine codes grouped as `identity_*`, `update_*`,
 `catalog_*`, `download_*`, `signature_*`, `bundle_*`, `prepare_*`,
 `shutdown_*`, `commit_*`, `launch_*`, `health_*`, `rollback_*`, and
 `internal_error`. Diagnostics may add detail but must not replace the code.
@@ -163,6 +163,15 @@ under one install root; no editable `direct_url.json` or `.git`/worktree
 evidence exists; shared `ApplicationPaths` are outside the immutable version
 tree; and the update mutex is held. Unknown identity is check-only and fails
 closed for apply.
+
+One Windows session named mutex serializes mutation per canonical install root.
+Its name is `Local\\ClipAI.ManagedUpdate.v1.{sha256}`, where the digest is over
+the case-folded canonical install-root path. Initial install holds the lease
+from before bundle admission until marker publication or cleanup. Host reads
+and matches the request first, then holds the lease from before process-handle
+acquisition through terminal result publication. Contention fails immediately
+as `update_busy`; closing or process death releases the lease. Read-only
+`selfcheck` does not acquire it.
 
 `managed-install.json` uses `schema_version: 1`, `marker_kind:
 clipai-managed-install-v1`, `managed_install_id`, canonical `install_root` and

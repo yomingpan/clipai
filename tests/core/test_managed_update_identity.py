@@ -15,3 +15,4 @@ def test_managed_update_identities_are_explicit_and_validated():
 def test_failure_codes_are_stable_machine_values():
     assert FailureCode.HEALTH_TIMEOUT == "health_timeout"
     assert FailureCode.ROLLBACK_FAILED == "rollback_failed"
+    assert FailureCode.UPDATE_BUSY == "update_busy"

@@ -45,6 +45,27 @@ class _FailingBuilder:
         raise RuntimeError("candidate build failed")
 
 
+class _BusyGate:
+    def acquire(self):
+        return None
+
+
+class _Lease:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FreeGate:
+    def __init__(self, lease: _Lease) -> None:
+        self.lease = lease
+
+    def acquire(self):
+        return self.lease
+
+
 def _command(tmp_path: Path) -> InstallManagedCommand:
     install_root = (tmp_path / "install").resolve()
     shared_root = (tmp_path / "shared").resolve()
@@ -87,9 +108,11 @@ def _command(tmp_path: Path) -> InstallManagedCommand:
 def test_initial_installer_publishes_identity_only_after_verified_candidate(tmp_path: Path):
     command = _command(tmp_path)
     builder = _Builder(command.install_root)
+    lease = _Lease()
     installer = FilesystemManagedInstaller(
         manifest_verifier=_Verifier(),
         candidate_builder=builder,
+        update_gate_factory=lambda _install_root: _FreeGate(lease),
     )
 
     candidate = installer.install(command)
@@ -105,6 +128,7 @@ def test_initial_installer_publishes_identity_only_after_verified_candidate(tmp_
     admitted = command.shared_root / "managed-update" / "transactions" / "tx-install" / "install-bundle.zip"
     assert admitted.is_file()
     assert command.bundle_path.is_file()
+    assert lease.closed is True
 
 
 def test_initial_installer_removes_partial_version_without_publishing_eligibility(tmp_path: Path):
@@ -121,3 +145,25 @@ def test_initial_installer_removes_partial_version_without_publishing_eligibilit
     assert not (command.install_root / "versions" / "2.0").exists()
     assert not (command.install_root / "install-state.json").exists()
     assert not (command.install_root / "managed-install.json").exists()
+
+
+def test_initial_installer_fails_busy_before_admitting_the_bundle(tmp_path: Path):
+    command = _command(tmp_path)
+    installer = FilesystemManagedInstaller(
+        manifest_verifier=_Verifier(),
+        candidate_builder=_Builder(command.install_root),
+        update_gate_factory=lambda _install_root: _BusyGate(),
+    )
+
+    with pytest.raises(ManagedUpdateFailure) as failure:
+        installer.install(command)
+
+    assert failure.value.code is FailureCode.UPDATE_BUSY
+    assert not (
+        command.shared_root
+        / "managed-update"
+        / "transactions"
+        / "tx-install"
+        / "install-bundle.zip"
+    ).exists()
+    assert not command.install_root.exists()

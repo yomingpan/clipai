@@ -8,7 +8,7 @@ from typing import Any
 ERROR_ALREADY_EXISTS = 183
 
 
-class _WindowsApplicationInstanceLease:
+class WindowsNamedMutexLease:
     def __init__(self, handle: int, close_handle: Callable[[int], Any]) -> None:
         self._handle = handle
         self._close_handle = close_handle
@@ -21,8 +21,8 @@ class _WindowsApplicationInstanceLease:
             self._close_handle(handle)
 
 
-class WindowsApplicationInstanceGate:
-    """Admit one ClipAI desktop runtime in the current Windows session."""
+class WindowsNamedMutexGate:
+    """Admit one owner for a Windows session named-mutex identity."""
 
     def __init__(
         self,
@@ -33,7 +33,7 @@ class WindowsApplicationInstanceGate:
         close_handle: Callable[[int], Any] | None = None,
     ) -> None:
         if not name.strip():
-            raise ValueError("Application instance mutex name must not be empty")
+            raise ValueError("Windows named mutex name must not be empty")
         if create_mutex is None or get_last_error is None or close_handle is None:
             create_mutex, get_last_error, close_handle = _windows_mutex_functions()
         self._name = name
@@ -41,15 +41,18 @@ class WindowsApplicationInstanceGate:
         self._get_last_error = get_last_error
         self._close_handle = close_handle
 
-    def acquire(self) -> _WindowsApplicationInstanceLease | None:
+    def acquire(self) -> WindowsNamedMutexLease | None:
         handle = int(self._create_mutex(None, False, self._name) or 0)
         error = int(self._get_last_error())
         if not handle:
-            raise OSError(error, "Unable to create the ClipAI application-instance mutex")
+            raise OSError(error, "Unable to create the Windows named mutex")
         if error == ERROR_ALREADY_EXISTS:
             self._close_handle(handle)
             return None
-        return _WindowsApplicationInstanceLease(handle, self._close_handle)
+        return WindowsNamedMutexLease(handle, self._close_handle)
+
+
+WindowsApplicationInstanceGate = WindowsNamedMutexGate
 
 
 def _windows_mutex_functions() -> tuple[
