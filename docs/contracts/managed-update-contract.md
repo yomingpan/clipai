@@ -118,7 +118,9 @@ Launch uses the exact committed `.venv/Scripts/python.exe` and signed manifest
 entrypoint, passes all six identity/root arguments, and strips inherited
 `VIRTUAL_ENV`, `PYTHONPATH`, and `PYTHONHOME`. Health is accepted only from the
 same attempt and executable; a stale attempt is ignored until the bounded
-12--20 second external health budget expires.
+12--20 second external health budget expires. A healthy receipt is emitted
+only after every runtime start component succeeds and immediately before the UI
+event loop; a construction or start failure emits no healthy receipt.
 
 ## Update eligibility
 

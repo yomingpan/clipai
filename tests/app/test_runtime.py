@@ -2532,6 +2532,39 @@ def test_run_forever_cleans_up_when_start_fails() -> None:
     assert supervisor.closed and view.stopped
 
 
+def test_run_forever_reports_started_after_components_and_before_view_loop() -> None:
+    runtime, view, _supervisor, _outputs, listener = make_runtime()
+    events: list[str] = []
+
+    class Component:
+        def start(self): events.append("component:start")
+        def stop(self): pass
+
+    runtime._background_components = (Component(),)
+    runtime._hotkey_registrar = lambda *_args: events.append("input:start") or listener
+    view.run = lambda _pump: events.append("view:run")
+
+    runtime.run_forever(on_started=lambda: events.append("runtime:started"))
+
+    assert events == ["component:start", "input:start", "runtime:started", "view:run"]
+
+
+def test_run_forever_does_not_report_started_when_component_start_fails() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    started: list[bool] = []
+
+    class BrokenComponent:
+        def start(self): raise RuntimeError("start failed")
+        def stop(self): pass
+
+    runtime._background_components = (BrokenComponent(),)
+
+    with pytest.raises(RuntimeError, match="start failed"):
+        runtime.run_forever(on_started=lambda: started.append(True))
+
+    assert started == []
+
+
 def test_tray_exit_uses_typed_shutdown_command() -> None:
     runtime, view, supervisor, _outputs, listener = make_runtime(with_tray=True)
     runtime.start()

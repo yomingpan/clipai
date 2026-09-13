@@ -148,9 +148,11 @@ class AppRuntime:
             self._tray = self._tray_factory(lambda: self.enqueue(ShutdownApplication()))
             self._tray.start()
 
-    def run_forever(self) -> None:
+    def run_forever(self, *, on_started: Callable[[], None] | None = None) -> None:
         try:
             self.start()
+            if on_started is not None:
+                on_started()
             self._view.run(self.drain_commands)
         finally:
             self.stop()
