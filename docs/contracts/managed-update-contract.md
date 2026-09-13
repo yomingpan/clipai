@@ -26,6 +26,9 @@ bundle is read or extracted.
 `installed_process_id` is captured by the running app; the external host opens
 and verifies that process and its executable before preparation, then waits on
 the retained process handle after `handoff_ready` causes normal app shutdown.
+The host requests `SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION`, compares
+the complete `QueryFullProcessImageNameW` path, and never substitutes basename,
+substring, or later PID polling for the retained handle.
 
 ## Transaction state machine
 
