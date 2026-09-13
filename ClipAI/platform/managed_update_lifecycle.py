@@ -19,6 +19,12 @@ class SpawnedProcess(Protocol):
 
     def poll(self) -> int | None: ...
 
+    def terminate(self) -> None: ...
+
+    def kill(self) -> None: ...
+
+    def wait(self, timeout: float | None = None) -> int: ...
+
 
 StartProcess = Callable[[Sequence[str], Mapping[str, str], Path], SpawnedProcess]
 
@@ -55,6 +61,10 @@ class SubprocessManagedApplicationLifecycle:
         self._monotonic = monotonic
         self._sleep = sleep
         self._poll_interval_sec = poll_interval_sec
+        self._launched: dict[
+            tuple[TransactionId, LaunchAttemptId],
+            tuple[LaunchReceiptArtifact, SpawnedProcess],
+        ] = {}
 
     def request_shutdown(self, transaction_id: TransactionId) -> None:
         try:
@@ -70,6 +80,7 @@ class SubprocessManagedApplicationLifecycle:
         launch_attempt_id: LaunchAttemptId,
         expected_version: str,
     ) -> LaunchReceiptArtifact:
+        process: SpawnedProcess | None = None
         try:
             expected_root = self._layout.version_root(expected_version)
             if version_root.resolve() != expected_root.resolve():
@@ -101,10 +112,16 @@ class SubprocessManagedApplicationLifecycle:
                 process.pid,
             )
             self._store(transaction_id).write(receipt)
+            self._launched[(transaction_id, launch_attempt_id)] = (receipt, process)
             return receipt
         except ManagedUpdateFailure:
             raise
         except Exception as exc:
+            if process is not None:
+                try:
+                    _stop_process(process, timeout_sec=1.0)
+                except Exception:
+                    pass
             raise ManagedUpdateFailure(FailureCode.LAUNCH_FAILED, "managed application launch failed") from exc
 
     def await_health(self, launch: LaunchReceiptArtifact, *, timeout_sec: float) -> StartupHealthArtifact:
@@ -127,6 +144,23 @@ class SubprocessManagedApplicationLifecycle:
                     raise ManagedUpdateFailure(FailureCode.HEALTH_FAILED, "startup health does not match launch") from exc
             self._sleep(self._poll_interval_sec)
         raise ManagedUpdateFailure(FailureCode.HEALTH_TIMEOUT, "startup health timed out")
+
+    def stop(self, launch: LaunchReceiptArtifact, *, timeout_sec: float) -> None:
+        key = (launch.transaction_id, launch.launch_attempt_id)
+        owned = self._launched.get(key)
+        if owned is None or owned[0] != launch:
+            raise ManagedUpdateFailure(
+                FailureCode.SHUTDOWN_FAILED,
+                "launch process identity is not owned by this lifecycle",
+            )
+        try:
+            _stop_process(owned[1], timeout_sec=timeout_sec)
+        except Exception as exc:
+            raise ManagedUpdateFailure(
+                FailureCode.SHUTDOWN_FAILED,
+                "launched application did not stop",
+            ) from exc
+        del self._launched[key]
 
     def _store(self, transaction_id: TransactionId) -> ManagedUpdateArtifactStore:
         return ManagedUpdateArtifactStore(shared_root=self._layout.shared_root, transaction_id=str(transaction_id))
@@ -168,3 +202,16 @@ def isolated_managed_environment(environment: Mapping[str, str]) -> dict[str, st
     isolated = {key: value for key, value in environment.items() if key.upper() not in blocked}
     isolated["PYTHONNOUSERSITE"] = "1"
     return isolated
+
+
+def _stop_process(process: SpawnedProcess, *, timeout_sec: float) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=max(timeout_sec, 0.0))
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=max(timeout_sec, 1.0))
+    if process.poll() is None:
+        raise RuntimeError("process remained active after termination")

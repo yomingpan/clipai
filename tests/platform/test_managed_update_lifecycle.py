@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,24 @@ class Layout:
 
 
 class Process:
-    pid = 321
+    def __init__(self) -> None:
+        self.pid = 321
+        self.returncode: int | None = None
+        self.terminated = False
+        self.killed = False
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self, timeout=None):
+        self.returncode = 0
+        return self.returncode
 
 
 def _installed_version(layout: Layout, version: str = "2.0") -> tuple[Path, Path]:
@@ -180,3 +198,45 @@ def test_shutdown_callback_failure_is_typed(tmp_path: Path):
     with pytest.raises(ManagedUpdateFailure) as raised:
         lifecycle.request_shutdown(transaction_id("tx-1"))
     assert raised.value.code is FailureCode.SHUTDOWN_FAILED
+
+
+def test_stop_uses_the_exact_owned_launch_identity_and_proves_process_exit(tmp_path: Path):
+    layout = Layout(tmp_path)
+    _installed_version(layout)
+    process = Process()
+    lifecycle = _lifecycle(layout, starter=lambda *_args: process)
+    launch = lifecycle.launch(
+        version_root=layout.version_root("2.0"),
+        transaction_id=transaction_id("tx-1"),
+        launch_attempt_id=launch_attempt_id("attempt-1"),
+        expected_version="2.0",
+    )
+
+    with pytest.raises(ManagedUpdateFailure) as wrong_identity:
+        lifecycle.stop(replace(launch, process_id=999), timeout_sec=1.0)
+    assert wrong_identity.value.code is FailureCode.SHUTDOWN_FAILED
+    assert process.terminated is False
+
+    lifecycle.stop(launch, timeout_sec=1.0)
+    assert process.terminated is True
+    assert process.poll() == 0
+
+
+def test_launch_failure_after_process_start_cleans_up_the_unpublished_process(tmp_path: Path):
+    layout = Layout(tmp_path)
+    _installed_version(layout)
+    layout.shared_root.write_text("blocks artifact directory", encoding="utf-8")
+    process = Process()
+    lifecycle = _lifecycle(layout, starter=lambda *_args: process)
+
+    with pytest.raises(ManagedUpdateFailure) as raised:
+        lifecycle.launch(
+            version_root=layout.version_root("2.0"),
+            transaction_id=transaction_id("tx-1"),
+            launch_attempt_id=launch_attempt_id("attempt-1"),
+            expected_version="2.0",
+        )
+
+    assert raised.value.code is FailureCode.LAUNCH_FAILED
+    assert process.terminated is True
+    assert process.poll() == 0

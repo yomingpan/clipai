@@ -11,25 +11,27 @@ from ClipAI.core.managed_update import (
     TransactionPhase,
     TransactionSnapshot,
 )
-from ClipAI.core.update_artifacts import UpdateRequestArtifact, UpdateResultArtifact, validate_health_relation
+from ClipAI.core.update_artifacts import LaunchReceiptArtifact, UpdateRequestArtifact, UpdateResultArtifact, validate_health_relation
 from ClipAI.core.update_ports import ManagedApplicationLifecycle, ManagedUpdateBackend, UpdateTransactionJournal
 
 
 class ManagedUpdateTransaction:
     """Own the legal transaction sequence and rollback decision."""
 
-    def __init__(self, *, backend: ManagedUpdateBackend, lifecycle: ManagedApplicationLifecycle, journal: UpdateTransactionJournal, launch_attempt_factory: Callable[[], LaunchAttemptId], now: Callable[[], str], health_timeout_sec: float = 20.0) -> None:
+    def __init__(self, *, backend: ManagedUpdateBackend, lifecycle: ManagedApplicationLifecycle, journal: UpdateTransactionJournal, launch_attempt_factory: Callable[[], LaunchAttemptId], now: Callable[[], str], health_timeout_sec: float = 20.0, stop_timeout_sec: float = 5.0) -> None:
         self._backend = backend
         self._lifecycle = lifecycle
         self._journal = journal
         self._launch_attempt_factory = launch_attempt_factory
         self._now = now
         self._health_timeout_sec = health_timeout_sec
+        self._stop_timeout_sec = stop_timeout_sec
 
     def execute(self, request: UpdateRequestArtifact) -> UpdateResultArtifact:
         receipt: CommitReceipt | None = None
         known_good_root: Path | None = None
         shutdown_completed = False
+        candidate_launch: LaunchReceiptArtifact | None = None
         phase = TransactionPhase.VERIFY
         try:
             self._record(request, phase)
@@ -47,7 +49,7 @@ class ManagedUpdateTransaction:
             receipt = self._backend.commit(candidate)
             phase = TransactionPhase.LAUNCH
             self._record(request, phase)
-            launch = self._lifecycle.launch(
+            candidate_launch = self._lifecycle.launch(
                 version_root=receipt.candidate_root,
                 transaction_id=request.transaction_id,
                 launch_attempt_id=self._launch_attempt_factory(),
@@ -55,8 +57,8 @@ class ManagedUpdateTransaction:
             )
             phase = TransactionPhase.HEALTH
             self._record(request, phase)
-            health = self._lifecycle.await_health(launch, timeout_sec=self._health_timeout_sec)
-            validate_health_relation(launch, health)
+            health = self._lifecycle.await_health(candidate_launch, timeout_sec=self._health_timeout_sec)
+            validate_health_relation(candidate_launch, health)
             phase = TransactionPhase.FINALIZE
             self._record(request, phase)
             self._backend.finalize(receipt)
@@ -67,7 +69,13 @@ class ManagedUpdateTransaction:
                 if shutdown_completed and known_good_root is not None:
                     return self._rollback(request, None, known_good_root, failure)
                 return UpdateResultArtifact(request.transaction_id, self._now(), "failed", request.installed_version, failure)
-            return self._rollback(request, receipt, receipt.previous_root, failure)
+            return self._rollback(
+                request,
+                receipt,
+                receipt.previous_root,
+                failure,
+                candidate_launch=candidate_launch,
+            )
 
     def _rollback(
         self,
@@ -75,9 +83,13 @@ class ManagedUpdateTransaction:
         receipt: CommitReceipt | None,
         known_good_root: Path,
         failure: FailureCode,
+        *,
+        candidate_launch: LaunchReceiptArtifact | None = None,
     ) -> UpdateResultArtifact:
         try:
             self._record(request, TransactionPhase.ROLLBACK, failure)
+            if candidate_launch is not None:
+                self._lifecycle.stop(candidate_launch, timeout_sec=self._stop_timeout_sec)
             if receipt is not None:
                 self._backend.rollback(receipt)
             launch = self._lifecycle.launch(

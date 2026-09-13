@@ -49,6 +49,8 @@ class Lifecycle:
         name = "rollback_health" if launch.expected_version == "3.7.3" else "health"
         self._step(name)
         return StartupHealthArtifact(launch.transaction_id, NOW, launch.launch_attempt_id, launch.expected_version, launch.expected_version, launch.executable_path, True)
+    def stop(self, launch, *, timeout_sec):
+        self._step("stop")
     def _step(self, name):
         self.events.append(name)
         if self.fail == name:
@@ -108,6 +110,24 @@ def test_postcommit_failure_restores_and_health_checks_old_version(tmp_path: Pat
     result = transaction.execute(_request(tmp_path))
     assert result.outcome == "rolled_back" and result.failure_code == code
     assert events.index("journal:rollback") < events.index("rollback") < events.index("rollback_launch") < events.index("rollback_health")
+    if failure == "launch":
+        assert "stop" not in events
+    else:
+        assert events.index("journal:rollback") < events.index("stop") < events.index("rollback")
+
+
+def test_candidate_stop_failure_fails_closed_without_restoring_or_launching_old(tmp_path: Path):
+    transaction, events, _journal = _transaction(
+        tmp_path,
+        backend_fail="finalize",
+        lifecycle_fail="stop",
+    )
+    result = transaction.execute(_request(tmp_path))
+    assert result.outcome == "failed"
+    assert result.failure_code is FailureCode.INTERNAL_ERROR
+    assert result.rollback_failure_code is FailureCode.ROLLBACK_FAILED
+    assert "rollback" not in events
+    assert "rollback_launch" not in events
 
 
 def test_rollback_failure_is_explicit_and_never_claims_update_success(tmp_path: Path):

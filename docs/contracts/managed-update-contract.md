@@ -41,6 +41,28 @@ while a post-commit failure atomically restores it. Both paths launch that
 known-good root and require matching health before settling as `rolled_back`.
 Journal writes precede each side effect and settlement is exactly once.
 
+`ManagedApplicationLifecycle` exclusively owns every process handle it starts.
+If rollback follows a successful candidate launch, the transaction must ask the
+lifecycle to stop that exact transaction + launch-attempt + process identity and
+prove it exited before restoring the pointer or launching the known-good
+version. Failure to quiesce the candidate makes rollback fail closed; the old
+version is never launched concurrently. A launch that fails after creating a
+process must clean up that process inside the lifecycle adapter.
+
+The managed-bundle transaction gate starts from a real signed v1 installation
+and a real signed v2 wheelhouse. Its failure matrix injects one failure at each
+public transaction seam. Verify, prepare, and unsuccessful shutdown leave the
+v1 pointer unchanged because the installed process has not settled shutdown;
+commit and every later failure must launch and health-check v1 after restoring
+the pointer. The harness observes that v1 still exists before every v2 health
+decision and after every settlement. It snapshots representative shared
+config/state bytes before the matrix and requires exact equality after every
+failure and after the final happy transaction. The happy path uses the real
+release coordinator and download destination, bundle verifier, offline builder,
+filesystem backend, journal, subprocess lifecycle, and health artifacts through
+`detect -> download -> verify -> prepare -> shutdown -> commit -> launch ->
+health -> finalize`.
+
 If a host terminates without a terminal result, recovery does not infer that a
 pre-recorded side effect completed. It records a re-entrant
 `rollback(update_interrupted)` intent, verifies the signed installed version,

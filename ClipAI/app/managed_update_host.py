@@ -148,6 +148,7 @@ class ManagedUpdateHostExecutor:
                     launch_attempt_factory=self._launch_attempt_factory,
                     now=self._now,
                     health_timeout_sec=self._health_timeout_sec,
+                    stop_timeout_sec=self._shutdown_timeout_sec,
                 )
                 result = transaction.execute(artifact)
                 store.write(result)
