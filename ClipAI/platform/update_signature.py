@@ -7,6 +7,7 @@ import re
 import subprocess
 import uuid
 
+from ClipAI.core.update_signing import SIGNING_NAMESPACE, TEST_KEY_ID
 from ClipAI.platform.managed_update_fs import (
     atomic_write_bytes,
     native_path,
@@ -15,8 +16,6 @@ from ClipAI.platform.managed_update_fs import (
 )
 
 
-SIGNING_NAMESPACE = "clipai.managed-update.manifest.v1"
-TEST_KEY_ID = "clipai-managed-update-test-v1"
 _KEY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 

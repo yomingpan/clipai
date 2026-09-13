@@ -91,6 +91,16 @@ Tests use only `clipai-managed-update-test-v1` fixtures and must reject that key
 identity in production policy. Rotation adds a new pinned public key before old
 key retirement; revocation requires a new application release.
 
+The stable launcher root owns `managed-update-trusted-keys.json`; versioned
+payloads and downloaded bundles cannot replace it. Its exact schema is
+`schema_version: 1`, `keyring_kind: clipai-managed-update-trusted-keys-v1`, and
+`keys`, a non-empty array of exact `{key_id, algorithm, public_key, key_kind}`
+objects. `algorithm` is `ssh-ed25519`; `key_kind` is `production` or
+`test_fixture`; key identities are unique. Only the reserved
+`clipai-managed-update-test-v1` identity may be a test fixture, and production
+composition excludes all test-fixture keys unless test policy is explicitly
+injected.
+
 ## Catalog
 
 `catalog.json` requires `schema_version: 1`, `catalog_kind`, `channel`,

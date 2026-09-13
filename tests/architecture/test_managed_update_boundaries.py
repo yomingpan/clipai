@@ -57,3 +57,15 @@ def test_bundle_admission_has_one_platform_owner():
     installer = (platform_root / "managed_installer.py").read_text(encoding="utf-8")
     assert "VerifiedManagedBundleStager" in backend
     assert "VerifiedManagedBundleStager" in installer
+
+
+def test_signing_namespace_and_test_identity_have_one_core_owner():
+    owner = ROOT / "ClipAI" / "core" / "update_signing.py"
+    definitions = []
+    for path in (ROOT / "ClipAI").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        if 'TEST_KEY_ID = "clipai-managed-update-test-v1"' in source:
+            definitions.append(path)
+    assert definitions == [owner]
+    verifier = (ROOT / "ClipAI" / "platform" / "update_signature.py").read_text(encoding="utf-8")
+    assert "from ClipAI.core.update_signing import SIGNING_NAMESPACE, TEST_KEY_ID" in verifier
