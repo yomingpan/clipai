@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ClipAI.core.managed_update import CommitReceipt, LaunchAttemptId, TransactionId, TransactionSnapshot
-from ClipAI.core.update_artifacts import LaunchReceiptArtifact, StartupHealthArtifact, UpdateRequestArtifact
+from ClipAI.core.update_artifacts import HandoffReadyArtifact, LaunchReceiptArtifact, StartupHealthArtifact, UpdateRequestArtifact
 from ClipAI.core.update_catalog import ManagedUpdateRelease
 
 
@@ -53,6 +53,10 @@ class ManagedReleaseSource(Protocol):
         shared_root: Path,
         transaction_id: TransactionId,
     ) -> Path: ...
+
+
+class ManagedUpdateHandoff(Protocol):
+    def prepare(self, request: UpdateRequestArtifact) -> HandoffReadyArtifact: ...
 
 
 class ManagedApplicationLifecycle(Protocol):

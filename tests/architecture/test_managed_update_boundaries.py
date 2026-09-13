@@ -96,3 +96,12 @@ def test_streamed_update_files_have_one_atomic_writer_owner():
         and "atomic_write_verified_chunks(" in path.read_text(encoding="utf-8")
     ]
     assert callers == ["managed_update_transport.py"]
+
+
+def test_app_handoff_does_not_own_artifact_or_process_io():
+    app_handoff = (ROOT / "ClipAI" / "app" / "managed_update_handoff.py").read_text(encoding="utf-8")
+    platform_handoff = (ROOT / "ClipAI" / "platform" / "managed_update_handoff.py").read_text(encoding="utf-8")
+    assert "ManagedUpdateArtifactStore" not in app_handoff
+    assert "subprocess" not in app_handoff
+    assert "ManagedUpdateArtifactStore" in platform_handoff
+    assert "start_detached_process" in platform_handoff

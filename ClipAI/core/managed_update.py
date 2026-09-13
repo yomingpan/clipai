@@ -34,6 +34,8 @@ class FailureCode(StrEnum):
     SIGNATURE_INVALID = "signature_invalid"
     BUNDLE_INVALID = "bundle_invalid"
     PREPARE_FAILED = "prepare_failed"
+    HANDOFF_FAILED = "handoff_failed"
+    HANDOFF_TIMEOUT = "handoff_timeout"
     SHUTDOWN_FAILED = "shutdown_failed"
     COMMIT_FAILED = "commit_failed"
     LAUNCH_FAILED = "launch_failed"

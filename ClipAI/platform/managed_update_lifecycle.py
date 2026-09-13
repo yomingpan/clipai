@@ -17,11 +17,13 @@ from ClipAI.platform.update_bundle import parse_install_manifest
 class SpawnedProcess(Protocol):
     pid: int
 
+    def poll(self) -> int | None: ...
+
 
 StartProcess = Callable[[Sequence[str], Mapping[str, str], Path], SpawnedProcess]
 
 
-def _start_process(command: Sequence[str], environment: Mapping[str, str], cwd: Path) -> SpawnedProcess:
+def start_detached_process(command: Sequence[str], environment: Mapping[str, str], cwd: Path) -> SpawnedProcess:
     flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
     return subprocess.Popen(
         command,
@@ -40,13 +42,13 @@ class SubprocessManagedApplicationLifecycle:
         environment: Mapping[str, str],
         shutdown: Callable[[TransactionId], None],
         now: Callable[[], str],
-        start_process: StartProcess = _start_process,
+        start_process: StartProcess = start_detached_process,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         poll_interval_sec: float = 0.05,
     ) -> None:
         self._layout = layout
-        self._environment = _isolated_environment(environment)
+        self._environment = isolated_managed_environment(environment)
         self._shutdown = shutdown
         self._now = now
         self._start_process = start_process
@@ -161,7 +163,7 @@ class StartupHealthReporter:
         return artifact
 
 
-def _isolated_environment(environment: Mapping[str, str]) -> dict[str, str]:
+def isolated_managed_environment(environment: Mapping[str, str]) -> dict[str, str]:
     blocked = {"VIRTUAL_ENV", "PYTHONPATH", "PYTHONHOME"}
     isolated = {key: value for key, value in environment.items() if key.upper() not in blocked}
     isolated["PYTHONNOUSERSITE"] = "1"

@@ -178,6 +178,15 @@ into that transaction's shared artifact root, then produces one exact
 does not write artifacts, spawn the host, or stop the runtime; app composition
 owns those lifecycle effects after receiving the request.
 
+The platform handoff client atomically publishes that request, starts the stable
+launcher `host` command in an isolated environment, and waits at most 20 seconds
+for either terminal `result` or matching `handoff_ready` evidence. Readiness must
+match transaction, target version, manifest digest, exact candidate version root,
+and exact candidate venv Python. Host exit, malformed or mismatched evidence, and
+timeout fail as typed `handoff_*` codes. The app executor requests normal runtime
+shutdown only after matching readiness; no-update and every handoff failure leave
+the installed process running.
+
 ## Update eligibility
 
 Apply is eligible only when the stable installer-created managed-install
