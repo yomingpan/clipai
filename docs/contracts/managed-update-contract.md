@@ -121,6 +121,8 @@ same attempt and executable; a stale attempt is ignored until the bounded
 12--20 second external health budget expires. A healthy receipt is emitted
 only after every runtime start component succeeds and immediately before the UI
 event loop; a construction or start failure emits no healthy receipt.
+An actual/expected version mismatch writes an unhealthy receipt and does not
+enter the runtime; readiness for one launch attempt is emitted at most once.
 
 ## Update eligibility
 
