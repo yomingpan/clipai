@@ -147,6 +147,25 @@ def copy_regular_tree(source_root: str | Path, destination_root: str | Path) -> 
     return tuple(copied)
 
 
+def copy_file_atomically(
+    source_path: str | Path,
+    destination_path: str | Path,
+    *,
+    maximum_size: int,
+) -> Path:
+    source = Path(source_path).resolve()
+    destination = Path(destination_path).resolve()
+    if maximum_size <= 0:
+        raise ManagedUpdateFileError("copy size limit must be positive")
+    source_native = native_path(source)
+    if source_native.is_symlink() or not source_native.is_file():
+        raise ManagedUpdateFileError("managed update source is not a regular file")
+    if source_native.stat().st_size > maximum_size:
+        raise ManagedUpdateFileError("managed update source exceeds size limit")
+    _copy_file_atomically(source, destination)
+    return destination
+
+
 def write_prefixed_zip(
     destination_path: str | Path,
     members: dict[str, bytes],

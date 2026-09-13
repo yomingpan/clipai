@@ -8,7 +8,7 @@ import subprocess
 from packaging.version import InvalidVersion, Version
 
 from ClipAI.core.update_ports import CandidateBuildRequest, CandidateEnvironment
-from ClipAI.platform.managed_update_fs import native_path, remove_tree, require_contained
+from ClipAI.platform.managed_update_fs import canonical_path, native_path, remove_tree, require_contained
 
 
 RunCommand = Callable[[Sequence[str], Mapping[str, str], float], subprocess.CompletedProcess[str]]
@@ -97,3 +97,21 @@ def _normalized_version(value: str) -> str:
     if str(parsed) != value:
         raise CandidateBuildError("candidate version is not normalized")
     return value
+
+
+def validate_candidate_environment(
+    candidate: CandidateEnvironment,
+    request: CandidateBuildRequest,
+) -> None:
+    expected_root = canonical_path(request.candidate_root)
+    expected_python = expected_root / ".venv" / "Scripts" / "python.exe"
+    expected_entrypoint = expected_root.joinpath(*PurePosixPath(request.entrypoint).parts)
+    if (
+        canonical_path(candidate.root) != expected_root
+        or candidate.version != request.expected_version
+        or canonical_path(candidate.python) != canonical_path(expected_python)
+        or canonical_path(candidate.entrypoint) != canonical_path(expected_entrypoint)
+        or not native_path(expected_python).is_file()
+        or not native_path(expected_entrypoint).is_file()
+    ):
+        raise CandidateBuildError("candidate builder returned mismatched launch evidence")

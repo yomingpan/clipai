@@ -54,4 +54,6 @@ def test_bundle_admission_has_one_platform_owner():
     ]
     assert callers == ["verified_managed_bundle.py"]
     backend = (platform_root / "managed_update_backend.py").read_text(encoding="utf-8")
+    installer = (platform_root / "managed_installer.py").read_text(encoding="utf-8")
     assert "VerifiedManagedBundleStager" in backend
+    assert "VerifiedManagedBundleStager" in installer

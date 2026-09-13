@@ -151,6 +151,11 @@ after verifying the initial version's signed manifest. `install-state.json`
 uses `schema_version: 1`, `state_kind: clipai-managed-install-state-v1`, the
 same install identity, monotonic `revision`, `current_version`, and nullable
 `previous_version`. Versions resolve only as `install_root/versions/{version}`.
+Initial install first atomically copies its external archive into the
+transaction root, admits it through the shared bundle stager, and builds the
+complete candidate. It then publishes revision-zero state followed by the
+managed marker; neither control file may exist before candidate proof, and an
+existing marker, state, or target version is never overwritten.
 An existing target version root is never replaced unless its exact sibling
 `versions/.{target}.candidate-owner.json` names the same transaction and target
 version. Prepare copies only from the already verified staging tree, verifies

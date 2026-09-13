@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from packaging.version import Version
 
 from ClipAI.core.managed_update import CommitReceipt, FailureCode, ManagedUpdateFailure, TransactionId
 from ClipAI.core.update_artifacts import HandoffReadyArtifact, UpdateRequestArtifact
-from ClipAI.core.update_bundle import BundleAdmissionRequest, InstallManifest, VerifiedManagedBundle
+from ClipAI.core.update_bundle import BundleAdmissionRequest, VerifiedManagedBundle
 from ClipAI.core.update_ports import CandidateBuildRequest, CandidateEnvironment, CandidateEnvironmentBuilder
 from ClipAI.platform.managed_install import DocumentVerifier, ManagedInstallLayout
+from ClipAI.platform.candidate_environment import validate_candidate_environment
 from ClipAI.platform.managed_update_fs import (
     ManagedUpdateFileError,
     atomic_write_json,
@@ -73,14 +74,15 @@ class FilesystemManagedUpdateBackend:
             self._reserve_target(target_root, owner_path, request)
             copy_regular_tree(verified.staging_root, target_root)
             verify_bundle_inventory(target_root, verified.manifest)
-            candidate = self._candidate_builder.build(CandidateBuildRequest(
+            build_request = CandidateBuildRequest(
                 transaction_id=request.transaction_id,
                 candidate_root=target_root,
                 base_python=self._base_python,
                 expected_version=request.target_version,
                 entrypoint=verified.manifest.entrypoint,
-            ))
-            self._validate_candidate(candidate, verified.manifest, target_root)
+            )
+            candidate = self._candidate_builder.build(build_request)
+            validate_candidate_environment(candidate, build_request)
             unlink_file(owner_path)
             ManagedUpdateArtifactStore(
                 shared_root=request.shared_root,
@@ -152,19 +154,6 @@ class FilesystemManagedUpdateBackend:
             "transaction_id": str(request.transaction_id),
             "target_version": request.target_version,
         })
-
-    def _validate_candidate(self, candidate: CandidateEnvironment, manifest: InstallManifest, target_root: Path) -> None:
-        expected_python = target_root / ".venv" / "Scripts" / "python.exe"
-        expected_entrypoint = target_root.joinpath(*PurePosixPath(manifest.entrypoint).parts)
-        if (
-            _path_key(candidate.root) != _path_key(target_root)
-            or candidate.version != manifest.app_version
-            or _path_key(candidate.python) != _path_key(expected_python)
-            or _path_key(candidate.entrypoint) != _path_key(expected_entrypoint)
-            or not native_path(expected_python).is_file()
-            or not native_path(expected_entrypoint).is_file()
-        ):
-            raise ManagedUpdateFailure(FailureCode.PREPARE_FAILED, "candidate builder returned mismatched launch evidence")
 
     def _cleanup_for(self, candidate_root: Path) -> None:
         transaction_id = self._candidate_transactions.pop(_path_key(candidate_root), None)
