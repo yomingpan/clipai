@@ -20,13 +20,13 @@ SOURCE = SelectionSource(ExternalWindowRef("hwnd:1", 42, 0), "hwnd:2")
 
 
 class Process:
-    def __init__(self, payload=None, *, blocked=False, token=None):
+    def __init__(self, payload=None, *, blocked=False):
         self.payload = {"worker_reusable": True, **(payload or {"status": "none"})}
         self.blocked = blocked
-        self.token = token
         self.returncode = None
         self.killed = False
         self.requests: list[dict[str, object]] = []
+        self.read_started = threading.Event()
         process = self
 
         class Input(io.StringIO):
@@ -37,9 +37,7 @@ class Process:
 
         class Output(io.StringIO):
             def readline(self, *args, **kwargs):
-                if process.token is not None:
-                    process.token.cancel()
-                    process.token = None
+                process.read_started.set()
                 while process.blocked and not process.killed:
                     time.sleep(0.001)
                 if process.killed:
@@ -62,9 +60,18 @@ class Process:
 @pytest.mark.parametrize("cancel", [False, True])
 def test_hung_provider_is_terminated_and_reaped(cancel):
     token = CancellationToken()
-    process = Process(blocked=True, token=token if cancel else None)
-    probe = WindowsSelectionProbe(timeout_sec=0.001, process_factory=lambda *a, **kw: process)
+    process = Process(blocked=True)
+    canceller = None
+    if cancel:
+        canceller = threading.Thread(
+            target=lambda: (process.read_started.wait(1), token.cancel()),
+            daemon=True,
+        )
+        canceller.start()
+    probe = WindowsSelectionProbe(timeout_sec=0.05, process_factory=lambda *a, **kw: process)
     result = probe.probe(SOURCE, token)
+    if canceller is not None:
+        canceller.join(1)
     assert result.status == ("cancelled" if cancel else "unknown")
     if not cancel:
         assert result.reason == "uia_timeout"
