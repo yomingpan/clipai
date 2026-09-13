@@ -88,6 +88,25 @@ catalog-bound compressed size and hash before extraction, caps total
 uncompressed size, then verifies manifest hash, signature, and complete file
 inventory before candidate preparation.
 
+Candidate preparation invokes the clean base interpreter as `python -I -m
+venv --without-pip`, seeds bundled pip by invoking the new venv Python directly
+as `python -I -m ensurepip`, then invokes that same Python as `python -I -m pip
+--isolated install --no-index --require-hashes --find-links wheelhouse -r
+requirements.lock`. Splitting pip seeding from `venv` is required because
+Windows `venv` cannot reliably re-exec `ensurepip` from a `\\?\` target even
+though the prefixed candidate Python itself is directly launchable. Its
+injected environment removes inherited
+`VIRTUAL_ENV`, `PYTHONPATH`, `PYTHONHOME`, and index overrides, sets
+`PYTHONNOUSERSITE`, disables pip input/version checks, and points
+`PIP_CONFIG_FILE` at the platform null device so machine/user pip and
+truststore injection cannot participate. The managed-bundle harness builds a
+minimal pinned wheelhouse with the clean base Python, runs preparation with
+poisoned parent variables, launches the manifest file entrypoint, and accepts
+only matching attempt, version, and candidate-venv executable health evidence.
+Candidate executable evidence is compared through the shared canonical path
+boundary so `\\?\` and ordinary spellings of the same Windows file are one
+identity, never a basename or substring match.
+
 Bundle admission has one platform owner shared by initial install and update.
 Its typed input is the contained transaction root plus expected bundle size,
 bundle SHA-256, manifest SHA-256, version, and key identity; its output is an

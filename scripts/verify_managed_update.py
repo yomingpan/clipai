@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import subprocess
-import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,8 +53,17 @@ def main() -> int:
     )
     if loopback_result != 0 or args.stage == "loopback-http":
         return loopback_result
-    print(f"[error] managed-update stage is not implemented yet: {args.stage}", file=sys.stderr)
-    return 2
+    return _run(
+        [
+            str(python),
+            str(ROOT / "scripts" / "run_unit_tests.py"),
+            "--",
+            "tests/e2e/test_managed_update_bundle.py",
+            "-m",
+            "integration",
+            "-q",
+        ]
+    )
 
 
 if __name__ == "__main__":

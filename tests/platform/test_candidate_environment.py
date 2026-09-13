@@ -11,9 +11,15 @@ from ClipAI.platform.candidate_environment import CandidateBuildError, OfflineCa
 
 
 class Runner:
-    def __init__(self, root: Path, version: str = "3.8.0") -> None:
+    def __init__(
+        self,
+        root: Path,
+        version: str = "3.8.0",
+        executable: str | None = None,
+    ) -> None:
         self.root = root
         self.version = version
+        self.executable = executable
         self.calls: list[tuple[list[str], dict[str, str]]] = []
 
     def __call__(self, command, environment, timeout):
@@ -24,13 +30,19 @@ class Runner:
             python.write_bytes(b"python")
         stdout = ""
         if "importlib.metadata" in command[-1]:
-            stdout = json.dumps({"version": self.version, "executable": str((self.root / ".venv" / "Scripts" / "python.exe").resolve())})
+            executable = self.executable or str(
+                (self.root / ".venv" / "Scripts" / "python.exe").resolve()
+            )
+            stdout = json.dumps({"version": self.version, "executable": executable})
         return subprocess.CompletedProcess(command, 0, stdout, "")
 
 
 def _request(tmp_path: Path) -> CandidateBuildRequest:
     (tmp_path / "wheelhouse").mkdir()
-    (tmp_path / "requirements.lock").write_text("clipai==3.8.0", encoding="utf-8")
+    (tmp_path / "requirements.lock").write_text(
+        f"clipai==3.8.0 --hash=sha256:{'0' * 64}",
+        encoding="utf-8",
+    )
     (tmp_path / "payload").mkdir()
     (tmp_path / "payload" / "main.py").write_text("", encoding="utf-8")
     base = tmp_path / "base-python.exe"
@@ -45,11 +57,19 @@ def test_offline_builder_uses_clean_isolated_commands_and_returns_proven_identit
     result = builder.build(request)
     assert result.version == "3.8.0"
     assert result.entrypoint == tmp_path / "payload" / "main.py"
-    install, environment = runner.calls[1]
+    venv, _venv_environment = runner.calls[0]
+    ensurepip, _ensurepip_environment = runner.calls[1]
+    install, environment = runner.calls[2]
+    assert "--without-pip" in venv
+    assert ensurepip[1:] == ["-I", "-m", "ensurepip", "--upgrade", "--default-pip"]
+    assert "--isolated" in install
     assert "--no-index" in install
+    assert "--require-hashes" in install
     assert "--find-links" in install
     assert "VIRTUAL_ENV" not in environment and "PYTHONPATH" not in environment
     assert environment["PIP_NO_INDEX"] == "1"
+    assert environment["PIP_CONFIG_FILE"] == os.devnull
+    assert environment["PIP_NO_INPUT"] == "1"
     assert all(call[0][1] == "-I" for call in runner.calls)
 
 
@@ -57,6 +77,20 @@ def test_builder_rejects_version_or_executable_mismatch(tmp_path: Path):
     request = _request(tmp_path)
     with pytest.raises(CandidateBuildError, match="does not match"):
         OfflineCandidateEnvironmentBuilder(environment={}, runner=Runner(tmp_path, "3.9.0")).build(request)
+
+
+def test_builder_canonicalizes_extended_length_executable_evidence(tmp_path: Path):
+    request = _request(tmp_path)
+    executable = "\\\\?\\" + str(
+        (tmp_path / ".venv" / "Scripts" / "python.exe").resolve()
+    )
+
+    result = OfflineCandidateEnvironmentBuilder(
+        environment={},
+        runner=Runner(tmp_path, executable=executable),
+    ).build(request)
+
+    assert result.python == tmp_path / ".venv" / "Scripts" / "python.exe"
 
 
 def test_builder_requires_complete_verified_bundle_inputs(tmp_path: Path):

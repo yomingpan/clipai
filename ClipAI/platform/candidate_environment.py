@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 import json
+import os
 from pathlib import Path, PurePosixPath
 import subprocess
 
@@ -50,12 +51,47 @@ class OfflineCandidateEnvironmentBuilder:
         expected = _normalized_version(request.expected_version)
         venv = require_contained(root, root / ".venv")
         remove_tree(venv)
-        self._checked([str(request.base_python), "-I", "-m", "venv", str(native_path(venv))], "venv creation")
+        self._checked(
+            [
+                str(request.base_python),
+                "-I",
+                "-m",
+                "venv",
+                "--without-pip",
+                str(native_path(venv)),
+            ],
+            "venv creation",
+        )
         python = venv / "Scripts" / "python.exe"
         if not native_path(python).is_file():
             raise CandidateBuildError("venv creation did not produce candidate Python")
         self._checked(
-            [str(native_path(python)), "-I", "-m", "pip", "install", "--no-index", "--disable-pip-version-check", "--find-links", str(native_path(wheelhouse)), "--requirement", str(native_path(lock))],
+            [
+                str(native_path(python)),
+                "-I",
+                "-m",
+                "ensurepip",
+                "--upgrade",
+                "--default-pip",
+            ],
+            "offline pip seeding",
+        )
+        self._checked(
+            [
+                str(native_path(python)),
+                "-I",
+                "-m",
+                "pip",
+                "--isolated",
+                "install",
+                "--no-index",
+                "--disable-pip-version-check",
+                "--require-hashes",
+                "--find-links",
+                str(native_path(wheelhouse)),
+                "--requirement",
+                str(native_path(lock)),
+            ],
             "offline installation",
         )
         probe = self._checked(
@@ -65,10 +101,14 @@ class OfflineCandidateEnvironmentBuilder:
         try:
             identity = json.loads(probe.stdout.strip())
             actual_version = _normalized_version(identity["version"])
-            actual_executable = Path(identity["executable"]).resolve()
+            actual_executable = canonical_path(identity["executable"])
         except (KeyError, TypeError, json.JSONDecodeError, CandidateBuildError) as exc:
             raise CandidateBuildError("candidate identity probe returned invalid evidence") from exc
-        if actual_version != expected or str(actual_executable).casefold() != str(python.resolve()).casefold():
+        if (
+            actual_version != expected
+            or str(actual_executable).casefold()
+            != str(canonical_path(python)).casefold()
+        ):
             raise CandidateBuildError("candidate identity does not match expected version or executable")
         return CandidateEnvironment(root, python, entrypoint, actual_version)
 
@@ -85,7 +125,13 @@ class OfflineCandidateEnvironmentBuilder:
 def _isolated_environment(environment: Mapping[str, str]) -> dict[str, str]:
     blocked = {"VIRTUAL_ENV", "PYTHONPATH", "PYTHONHOME", "PIP_CONFIG_FILE", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"}
     isolated = {key: value for key, value in environment.items() if key.upper() not in blocked}
-    isolated.update({"PYTHONNOUSERSITE": "1", "PIP_NO_INDEX": "1", "PIP_DISABLE_PIP_VERSION_CHECK": "1"})
+    isolated.update({
+        "PYTHONNOUSERSITE": "1",
+        "PIP_CONFIG_FILE": os.devnull,
+        "PIP_NO_INDEX": "1",
+        "PIP_NO_INPUT": "1",
+        "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+    })
     return isolated
 
 

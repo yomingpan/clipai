@@ -7,3 +7,4 @@ def test_managed_update_verifier_is_the_single_staged_harness():
         assert f'"{stage}"' in source
     assert "tests/e2e/test_managed_update_synthetic.py" in source
     assert "tests/e2e/test_managed_update_loopback_http.py" in source
+    assert "tests/e2e/test_managed_update_bundle.py" in source

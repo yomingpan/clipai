@@ -17,8 +17,12 @@ from ClipAI.core.update_artifacts import (
     UpdateResultArtifact,
     validate_health_relation as _validate_health_relation,
 )
-from ClipAI.platform.managed_update_fs import atomic_write_json, read_json
-from ClipAI.platform.managed_update_fs import require_contained
+from ClipAI.platform.managed_update_fs import (
+    atomic_write_json,
+    canonical_path,
+    read_json,
+    require_contained,
+)
 
 
 _COMMON = {"schema_version", "artifact_kind", "transaction_id", "created_at"}
@@ -180,7 +184,7 @@ def _absolute(value: object) -> Path:
     path = Path(_text(value, "path"))
     if not path.is_absolute():
         raise ArtifactValidationError("artifact path must be absolute")
-    return path
+    return canonical_path(path)
 
 
 def _timestamp(value: object) -> str:

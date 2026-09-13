@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,37 @@ def test_launch_health_relation_requires_attempt_version_executable_and_health(t
     validate_health_relation(launch, health)
     with pytest.raises(ArtifactValidationError, match="does not match"):
         validate_health_relation(launch, StartupHealthArtifact(health.transaction_id, NOW, launch_attempt_id("a-2"), "3.8.0", "3.8.0", executable, True))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows extended-length identity")
+def test_artifact_reader_canonicalizes_extended_length_executable(tmp_path: Path):
+    executable = (tmp_path / "versions" / "3.8.0" / ".venv" / "python.exe").resolve()
+    launch = LaunchReceiptArtifact(
+        transaction_id("tx-1"), NOW, launch_attempt_id("a-1"), "3.8.0", executable, 42,
+    )
+    health_path = tmp_path / "startup-health.json"
+    write_artifact(
+        health_path,
+        StartupHealthArtifact(
+            transaction_id("tx-1"),
+            NOW,
+            launch_attempt_id("a-1"),
+            "3.8.0",
+            "3.8.0",
+            Path("\\\\?\\" + str(executable)),
+            True,
+        ),
+    )
+
+    health = read_artifact(
+        health_path,
+        expected_kind="startup_health",
+        expected_transaction_id="tx-1",
+    )
+
+    assert isinstance(health, StartupHealthArtifact)
+    assert health.executable_path == executable
+    validate_health_relation(launch, health)
 
 
 def test_artifacts_reject_unknown_fields_and_relative_paths(tmp_path: Path):
