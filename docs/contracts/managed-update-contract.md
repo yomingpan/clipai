@@ -41,6 +41,18 @@ while a post-commit failure atomically restores it. Both paths launch that
 known-good root and require matching health before settling as `rolled_back`.
 Journal writes precede each side effect and settlement is exactly once.
 
+If a host terminates without a terminal result, recovery does not infer that a
+pre-recorded side effect completed. It records a re-entrant
+`rollback(update_interrupted)` intent, verifies the signed installed version,
+atomically restores the pointer only when it currently names the target, and
+launches that known-good version. Recovery settles `rolled_back` only after
+matching health; another interruption may repeat the rollback intent safely.
+On normal stable-launcher startup, the shared transaction root is scanned for
+request+journal pairs without a result. Exactly one is recovered before any
+ordinary current launch; multiple incomplete transactions fail closed instead
+of choosing an order. A successful recovery already launches the known-good
+application, so the stable launcher does not launch it a second time.
+
 `journal.json` is an atomic latest-intent record with `schema_version: 1`,
 `journal_kind: clipai-managed-update-journal-v1`, monotonic `revision`, exact
 transaction/version identity, `phase`, and nullable `failure_code`. The journal

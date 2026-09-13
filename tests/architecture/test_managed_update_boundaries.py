@@ -105,3 +105,11 @@ def test_app_handoff_does_not_own_artifact_or_process_io():
     assert "subprocess" not in app_handoff
     assert "ManagedUpdateArtifactStore" in platform_handoff
     assert "start_detached_process" in platform_handoff
+
+
+def test_recovery_directory_enumeration_stays_in_managed_filesystem_owner():
+    recovery = (ROOT / "ClipAI" / "platform" / "managed_update_recovery.py").read_text(encoding="utf-8")
+    filesystem = (ROOT / "ClipAI" / "platform" / "managed_update_fs.py").read_text(encoding="utf-8")
+    assert ".iterdir(" not in recovery
+    assert "directory_names(" in recovery
+    assert ".iterdir(" in filesystem

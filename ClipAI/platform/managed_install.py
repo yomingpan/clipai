@@ -76,6 +76,40 @@ class ManagedInstallLayout:
         except Exception as exc:
             raise ManagedUpdateFailure(FailureCode.IDENTITY_INELIGIBLE, "managed install selfcheck failed") from exc
 
+    def restore_known_good(self, request: UpdateRequestArtifact) -> CandidateEnvironment:
+        """Idempotently restore the request's signed installed version."""
+        try:
+            marker = _parse_marker(read_json(self._marker_path))
+            state = self.read_state()
+            self._assert_layout_identity(marker, state)
+            if (
+                request.managed_install_id != marker.managed_install_id
+                or not _same_path(request.install_root, self.install_root)
+                or not _same_path(request.shared_root, self.shared_root)
+            ):
+                raise ValueError("recovery request identity does not match install")
+            known_good = self._prove_version(request.installed_version)
+            if not _same_path(request.installed_executable, known_good.python):
+                raise ValueError("recovery executable does not match known-good version")
+            if state.current_version == request.installed_version:
+                return known_good
+            if (
+                state.current_version != request.target_version
+                or state.previous_version != request.installed_version
+            ):
+                raise ValueError("recovery pointer is not old or committed target")
+            self._write_state(ManagedInstallState(
+                managed_install_id=state.managed_install_id,
+                revision=state.revision + 1,
+                current_version=request.installed_version,
+                previous_version=request.target_version,
+            ))
+            return known_good
+        except ManagedUpdateFailure:
+            raise
+        except Exception as exc:
+            raise ManagedUpdateFailure(FailureCode.ROLLBACK_FAILED, "unable to restore signed known-good version") from exc
+
     def read_state(self) -> ManagedInstallState:
         return _parse_state(read_json(self._state_path))
 
@@ -150,6 +184,14 @@ class ManagedInstallLayout:
     ) -> tuple[ManagedInstallMarker, ManagedInstallState, CandidateEnvironment]:
         marker = _parse_marker(read_json(self._marker_path))
         state = self.read_state()
+        self._assert_layout_identity(marker, state)
+        return marker, state, self._prove_version(state.current_version)
+
+    def _assert_layout_identity(
+        self,
+        marker: ManagedInstallMarker,
+        state: ManagedInstallState,
+    ) -> None:
         if not _same_path(marker.install_root, self.install_root):
             raise ValueError("install root does not match")
         if not _same_path(marker.shared_root, self.shared_root):
@@ -158,7 +200,9 @@ class ManagedInstallLayout:
             raise ValueError("install and shared roots must be disjoint")
         if state.managed_install_id != marker.managed_install_id:
             raise ValueError("managed install identity does not match")
-        current_root = self.version_root(state.current_version)
+
+    def _prove_version(self, version: str) -> CandidateEnvironment:
+        current_root = self.version_root(version)
         if native_path(current_root / ".git").exists():
             raise ValueError("source checkout is not update eligible")
         expected_python = current_root / ".venv" / "Scripts" / "python.exe"
@@ -167,7 +211,7 @@ class ManagedInstallLayout:
 
         manifest_path = current_root / "install-manifest.json"
         manifest = parse_install_manifest(read_json(manifest_path))
-        if manifest.app_version != state.current_version:
+        if manifest.app_version != version:
             raise ValueError("installed manifest identity does not match")
         self._manifest_verifier.verify(
             manifest_path,
@@ -177,14 +221,14 @@ class ManagedInstallLayout:
         entrypoint = current_root.joinpath(*PurePosixPath(manifest.entrypoint).parts)
         if not native_path(entrypoint).is_file():
             raise ValueError("managed entrypoint is missing")
-        if self._installed_distribution_version(current_root) != state.current_version:
+        if self._installed_distribution_version(current_root) != version:
             raise ValueError("installed distribution version does not match")
         self._reject_editable_install(current_root)
-        return marker, state, CandidateEnvironment(
+        return CandidateEnvironment(
             root=current_root,
             python=expected_python,
             entrypoint=entrypoint,
-            version=state.current_version,
+            version=version,
         )
 
     def _installed_distribution_version(self, current_root: Path) -> str:

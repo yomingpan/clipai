@@ -38,6 +38,23 @@ def native_path(path: str | Path) -> Path:
     return Path("\\\\?\\" + value)
 
 
+def directory_names(path: str | Path) -> tuple[str, ...]:
+    """List direct child directories through the managed long-path boundary."""
+    root = native_path(path)
+    if not root.exists():
+        return ()
+    if not root.is_dir():
+        raise ManagedUpdateFileError("managed update directory is not a directory")
+    try:
+        return tuple(sorted(
+            child.name
+            for child in root.iterdir()
+            if child.is_dir() and not child.is_symlink()
+        ))
+    except OSError as exc:
+        raise ManagedUpdateFileError("unable to list managed update directory") from exc
+
+
 def require_contained(root: str | Path, candidate: str | Path) -> Path:
     resolved_root = Path(root).resolve()
     resolved_candidate = Path(candidate).resolve()

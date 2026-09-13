@@ -28,6 +28,7 @@ from ClipAI.core.managed_update_commands import (
 )
 from ClipAI.core.ports import ApplicationInstanceGate
 from ClipAI.core.update_ports import CandidateEnvironmentBuilder
+from ClipAI.core.update_artifacts import UpdateResultArtifact
 from ClipAI.platform.action_language_selection import JsonActionLanguagePackSelectionStore
 from ClipAI.platform.candidate_environment import OfflineCandidateEnvironmentBuilder
 from ClipAI.platform.managed_install import DocumentVerifier, ManagedInstallLayout, read_stable_launcher_marker
@@ -35,6 +36,8 @@ from ClipAI.platform.managed_installer import FilesystemManagedInstaller
 from ClipAI.platform.trusted_release_keys import load_trusted_release_keyring
 from ClipAI.platform.update_signature import Ed25519ManifestVerifier
 from ClipAI.platform.managed_update_lifecycle import SubprocessManagedApplicationLifecycle
+from ClipAI.platform.managed_update_recovery import find_incomplete_update
+from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
 from ClipAI.services.managed_current_launch import ManagedCurrentLaunchCoordinator
 from ClipAI.ui.startup_error import show_startup_error
 
@@ -224,6 +227,32 @@ def _launch_managed_current(app_root, marker, environment: Mapping[str, str]) ->
         shutdown=lambda _transaction_id: None,
         now=_utc_now,
     )
+    interrupted = find_incomplete_update(marker.shared_root)
+    if interrupted is not None:
+        base_python = Path(getattr(sys, "_base_executable", sys.executable)).resolve()
+        result_code = ManagedUpdateHostExecutor(
+            manifest_verifier=verifier,
+            candidate_builder=OfflineCandidateEnvironmentBuilder(environment=environment),
+            environment=environment,
+            now=_utc_now,
+            launch_attempt_factory=lambda: launch_attempt_id(f"recovery-{uuid.uuid4().hex}"),
+        ).execute(HostManagedCommand(
+            marker.shared_root,
+            marker.install_root,
+            interrupted,
+            base_python,
+        ))
+        result = ManagedUpdateArtifactStore(
+            shared_root=marker.shared_root,
+            transaction_id=str(interrupted),
+        ).read("result")
+        if not isinstance(result, UpdateResultArtifact):
+            raise RuntimeError("managed recovery result has wrong type")
+        if result.outcome == "rolled_back":
+            return
+        raise RuntimeError(
+            f"managed recovery failed with {result.rollback_failure_code or result.failure_code}; exit={result_code}"
+        )
     ManagedCurrentLaunchCoordinator(
         install=layout,
         lifecycle=lifecycle,

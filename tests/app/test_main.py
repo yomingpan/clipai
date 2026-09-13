@@ -5,7 +5,9 @@ import pytest
 from types import SimpleNamespace
 
 from ClipAI.core.errors import ConfigError
-from ClipAI.core.managed_update import transaction_id
+from ClipAI.core.managed_update import FailureCode, transaction_id
+from ClipAI.core.managed_update_commands import HostManagedCommand
+from ClipAI.core.update_artifacts import UpdateResultArtifact
 from ClipAI.core.update_ports import CandidateEnvironment
 from ClipAI.platform.managed_release_builder import ManagedReleaseBuilder
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
@@ -257,6 +259,49 @@ def test_stable_launcher_entrypoint_resolves_fixed_root_and_delegates_current_la
     main.main()
 
     assert calls and calls[0][0:2] == (launcher_root, marker)
+
+
+def test_stable_launcher_recovers_incomplete_transaction_without_double_launch(monkeypatch, tmp_path) -> None:
+    install_root = (tmp_path / "install").resolve()
+    shared_root = (tmp_path / "shared").resolve()
+    marker = SimpleNamespace(install_root=install_root, shared_root=shared_root)
+    recovered = transaction_id("tx-recover")
+    commands = []
+
+    class Host:
+        def __init__(self, **_dependencies):
+            pass
+
+        def execute(self, command):
+            commands.append(command)
+            ManagedUpdateArtifactStore(
+                shared_root=shared_root, transaction_id=str(recovered)
+            ).write(UpdateResultArtifact(
+                recovered,
+                "2026-09-13T00:00:00+00:00",
+                "rolled_back",
+                "1.0",
+                FailureCode.UPDATE_INTERRUPTED,
+            ))
+            return 1
+
+    monkeypatch.setattr(main, "_build_manifest_verifier", lambda *_args: ManifestVerifier())
+    monkeypatch.setattr(main, "find_incomplete_update", lambda _shared_root: recovered)
+    monkeypatch.setattr(main, "ManagedUpdateHostExecutor", Host)
+    monkeypatch.setattr(
+        main,
+        "ManagedCurrentLaunchCoordinator",
+        lambda **_dependencies: (_ for _ in ()).throw(AssertionError("recovery already launched old version")),
+    )
+
+    main._launch_managed_current((install_root / "launcher").resolve(), marker, {})
+
+    assert commands == [HostManagedCommand(
+        shared_root,
+        install_root,
+        recovered,
+        Path(getattr(main.sys, "_base_executable", main.sys.executable)).resolve(),
+    )]
 
 
 def test_managed_selfcheck_cli_proves_current_version_without_mutating_state(tmp_path) -> None:

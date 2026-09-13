@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from ClipAI.app.managed_update_host import ManagedUpdateHostExecutor
-from ClipAI.core.managed_update import FailureCode, launch_attempt_id, transaction_id
+from ClipAI.core.managed_update import FailureCode, TransactionPhase, TransactionSnapshot, launch_attempt_id, transaction_id
 from ClipAI.core.managed_update_commands import HostManagedCommand
 from ClipAI.core.update_artifacts import UpdateRequestArtifact
 from ClipAI.core.update_ports import CandidateEnvironment
@@ -13,6 +13,7 @@ from ClipAI.platform.managed_process import ManagedProcessIdentityError
 from ClipAI.platform.managed_update_fs import atomic_write_json, read_json
 from ClipAI.platform.managed_update_lifecycle import StartupHealthReporter
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
+from ClipAI.platform.update_journal import JsonUpdateTransactionJournal
 
 
 NOW = "2026-09-13T00:00:00+00:00"
@@ -256,3 +257,66 @@ def test_host_busy_publishes_terminal_result_before_opening_installed_process(tm
         FailureCode.UPDATE_BUSY,
     )
     assert not (request.shared_root / "managed-update" / "transactions" / "tx-1" / "journal.json").exists()
+
+
+def test_restarted_host_recovers_committed_pointer_without_reopening_dead_installed_process(tmp_path: Path):
+    command, request = _write_request(tmp_path)
+    atomic_write_json(request.install_root / "install-state.json", {
+        "schema_version": 1,
+        "state_kind": "clipai-managed-install-state-v1",
+        "managed_install_id": "managed-1",
+        "revision": 1,
+        "current_version": "2.0",
+        "previous_version": "1.0",
+    })
+    journal = JsonUpdateTransactionJournal(
+        shared_root=request.shared_root,
+        transaction_id=request.transaction_id,
+    )
+    for phase in (
+        TransactionPhase.VERIFY,
+        TransactionPhase.PREPARE,
+        TransactionPhase.SHUTDOWN,
+        TransactionPhase.COMMIT,
+        TransactionPhase.LAUNCH,
+        TransactionPhase.HEALTH,
+    ):
+        journal.record(TransactionSnapshot(
+            request.transaction_id, phase, request.installed_version, request.target_version,
+        ))
+
+    def must_not_open_process(**_identity):
+        raise AssertionError("recovery must not reopen a terminated installed process")
+
+    def start_process(arguments, environment, cwd):
+        values = list(arguments)
+        attempt = launch_attempt_id(values[values.index("--launch-attempt-id") + 1])
+        version = values[values.index("--expected-version") + 1]
+        StartupHealthReporter(shared_root=request.shared_root, now=lambda: NOW).report(
+            transaction_id=request.transaction_id,
+            launch_attempt_id=attempt,
+            expected_version=version,
+            actual_version=version,
+            executable_path=values[0],
+            healthy=True,
+        )
+        return SimpleNamespace(pid=4321)
+
+    executor = ManagedUpdateHostExecutor(
+        manifest_verifier=_Verifier(),
+        candidate_builder=_CandidateBuilder(),
+        environment={},
+        now=lambda: NOW,
+        launch_attempt_factory=lambda: launch_attempt_id("recovery-old"),
+        process_handle_factory=must_not_open_process,
+        start_process=start_process,
+    )
+
+    assert executor.execute(command) == 1
+    result = ManagedUpdateArtifactStore(
+        shared_root=request.shared_root, transaction_id="tx-1"
+    ).read("result")
+    assert (result.outcome, result.active_version, result.failure_code) == (
+        "rolled_back", "1.0", FailureCode.UPDATE_INTERRUPTED,
+    )
+    assert read_json(request.install_root / "install-state.json")["current_version"] == "1.0"

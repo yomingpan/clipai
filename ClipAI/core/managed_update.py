@@ -28,6 +28,7 @@ def launch_attempt_id(value: str) -> LaunchAttemptId:
 class FailureCode(StrEnum):
     IDENTITY_INELIGIBLE = "identity_ineligible"
     UPDATE_BUSY = "update_busy"
+    UPDATE_INTERRUPTED = "update_interrupted"
     CATALOG_UNAVAILABLE = "catalog_unavailable"
     CATALOG_INVALID = "catalog_invalid"
     DOWNLOAD_FAILED = "download_failed"

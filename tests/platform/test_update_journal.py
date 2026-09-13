@@ -56,3 +56,30 @@ def test_journal_fails_closed_on_unknown_or_wrong_transaction_schema(tmp_path: P
     atomic_write_json(other.path, {key: value for key, value in payload.items() if key != "extra"})
     with pytest.raises(JournalValidationError, match="transaction"):
         other.read()
+
+
+@pytest.mark.parametrize("interrupted_phase", list(TransactionPhase))
+def test_recovery_rollback_is_legal_from_every_incomplete_phase_and_is_reentrant(
+    tmp_path: Path,
+    interrupted_phase: TransactionPhase,
+) -> None:
+    journal = JsonUpdateTransactionJournal(shared_root=tmp_path, transaction_id=transaction_id("tx-1"))
+    forward = (
+        TransactionPhase.VERIFY,
+        TransactionPhase.PREPARE,
+        TransactionPhase.SHUTDOWN,
+        TransactionPhase.COMMIT,
+        TransactionPhase.LAUNCH,
+        TransactionPhase.HEALTH,
+        TransactionPhase.FINALIZE,
+    )
+    stop = TransactionPhase.HEALTH if interrupted_phase is TransactionPhase.ROLLBACK else interrupted_phase
+    for phase in forward[:forward.index(stop) + 1]:
+        journal.record(_snapshot(phase))
+    journal.record(_snapshot(TransactionPhase.ROLLBACK, FailureCode.UPDATE_INTERRUPTED))
+    journal.record(_snapshot(TransactionPhase.ROLLBACK, FailureCode.UPDATE_INTERRUPTED))
+
+    revision, snapshot = journal.read()
+    assert revision >= 2
+    assert snapshot.phase is TransactionPhase.ROLLBACK
+    assert snapshot.failure_code is FailureCode.UPDATE_INTERRUPTED

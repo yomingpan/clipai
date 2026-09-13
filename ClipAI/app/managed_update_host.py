@@ -4,18 +4,19 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.managed_update import FailureCode, LaunchAttemptId
+from ClipAI.core.managed_update import FailureCode, LaunchAttemptId, TransactionId
 from ClipAI.core.managed_update_commands import HostManagedCommand
 from ClipAI.core.update_artifacts import UpdateRequestArtifact, UpdateResultArtifact
 from ClipAI.core.update_ports import CandidateEnvironmentBuilder, ManagedUpdateGate
 from ClipAI.platform.managed_install import DocumentVerifier, ManagedInstallLayout
 from ClipAI.platform.managed_process import ManagedProcessIdentityError, WindowsManagedProcessHandle
 from ClipAI.platform.managed_update_backend import FilesystemManagedUpdateBackend
-from ClipAI.platform.managed_update_fs import canonical_path
+from ClipAI.platform.managed_update_fs import canonical_path, native_path
 from ClipAI.platform.managed_update_lifecycle import StartProcess, SubprocessManagedApplicationLifecycle
 from ClipAI.platform.managed_update_mutex import WindowsManagedUpdateGate
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
 from ClipAI.platform.update_journal import JsonUpdateTransactionJournal
+from ClipAI.services.managed_update_recovery import ManagedUpdateRecovery
 from ClipAI.services.update_transaction import ManagedUpdateTransaction
 
 
@@ -83,6 +84,42 @@ class ManagedUpdateHostExecutor:
             ))
             return 1
         try:
+            if native_path(store.path("result")).is_file():
+                terminal = store.read("result")
+                if not isinstance(terminal, UpdateResultArtifact):
+                    raise ValueError("managed update result artifact has wrong type")
+                return 0 if terminal.outcome == "updated" else 1
+
+            layout = ManagedInstallLayout(
+                install_root=command.install_root,
+                shared_root=command.shared_root,
+                manifest_verifier=self._manifest_verifier,
+            )
+            backend = FilesystemManagedUpdateBackend(
+                layout=layout,
+                manifest_verifier=self._manifest_verifier,
+                candidate_builder=self._candidate_builder,
+                base_python=command.base_python,
+                now=self._now,
+            )
+            journal = JsonUpdateTransactionJournal(
+                shared_root=command.shared_root,
+                transaction_id=command.transaction_id,
+            )
+            if native_path(journal.path).is_file():
+                _revision, interrupted = journal.read()
+                recovery = ManagedUpdateRecovery(
+                    backend=backend,
+                    lifecycle=self._lifecycle(layout, lambda _transaction_id: None),
+                    journal=journal,
+                    launch_attempt_factory=self._launch_attempt_factory,
+                    now=self._now,
+                    health_timeout_sec=self._health_timeout_sec,
+                )
+                result = recovery.execute(artifact, interrupted)
+                store.write(result)
+                return 1
+
             try:
                 installed_process = self._process_handle_factory(
                     process_id=artifact.installed_process_id,
@@ -98,36 +135,16 @@ class ManagedUpdateHostExecutor:
                 ))
                 return 1
             try:
-                layout = ManagedInstallLayout(
-                    install_root=command.install_root,
-                    shared_root=command.shared_root,
-                    manifest_verifier=self._manifest_verifier,
-                )
-                backend = FilesystemManagedUpdateBackend(
-                    layout=layout,
-                    manifest_verifier=self._manifest_verifier,
-                    candidate_builder=self._candidate_builder,
-                    base_python=command.base_python,
-                    now=self._now,
-                )
-                lifecycle_arguments = {
-                    "layout": layout,
-                    "environment": self._environment,
-                    "shutdown": lambda _transaction_id: installed_process.wait_for_exit(
+                lifecycle = self._lifecycle(
+                    layout,
+                    lambda _transaction_id: installed_process.wait_for_exit(
                         timeout_sec=self._shutdown_timeout_sec,
                     ),
-                    "now": self._now,
-                }
-                if self._start_process is not None:
-                    lifecycle_arguments["start_process"] = self._start_process
-                lifecycle = SubprocessManagedApplicationLifecycle(**lifecycle_arguments)  # type: ignore[arg-type]
+                )
                 transaction = ManagedUpdateTransaction(
                     backend=backend,
                     lifecycle=lifecycle,
-                    journal=JsonUpdateTransactionJournal(
-                        shared_root=command.shared_root,
-                        transaction_id=command.transaction_id,
-                    ),
+                    journal=journal,
                     launch_attempt_factory=self._launch_attempt_factory,
                     now=self._now,
                     health_timeout_sec=self._health_timeout_sec,
@@ -139,3 +156,23 @@ class ManagedUpdateHostExecutor:
                 installed_process.close()
         finally:
             lease.close()
+
+    def _lifecycle(
+        self,
+        layout: ManagedInstallLayout,
+        shutdown: Callable[[TransactionId], None],
+    ) -> SubprocessManagedApplicationLifecycle:
+        if self._start_process is None:
+            return SubprocessManagedApplicationLifecycle(
+                layout=layout,
+                environment=self._environment,
+                shutdown=shutdown,
+                now=self._now,
+            )
+        return SubprocessManagedApplicationLifecycle(
+            layout=layout,
+            environment=self._environment,
+            shutdown=shutdown,
+            now=self._now,
+            start_process=self._start_process,
+        )

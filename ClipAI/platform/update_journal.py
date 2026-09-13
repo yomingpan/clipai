@@ -22,10 +22,14 @@ _FORWARD = {
     TransactionPhase.HEALTH: TransactionPhase.FINALIZE,
 }
 _ROLLBACK_SOURCES = {
+    TransactionPhase.VERIFY,
+    TransactionPhase.PREPARE,
+    TransactionPhase.SHUTDOWN,
     TransactionPhase.COMMIT,
     TransactionPhase.LAUNCH,
     TransactionPhase.HEALTH,
     TransactionPhase.FINALIZE,
+    TransactionPhase.ROLLBACK,
 }
 
 

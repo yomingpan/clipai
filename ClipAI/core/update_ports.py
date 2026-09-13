@@ -63,6 +63,10 @@ class ManagedInstallReader(Protocol):
     def prove_current_install(self) -> CandidateEnvironment: ...
 
 
+class ManagedUpdateRecoveryBackend(Protocol):
+    def restore_known_good(self, request: UpdateRequestArtifact) -> CandidateEnvironment: ...
+
+
 class ManagedApplicationLifecycle(Protocol):
     def request_shutdown(self, transaction_id: TransactionId) -> None: ...
 

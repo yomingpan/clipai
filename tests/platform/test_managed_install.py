@@ -187,6 +187,35 @@ def test_commit_and_rollback_atomically_advance_single_pointer_and_retain_old_ve
     assert (rolled_back["revision"], rolled_back["current_version"], rolled_back["previous_version"]) == (2, "1.0", "2.0")
 
 
+def test_recovery_restores_target_pointer_to_signed_known_good_version(tmp_path: Path) -> None:
+    layout, verifier, request = _write_install(tmp_path)
+    atomic_write_json(layout.install_root / "install-state.json", {
+        "schema_version": 1,
+        "state_kind": "clipai-managed-install-state-v1",
+        "managed_install_id": "managed-1",
+        "revision": 1,
+        "current_version": "2.0",
+        "previous_version": "1.0",
+    })
+
+    known_good = layout.restore_known_good(request)
+
+    assert known_good.version == "1.0"
+    recovered = read_json(layout.install_root / "install-state.json")
+    assert (recovered["revision"], recovered["current_version"], recovered["previous_version"]) == (2, "1.0", "2.0")
+    assert verifier.calls[-1][2] == "release-key"
+
+
+def test_recovery_is_noop_when_known_good_pointer_is_already_active(tmp_path: Path) -> None:
+    layout, _, request = _write_install(tmp_path)
+
+    known_good = layout.restore_known_good(request)
+
+    assert known_good.version == "1.0"
+    state = read_json(layout.install_root / "install-state.json")
+    assert (state["revision"], state["current_version"], state["previous_version"]) == (0, "1.0", None)
+
+
 def test_state_and_marker_identity_must_agree_and_roots_must_be_disjoint(tmp_path: Path):
     layout, _, request = _write_install(tmp_path)
     state_path = layout.install_root / "install-state.json"
