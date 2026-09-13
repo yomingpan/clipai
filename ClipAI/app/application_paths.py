@@ -17,8 +17,7 @@ def build_application_paths(
     """Resolve source-compatible paths; managed hosts inject a shared root."""
     app_root = Path(application_root).resolve()
     instance_name = environment.get("CLIPAI_INSTANCE_NAME", "default").strip()
-    if _INSTANCE_NAME.fullmatch(instance_name) is None:
-        raise ValueError("CLIPAI_INSTANCE_NAME is invalid")
+    _validate_instance_name(instance_name)
 
     configured_shared = environment.get("CLIPAI_SHARED_ROOT", "").strip()
     if configured_shared:
@@ -30,12 +29,7 @@ def build_application_paths(
             raise ValueError("CLIPAI_SHARED_ROOT must be outside the application root")
         if instance_name != "default":
             shared_root = shared_root / "instances" / instance_name
-        state_root = shared_root / "state"
-        secrets_file = shared_root / "secrets" / ".env"
-        logs_root = shared_root / "logs"
-        diagnostics_root = shared_root / "diagnostics"
-        update_root = shared_root / "update"
-        recent_actions_file = state_root / "recent_actions.json"
+        return _managed_paths(app_root, shared_root, instance_name)
     else:
         state_root = app_root / "data"
         secrets_file = app_root / ".env"
@@ -58,6 +52,44 @@ def build_application_paths(
         recent_actions_file=recent_actions_file,
         instance_name=instance_name,
     )
+
+
+def build_managed_application_paths(
+    application_root: str | Path,
+    shared_root: str | Path,
+    *,
+    instance_name: str,
+) -> ApplicationPaths:
+    """Build runtime paths from an already resolved managed-instance root."""
+    app_root = Path(application_root).resolve()
+    shared = Path(shared_root)
+    _validate_instance_name(instance_name)
+    if not shared.is_absolute():
+        raise ValueError("managed shared root must be absolute")
+    shared = shared.resolve()
+    if shared == app_root or shared.is_relative_to(app_root):
+        raise ValueError("managed shared root must be outside the application root")
+    return _managed_paths(app_root, shared, instance_name)
+
+
+def _managed_paths(app_root: Path, shared_root: Path, instance_name: str) -> ApplicationPaths:
+    state_root = shared_root / "state"
+    return ApplicationPaths(
+        application_root=app_root,
+        config_root=app_root / "config",
+        state_root=state_root,
+        secrets_file=shared_root / "secrets" / ".env",
+        logs_root=shared_root / "logs",
+        diagnostics_root=shared_root / "diagnostics",
+        update_root=shared_root / "update",
+        recent_actions_file=state_root / "recent_actions.json",
+        instance_name=instance_name,
+    )
+
+
+def _validate_instance_name(instance_name: str) -> None:
+    if _INSTANCE_NAME.fullmatch(instance_name) is None:
+        raise ValueError("CLIPAI_INSTANCE_NAME is invalid")
 
 
 def resolve_runtime_file(configured_path: str | Path, root: Path, legacy_dir: str) -> Path:

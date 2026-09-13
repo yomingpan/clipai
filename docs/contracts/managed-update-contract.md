@@ -106,6 +106,9 @@ arguments retain their exact names and semantics:
 - `--expected-version`: exact version the launched distribution must report.
 
 Missing, relative, malformed, or conflicting values fail before side effects.
+`--shared-root` is already the effective root for that managed instance;
+launch composition derives state, secrets, logs, diagnostics, and update paths
+from it without applying `CLIPAI_INSTANCE_NAME` a second time.
 The dispatcher converts argv into one of four immutable core command models and
 crosses one `execute(command)` composition seam; subcommands do not own separate
 entry scripts or duplicate parsing.
