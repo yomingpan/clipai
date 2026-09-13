@@ -26,6 +26,10 @@ handling, containment checks, and atomic JSON writes go through
   remains intact until matching startup health succeeds.
 - Any failure after commit attempts rollback and relaunches the previous known
   good version. Failure to prove a launchable old or new version is terminal.
+- The lifecycle adapter exclusively owns processes it starts. After a candidate
+  launch, rollback must stop and prove exit of that exact launch identity before
+  restoring the pointer or starting the previous version; inability to do so
+  fails closed instead of running two versions concurrently.
 - Versioned payloads never own config overrides, secrets, state, logs, or
   diagnostics. `ApplicationPaths` is injected before update code is composed.
 - Apply fails closed outside a proven managed installation.

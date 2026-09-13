@@ -5,6 +5,24 @@ unknown fields. IDs are non-empty opaque ASCII strings (maximum 128 chars),
 versions are normalized PEP 440 strings, paths are absolute, and timestamps are
 UTC RFC 3339 strings.
 
+## Application paths and data ownership
+
+`ApplicationPaths` is resolved once in app composition and injected into the
+runtime. For a managed launch, `application_root` is the immutable version
+payload and `config_root` is its shipped `config/` tree. Mutable preferences,
+archives, feedback, personal styles, and recent actions live under
+`shared_root/state`; secrets live under `shared_root/secrets`; logs,
+diagnostics, and update artifacts live under their like-named shared
+directories. Shipped config and mutable state are never the same root.
+
+`CLIPAI_INSTANCE_NAME` may select `shared_root/instances/{name}` only while the
+ordinary composition root resolves an unevaluated shared root. The managed
+`launch` CLI receives an already effective `--shared-root`, so managed
+composition must not append `instances/{name}` a second time. Version install,
+commit, rollback, and cleanup may mutate only the managed install tree and the
+shared update-artifact tree; they must not rewrite shared state, secrets, logs,
+diagnostics, or unrelated files below the shared root.
+
 ## Artifact envelopes
 
 Every artifact has `schema_version: 1`, `artifact_kind`, `transaction_id`, and
@@ -244,6 +262,14 @@ into that transaction's shared artifact root, then produces one exact
 does not write artifacts, spawn the host, or stop the runtime; app composition
 owns those lifecycle effects after receiving the request.
 
+The P0 in-process trigger is the single app seam
+`ManagedUpdateHandoffExecutor.execute(identity, transaction_id)`. It accepts a
+proven managed client identity, performs discovery/download through the service
+coordinator, publishes and starts the external handoff through the platform
+adapter, and requests normal shutdown only after matching readiness. P0 does
+not add a second CLI command, background scheduler, or popup-specific workflow;
+any future UI must emit an explicit typed intent into this same app-owned seam.
+
 The platform handoff client atomically publishes that request, starts the stable
 launcher `host` command in an isolated environment, and waits at most 20 seconds
 for either terminal `result` or matching `handoff_ready` evidence. Readiness must
@@ -297,3 +323,27 @@ An existing target version root is never replaced unless its exact sibling
 version. Prepare copies only from the already verified staging tree, verifies
 the copied inventory again, and removes the reservation only after candidate
 executable/version proof succeeds.
+
+## Verification matrix
+
+The authoritative P0 gate is:
+
+```text
+.venv/Scripts/python.exe scripts/verify_managed_update.py --stage managed-bundle
+```
+
+It is cumulative and exits non-zero on the first failing layer. The `fast`
+layer contains identity, schema, eligibility, filesystem, long-path,
+environment-isolation, lifecycle, state-machine, recovery, app-composition, and
+architecture tests. `synthetic` proves the typed catalog-to-request/bundle
+flow. `loopback-http` proves bounded catalog and bundle streaming plus real
+Ed25519 admission and tamper rejection. `managed-bundle` installs a signed v1,
+builds signed v2 from a hashed wheelhouse with poisoned parent environment,
+executes the complete happy transaction, injects every public transaction-seam
+failure, proves rollback launch health, retains both version roots, and compares
+representative shared config/state bytes exactly.
+
+The gate is evidence for the repository implementation, not for a published
+release. Release publication must separately supply a production keyring,
+catalog, hashed lock, complete Windows wheelhouse, and release asset; test keys
+remain inadmissible under production composition.
