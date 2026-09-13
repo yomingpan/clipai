@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 import os
 from pathlib import Path, PurePosixPath
 
@@ -9,31 +8,22 @@ from packaging.version import Version
 
 from ClipAI.core.managed_update import CommitReceipt, FailureCode, ManagedUpdateFailure, TransactionId
 from ClipAI.core.update_artifacts import HandoffReadyArtifact, UpdateRequestArtifact
-from ClipAI.core.update_bundle import InstallManifest
+from ClipAI.core.update_bundle import BundleAdmissionRequest, InstallManifest, VerifiedManagedBundle
 from ClipAI.core.update_ports import CandidateBuildRequest, CandidateEnvironment, CandidateEnvironmentBuilder
 from ClipAI.platform.managed_install import DocumentVerifier, ManagedInstallLayout
 from ClipAI.platform.managed_update_fs import (
     ManagedUpdateFileError,
     atomic_write_json,
     copy_regular_tree,
-    extract_prefixed_zip,
-    file_sha256,
     native_path,
     read_json,
     remove_tree,
     require_contained,
     unlink_file,
 )
-from ClipAI.platform.update_bundle import BundleValidationError, parse_install_manifest, verify_bundle_inventory
-from ClipAI.platform.update_catalog import MAX_BUNDLE_SIZE
+from ClipAI.platform.update_bundle import verify_bundle_inventory
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
-
-
-@dataclass(frozen=True)
-class _VerifiedBundle:
-    request: UpdateRequestArtifact
-    staging_root: Path
-    manifest: InstallManifest
+from ClipAI.platform.verified_managed_bundle import VerifiedManagedBundleStager
 
 
 class FilesystemManagedUpdateBackend:
@@ -49,65 +39,34 @@ class FilesystemManagedUpdateBackend:
         now: Callable[[], str],
     ) -> None:
         self._layout = layout
-        self._manifest_verifier = manifest_verifier
         self._candidate_builder = candidate_builder
         self._base_python = Path(base_python).resolve()
         self._now = now
-        self._verified: dict[TransactionId, _VerifiedBundle] = {}
+        self._bundle_stager = VerifiedManagedBundleStager(manifest_verifier=manifest_verifier)
+        self._verified: dict[TransactionId, tuple[UpdateRequestArtifact, VerifiedManagedBundle]] = {}
         self._candidate_transactions: dict[str, TransactionId] = {}
 
     def verify(self, request: UpdateRequestArtifact) -> None:
         self._layout.assert_update_eligible(request)
         if Version(request.target_version) <= Version(request.installed_version):
             raise ManagedUpdateFailure(FailureCode.BUNDLE_INVALID, "target version is not newer")
-        if request.bundle_size > MAX_BUNDLE_SIZE:
-            raise ManagedUpdateFailure(FailureCode.DOWNLOAD_FAILED, "bundle exceeds supported size")
         transaction_root = self._transaction_root(request)
-        try:
-            bundle = require_contained(transaction_root, request.bundle_path)
-            stat = native_path(bundle).stat()
-            if stat.st_size != request.bundle_size or file_sha256(bundle) != request.bundle_sha256:
-                raise ManagedUpdateFailure(FailureCode.DOWNLOAD_FAILED, "downloaded bundle identity does not match catalog")
-        except ManagedUpdateFailure:
-            raise
-        except (OSError, ManagedUpdateFileError) as exc:
-            raise ManagedUpdateFailure(FailureCode.DOWNLOAD_FAILED, "downloaded bundle is unavailable") from exc
-
-        staging = transaction_root / "verified-bundle"
-        remove_tree(staging)
-        try:
-            extract_prefixed_zip(
-                bundle,
-                staging,
-                maximum_uncompressed_size=min(2 * 1024 * 1024 * 1024, max(64 * 1024 * 1024, request.bundle_size * 50)),
-            )
-            manifest_path = staging / "install-manifest.json"
-            if file_sha256(manifest_path) != request.manifest_sha256:
-                raise ManagedUpdateFailure(FailureCode.SIGNATURE_INVALID, "manifest identity does not match catalog")
-            try:
-                self._manifest_verifier.verify(
-                    manifest_path,
-                    staging / "install-manifest.json.sig",
-                    key_id=request.key_id,
-                )
-            except Exception as exc:
-                raise ManagedUpdateFailure(FailureCode.SIGNATURE_INVALID, "manifest signature is invalid") from exc
-            manifest = parse_install_manifest(read_json(manifest_path))
-            if manifest.app_version != request.target_version or manifest.key_id != request.key_id:
-                raise ManagedUpdateFailure(FailureCode.BUNDLE_INVALID, "bundle release identity does not match request")
-            verify_bundle_inventory(staging, manifest)
-        except ManagedUpdateFailure:
-            self._discard(staging)
-            raise
-        except (OSError, ManagedUpdateFileError, BundleValidationError) as exc:
-            self._discard(staging)
-            raise ManagedUpdateFailure(FailureCode.BUNDLE_INVALID, "bundle structure or inventory is invalid") from exc
-        self._verified[request.transaction_id] = _VerifiedBundle(request, staging, manifest)
+        verified = self._bundle_stager.stage(BundleAdmissionRequest(
+            transaction_root=transaction_root,
+            bundle_path=request.bundle_path,
+            bundle_size=request.bundle_size,
+            bundle_sha256=request.bundle_sha256,
+            manifest_sha256=request.manifest_sha256,
+            expected_version=request.target_version,
+            key_id=request.key_id,
+        ))
+        self._verified[request.transaction_id] = (request, verified)
 
     def prepare(self, request: UpdateRequestArtifact) -> CandidateEnvironment:
-        verified = self._verified.get(request.transaction_id)
-        if verified is None or verified.request != request:
+        admitted = self._verified.get(request.transaction_id)
+        if admitted is None or admitted[0] != request:
             raise ManagedUpdateFailure(FailureCode.PREPARE_FAILED, "transaction has no matching verified bundle")
+        verified = admitted[1]
         target_root = self._layout.version_root(request.target_version)
         owner_path = target_root.parent / f".{target_root.name}.candidate-owner.json"
         try:
@@ -213,7 +172,7 @@ class FilesystemManagedUpdateBackend:
             return
         verified = self._verified.pop(transaction_id, None)
         if verified is not None:
-            self._discard(verified.staging_root)
+            self._discard(verified[1].staging_root)
 
     @staticmethod
     def _discard(path: Path) -> None:

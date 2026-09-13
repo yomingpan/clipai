@@ -76,6 +76,12 @@ catalog-bound compressed size and hash before extraction, caps total
 uncompressed size, then verifies manifest hash, signature, and complete file
 inventory before candidate preparation.
 
+Bundle admission has one platform owner shared by initial install and update.
+Its typed input is the contained transaction root plus expected bundle size,
+bundle SHA-256, manifest SHA-256, version, and key identity; its output is an
+immutable verified staging root with the parsed manifest. Callers may copy or
+build only from that staging root, never from the admitted archive again.
+
 ## Signing
 
 Manifests are signed with Ed25519 over canonical UTF-8 JSON bytes under

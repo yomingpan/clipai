@@ -42,3 +42,16 @@ def test_managed_entry_has_one_subcommand_dispatcher_and_one_executor_seam():
     for command in ("install", "launch", "host", "selfcheck"):
         assert f'add_parser("{command}")' in source
     assert "execute: Callable[[ManagedCommand], int]" in source
+
+
+def test_bundle_admission_has_one_platform_owner():
+    platform_root = ROOT / "ClipAI" / "platform"
+    callers = [
+        path.name
+        for path in platform_root.glob("*.py")
+        if path.name != "managed_update_fs.py"
+        and "extract_prefixed_zip(" in path.read_text(encoding="utf-8")
+    ]
+    assert callers == ["verified_managed_bundle.py"]
+    backend = (platform_root / "managed_update_backend.py").read_text(encoding="utf-8")
+    assert "VerifiedManagedBundleStager" in backend
