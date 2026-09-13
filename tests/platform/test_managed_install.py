@@ -67,7 +67,6 @@ def _write_install(tmp_path: Path) -> tuple[ManagedInstallLayout, Verifier, Upda
     layout = ManagedInstallLayout(
         install_root=install_root,
         shared_root=shared_root,
-        marker_verifier=verifier,
         manifest_verifier=verifier,
     )
     request = UpdateRequestArtifact(
@@ -88,12 +87,11 @@ def _write_install(tmp_path: Path) -> tuple[ManagedInstallLayout, Verifier, Upda
     return layout, verifier, request
 
 
-def test_signed_managed_identity_is_eligible_only_for_exact_running_executable(tmp_path: Path):
+def test_managed_receipt_and_signed_version_are_eligible_only_for_exact_running_executable(tmp_path: Path):
     layout, verifier, request = _write_install(tmp_path)
     state = layout.assert_update_eligible(request)
     assert state.current_version == "1.0"
     assert verifier.calls == [
-        (layout.install_root / "managed-install.json", layout.install_root / "managed-install.json.sig", "release-key"),
         (layout.version_root("1.0") / "install-manifest.json", layout.version_root("1.0") / "install-manifest.json.sig", "release-key"),
     ]
 
@@ -156,7 +154,6 @@ def test_state_and_marker_identity_must_agree_and_roots_must_be_disjoint(tmp_pat
     nested_layout = ManagedInstallLayout(
         install_root=layout.install_root,
         shared_root=layout.install_root / "user-data",
-        marker_verifier=Verifier(),
         manifest_verifier=Verifier(),
     )
     nested_request = UpdateRequestArtifact(**{**request.__dict__, "shared_root": layout.install_root / "user-data"})

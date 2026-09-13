@@ -49,12 +49,10 @@ class ManagedInstallLayout:
         *,
         install_root: str | Path,
         shared_root: str | Path,
-        marker_verifier: DocumentVerifier,
         manifest_verifier: DocumentVerifier,
     ) -> None:
         self.install_root = Path(install_root).resolve()
         self.shared_root = Path(shared_root).resolve()
-        self._marker_verifier = marker_verifier
         self._manifest_verifier = manifest_verifier
         self._marker_path = self.install_root / "managed-install.json"
         self._state_path = self.install_root / "install-state.json"
@@ -63,11 +61,6 @@ class ManagedInstallLayout:
         try:
             marker_payload = read_json(self._marker_path)
             marker = _parse_marker(marker_payload)
-            self._marker_verifier.verify(
-                self._marker_path,
-                self._marker_path.with_suffix(".json.sig"),
-                key_id=marker.key_id,
-            )
             state = self.read_state()
             self._assert_identity(request, marker, state)
             return state

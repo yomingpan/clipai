@@ -29,6 +29,9 @@ handling, containment checks, and atomic JSON writes go through
 - Versioned payloads never own config overrides, secrets, state, logs, or
   diagnostics. `ApplicationPaths` is injected before update code is composed.
 - Apply fails closed outside a proven managed installation.
+- The stable installer writes the local managed-install receipt only after
+  verifying the publisher-signed initial version manifest. Publisher private
+  keys never enter an installed launcher or updater.
 
 ## Consequences and review trigger
 

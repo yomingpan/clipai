@@ -106,19 +106,21 @@ same attempt and executable; a stale attempt is ignored until the bounded
 
 ## Update eligibility
 
-Apply is eligible only when a signed managed-install marker supplies a valid
-`managed_install_id`; current pointer, resolved executable, installed metadata,
-and version manifest agree under one install root; no editable `direct_url.json`
-or `.git`/worktree evidence exists; shared `ApplicationPaths` are outside the
-immutable version tree; and the update mutex is held. Unknown identity is
-check-only and fails closed for apply.
+Apply is eligible only when the stable installer-created managed-install
+receipt supplies a valid `managed_install_id`; current pointer, resolved
+executable, installed metadata, and publisher-signed version manifest agree
+under one install root; no editable `direct_url.json` or `.git`/worktree
+evidence exists; shared `ApplicationPaths` are outside the immutable version
+tree; and the update mutex is held. Unknown identity is check-only and fails
+closed for apply.
 
 `managed-install.json` uses `schema_version: 1`, `marker_kind:
 clipai-managed-install-v1`, `managed_install_id`, canonical `install_root` and
-`shared_root`, `launcher_version`, and `key_id`; its detached signature uses
-namespace `clipai.managed-update.install.v1`. `install-state.json` uses
-`schema_version: 1`, `state_kind: clipai-managed-install-state-v1`, the same
-install identity, monotonic `revision`, `current_version`, and nullable
+`shared_root`, `launcher_version`, and `key_id`. It is a local install receipt,
+not a publisher signature: the stable `install` command may create it only
+after verifying the initial version's signed manifest. `install-state.json`
+uses `schema_version: 1`, `state_kind: clipai-managed-install-state-v1`, the
+same install identity, monotonic `revision`, `current_version`, and nullable
 `previous_version`. Versions resolve only as `install_root/versions/{version}`.
 An existing target version root is never replaced unless its exact sibling
 `versions/.{target}.candidate-owner.json` names the same transaction and target

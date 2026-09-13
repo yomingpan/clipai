@@ -10,7 +10,6 @@ from ClipAI.platform.managed_update_fs import atomic_write_bytes
 from ClipAI.platform.managed_release_builder import OpenSshManifestSigner
 from ClipAI.platform.update_signature import (
     Ed25519ManifestVerifier,
-    INSTALL_SIGNING_NAMESPACE,
     SIGNING_NAMESPACE,
     TEST_KEY_ID,
     SignatureVerificationError,
@@ -108,23 +107,3 @@ def test_openssh_signer_adapter_interoperates_with_verifier(tmp_path: Path):
         signature,
         key_id=TEST_KEY_ID,
     )
-
-
-def test_managed_install_marker_uses_separate_signature_namespace(tmp_path: Path):
-    manifest, signature, public_key, executable = _signed_manifest(
-        tmp_path,
-        namespace=INSTALL_SIGNING_NAMESPACE,
-    )
-    _verifier(
-        tmp_path,
-        public_key,
-        executable,
-        allow_test_keys=True,
-        namespace=INSTALL_SIGNING_NAMESPACE,
-    ).verify(manifest, signature, key_id=TEST_KEY_ID)
-    with pytest.raises(SignatureVerificationError, match="invalid"):
-        _verifier(tmp_path, public_key, executable, allow_test_keys=True).verify(
-            manifest,
-            signature,
-            key_id=TEST_KEY_ID,
-        )

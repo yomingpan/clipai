@@ -26,3 +26,10 @@ def test_release_builder_has_one_core_and_one_thin_cli():
     assert scripts == ["build_managed_release.py"]
     cli = (ROOT / "scripts" / scripts[0]).read_text(encoding="utf-8")
     assert "ManagedReleaseBuilder(signer).build(" in cli
+
+
+def test_client_install_identity_never_requires_a_publisher_private_key():
+    layout = (ROOT / "ClipAI" / "platform" / "managed_install.py").read_text(encoding="utf-8")
+    signature = (ROOT / "ClipAI" / "platform" / "update_signature.py").read_text(encoding="utf-8")
+    assert "marker_verifier" not in layout
+    assert "INSTALL_SIGNING_NAMESPACE" not in signature
