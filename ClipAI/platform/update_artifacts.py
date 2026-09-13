@@ -23,7 +23,7 @@ from ClipAI.platform.managed_update_fs import require_contained
 
 _COMMON = {"schema_version", "artifact_kind", "transaction_id", "created_at"}
 _FIELDS = {
-    "request": _COMMON | {"installed_version", "target_version", "installed_executable", "bundle_path", "bundle_size", "bundle_sha256", "manifest_sha256", "key_id", "install_root", "shared_root", "managed_install_id"},
+    "request": _COMMON | {"installed_version", "target_version", "installed_executable", "installed_process_id", "bundle_path", "bundle_size", "bundle_sha256", "manifest_sha256", "key_id", "install_root", "shared_root", "managed_install_id"},
     "handoff_ready": _COMMON | {"candidate_root", "candidate_python", "manifest_sha256", "expected_version"},
     "launch_receipt": _COMMON | {"launch_attempt_id", "expected_version", "executable_path", "process_id"},
     "startup_health": _COMMON | {"launch_attempt_id", "expected_version", "actual_version", "executable_path", "healthy"},
@@ -104,7 +104,8 @@ def read_artifact(
     if expected_kind == "request":
         return UpdateRequestArtifact(
             tid, created_at, _version(payload["installed_version"]), _version(payload["target_version"]),
-            _absolute(payload["installed_executable"]), _absolute(payload["bundle_path"]),
+            _absolute(payload["installed_executable"]), _positive_int(payload["installed_process_id"], "installed_process_id"),
+            _absolute(payload["bundle_path"]),
             _positive_int(payload["bundle_size"], "bundle_size"), _sha256(payload["bundle_sha256"]), _sha256(payload["manifest_sha256"]),
             _text(payload["key_id"], "key_id"), _absolute(payload["install_root"]), _absolute(payload["shared_root"]),
             _text(payload["managed_install_id"], "managed_install_id"),

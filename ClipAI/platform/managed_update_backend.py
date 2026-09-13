@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import os
 from pathlib import Path, PurePosixPath
@@ -7,7 +8,7 @@ from pathlib import Path, PurePosixPath
 from packaging.version import Version
 
 from ClipAI.core.managed_update import CommitReceipt, FailureCode, ManagedUpdateFailure, TransactionId
-from ClipAI.core.update_artifacts import UpdateRequestArtifact
+from ClipAI.core.update_artifacts import HandoffReadyArtifact, UpdateRequestArtifact
 from ClipAI.core.update_bundle import InstallManifest
 from ClipAI.core.update_ports import CandidateBuildRequest, CandidateEnvironment, CandidateEnvironmentBuilder
 from ClipAI.platform.managed_install import DocumentVerifier, ManagedInstallLayout
@@ -25,6 +26,7 @@ from ClipAI.platform.managed_update_fs import (
 )
 from ClipAI.platform.update_bundle import BundleValidationError, parse_install_manifest, verify_bundle_inventory
 from ClipAI.platform.update_catalog import MAX_BUNDLE_SIZE
+from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
 
 
 @dataclass(frozen=True)
@@ -44,11 +46,13 @@ class FilesystemManagedUpdateBackend:
         manifest_verifier: DocumentVerifier,
         candidate_builder: CandidateEnvironmentBuilder,
         base_python: str | Path,
+        now: Callable[[], str],
     ) -> None:
         self._layout = layout
         self._manifest_verifier = manifest_verifier
         self._candidate_builder = candidate_builder
         self._base_python = Path(base_python).resolve()
+        self._now = now
         self._verified: dict[TransactionId, _VerifiedBundle] = {}
         self._candidate_transactions: dict[str, TransactionId] = {}
 
@@ -119,6 +123,17 @@ class FilesystemManagedUpdateBackend:
             ))
             self._validate_candidate(candidate, verified.manifest, target_root)
             unlink_file(owner_path)
+            ManagedUpdateArtifactStore(
+                shared_root=request.shared_root,
+                transaction_id=str(request.transaction_id),
+            ).write(HandoffReadyArtifact(
+                request.transaction_id,
+                self._now(),
+                candidate.root,
+                candidate.python,
+                request.manifest_sha256,
+                request.target_version,
+            ))
             self._candidate_transactions[_path_key(target_root)] = request.transaction_id
             return candidate
         except ManagedUpdateFailure:

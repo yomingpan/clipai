@@ -12,7 +12,7 @@ Every artifact has `schema_version: 1`, `artifact_kind`, `transaction_id`, and
 
 | `artifact_kind` | Required payload fields |
 | --- | --- |
-| `request` | `installed_version`, `target_version`, `installed_executable`, `bundle_path`, `bundle_size`, `bundle_sha256`, `manifest_sha256`, `key_id`, `install_root`, `shared_root`, `managed_install_id` |
+| `request` | `installed_version`, `target_version`, `installed_executable`, `installed_process_id`, `bundle_path`, `bundle_size`, `bundle_sha256`, `manifest_sha256`, `key_id`, `install_root`, `shared_root`, `managed_install_id` |
 | `handoff_ready` | `candidate_root`, `candidate_python`, `manifest_sha256`, `expected_version` |
 | `launch_receipt` | `launch_attempt_id`, `expected_version`, `executable_path`, `process_id` |
 | `startup_health` | `launch_attempt_id`, `expected_version`, `actual_version`, `executable_path`, `healthy` |
@@ -23,6 +23,9 @@ only when transaction, launch attempt, expected version, actual version, and
 the resolved executable inside the committed version all match.
 `bundle_size` is a positive catalog-bound admission limit checked before the
 bundle is read or extracted.
+`installed_process_id` is captured by the running app; the external host opens
+and verifies that process and its executable before preparation, then waits on
+the retained process handle after `handoff_ready` causes normal app shutdown.
 
 ## Transaction state machine
 

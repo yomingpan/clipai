@@ -11,6 +11,7 @@ from ClipAI.core.update_ports import CandidateEnvironment
 from ClipAI.platform.managed_release_builder import ManagedReleaseBuilder
 from ClipAI.platform.managed_update_backend import FilesystemManagedUpdateBackend
 from ClipAI.platform.managed_update_fs import native_path
+from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
 
 
 class Signer:
@@ -102,6 +103,7 @@ def _fixture(tmp_path: Path, *, verifier: Verifier | None = None, builder: Build
         installed_version="1.0",
         target_version="2.0",
         installed_executable=install_root / "versions" / "1.0" / ".venv" / "Scripts" / "python.exe",
+        installed_process_id=1234,
         bundle_path=built.bundle_path,
         bundle_size=built.bundle_size,
         bundle_sha256=built.bundle_sha256,
@@ -121,6 +123,7 @@ def _fixture(tmp_path: Path, *, verifier: Verifier | None = None, builder: Build
         manifest_verifier=actual_verifier,
         candidate_builder=actual_builder,
         base_python=base_python,
+        now=lambda: "2026-09-13T00:00:00+00:00",
     )
     return backend, layout, actual_verifier, actual_builder, request
 
@@ -133,6 +136,9 @@ def test_backend_admits_verified_bundle_prepares_offline_candidate_and_retains_o
     assert builder.requests[0].entrypoint == "payload/main.py"
     assert verifier.calls[0][2] == "release-key"
     assert not native_path(candidate.root.parent / ".2.0.candidate-owner.json").exists()
+    handoff = ManagedUpdateArtifactStore(shared_root=request.shared_root, transaction_id="tx-1").read("handoff_ready")
+    assert handoff.candidate_root == candidate.root
+    assert handoff.candidate_python == candidate.python
 
     receipt = backend.commit(candidate)
     backend.finalize(receipt)

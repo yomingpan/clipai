@@ -14,6 +14,7 @@ class UpdateRequestArtifact:
     installed_version: str
     target_version: str
     installed_executable: Path
+    installed_process_id: int
     bundle_path: Path
     bundle_size: int
     bundle_sha256: str

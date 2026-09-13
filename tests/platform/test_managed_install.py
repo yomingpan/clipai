@@ -75,6 +75,7 @@ def _write_install(tmp_path: Path) -> tuple[ManagedInstallLayout, Verifier, Upda
         installed_version="1.0",
         target_version="2.0",
         installed_executable=python,
+        installed_process_id=1234,
         bundle_path=(tmp_path / "bundle.zip").resolve(),
         bundle_size=42,
         bundle_sha256="d" * 64,
