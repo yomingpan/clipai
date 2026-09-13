@@ -6,6 +6,7 @@ from typing import Protocol
 
 from ClipAI.core.managed_update import CommitReceipt, LaunchAttemptId, TransactionId, TransactionSnapshot
 from ClipAI.core.update_artifacts import LaunchReceiptArtifact, StartupHealthArtifact, UpdateRequestArtifact
+from ClipAI.core.update_catalog import ManagedUpdateRelease
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,23 @@ class ManagedUpdateLease(Protocol):
 
 class ManagedUpdateGate(Protocol):
     def acquire(self) -> ManagedUpdateLease | None: ...
+
+
+class ManagedReleaseSource(Protocol):
+    def discover(
+        self,
+        *,
+        installed_version: str,
+        launcher_version: str,
+    ) -> ManagedUpdateRelease | None: ...
+
+    def download(
+        self,
+        release: ManagedUpdateRelease,
+        *,
+        shared_root: Path,
+        transaction_id: TransactionId,
+    ) -> Path: ...
 
 
 class ManagedApplicationLifecycle(Protocol):

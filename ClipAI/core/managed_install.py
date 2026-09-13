@@ -19,3 +19,14 @@ class ManagedInstallState:
     revision: int
     current_version: str
     previous_version: str | None
+
+
+@dataclass(frozen=True)
+class ManagedUpdateClientIdentity:
+    installed_version: str
+    launcher_version: str
+    installed_executable: Path
+    installed_process_id: int
+    install_root: Path
+    shared_root: Path
+    managed_install_id: str

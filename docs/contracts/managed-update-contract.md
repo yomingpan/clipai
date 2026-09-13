@@ -167,6 +167,17 @@ event loop; a construction or start failure emits no healthy receipt.
 An actual/expected version mismatch writes an unhealthy receipt and does not
 enter the runtime; readiness for one launch attempt is emitted at most once.
 
+## Installed-app preparation and handoff
+
+Services owns discover-to-request coordination behind a `ManagedReleaseSource`
+port. Its immutable input contains the proven managed install/version/launcher
+identity plus the actual executable and process ID. No available release
+returns no request and performs no download. An available release is downloaded
+into that transaction's shared artifact root, then produces one exact
+`UpdateRequestArtifact` from the catalog identity and downloaded path. Services
+does not write artifacts, spawn the host, or stop the runtime; app composition
+owns those lifecycle effects after receiving the request.
+
 ## Update eligibility
 
 Apply is eligible only when the stable installer-created managed-install
