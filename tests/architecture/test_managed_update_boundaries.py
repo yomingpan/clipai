@@ -33,3 +33,12 @@ def test_client_install_identity_never_requires_a_publisher_private_key():
     signature = (ROOT / "ClipAI" / "platform" / "update_signature.py").read_text(encoding="utf-8")
     assert "marker_verifier" not in layout
     assert "INSTALL_SIGNING_NAMESPACE" not in signature
+
+
+def test_managed_entry_has_one_subcommand_dispatcher_and_one_executor_seam():
+    dispatchers = list((ROOT / "ClipAI" / "app").glob("*managed*dispatcher*.py"))
+    assert [path.name for path in dispatchers] == ["managed_update_dispatcher.py"]
+    source = dispatchers[0].read_text(encoding="utf-8")
+    for command in ("install", "launch", "host", "selfcheck"):
+        assert f'add_parser("{command}")' in source
+    assert "execute: Callable[[ManagedCommand], int]" in source

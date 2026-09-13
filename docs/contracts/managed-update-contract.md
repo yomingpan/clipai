@@ -98,6 +98,9 @@ arguments retain their exact names and semantics:
 - `--expected-version`: exact version the launched distribution must report.
 
 Missing, relative, malformed, or conflicting values fail before side effects.
+The dispatcher converts argv into one of four immutable core command models and
+crosses one `execute(command)` composition seam; subcommands do not own separate
+entry scripts or duplicate parsing.
 Launch uses the exact committed `.venv/Scripts/python.exe` and signed manifest
 entrypoint, passes all six identity/root arguments, and strips inherited
 `VIRTUAL_ENV`, `PYTHONPATH`, and `PYTHONHOME`. Health is accepted only from the

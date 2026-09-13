@@ -88,8 +88,8 @@ def test_launch_uses_exact_managed_executable_contract_and_isolated_environment(
         expected_version="2.0",
     )
     command, environment, cwd = calls[0]
-    assert command[:3] == [str(native_path(python)), "-I", str(native_path(entrypoint))]
-    assert command[3:] == [
+    assert command[:4] == [str(native_path(python)), "-I", str(native_path(entrypoint)), "launch"]
+    assert command[4:] == [
         "--shared-root", str(layout.shared_root),
         "--transaction-id", "tx-1",
         "--install-root", str(layout.install_root),

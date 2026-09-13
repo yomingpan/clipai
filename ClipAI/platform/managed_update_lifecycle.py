@@ -80,7 +80,7 @@ class SubprocessManagedApplicationLifecycle:
             if not native_path(python).is_file() or not native_path(entrypoint).is_file():
                 raise ValueError("launch executable or entrypoint is missing")
             command = [
-                str(native_path(python)), "-I", str(native_path(entrypoint)),
+                str(native_path(python)), "-I", str(native_path(entrypoint)), "launch",
                 "--shared-root", str(self._layout.shared_root),
                 "--transaction-id", str(transaction_id),
                 "--install-root", str(self._layout.install_root),
