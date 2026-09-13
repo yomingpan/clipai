@@ -16,9 +16,19 @@ class ManagedUpdateFileError(ValueError):
     pass
 
 
+def canonical_path(path: str | Path) -> Path:
+    """Return one absolute artifact/identity spelling without a long-path prefix."""
+    value = str(Path(path).resolve())
+    if os.name == "nt" and value.startswith("\\\\?\\UNC\\"):
+        value = "\\\\" + value[8:]
+    elif os.name == "nt" and value.startswith("\\\\?\\"):
+        value = value[4:]
+    return Path(value).resolve()
+
+
 def native_path(path: str | Path) -> Path:
     """Return an absolute Windows extended-length path when applicable."""
-    resolved = Path(path).resolve()
+    resolved = canonical_path(path)
     value = str(resolved)
     if os.name != "nt" or value.startswith("\\\\?\\"):
         return resolved

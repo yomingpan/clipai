@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import os
 from pathlib import Path
 import threading
+
+from ClipAI.platform.managed_update_fs import canonical_path
 
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -50,9 +51,9 @@ class WindowsManagedProcessHandle:
             raise ManagedProcessIdentityError("unable to open installed application process")
         self._handle = handle
         try:
-            actual = Path(query_image(handle)).resolve()
-            expected = Path(expected_executable).resolve()
-            if _path_key(actual) != _path_key(expected):
+            actual = canonical_path(query_image(handle))
+            expected = canonical_path(expected_executable)
+            if actual != expected:
                 raise ManagedProcessIdentityError("installed process executable does not match request")
         except Exception:
             self.close()
@@ -83,11 +84,6 @@ class WindowsManagedProcessHandle:
 
     def __exit__(self, _type, _value, _traceback) -> None:
         self.close()
-
-
-def _path_key(path: Path) -> str:
-    return os.path.normcase(str(path.resolve()))
-
 
 def _windows_process_functions():
     import ctypes

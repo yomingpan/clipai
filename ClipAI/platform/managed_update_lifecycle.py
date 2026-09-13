@@ -9,7 +9,7 @@ from typing import Protocol
 from ClipAI.core.managed_update import FailureCode, LaunchAttemptId, ManagedUpdateFailure, TransactionId
 from ClipAI.core.update_artifacts import LaunchReceiptArtifact, StartupHealthArtifact, validate_health_relation
 from ClipAI.platform.managed_install import ManagedInstallLayout
-from ClipAI.platform.managed_update_fs import native_path, read_json
+from ClipAI.platform.managed_update_fs import canonical_path, native_path, read_json
 from ClipAI.platform.update_artifacts import ArtifactValidationError, ManagedUpdateArtifactStore
 from ClipAI.platform.update_bundle import parse_install_manifest
 
@@ -95,7 +95,7 @@ class SubprocessManagedApplicationLifecycle:
                 self._now(),
                 launch_attempt_id,
                 expected_version,
-                python,
+                canonical_path(python),
                 process.pid,
             )
             self._store(transaction_id).write(receipt)
@@ -151,7 +151,7 @@ class StartupHealthReporter:
             launch_attempt_id,
             expected_version,
             actual_version,
-            Path(executable_path).resolve(),
+            canonical_path(executable_path),
             healthy,
         )
         ManagedUpdateArtifactStore(

@@ -107,6 +107,11 @@ Missing, relative, malformed, or conflicting values fail before side effects.
 The dispatcher converts argv into one of four immutable core command models and
 crosses one `execute(command)` composition seam; subcommands do not own separate
 entry scripts or duplicate parsing.
+For `host`, command roots and transaction identity must match the request before
+an installed-process handle is acquired. The host retains that verified handle
+through transaction settlement, writes exactly one `result` artifact, and then
+closes it. Exit status is zero only for `updated`; `rolled_back` and `failed`
+return non-zero because the requested update did not complete.
 Launch uses the exact committed `.venv/Scripts/python.exe` and signed manifest
 entrypoint, passes all six identity/root arguments, and strips inherited
 `VIRTUAL_ENV`, `PYTHONPATH`, and `PYTHONHOME`. Health is accepted only from the
