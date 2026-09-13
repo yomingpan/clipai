@@ -89,7 +89,7 @@ namespace `clipai.managed-update.manifest.v1`. Production trusts pinned public
 keys identified by `key_id`; private keys never enter bundles or the repo.
 Tests use only `clipai-managed-update-test-v1` fixtures and must reject that key
 identity in production policy. Rotation adds a new pinned public key before old
-key retirement; revocation requires a new application release.
+key retirement; adding or revoking trust requires a new stable-launcher release.
 
 The stable launcher root owns `managed-update-trusted-keys.json`; versioned
 payloads and downloaded bundles cannot replace it. Its exact schema is
@@ -209,8 +209,11 @@ as `update_busy`; closing or process death releases the lease. Read-only
 `managed-install.json` uses `schema_version: 1`, `marker_kind:
 clipai-managed-install-v1`, `managed_install_id`, canonical `install_root` and
 `shared_root`, `launcher_version`, and `key_id`. It is a local install receipt,
-not a publisher signature: the stable `install` command may create it only
-after verifying the initial version's signed manifest. `install-state.json`
+not a publisher signature: `key_id` records the bootstrap release key but does
+not pin every later release to that key. The stable keyring verifier alone owns
+current/request manifest trust and therefore permits pre-published key rotation.
+The stable `install` command may create the marker only after verifying the
+initial version's signed manifest. `install-state.json`
 uses `schema_version: 1`, `state_kind: clipai-managed-install-state-v1`, the
 same install identity, monotonic `revision`, `current_version`, and nullable
 `previous_version`. Versions resolve only as `install_root/versions/{version}`.

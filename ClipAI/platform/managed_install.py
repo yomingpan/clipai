@@ -139,8 +139,6 @@ class ManagedInstallLayout:
             raise ValueError("shared root does not match")
         if request.managed_install_id != marker.managed_install_id:
             raise ValueError("managed install identity does not match")
-        if request.key_id != marker.key_id:
-            raise ValueError("release key does not match managed install policy")
         if request.installed_version != state.current_version:
             raise ValueError("installed version is stale")
         if not _same_path(request.installed_executable, current.python):
@@ -168,7 +166,7 @@ class ManagedInstallLayout:
 
         manifest_path = current_root / "install-manifest.json"
         manifest = parse_install_manifest(read_json(manifest_path))
-        if manifest.app_version != state.current_version or manifest.key_id != marker.key_id:
+        if manifest.app_version != state.current_version:
             raise ValueError("installed manifest identity does not match")
         self._manifest_verifier.verify(
             manifest_path,

@@ -118,6 +118,41 @@ def test_selfcheck_proves_exact_current_launch_environment_without_an_update_req
     ]
 
 
+def test_keyring_verifier_allows_release_key_rotation_beyond_bootstrap_marker(tmp_path: Path) -> None:
+    layout, verifier, request = _write_install(tmp_path)
+    rotated_request = UpdateRequestArtifact(**{**request.__dict__, "key_id": "release-key-rotated"})
+
+    assert layout.assert_update_eligible(rotated_request).current_version == "1.0"
+
+    rotated_root = layout.version_root("2.0")
+    rotated_python = rotated_root / ".venv" / "Scripts" / "python.exe"
+    rotated_metadata = rotated_root / ".venv" / "Lib" / "site-packages" / "clipai-2.0.dist-info" / "METADATA"
+    rotated_python.parent.mkdir(parents=True)
+    rotated_metadata.parent.mkdir(parents=True)
+    rotated_python.write_bytes(b"")
+    rotated_metadata.write_text("Metadata-Version: 2.1\nName: ClipAI\nVersion: 2.0\n", encoding="utf-8")
+    (rotated_root / "app.py").write_text("print('rotated')\n", encoding="utf-8")
+    atomic_write_json(rotated_root / "install-manifest.json", {
+        "schema_version": 1, "app_version": "2.0", "bundle_format": "clipai-managed-v1",
+        "entrypoint": "app.py", "python_requires": ">=3.11",
+        "requirements_lock_sha256": "a" * 64,
+        "files": [
+            {"path": "app.py", "size": 17, "sha256": "b" * 64, "role": "payload"},
+            {"path": "requirements.lock", "size": 0, "sha256": "a" * 64, "role": "metadata"},
+            {"path": "wheelhouse/clipai.whl", "size": 0, "sha256": "c" * 64, "role": "wheel"},
+        ],
+        "signing_namespace": "clipai.managed-update.manifest.v1", "key_id": "release-key-rotated",
+    })
+    atomic_write_json(layout.install_root / "install-state.json", {
+        "schema_version": 1, "state_kind": "clipai-managed-install-state-v1",
+        "managed_install_id": "managed-1", "revision": 1,
+        "current_version": "2.0", "previous_version": "1.0",
+    })
+
+    assert layout.prove_current_install().version == "2.0"
+    assert verifier.calls[-1][2] == "release-key-rotated"
+
+
 def test_source_checkout_and_editable_install_are_ineligible(tmp_path: Path):
     layout, _, request = _write_install(tmp_path)
     (layout.version_root("1.0") / ".git").mkdir()
