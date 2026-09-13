@@ -18,6 +18,7 @@ from ClipAI.app.managed_command_executor import ManagedCommandExecutor
 from ClipAI.app.managed_update_dispatcher import dispatch_managed_update
 from ClipAI.app.managed_update_host import ManagedUpdateHostExecutor
 from ClipAI.app.managed_update_launch import ManagedLaunchExecutor
+from ClipAI.app.managed_update_composition import ManagedUpdateRuntimeConfiguration
 from ClipAI.core.errors import ConfigError
 from ClipAI.core.managed_update import launch_attempt_id, transaction_id
 from ClipAI.core.managed_update_commands import (
@@ -37,6 +38,7 @@ from ClipAI.platform.trusted_release_keys import load_trusted_release_keyring
 from ClipAI.platform.update_signature import Ed25519ManifestVerifier
 from ClipAI.platform.managed_update_lifecycle import SubprocessManagedApplicationLifecycle
 from ClipAI.platform.managed_update_recovery import find_incomplete_update
+from ClipAI.platform.managed_update_fs import native_path
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
 from ClipAI.services.managed_current_launch import ManagedCurrentLaunchCoordinator
 from ClipAI.ui.startup_error import show_startup_error
@@ -106,14 +108,21 @@ def managed_main(
             command.shared_root,
             instance_name=injected_environment.get("CLIPAI_INSTANCE_NAME", "default").strip(),
         )
+        running_executable = Path(executable_path or sys.executable).resolve()
+        update_configuration = _managed_update_configuration(
+            command,
+            executable_path=running_executable,
+            environment=injected_environment,
+        )
         return ManagedLaunchExecutor(
             actual_version=actual_version or _installed_version(),
-            executable_path=executable_path or sys.executable,
+            executable_path=running_executable,
             now=_utc_now,
             run_application=lambda on_started: _run_application(
                 paths,
                 instance_gate=instance_gate,
                 on_started=on_started,
+                managed_update=update_configuration,
             ),
         ).execute(command)
 
@@ -146,7 +155,7 @@ def managed_main(
     return dispatch_managed_update(argv, executor.execute)
 
 
-def _run_application(paths, *, instance_gate=None, on_started=None) -> None:
+def _run_application(paths, *, instance_gate=None, on_started=None, managed_update=None) -> None:
     instance_gate = instance_gate or build_application_instance_gate()
     instance_lease = instance_gate.acquire()
     if instance_lease is None:
@@ -166,7 +175,11 @@ def _run_application(paths, *, instance_gate=None, on_started=None) -> None:
             output_profiles_path=paths.config_file("output_profiles.yaml"),
             entry_panel_path=paths.config_file("entry_panel.yaml"),
         )
-        runtime = build_runtime(bootstrap, paths=paths)
+        runtime = (
+            build_runtime(bootstrap, paths=paths)
+            if managed_update is None
+            else build_runtime(bootstrap, paths=paths, managed_update=managed_update)
+        )
         if on_started is None:
             runtime.run_forever()
         else:
@@ -212,6 +225,46 @@ def _build_manifest_verifier(
         work_root=shared_root / "managed-update" / "signature-verification",
         environment=environment,
     )
+
+
+def _managed_update_configuration(
+    command: LaunchManagedCommand,
+    *,
+    executable_path: Path,
+    environment: Mapping[str, str],
+) -> ManagedUpdateRuntimeConfiguration | None:
+    try:
+        launcher_root = command.install_root / "launcher"
+        verifier = _build_manifest_verifier(launcher_root, command.shared_root, environment)
+        proof = ManagedInstallLayout(
+            install_root=command.install_root,
+            shared_root=command.shared_root,
+            manifest_verifier=verifier,
+        ).prove_update_client(
+            executable_path=executable_path,
+            process_id=os.getpid(),
+        )
+        if proof.current.version != command.expected_version:
+            return None
+        entrypoint_relative = proof.current.entrypoint.relative_to(proof.current.root)
+        launcher_python = launcher_root / ".venv" / "Scripts" / "python.exe"
+        launcher_entrypoint = launcher_root / entrypoint_relative
+        base_python = Path(getattr(sys, "_base_executable", sys.executable)).resolve()
+        if not all(native_path(path).is_file() for path in (
+            launcher_python,
+            launcher_entrypoint,
+            base_python,
+        )):
+            return None
+        return ManagedUpdateRuntimeConfiguration(
+            identity=proof.identity,
+            launcher_python=launcher_python,
+            launcher_entrypoint=launcher_entrypoint,
+            base_python=base_python,
+            environment=dict(environment),
+        )
+    except Exception:
+        return None
 
 
 def _launch_managed_current(app_root, marker, environment: Mapping[str, str]) -> None:

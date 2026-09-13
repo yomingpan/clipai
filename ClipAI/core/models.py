@@ -4,6 +4,7 @@ from dataclasses import dataclass, field, replace
 from typing import Literal, NewType
 
 from ClipAI.core.errors import ActionLanguagePackErrorCode, PasteFailureReason
+from ClipAI.core.managed_update import FailureCode
 from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
@@ -12,6 +13,9 @@ ModifierHoldId = NewType("ModifierHoldId", int)
 EntryInputPreparationId = NewType("EntryInputPreparationId", str)
 ShortcutPressOutcome = Literal["released", "cancelled"]
 InterruptionScope = Literal["current", "all"]
+ManagedUpdatePhase = Literal[
+    "unavailable", "idle", "checking", "up_to_date", "restarting", "failed"
+]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
 MessageRole = Literal["system", "user", "assistant"]
 ImageSource = Literal["clipboard"]
@@ -934,6 +938,14 @@ class ReadinessIssue:
     code: str
     message: str
     feature: str
+
+
+@dataclass(frozen=True)
+class ManagedUpdatePresentation:
+    phase: ManagedUpdatePhase
+    message: str
+    enabled: bool
+    failure_code: FailureCode | None = None
 
 
 @dataclass(frozen=True)

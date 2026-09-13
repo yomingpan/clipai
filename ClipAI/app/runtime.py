@@ -15,12 +15,14 @@ from ClipAI.app.runtime_shortcut_guide import ShortcutGuideRuntimeCommand, Short
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeCommand, ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeCommand, UserPreferencesRuntimeModule
 from ClipAI.app.runtime_action_language import ActionLanguageRuntimeCommand, ActionLanguageRuntimeModule
+from ClipAI.app.runtime_managed_update import ManagedUpdateRuntimeCommand, ManagedUpdateRuntimeModule
 from ClipAI.app.runtime_workflows import HeadlessWorkflowFinished, WorkflowInvocationFailed, WorkflowRuntimeCommand, WorkflowRuntimeModule, WorkflowSnapshotReady
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActionFeedbackCompleted, ActionLanguagePackSelectionCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, CloseAbout, CloseEntryPanel, ClosePersonalStyles, CloseProviderSettings, CloseSession, CloseShortcutGuide, ContextualSourceCaptured, ContextualSourceCaptureFailed, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, DisableVoiceInput, EnableVoiceInput, EntryPanelActionSelected, EntryPanelBack, EntryPanelDensityPreferencesCompleted, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelInputPreparationProgress, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, ImportPersonalStyle, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenAbout, OpenContextualQuestion, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenUnifiedEntryPanel, OpenVoicePermissionSettings, OpenVoiceSetup, PasteOperationCompleted, PasteResult, PersonalStyleOperationCompleted, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, RetryEntryPanelInput, UseEntryPanelClipboard, RetryVoiceInputSetup, SelectActionLanguagePack, SelectPersonalStyle, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetEntryPanelDensity, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, ValidateAndSaveProviderSettings, VoiceCaptureCountdownTick, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired, WorkflowAttentionCompleted, WorkflowStepAccepted
 from ClipAI.core.commands import OpenGitHub
+from ClipAI.core.commands import CheckForManagedUpdate, ManagedUpdateCheckCompleted
 from ClipAI.core.models import ControlSurfaceRef, InterruptionPlan, ShortcutObservationSnapshot
 from ClipAI.core.ports import ApplicationView, ForegroundWindowMonitor, OperationTracker, RuntimeComponent, ShortcutInput, ShortcutObservationLease
 from ClipAI.services.provider_configuration import ProviderConfigurationResult
@@ -79,6 +81,7 @@ class AppRuntime:
         personal_styles: PersonalStyleRuntimeModule | None = None,
         entry_panel: EntryPanelRuntimeModule | None = None,
         action_language: ActionLanguageRuntimeModule | None = None,
+        managed_update: ManagedUpdateRuntimeModule | None = None,
         background_components: tuple[RuntimeComponent, ...] = (),
     ) -> None:
         self._shortcuts = shortcuts
@@ -100,6 +103,7 @@ class AppRuntime:
         self._personal_styles_module = personal_styles
         self._entry_panel_module = entry_panel
         self._action_language_module = action_language
+        self._managed_update_module = managed_update
         self._background_components = background_components
         self._workflow_module.bind_user_control(self._user_control)
         self._result_output_module.bind_user_control(self._user_control)
@@ -289,9 +293,14 @@ class AppRuntime:
                     observation = self._shortcut_observation.snapshot
                 self._shortcut_guide_module.handle(command, observation)
         elif isinstance(command, OpenAbout):
+            if self._managed_update_module is not None:
+                self._managed_update_module.project()
             self._view.show_about()
         elif isinstance(command, CloseAbout):
             self._view.close_about()
+        elif isinstance(command, (CheckForManagedUpdate, ManagedUpdateCheckCompleted)):
+            if self._managed_update_module is not None:
+                self._managed_update_module.handle(cast(ManagedUpdateRuntimeCommand, command))
         elif isinstance(command, OpenGitHub):
             self._view.open_github(command.url)
         elif isinstance(command, CloseShortcutGuide):

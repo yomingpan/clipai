@@ -271,6 +271,27 @@ adapter, and requests normal shutdown only after matching readiness. P0 does
 not add a second CLI command, background scheduler, or popup-specific workflow;
 any future UI must emit an explicit typed intent into this same app-owned seam.
 
+The About surface emits `CheckForManagedUpdate(operation_id)` and only projects
+the immutable `ManagedUpdatePresentation` supplied by app runtime. Its legal
+phases are `unavailable`, `idle`, `checking`, `up_to_date`, `restarting`, and
+`failed`.
+`checking` disables duplicate intent and is projected before network or file
+work begins; `up_to_date` and `failed` allow retry. Source/development installs
+remain `unavailable` and never create a transaction. The runtime schedules the
+existing handoff executor on maintenance capacity and accepts completion only
+for the active operation identity. UI does not read environment, catalog,
+filesystem, process, or transaction state.
+
+Production composition uses the credential-free stable catalog URL
+`https://github.com/yomingpan/clipai/releases/latest/download/catalog.json`.
+The URL is an app-owned release-channel constant injected into
+`HttpsManagedReleaseSource`; platform transport does not know the repository.
+Managed `launch` composition re-proves the signed current version and exact
+running venv executable from the CLI roots before enabling the intent. It then
+derives the fixed launcher Python and signed entrypoint-relative path from that
+proof. A malformed or mismatched installation remains unavailable rather than
+falling back to guessed paths.
+
 The platform handoff client atomically publishes that request, starts the stable
 launcher `host` command in an isolated environment, and waits at most 20 seconds
 for either terminal `result` or matching `handoff_ready` evidence. Readiness must

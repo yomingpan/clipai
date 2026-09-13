@@ -107,6 +107,16 @@ def test_app_handoff_does_not_own_artifact_or_process_io():
     assert "start_detached_process" in platform_handoff
 
 
+def test_about_update_is_typed_and_catalog_identity_stays_in_app_composition():
+    about = (ROOT / "ClipAI" / "ui" / "about.py").read_text(encoding="utf-8")
+    composition = (ROOT / "ClipAI" / "app" / "managed_update_composition.py").read_text(encoding="utf-8")
+    assert "CheckForManagedUpdate()" in about
+    assert "ClipAI.platform" not in about
+    assert "ClipAI.services" not in about
+    assert "https://github.com/yomingpan/clipai/releases/latest/download/catalog.json" in composition
+    assert "HttpsManagedReleaseSource(" in composition
+
+
 def test_recovery_directory_enumeration_stays_in_managed_filesystem_owner():
     recovery = (ROOT / "ClipAI" / "platform" / "managed_update_recovery.py").read_text(encoding="utf-8")
     filesystem = (ROOT / "ClipAI" / "platform" / "managed_update_fs.py").read_text(encoding="utf-8")

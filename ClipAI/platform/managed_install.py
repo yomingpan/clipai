@@ -5,11 +5,12 @@ from email.policy import compat32
 import os
 from pathlib import Path, PurePosixPath
 import re
+from dataclasses import dataclass
 from typing import Protocol
 
 from packaging.version import InvalidVersion, Version
 
-from ClipAI.core.managed_install import ManagedInstallMarker, ManagedInstallState
+from ClipAI.core.managed_install import ManagedInstallMarker, ManagedInstallState, ManagedUpdateClientIdentity
 from ClipAI.core.managed_update import CommitReceipt, FailureCode, ManagedUpdateFailure
 from ClipAI.core.update_artifacts import UpdateRequestArtifact
 from ClipAI.core.update_ports import CandidateEnvironment
@@ -40,6 +41,12 @@ _IDENTITY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 class DocumentVerifier(Protocol):
     def verify(self, manifest_path: str | Path, signature_path: str | Path, *, key_id: str) -> None: ...
+
+
+@dataclass(frozen=True)
+class ManagedUpdateClientProof:
+    identity: ManagedUpdateClientIdentity
+    current: CandidateEnvironment
 
 
 class ManagedInstallLayout:
@@ -75,6 +82,36 @@ class ManagedInstallLayout:
             raise
         except Exception as exc:
             raise ManagedUpdateFailure(FailureCode.IDENTITY_INELIGIBLE, "managed install selfcheck failed") from exc
+
+    def prove_update_client(
+        self,
+        *,
+        executable_path: str | Path,
+        process_id: int,
+    ) -> ManagedUpdateClientProof:
+        try:
+            if isinstance(process_id, bool) or not isinstance(process_id, int) or process_id <= 0:
+                raise ValueError("managed process identity is invalid")
+            marker, _state, current = self._current_install_evidence()
+            if not _same_path(executable_path, current.python):
+                raise ValueError("running executable does not match signed current version")
+            identity = ManagedUpdateClientIdentity(
+                installed_version=current.version,
+                launcher_version=marker.launcher_version,
+                installed_executable=canonical_path(executable_path),
+                installed_process_id=process_id,
+                install_root=self.install_root,
+                shared_root=self.shared_root,
+                managed_install_id=marker.managed_install_id,
+            )
+            return ManagedUpdateClientProof(identity, current)
+        except ManagedUpdateFailure:
+            raise
+        except Exception as exc:
+            raise ManagedUpdateFailure(
+                FailureCode.IDENTITY_INELIGIBLE,
+                "managed runtime identity is not update eligible",
+            ) from exc
 
     def restore_known_good(self, request: UpdateRequestArtifact) -> CandidateEnvironment:
         """Idempotently restore the request's signed installed version."""

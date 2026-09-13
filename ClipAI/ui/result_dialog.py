@@ -12,7 +12,7 @@ import webbrowser
 import customtkinter as ctk
 
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
-from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
+from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, ManagedUpdatePresentation, OutputOperationResult, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.popup_presentation import project_popup_presentation
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -152,6 +152,9 @@ class ResultDialogPresenter:
         self._voice_projection = voice_projection
         self._application_version = application_version
         self._github_url = github_url
+        self._managed_update = ManagedUpdatePresentation(
+            "unavailable", "僅 managed 安裝支援自動更新。", False
+        )
         self._about_dialog: AboutDialog | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
@@ -369,7 +372,13 @@ class ResultDialogPresenter:
                 self._native_window_surface,
                 version=self._application_version,
                 github_url=self._github_url,
+                managed_update=self._managed_update,
             )
+
+    def set_managed_update(self, state: ManagedUpdatePresentation) -> None:
+        self._managed_update = state
+        if self._about_dialog is not None:
+            self._about_dialog.set_managed_update(state)
 
     def close_about(self) -> None:
         if self._about_dialog is not None:

@@ -9,6 +9,8 @@ from ClipAI.core.managed_update import FailureCode, transaction_id
 from ClipAI.core.managed_update_commands import HostManagedCommand
 from ClipAI.core.update_artifacts import UpdateResultArtifact
 from ClipAI.core.update_ports import CandidateEnvironment
+from ClipAI.core.managed_install import ManagedUpdateClientIdentity
+from ClipAI.platform.managed_install import ManagedUpdateClientProof
 from ClipAI.platform.managed_release_builder import ManagedReleaseBuilder
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
 from ClipAI.platform.managed_update_fs import read_json
@@ -21,6 +23,56 @@ class Lease:
 
     def close(self) -> None:
         self.closed = True
+
+
+def test_managed_launch_composition_enables_update_only_from_proven_runtime_identity(monkeypatch, tmp_path) -> None:
+    install_root = (tmp_path / "install").resolve()
+    shared_root = (tmp_path / "shared").resolve()
+    current_root = install_root / "versions" / "2.0"
+    executable = current_root / ".venv" / "Scripts" / "python.exe"
+    entrypoint = current_root / "payload" / "main.py"
+    launcher_python = install_root / "launcher" / ".venv" / "Scripts" / "python.exe"
+    launcher_entrypoint = install_root / "launcher" / "payload" / "main.py"
+    base_python = tmp_path / "base-python.exe"
+    for path in (launcher_python, launcher_entrypoint, base_python):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"")
+    identity = ManagedUpdateClientIdentity(
+        "2.0", "1.0", executable, 4321, install_root, shared_root, "managed-1"
+    )
+    proof = ManagedUpdateClientProof(
+        identity,
+        CandidateEnvironment(current_root, executable, entrypoint, "2.0"),
+    )
+
+    class Layout:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def prove_update_client(self, **_kwargs):
+            return proof
+
+    monkeypatch.setattr(main, "ManagedInstallLayout", Layout)
+    monkeypatch.setattr(main, "_build_manifest_verifier", lambda *_args: object())
+    monkeypatch.setattr(main.os, "getpid", lambda: 4321)
+    monkeypatch.setattr(main.sys, "_base_executable", str(base_python), raising=False)
+    command = SimpleNamespace(
+        install_root=install_root,
+        shared_root=shared_root,
+        expected_version="2.0",
+    )
+
+    configuration = main._managed_update_configuration(
+        command,
+        executable_path=executable,
+        environment={"PATH": "C:\\Windows\\System32"},
+    )
+
+    assert configuration is not None
+    assert configuration.identity == identity
+    assert configuration.launcher_python == launcher_python
+    assert configuration.launcher_entrypoint == launcher_entrypoint
+    assert configuration.base_python == base_python
 
 
 class InstanceGate:

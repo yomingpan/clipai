@@ -118,6 +118,29 @@ def test_selfcheck_proves_exact_current_launch_environment_without_an_update_req
     ]
 
 
+def test_runtime_update_identity_is_proven_from_exact_current_process(tmp_path: Path) -> None:
+    layout, _verifier, request = _write_install(tmp_path)
+
+    proof = layout.prove_update_client(
+        executable_path=request.installed_executable,
+        process_id=4321,
+    )
+
+    assert proof.identity.installed_version == "1.0"
+    assert proof.identity.launcher_version == "1.0"
+    assert proof.identity.installed_process_id == 4321
+    assert proof.identity.install_root == layout.install_root
+    assert proof.identity.shared_root == layout.shared_root
+    assert proof.current.entrypoint == layout.version_root("1.0") / "app.py"
+
+    with pytest.raises(ManagedUpdateFailure) as wrong:
+        layout.prove_update_client(
+            executable_path=request.installed_executable.with_name("pythonw.exe"),
+            process_id=4321,
+        )
+    assert wrong.value.code is FailureCode.IDENTITY_INELIGIBLE
+
+
 def test_keyring_verifier_allows_release_key_rotation_beyond_bootstrap_marker(tmp_path: Path) -> None:
     layout, verifier, request = _write_install(tmp_path)
     rotated_request = UpdateRequestArtifact(**{**request.__dict__, "key_id": "release-key-rotated"})

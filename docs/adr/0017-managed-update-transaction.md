@@ -12,6 +12,13 @@ catalog transport, signature verification, filesystem artifacts, candidate
 environment construction, and process lifecycle. App is the only composition
 layer.
 
+The About surface starts updates only through a typed
+`CheckForManagedUpdate` intent. App runtime projects its identity-scoped
+pending/result state, schedules the existing handoff executor on maintenance
+capacity, and injects the stable GitHub Release `catalog.json` URL into the
+platform release source. UI never owns catalog, filesystem, process, or
+transaction work. Source installs remain visibly ineligible.
+
 `CandidateEnvironmentBuilder` and `ManagedApplicationLifecycle` are typed seams
 with production and test adapters. All low-level update paths, prefixed ZIP
 handling, containment checks, and atomic JSON writes go through
@@ -34,6 +41,9 @@ handling, containment checks, and atomic JSON writes go through
 - Versioned payloads never own config overrides, secrets, state, logs, or
   diagnostics. `ApplicationPaths` is injected before update code is composed.
 - Apply fails closed outside a proven managed installation.
+- The About intent is enabled only after managed launch composition re-proves
+  the signed current version and exact running executable; it never guesses
+  launcher paths from UI state.
 - The stable installer writes the local managed-install receipt only after
   verifying the publisher-signed initial version manifest. Publisher private
   keys never enter an installed launcher or updater.

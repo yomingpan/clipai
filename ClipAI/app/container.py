@@ -24,6 +24,7 @@ from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_action_language import ActionLanguageRuntimeModule
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
+from ClipAI.app.managed_update_composition import ManagedUpdateRuntimeConfiguration, build_managed_update_runtime
 from ClipAI.app.owned_processes import AppOwnedProcessRegistry
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
@@ -97,6 +98,7 @@ def build_runtime(
     configuration: ConfigBundle | ActionLanguageBootstrapResult,
     *,
     paths: ApplicationPaths,
+    managed_update: ManagedUpdateRuntimeConfiguration | None = None,
 ) -> AppRuntime:
     bootstrap = (
         configuration
@@ -453,6 +455,13 @@ def build_runtime(
         coordinator=ShortcutGuideCoordinator(),
         presenter=view,
     )
+    managed_update_module = build_managed_update_runtime(
+        managed_update,
+        supervisor=supervisor,
+        enqueue=enqueue,
+        presenter=view,
+        request_shutdown=lambda: enqueue(ShutdownApplication()),
+    )
     runtime = AppRuntime(
         shortcuts=bundle.shortcuts,
         view=view,
@@ -473,6 +482,7 @@ def build_runtime(
         personal_styles=personal_styles_module,
         entry_panel=entry_panel_module,
         action_language=action_language_module,
+        managed_update=managed_update_module,
         background_components=(selection_probe,),
     )
     runtime_holder.append(runtime)
