@@ -109,6 +109,19 @@ Each release requires `version`, `bundle_url`, `bundle_sha256`, `bundle_size`,
 `manifest_sha256`, `key_id`, and `minimum_launcher_version`. Stable policy
 rejects prereleases, downgrade/equal versions, duplicate versions, non-HTTPS
 remote URLs, and inconsistent asset/manifest identities.
+Catalog transport accepts only credential-free HTTPS URLs, sends an explicit
+ClipAI User-Agent and JSON Accept header, uses a 12-second request budget, and
+reads at most 1 MiB. HTTP/network failures are `catalog_unavailable`; invalid
+URLs, redirect targets, status, lengths, or oversized bodies are
+`catalog_invalid`. Schema and release selection remain owned by the catalog
+parser after transport admission.
+Bundle transport accepts the catalog-admitted credential-free HTTPS URL plus
+the exact expected compressed size and SHA-256, uses a 20-second network
+budget, and streams bounded chunks into a same-directory temporary file through
+`managed_update_fs`. A present Content-Length must equal the catalog size; the
+streamed size and digest must always match before atomic replace. Any network,
+filesystem, length, or digest failure is `download_failed` and preserves an
+existing destination.
 
 ## Cross-process CLI
 

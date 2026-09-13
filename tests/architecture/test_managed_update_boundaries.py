@@ -85,3 +85,14 @@ def test_windows_named_mutex_has_one_native_owner():
     assert owners == ["application_instance.py"]
     managed = (platform_root / "managed_update_mutex.py").read_text(encoding="utf-8")
     assert "WindowsNamedMutexGate" in managed
+
+
+def test_streamed_update_files_have_one_atomic_writer_owner():
+    platform_root = ROOT / "ClipAI" / "platform"
+    callers = [
+        path.name
+        for path in platform_root.glob("*.py")
+        if path.name != "managed_update_fs.py"
+        and "atomic_write_verified_chunks(" in path.read_text(encoding="utf-8")
+    ]
+    assert callers == ["managed_update_transport.py"]

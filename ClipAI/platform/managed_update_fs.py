@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 import json
 import hashlib
 import os
@@ -81,6 +82,52 @@ def atomic_write_bytes(path: str | Path, content: bytes) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(native_path(temporary), native_path(destination))
+    finally:
+        try:
+            native_path(temporary).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def atomic_write_verified_chunks(
+    path: str | Path,
+    chunks: Iterable[bytes],
+    *,
+    expected_size: int,
+    expected_sha256: str,
+    maximum_size: int,
+) -> Path:
+    if expected_size <= 0 or maximum_size <= 0 or expected_size > maximum_size:
+        raise ManagedUpdateFileError("stream size identity is invalid")
+    if re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None:
+        raise ManagedUpdateFileError("stream digest identity is invalid")
+    destination = canonical_path(path)
+    native_path(destination.parent).mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex[:8]}.tmp")
+    digest = hashlib.sha256()
+    written = 0
+    try:
+        with native_path(temporary).open("xb") as handle:
+            for chunk in chunks:
+                if not isinstance(chunk, bytes):
+                    raise ManagedUpdateFileError("stream chunk is not bytes")
+                if not chunk:
+                    continue
+                written += len(chunk)
+                if written > expected_size or written > maximum_size:
+                    raise ManagedUpdateFileError("stream exceeds size identity")
+                digest.update(chunk)
+                handle.write(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if written != expected_size or digest.hexdigest() != expected_sha256:
+            raise ManagedUpdateFileError("stream identity does not match")
+        os.replace(native_path(temporary), native_path(destination))
+        return destination
+    except ManagedUpdateFileError:
+        raise
+    except OSError as exc:
+        raise ManagedUpdateFileError("unable to atomically write verified stream") from exc
     finally:
         try:
             native_path(temporary).unlink(missing_ok=True)
