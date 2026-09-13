@@ -45,6 +45,7 @@ def test_managed_entry_has_one_subcommand_dispatcher_and_one_executor_seam():
     main_source = (ROOT / "main.py").read_text(encoding="utf-8")
     assert "ManagedCommandExecutor(" in main_source
     assert "dispatch_managed_update(argv, executor.execute)" in main_source
+    assert ").prove_current_install()" in main_source
 
 
 def test_bundle_admission_has_one_platform_owner():

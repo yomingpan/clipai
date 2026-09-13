@@ -134,6 +134,11 @@ state, and managed marker are durable; it does not implicitly launch the app.
 `launch` alone enters the application runtime, and `host` alone owns an update
 transaction. Command-specific dependencies are composed lazily so a launch
 does not require signing tools or a trusted-key file.
+`selfcheck` is read-only and returns zero only when the current pointer resolves
+to a signed manifest whose install identity, exact version-root venv Python,
+distribution metadata, non-editable provenance, and entrypoint all agree. It
+does not repair, switch, launch, or mutate install or user state; malformed or
+incomplete evidence fails closed with a non-zero result.
 For `host`, command roots and transaction identity must match the request before
 an installed-process handle is acquired. The host retains that verified handle
 through transaction settlement, writes exactly one `result` artifact, and then

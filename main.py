@@ -30,7 +30,7 @@ from ClipAI.core.ports import ApplicationInstanceGate
 from ClipAI.core.update_ports import CandidateEnvironmentBuilder
 from ClipAI.platform.action_language_selection import JsonActionLanguagePackSelectionStore
 from ClipAI.platform.candidate_environment import OfflineCandidateEnvironmentBuilder
-from ClipAI.platform.managed_install import DocumentVerifier
+from ClipAI.platform.managed_install import DocumentVerifier, ManagedInstallLayout
 from ClipAI.platform.managed_installer import FilesystemManagedInstaller
 from ClipAI.platform.trusted_release_keys import load_trusted_release_keyring
 from ClipAI.platform.update_signature import Ed25519ManifestVerifier
@@ -61,7 +61,9 @@ def managed_main(
     app_root = Path(application_root or Path(__file__).resolve().parent).resolve()
     injected_environment = dict(os.environ if environment is None else environment)
 
-    def verifier_for(command: InstallManagedCommand | HostManagedCommand) -> DocumentVerifier:
+    def verifier_for(
+        command: InstallManagedCommand | HostManagedCommand | SelfcheckManagedCommand,
+    ) -> DocumentVerifier:
         if manifest_verifier is not None:
             return manifest_verifier
         ssh_keygen = shutil.which("ssh-keygen", path=injected_environment.get("PATH", ""))
@@ -111,8 +113,16 @@ def managed_main(
             launch_attempt_factory=lambda: launch_attempt_id(f"attempt-{uuid.uuid4().hex}"),
         ).execute(command)
 
-    def selfcheck(_command: SelfcheckManagedCommand) -> int:
-        raise ValueError("managed selfcheck is not composed yet")
+    def selfcheck(command: SelfcheckManagedCommand) -> int:
+        try:
+            ManagedInstallLayout(
+                install_root=command.install_root,
+                shared_root=command.shared_root,
+                manifest_verifier=verifier_for(command),
+            ).prove_current_install()
+        except Exception:
+            return 1
+        return 0
 
     executor = ManagedCommandExecutor(
         install=install,

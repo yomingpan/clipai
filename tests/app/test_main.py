@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import pytest
 from types import SimpleNamespace
 
@@ -160,7 +161,7 @@ def test_managed_launch_cli_uses_explicit_paths_and_reports_runtime_readiness(mo
     assert health.executable_path == executable
 
 
-def test_managed_install_cli_publishes_verified_initial_install_without_launching(tmp_path) -> None:
+def _install_managed_version(tmp_path: Path) -> tuple[int, Path, Path, Path]:
     launcher_root = (tmp_path / "stable-launcher").resolve()
     launcher_root.mkdir()
     install_root = (tmp_path / "install").resolve()
@@ -207,7 +208,72 @@ def test_managed_install_cli_publishes_verified_initial_install_without_launchin
         manifest_verifier=ManifestVerifier(),
         candidate_builder=CandidateBuilder(),
     )
+    return exit_code, launcher_root, install_root, shared_root
+
+
+def _write_installed_distribution_metadata(install_root: Path) -> None:
+    distribution = (
+        install_root
+        / "versions"
+        / "2.0"
+        / ".venv"
+        / "Lib"
+        / "site-packages"
+        / "clipai-2.0.dist-info"
+    )
+    distribution.mkdir(parents=True)
+    (distribution / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: ClipAI\nVersion: 2.0\n",
+        encoding="utf-8",
+    )
+
+
+def test_managed_install_cli_publishes_verified_initial_install_without_launching(tmp_path) -> None:
+    exit_code, _launcher_root, install_root, _shared_root = _install_managed_version(tmp_path)
 
     assert exit_code == 0
     assert read_json(install_root / "install-state.json")["current_version"] == "2.0"
     assert read_json(install_root / "managed-install.json")["managed_install_id"] == "managed-1"
+
+
+def test_managed_selfcheck_cli_proves_current_version_without_mutating_state(tmp_path) -> None:
+    _exit_code, launcher_root, install_root, shared_root = _install_managed_version(tmp_path)
+    _write_installed_distribution_metadata(install_root)
+    state_before = read_json(install_root / "install-state.json")
+
+    exit_code = main.managed_main(
+        [
+            "selfcheck",
+            "--shared-root", str(shared_root),
+            "--transaction-id", "tx-selfcheck",
+            "--install-root", str(install_root),
+        ],
+        application_root=launcher_root,
+        environment={},
+        manifest_verifier=ManifestVerifier(),
+    )
+
+    assert exit_code == 0
+    assert read_json(install_root / "install-state.json") == state_before
+
+
+def test_managed_selfcheck_cli_fails_closed_without_repairing_missing_entrypoint(tmp_path) -> None:
+    _exit_code, launcher_root, install_root, shared_root = _install_managed_version(tmp_path)
+    _write_installed_distribution_metadata(install_root)
+    state_before = read_json(install_root / "install-state.json")
+    (install_root / "versions" / "2.0" / "payload" / "main.py").unlink()
+
+    exit_code = main.managed_main(
+        [
+            "selfcheck",
+            "--shared-root", str(shared_root),
+            "--transaction-id", "tx-selfcheck-failed",
+            "--install-root", str(install_root),
+        ],
+        application_root=launcher_root,
+        environment={},
+        manifest_verifier=ManifestVerifier(),
+    )
+
+    assert exit_code == 1
+    assert read_json(install_root / "install-state.json") == state_before

@@ -102,6 +102,22 @@ def test_managed_receipt_and_signed_version_are_eligible_only_for_exact_running_
     assert raised.value.code is FailureCode.IDENTITY_INELIGIBLE
 
 
+def test_selfcheck_proves_exact_current_launch_environment_without_an_update_request(tmp_path: Path) -> None:
+    layout, verifier, _request = _write_install(tmp_path)
+
+    current = layout.prove_current_install()
+
+    assert current == CandidateEnvironment(
+        root=layout.version_root("1.0"),
+        python=layout.version_root("1.0") / ".venv" / "Scripts" / "python.exe",
+        entrypoint=layout.version_root("1.0") / "app.py",
+        version="1.0",
+    )
+    assert verifier.calls == [
+        (layout.version_root("1.0") / "install-manifest.json", layout.version_root("1.0") / "install-manifest.json.sig", "release-key"),
+    ]
+
+
 def test_source_checkout_and_editable_install_are_ineligible(tmp_path: Path):
     layout, _, request = _write_install(tmp_path)
     (layout.version_root("1.0") / ".git").mkdir()

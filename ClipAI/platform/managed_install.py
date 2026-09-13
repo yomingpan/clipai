@@ -59,15 +59,21 @@ class ManagedInstallLayout:
 
     def assert_update_eligible(self, request: UpdateRequestArtifact) -> ManagedInstallState:
         try:
-            marker_payload = read_json(self._marker_path)
-            marker = _parse_marker(marker_payload)
-            state = self.read_state()
-            self._assert_identity(request, marker, state)
+            marker, state, current = self._current_install_evidence()
+            self._assert_request_identity(request, marker, state, current)
             return state
         except ManagedUpdateFailure:
             raise
         except Exception as exc:
             raise ManagedUpdateFailure(FailureCode.IDENTITY_INELIGIBLE, "managed install identity is not eligible") from exc
+
+    def prove_current_install(self) -> CandidateEnvironment:
+        try:
+            return self._current_install_evidence()[2]
+        except ManagedUpdateFailure:
+            raise
+        except Exception as exc:
+            raise ManagedUpdateFailure(FailureCode.IDENTITY_INELIGIBLE, "managed install selfcheck failed") from exc
 
     def read_state(self) -> ManagedInstallState:
         return _parse_state(read_json(self._state_path))
@@ -120,31 +126,45 @@ class ManagedInstallLayout:
         # Deliberately retain receipt.previous_root. A later retention policy may
         # remove it only after the new launch has independently proven healthy.
 
-    def _assert_identity(
+    def _assert_request_identity(
         self,
         request: UpdateRequestArtifact,
         marker: ManagedInstallMarker,
         state: ManagedInstallState,
+        current: CandidateEnvironment,
     ) -> None:
-        if not _same_path(request.install_root, self.install_root) or not _same_path(marker.install_root, self.install_root):
+        if not _same_path(request.install_root, self.install_root):
             raise ValueError("install root does not match")
-        if not _same_path(request.shared_root, self.shared_root) or not _same_path(marker.shared_root, self.shared_root):
+        if not _same_path(request.shared_root, self.shared_root):
             raise ValueError("shared root does not match")
-        if _paths_overlap(self.install_root, self.shared_root):
-            raise ValueError("install and shared roots must be disjoint")
-        if request.managed_install_id != marker.managed_install_id or state.managed_install_id != marker.managed_install_id:
+        if request.managed_install_id != marker.managed_install_id:
             raise ValueError("managed install identity does not match")
         if request.key_id != marker.key_id:
             raise ValueError("release key does not match managed install policy")
         if request.installed_version != state.current_version:
             raise ValueError("installed version is stale")
+        if not _same_path(request.installed_executable, current.python):
+            raise ValueError("running executable is not the managed environment")
 
+    def _current_install_evidence(
+        self,
+    ) -> tuple[ManagedInstallMarker, ManagedInstallState, CandidateEnvironment]:
+        marker = _parse_marker(read_json(self._marker_path))
+        state = self.read_state()
+        if not _same_path(marker.install_root, self.install_root):
+            raise ValueError("install root does not match")
+        if not _same_path(marker.shared_root, self.shared_root):
+            raise ValueError("shared root does not match")
+        if _paths_overlap(self.install_root, self.shared_root):
+            raise ValueError("install and shared roots must be disjoint")
+        if state.managed_install_id != marker.managed_install_id:
+            raise ValueError("managed install identity does not match")
         current_root = self.version_root(state.current_version)
         if native_path(current_root / ".git").exists():
             raise ValueError("source checkout is not update eligible")
         expected_python = current_root / ".venv" / "Scripts" / "python.exe"
-        if not _same_path(request.installed_executable, expected_python) or not native_path(expected_python).is_file():
-            raise ValueError("running executable is not the managed environment")
+        if not native_path(expected_python).is_file():
+            raise ValueError("managed environment Python is missing")
 
         manifest_path = current_root / "install-manifest.json"
         manifest = parse_install_manifest(read_json(manifest_path))
@@ -155,11 +175,18 @@ class ManagedInstallLayout:
             manifest_path.with_suffix(".json.sig"),
             key_id=manifest.key_id,
         )
-        if not native_path(current_root.joinpath(*PurePosixPath(manifest.entrypoint).parts)).is_file():
+        entrypoint = current_root.joinpath(*PurePosixPath(manifest.entrypoint).parts)
+        if not native_path(entrypoint).is_file():
             raise ValueError("managed entrypoint is missing")
         if self._installed_distribution_version(current_root) != state.current_version:
             raise ValueError("installed distribution version does not match")
         self._reject_editable_install(current_root)
+        return marker, state, CandidateEnvironment(
+            root=current_root,
+            python=expected_python,
+            entrypoint=entrypoint,
+            version=state.current_version,
+        )
 
     def _installed_distribution_version(self, current_root: Path) -> str:
         site_packages = current_root / ".venv" / "Lib" / "site-packages"
