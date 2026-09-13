@@ -6,7 +6,7 @@ import pytest
 from ClipAI.core.managed_update import launch_attempt_id, transaction_id
 from ClipAI.core.update_artifacts import LaunchReceiptArtifact, StartupHealthArtifact, UpdateRequestArtifact
 from ClipAI.platform.managed_update_fs import atomic_write_json
-from ClipAI.platform.update_artifacts import ArtifactValidationError, read_artifact, validate_health_relation, write_artifact
+from ClipAI.platform.update_artifacts import ArtifactValidationError, ManagedUpdateArtifactStore, read_artifact, validate_health_relation, write_artifact
 
 
 NOW = datetime(2026, 9, 13, tzinfo=timezone.utc).isoformat()
@@ -35,3 +35,13 @@ def test_artifacts_reject_unknown_fields_and_relative_paths(tmp_path: Path):
     atomic_write_json(path, {"schema_version": 1, "artifact_kind": "request", "transaction_id": "tx", "created_at": NOW, "installed_version": "3.7.3", "target_version": "3.8.0", "installed_executable": str((tmp_path / "python.exe").resolve()), "bundle_path": "relative.zip", "bundle_size": 42, "bundle_sha256": "a" * 64, "manifest_sha256": "b" * 64, "key_id": "key", "install_root": str(tmp_path.resolve()), "shared_root": str(tmp_path.resolve()), "managed_install_id": "id", "extra": True})
     with pytest.raises(ArtifactValidationError, match="fields"):
         read_artifact(path, expected_kind="request")
+
+
+def test_artifact_store_contains_kind_paths_under_exact_transaction(tmp_path: Path):
+    artifact = UpdateRequestArtifact(transaction_id("tx-1"), NOW, "3.7.3", "3.8.0", (tmp_path / "python.exe").resolve(), (tmp_path / "b.zip").resolve(), 42, "a" * 64, "b" * 64, "release-key", (tmp_path / "install").resolve(), (tmp_path / "shared").resolve(), "managed-1")
+    store = ManagedUpdateArtifactStore(shared_root=tmp_path, transaction_id="tx-1")
+    path = store.write(artifact)
+    assert path == tmp_path / "managed-update" / "transactions" / "tx-1" / "request.json"
+    assert store.read("request") == artifact
+    with pytest.raises(ArtifactValidationError, match="transaction"):
+        ManagedUpdateArtifactStore(shared_root=tmp_path, transaction_id="tx-2").write(artifact)

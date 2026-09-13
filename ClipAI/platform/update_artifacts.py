@@ -18,6 +18,7 @@ from ClipAI.core.update_artifacts import (
     validate_health_relation as _validate_health_relation,
 )
 from ClipAI.platform.managed_update_fs import atomic_write_json, read_json
+from ClipAI.platform.managed_update_fs import require_contained
 
 
 _COMMON = {"schema_version", "artifact_kind", "transaction_id", "created_at"}
@@ -39,6 +40,36 @@ _KINDS = {
 
 class ArtifactValidationError(ValueError):
     pass
+
+
+class ManagedUpdateArtifactStore:
+    def __init__(self, *, shared_root: str | Path, transaction_id: str) -> None:
+        self._transaction_id = transaction_id
+        root = Path(shared_root).resolve()
+        self._root = require_contained(
+            root,
+            root / "managed-update" / "transactions" / transaction_id,
+        )
+
+    def write(self, artifact: UpdateArtifact) -> Path:
+        if artifact.transaction_id != self._transaction_id:
+            raise ArtifactValidationError("artifact store transaction does not match")
+        kind = _KINDS[type(artifact)]
+        path = self.path(kind)
+        write_artifact(path, artifact)
+        return path
+
+    def read(self, kind: str) -> UpdateArtifact:
+        return read_artifact(
+            self.path(kind),
+            expected_kind=kind,
+            expected_transaction_id=self._transaction_id,
+        )
+
+    def path(self, kind: str) -> Path:
+        if kind not in _FIELDS:
+            raise ArtifactValidationError("artifact kind is invalid")
+        return require_contained(self._root, self._root / f"{kind.replace('_', '-')}.json")
 
 
 def validate_health_relation(launch: LaunchReceiptArtifact, health: StartupHealthArtifact) -> None:
