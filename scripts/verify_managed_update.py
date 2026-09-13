@@ -30,19 +30,32 @@ def main() -> int:
     fast_result = _run([str(python), str(ROOT / "scripts" / "run_unit_tests.py")])
     if fast_result != 0 or args.stage == "fast":
         return fast_result
-    if args.stage == "synthetic":
-        return _run(
-            [
-                str(python),
-                str(ROOT / "scripts" / "run_unit_tests.py"),
-                "--",
-                "tests/e2e/test_managed_update_synthetic.py",
-                "-q",
-            ]
-        )
-    else:
-        print(f"[error] managed-update stage is not implemented yet: {args.stage}", file=sys.stderr)
-        return 2
+    synthetic_result = _run(
+        [
+            str(python),
+            str(ROOT / "scripts" / "run_unit_tests.py"),
+            "--",
+            "tests/e2e/test_managed_update_synthetic.py",
+            "-q",
+        ]
+    )
+    if synthetic_result != 0 or args.stage == "synthetic":
+        return synthetic_result
+    loopback_result = _run(
+        [
+            str(python),
+            str(ROOT / "scripts" / "run_unit_tests.py"),
+            "--",
+            "tests/e2e/test_managed_update_loopback_http.py",
+            "-m",
+            "integration",
+            "-q",
+        ]
+    )
+    if loopback_result != 0 or args.stage == "loopback-http":
+        return loopback_result
+    print(f"[error] managed-update stage is not implemented yet: {args.stage}", file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":

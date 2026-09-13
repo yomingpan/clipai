@@ -135,6 +135,14 @@ streamed size and digest must always match before atomic replace. Any network,
 filesystem, length, or digest failure is `download_failed` and preserves an
 existing destination.
 
+The single verification harness advances cumulatively through `fast`,
+`synthetic`, `loopback-http`, and `managed-bundle`. The loopback stage starts a
+real local HTTP server but keeps catalog and bundle identities HTTPS-only: a
+test-only opener redirects an already-admitted loopback request to that server,
+without changing production URL policy. It builds with the reserved ephemeral
+test Ed25519 identity, performs real catalog and streaming bundle requests, and
+proves both successful signature admission and fail-closed signature tampering.
+
 ## Cross-process CLI
 
 One dispatcher exposes `install`, `launch`, `host`, and `selfcheck`. Shared
