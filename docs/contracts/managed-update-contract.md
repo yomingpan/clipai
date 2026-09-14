@@ -369,3 +369,30 @@ The gate is evidence for the repository implementation, not for a published
 release. Release publication must separately supply a production keyring,
 catalog, hashed lock, complete Windows wheelhouse, and release asset; test keys
 remain inadmissible under production composition.
+
+## Production release publication
+
+The tag workflow is the only production publisher and
+`scripts/build_managed_release.py` remains the only managed-release build CLI.
+It derives the first-party `clipai=={version}` lock entry and wheel hash from the
+wheel built for that exact tag, combines it with pip-compile's fully hashed
+Python 3.12 Windows dependency lock, and rejects an unhashed or duplicate
+ClipAI requirement. The resulting lock is then used with `pip download
+--require-hashes --only-binary :all:` to create the wheelhouse.
+
+The same CLI creates the signed bundle and atomically writes the one-release
+stable `catalog.json` plus an exact copy of the validated production trusted
+keyring. The catalog bundle URL is the immutable tag asset URL. Before emitting
+publication metadata, the CLI verifies the new manifest signature against the
+supplied keyring, proving that the private signing key corresponds to the
+catalog `key_id`; reserved test keys are forbidden.
+
+GitHub Actions receives the private key only through
+`CLIPAI_MANAGED_UPDATE_PRIVATE_KEY`, writes it below the runner temporary root,
+and removes it in an `always()` cleanup step. Public release identity comes from
+`CLIPAI_MANAGED_UPDATE_KEY_ID` and
+`CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING`. The workflow creates a draft Release
+with wheel, sdist, managed ZIP, catalog, and public keyring assets, then publishes
+the draft only after local catalog/keyring validation and the complete
+managed-update gate succeed. Missing identity, non-official repository context,
+asset mismatch, or any failed gate leaves no newly published Release.

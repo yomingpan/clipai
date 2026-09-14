@@ -55,3 +55,9 @@ managed CLI has one dispatcher. One verification harness grows through
 synthetic, loopback HTTP, and offline managed-bundle stages. Review this ADR if
 a second transaction owner, filesystem helper, release builder, managed entry
 shim, or user-data migration path is proposed.
+
+Production release publication reuses the single managed-release CLI for the
+hashed lock, signed bundle, catalog, and validated public keyring. CI private
+key material is temporary and never becomes an artifact. A GitHub Release is
+published only after all immutable tag assets and the complete managed-update
+gate are present.

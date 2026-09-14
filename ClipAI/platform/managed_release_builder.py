@@ -7,8 +7,14 @@ import subprocess
 import uuid
 from typing import Protocol
 
+from packaging.utils import InvalidWheelFilename, canonicalize_name, parse_wheel_filename
+from packaging.version import InvalidVersion, Version
+
+from ClipAI.core.update_signing import TEST_KEY_ID
 from ClipAI.platform.managed_update_fs import (
     atomic_write_bytes,
+    atomic_write_json,
+    copy_file_atomically,
     file_sha256,
     native_path,
     read_bytes,
@@ -16,6 +22,8 @@ from ClipAI.platform.managed_update_fs import (
     unlink_file,
     write_prefixed_zip,
 )
+from ClipAI.platform.trusted_release_keys import load_trusted_release_keyring
+from ClipAI.platform.update_catalog import CATALOG_KIND, parse_catalog
 from ClipAI.platform.update_bundle import parse_install_manifest
 from ClipAI.platform.update_signature import SIGNING_NAMESPACE, canonical_json_bytes
 
@@ -30,6 +38,12 @@ class ManagedReleaseResult:
     bundle_sha256: str
     bundle_size: int
     manifest_sha256: str
+
+
+@dataclass(frozen=True)
+class ManagedReleasePublication:
+    catalog_path: Path
+    trusted_keyring_path: Path
 
 
 class ManagedReleaseBuilder:
@@ -114,6 +128,117 @@ class OpenSshManifestSigner:
         finally:
             unlink_file(manifest_path)
             unlink_file(signature_path)
+
+
+def write_managed_requirements_lock(
+    *,
+    dependency_lock: str | Path,
+    clipai_wheel: str | Path,
+    output_path: str | Path,
+    app_version: str,
+) -> Path:
+    try:
+        parsed_version = Version(app_version)
+    except InvalidVersion as exc:
+        raise ValueError("managed release version is invalid") from exc
+    if str(parsed_version) != app_version:
+        raise ValueError("managed release version is not normalized")
+    wheel = Path(clipai_wheel).resolve()
+    try:
+        name, wheel_version, _build, _tags = parse_wheel_filename(wheel.name)
+    except InvalidWheelFilename as exc:
+        raise ValueError("ClipAI wheel filename is invalid") from exc
+    if canonicalize_name(name) != "clipai" or str(wheel_version) != app_version:
+        raise ValueError("ClipAI wheel does not match release version")
+    dependencies = read_bytes(dependency_lock, maximum_size=4 * 1024 * 1024)
+    try:
+        dependency_text = dependencies.decode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError("dependency lock is not UTF-8") from exc
+    _validate_dependency_lock(dependency_text)
+    header = f"clipai=={app_version} --hash=sha256:{file_sha256(wheel)}\n"
+    output = Path(output_path).resolve()
+    atomic_write_bytes(output, (header + dependency_text).encode("utf-8"))
+    return output
+
+
+def write_release_publication(
+    *,
+    result: ManagedReleaseResult,
+    catalog_path: str | Path,
+    trusted_keyring: str | Path,
+    trusted_keyring_output: str | Path,
+    app_version: str,
+    bundle_url: str,
+    key_id: str,
+    minimum_launcher_version: str,
+    generated_at: str,
+) -> ManagedReleasePublication:
+    bundle = Path(result.bundle_path).resolve()
+    if (
+        not native_path(bundle).is_file()
+        or native_path(bundle).stat().st_size != result.bundle_size
+        or file_sha256(bundle) != result.bundle_sha256
+    ):
+        raise ValueError("managed bundle result identity is invalid")
+    keyring = load_trusted_release_keyring(trusted_keyring)
+    if key_id == TEST_KEY_ID or key_id not in keyring.verification_keys():
+        raise ValueError("release key must be trusted for production")
+    catalog = {
+        "schema_version": 1,
+        "catalog_kind": CATALOG_KIND,
+        "channel": "stable",
+        "generated_at": generated_at,
+        "releases": [{
+            "version": app_version,
+            "bundle_url": bundle_url,
+            "bundle_sha256": result.bundle_sha256,
+            "bundle_size": result.bundle_size,
+            "manifest_sha256": result.manifest_sha256,
+            "key_id": key_id,
+            "minimum_launcher_version": minimum_launcher_version,
+        }],
+    }
+    atomic_write_json(catalog_path, catalog)
+    try:
+        parse_catalog(read_bytes(catalog_path))
+        published_keyring = Path(trusted_keyring_output).resolve()
+        copy_file_atomically(
+            trusted_keyring,
+            published_keyring,
+            maximum_size=1024 * 1024,
+        )
+        load_trusted_release_keyring(published_keyring)
+    except Exception:
+        unlink_file(catalog_path)
+        unlink_file(trusted_keyring_output)
+        raise
+    return ManagedReleasePublication(Path(catalog_path).resolve(), published_keyring)
+
+
+def _validate_dependency_lock(content: str) -> None:
+    logical: list[str] = []
+    current = ""
+    for raw_line in content.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        current = f"{current} {stripped}".strip()
+        if current.endswith("\\"):
+            current = current[:-1].rstrip()
+            continue
+        logical.append(current)
+        current = ""
+    if current:
+        logical.append(current)
+    if not logical:
+        raise ValueError("dependency lock is empty")
+    for requirement in logical:
+        name = requirement.split("==", 1)[0].strip()
+        if canonicalize_name(name) == "clipai":
+            raise ValueError("dependency lock must not contain ClipAI")
+        if "==" not in requirement or "--hash=sha256:" not in requirement:
+            raise ValueError("dependency lock requirements must be pinned with hashes")
 
 
 def _file_record(path: str, content: bytes, role: str) -> dict[str, object]:

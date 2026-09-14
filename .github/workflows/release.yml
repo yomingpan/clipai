@@ -1,32 +1,150 @@
-name: Build release artifacts
+name: Build and publish release artifacts
 
 on:
   push:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
-  build-and-verify:
+  build-verify-publish:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-      - run: python -m pip install --upgrade pip build tomli
-      - name: Verify tag matches package version
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install release tooling
+        run: python -m pip install --upgrade pip build tomli pip-tools
+
+      - name: Verify official repository and tag identity
         shell: pwsh
         run: |
+          if ($env:GITHUB_REPOSITORY -ne "yomingpan/clipai") {
+            throw "Managed releases may only be published from yomingpan/clipai"
+          }
           $version = python -c "import tomli; print(tomli.load(open('pyproject.toml','rb'))['project']['version'])"
-          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag must be v$version" }
-      - run: python -m build
+          $tag = "v$version"
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag must be $tag" }
+          "CLIPAI_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CLIPAI_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
       - name: Smoke install wheel in a fresh environment
         shell: pwsh
         run: |
           python -m venv release-smoke
-          release-smoke\Scripts\python.exe -m pip install -c constraints/windows.txt (Get-ChildItem dist\*.whl).FullName
+          release-smoke\Scripts\python.exe -m pip install -c constraints\windows.txt (Get-ChildItem dist\*.whl).FullName
           release-smoke\Scripts\python.exe -c "import ClipAI; import main"
-      - uses: actions/upload-artifact@v4
+
+      - name: Compile hashed Python 3.12 Windows dependency lock
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          python -m piptools compile --generate-hashes --strip-extras --no-emit-index-url --constraint constraints\windows.txt --output-file release\dependencies.lock pyproject.toml
+          $wheel = (Get-ChildItem dist\clipai-*.whl -File -ErrorAction Stop)
+          if ($wheel.Count -ne 1) { throw "Exactly one ClipAI wheel is required" }
+          python scripts\build_managed_release.py --prepare-lock `
+            --dependency-lock release\dependencies.lock `
+            --clipai-wheel $wheel.FullName `
+            --requirements-lock release\requirements.lock `
+            --app-version $env:CLIPAI_VERSION
+
+      - name: Download complete offline wheelhouse
+        run: >-
+          python -m pip download
+          --only-binary=:all:
+          --require-hashes
+          --find-links dist
+          --dest release\wheelhouse
+          -r release\requirements.lock
+
+      - name: Assemble immutable managed payload
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release\payload -Force | Out-Null
+          Copy-Item -LiteralPath main.py -Destination release\payload\main.py
+          Copy-Item -LiteralPath config -Destination release\payload\config -Recurse
+
+      - name: Build signed managed bundle and publication metadata
+        shell: pwsh
+        env:
+          CLIPAI_MANAGED_UPDATE_PRIVATE_KEY: ${{ secrets.CLIPAI_MANAGED_UPDATE_PRIVATE_KEY }}
+          CLIPAI_MANAGED_UPDATE_KEY_ID: ${{ vars.CLIPAI_MANAGED_UPDATE_KEY_ID }}
+          CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING: ${{ vars.CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CLIPAI_MANAGED_UPDATE_PRIVATE_KEY)) { throw "Missing managed update private key" }
+          if ([string]::IsNullOrWhiteSpace($env:CLIPAI_MANAGED_UPDATE_KEY_ID)) { throw "Missing managed update key id" }
+          if ([string]::IsNullOrWhiteSpace($env:CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING)) { throw "Missing managed update trusted keyring" }
+          $privateKey = Join-Path $env:RUNNER_TEMP "clipai-managed-update-signing-key"
+          $trustedKeyring = Join-Path $env:RUNNER_TEMP "clipai-managed-update-trusted-keys.json"
+          [IO.File]::WriteAllText($privateKey, $env:CLIPAI_MANAGED_UPDATE_PRIVATE_KEY, [Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText($trustedKeyring, $env:CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING + "`n", [Text.UTF8Encoding]::new($false))
+          New-Item -ItemType Directory -Path release\assets, release\work -Force | Out-Null
+          $version = $env:CLIPAI_VERSION
+          $tag = $env:CLIPAI_TAG
+          $bundle = "release\assets\clipai-managed-$version.zip"
+          $bundleUrl = "https://github.com/yomingpan/clipai/releases/download/$tag/clipai-managed-$version.zip"
+          python scripts\build_managed_release.py `
+            --payload-root release\payload `
+            --wheelhouse release\wheelhouse `
+            --requirements-lock release\requirements.lock `
+            --output $bundle `
+            --app-version $version `
+            --key-id $env:CLIPAI_MANAGED_UPDATE_KEY_ID `
+            --private-key $privateKey `
+            --work-root release\work `
+            --catalog-output release\assets\catalog.json `
+            --bundle-url $bundleUrl `
+            --minimum-launcher-version 3.7.3 `
+            --trusted-keyring $trustedKeyring `
+            --trusted-keyring-output release\assets\managed-update-trusted-keys.json
+
+      - name: Install test dependencies
+        run: python -m pip install -c constraints\windows.txt -e ".[dev]"
+
+      - name: Verify complete managed update transaction
+        shell: pwsh
+        run: |
+          $python = (Get-Command python).Source
+          python scripts\verify_managed_update.py --stage managed-bundle --python $python
+
+      - name: Upload auditable workflow artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: clipai-${{ github.ref_name }}
-          path: dist/*
+          path: |
+            dist/*
+            release/assets/*
+            release/requirements.lock
+
+      - name: Create complete draft GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:CLIPAI_TAG
+          $assets = @(
+            (Get-ChildItem dist -File).FullName
+            (Get-ChildItem release\assets -File).FullName
+          )
+          gh release create $tag $assets --draft --verify-tag --generate-notes --title "ClipAI $tag"
+
+      - name: Publish verified GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit $env:CLIPAI_TAG --draft=false
+
+      - name: Remove private signing material
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "clipai-managed-update-signing-key") -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "clipai-managed-update-trusted-keys.json") -Force -ErrorAction SilentlyContinue
