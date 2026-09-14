@@ -56,13 +56,12 @@ jobs:
             --requirements-lock release\requirements.lock `
             --app-version $env:CLIPAI_VERSION
 
-      - name: Download complete offline wheelhouse
+      - name: Build complete offline wheelhouse
         run: >-
-          python -m pip download
-          --only-binary=:all:
+          python -m pip wheel
           --require-hashes
           --find-links dist
-          --dest release\wheelhouse
+          --wheel-dir release\wheelhouse
           -r release\requirements.lock
 
       - name: Assemble immutable managed payload

@@ -18,7 +18,8 @@ def test_tag_workflow_builds_and_publishes_complete_managed_release() -> None:
         "--constraint constraints\\windows.txt",
         "--prepare-lock",
         "--require-hashes",
-        "--only-binary=:all:",
+        "python -m pip wheel",
+        "--wheel-dir release\\wheelhouse",
         "python -m scripts.build_managed_release",
         "CLIPAI_MANAGED_UPDATE_PRIVATE_KEY",
         "CLIPAI_MANAGED_UPDATE_KEY_ID",
@@ -36,6 +37,8 @@ def test_tag_workflow_builds_and_publishes_complete_managed_release() -> None:
         assert marker in workflow
 
     assert workflow.count("python -m scripts.build_managed_release") == 2
+    assert "python -m pip download" not in workflow
+    assert "--only-binary=:all:" not in workflow
 
     create = workflow.index("gh release create")
     publish = workflow.index("gh release edit")
