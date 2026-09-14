@@ -396,3 +396,6 @@ with wheel, sdist, managed ZIP, catalog, and public keyring assets, then publish
 the draft only after local catalog/keyring validation and the complete
 managed-update gate succeed. Missing identity, non-official repository context,
 asset mismatch, or any failed gate leaves no newly published Release.
+Every external GitHub Action reference in this production publisher is pinned to
+a complete commit SHA; a readable major-version comment does not confer trust and
+exists only to make deliberate upgrades reviewable.
