@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 import re
 from typing import NewType
+
+try:
+    from enum import StrEnum as _StrEnum
+except ImportError:  # Python 3.10 compatibility
+    from enum import Enum
+
+    class _StrEnum(str, Enum):
+        __str__ = str.__str__
 
 
 TransactionId = NewType("TransactionId", str)
@@ -25,7 +32,7 @@ def launch_attempt_id(value: str) -> LaunchAttemptId:
     return LaunchAttemptId(value)
 
 
-class FailureCode(StrEnum):
+class FailureCode(_StrEnum):
     IDENTITY_INELIGIBLE = "identity_ineligible"
     UPDATE_BUSY = "update_busy"
     UPDATE_INTERRUPTED = "update_interrupted"
@@ -52,7 +59,7 @@ class ManagedUpdateFailure(RuntimeError):
         self.code = code
 
 
-class TransactionPhase(StrEnum):
+class TransactionPhase(_StrEnum):
     VERIFY = "verify"
     PREPARE = "prepare"
     SHUTDOWN = "shutdown"

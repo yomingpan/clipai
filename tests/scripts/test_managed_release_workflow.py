@@ -19,7 +19,7 @@ def test_tag_workflow_builds_and_publishes_complete_managed_release() -> None:
         "--prepare-lock",
         "--require-hashes",
         "--only-binary=:all:",
-        "scripts\\build_managed_release.py",
+        "python -m scripts.build_managed_release",
         "CLIPAI_MANAGED_UPDATE_PRIVATE_KEY",
         "CLIPAI_MANAGED_UPDATE_KEY_ID",
         "CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING",
@@ -34,6 +34,8 @@ def test_tag_workflow_builds_and_publishes_complete_managed_release() -> None:
     )
     for marker in required:
         assert marker in workflow
+
+    assert workflow.count("python -m scripts.build_managed_release") == 2
 
     create = workflow.index("gh release create")
     publish = workflow.index("gh release edit")

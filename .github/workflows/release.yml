@@ -50,7 +50,7 @@ jobs:
           python -m piptools compile --generate-hashes --strip-extras --no-emit-index-url --constraint constraints\windows.txt --output-file release\dependencies.lock pyproject.toml
           $wheel = (Get-ChildItem dist\clipai-*.whl -File -ErrorAction Stop)
           if ($wheel.Count -ne 1) { throw "Exactly one ClipAI wheel is required" }
-          python scripts\build_managed_release.py --prepare-lock `
+          python -m scripts.build_managed_release --prepare-lock `
             --dependency-lock release\dependencies.lock `
             --clipai-wheel $wheel.FullName `
             --requirements-lock release\requirements.lock `
@@ -91,7 +91,7 @@ jobs:
           $tag = $env:CLIPAI_TAG
           $bundle = "release\assets\clipai-managed-$version.zip"
           $bundleUrl = "https://github.com/yomingpan/clipai/releases/download/$tag/clipai-managed-$version.zip"
-          python scripts\build_managed_release.py `
+          python -m scripts.build_managed_release `
             --payload-root release\payload `
             --wheelhouse release\wheelhouse `
             --requirements-lock release\requirements.lock `
