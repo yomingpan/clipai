@@ -31,7 +31,8 @@ def test_managed_update_contract_loads_without_stdlib_strenum():
         import importlib.util
         import sys
 
-        del enum.StrEnum
+        if hasattr(enum, "StrEnum"):
+            del enum.StrEnum
         spec = importlib.util.spec_from_file_location("managed_update_compat_probe", {str(module_path)!r})
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
