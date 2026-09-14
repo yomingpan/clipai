@@ -83,7 +83,13 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING)) { throw "Missing managed update trusted keyring" }
           $privateKey = Join-Path $env:RUNNER_TEMP "clipai-managed-update-signing-key"
           $trustedKeyring = Join-Path $env:RUNNER_TEMP "clipai-managed-update-trusted-keys.json"
-          [IO.File]::WriteAllText($privateKey, $env:CLIPAI_MANAGED_UPDATE_PRIVATE_KEY, [Text.UTF8Encoding]::new($false))
+          $privateKeyContent = $env:CLIPAI_MANAGED_UPDATE_PRIVATE_KEY -replace "`r`n", "`n" -replace "`r", "`n"
+          [IO.File]::WriteAllText($privateKey, $privateKeyContent.TrimEnd("`r", "`n") + "`n", [Text.UTF8Encoding]::new($false))
+          $privateKeyIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+          & icacls.exe $privateKey /inheritance:r /grant:r "${privateKeyIdentity}:(R)" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Could not restrict managed update private key permissions" }
+          & ssh-keygen.exe -y -f $privateKey | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Managed update private key is invalid" }
           [IO.File]::WriteAllText($trustedKeyring, $env:CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING + "`n", [Text.UTF8Encoding]::new($false))
           New-Item -ItemType Directory -Path release\assets, release\work -Force | Out-Null
           $version = $env:CLIPAI_VERSION
