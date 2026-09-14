@@ -16,6 +16,7 @@ class ApplicationPaths:
     diagnostics_root: Path
     update_root: Path
     recent_actions_file: Path
+    voice_profile_root: Path
     instance_name: str = "default"
 
     def __post_init__(self) -> None:
@@ -28,6 +29,7 @@ class ApplicationPaths:
             self.diagnostics_root,
             self.update_root,
             self.recent_actions_file,
+            self.voice_profile_root,
         )
         if any(not path.is_absolute() for path in path_fields):
             raise ValueError("application paths must be absolute")

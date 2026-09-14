@@ -14,6 +14,10 @@ archives, feedback, personal styles, and recent actions live under
 `shared_root/state`; secrets live under `shared_root/secrets`; logs,
 diagnostics, and update artifacts live under their like-named shared
 directories. Shipped config and mutable state are never the same root.
+`voice_profile_root` preserves the existing per-user local-app-data root for a
+source launch and resolves to `shared_root/state` for a managed launch, so the
+WebView voice profile survives version replacement without entering an
+immutable payload.
 
 `CLIPAI_INSTANCE_NAME` may select `shared_root/instances/{name}` only while the
 ordinary composition root resolves an unevaluated shared root. The managed

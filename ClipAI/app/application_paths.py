@@ -50,6 +50,7 @@ def build_application_paths(
         diagnostics_root=diagnostics_root,
         update_root=update_root,
         recent_actions_file=recent_actions_file,
+        voice_profile_root=local_app_data,
         instance_name=instance_name,
     )
 
@@ -83,6 +84,7 @@ def _managed_paths(app_root: Path, shared_root: Path, instance_name: str) -> App
         diagnostics_root=shared_root / "diagnostics",
         update_root=shared_root / "update",
         recent_actions_file=state_root / "recent_actions.json",
+        voice_profile_root=state_root,
         instance_name=instance_name,
     )
 

@@ -379,7 +379,7 @@ def build_runtime(
     owned_processes = AppOwnedProcessRegistry()
     voice_engine = BrowserSpeechWebView2Engine(
         lambda event: enqueue(VoiceEngineEventReceived(event)),
-        profile_root=local_app_data,
+        profile_root=paths.voice_profile_root,
         on_process_started=owned_processes.register,
         on_process_stopped=owned_processes.unregister,
     )

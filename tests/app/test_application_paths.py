@@ -17,6 +17,7 @@ def test_source_paths_preserve_existing_layout_with_absolute_ownership(tmp_path:
     assert paths.secrets_file == tmp_path / ".env"
     assert paths.config_root != paths.state_root
     assert paths.recent_actions_file == local_app_data / "ClipAI" / "recent_actions.json"
+    assert paths.voice_profile_root == local_app_data
 
 
 def test_managed_shared_paths_are_separate_from_version_payload(tmp_path: Path):
@@ -32,6 +33,7 @@ def test_managed_shared_paths_are_separate_from_version_payload(tmp_path: Path):
     assert paths.update_root == instance_root / "update"
     assert paths.secrets_file == instance_root / "secrets" / ".env"
     assert paths.recent_actions_file == instance_root / "state" / "recent_actions.json"
+    assert paths.voice_profile_root == instance_root / "state"
 
 
 def test_managed_cli_shared_root_is_effective_and_never_gets_instance_appended_twice(tmp_path: Path):
@@ -49,6 +51,7 @@ def test_managed_cli_shared_root_is_effective_and_never_gets_instance_appended_t
     assert paths.state_root == effective_shared_root / "state"
     assert paths.secrets_file == effective_shared_root / "secrets" / ".env"
     assert paths.update_root == effective_shared_root / "update"
+    assert paths.voice_profile_root == effective_shared_root / "state"
     assert "instances\\update-sandbox\\instances" not in str(paths.state_root)
 
 

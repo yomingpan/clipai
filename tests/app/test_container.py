@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
+from ClipAI.app import container
+from ClipAI.app.application_paths import build_application_paths
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.container import _build_provider, _build_provider_snapshot, _needs_provider_setup, _resolve_active_credential, _resolve_active_model
 from ClipAI.app.provider_configuration import build_provider_snapshot
@@ -11,6 +14,32 @@ from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
+
+
+def test_runtime_composition_injects_voice_profile_from_application_paths(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class CompositionReachedVoiceProfile(Exception):
+        pass
+
+    paths = build_application_paths(
+        Path.cwd(),
+        {"LOCALAPPDATA": str(tmp_path / "local-app-data")},
+    )
+
+    def capture_voice_profile(*_args, profile_root: Path, **_kwargs):
+        assert profile_root == paths.voice_profile_root
+        raise CompositionReachedVoiceProfile
+
+    monkeypatch.setattr(
+        container,
+        "BrowserSpeechWebView2Engine",
+        capture_voice_profile,
+    )
+
+    with pytest.raises(CompositionReachedVoiceProfile):
+        container.build_runtime(load_config_bundle(), paths=paths)
 
 
 @pytest.mark.parametrize(
