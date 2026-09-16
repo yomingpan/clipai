@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 
 from ClipAI.core.voice import VoiceEngineAudioLevel, VoiceEngineEnded, VoiceEngineFailed, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupFailed, VoiceEngineSetupReady, VoiceTransportFailure
-from ClipAI.platform.browser_speech import CAPTURE_START_TIMEOUT_SECONDS, CAPTURE_STOP_TIMEOUT_SECONDS, BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event
+from ClipAI.platform.browser_speech import CAPTURE_START_TIMEOUT_SECONDS, CAPTURE_STOP_TIMEOUT_SECONDS, WEBVIEW2_BROWSER_EXECUTABLE_FOLDER, BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event, find_webview2_runtime_for_major
 
 
 class BrokenInput:
@@ -287,6 +287,63 @@ def test_transport_passes_the_composed_webview_profile_to_the_host() -> None:
     engine.start_capture("capture-1", "zh-TW")
 
     assert created[0][-2:] == ["--profile-root", "C:\\Users\\test\\AppData\\Local"]
+
+
+def test_runtime_major_finds_the_highest_matching_installed_patch(tmp_path: Path) -> None:
+    application_root = tmp_path / "Application"
+    for version in ("151.0.1.1", "152.0.4191.53", "152.0.4191.66", "153.0.1.1"):
+        runtime = application_root / version
+        runtime.mkdir(parents=True)
+        (runtime / "msedgewebview2.exe").touch()
+    incomplete = application_root / "152.0.5000.1"
+    incomplete.mkdir()
+    (application_root / "152.invalid").mkdir()
+
+    selected = find_webview2_runtime_for_major(
+        152,
+        application_roots=(application_root,),
+    )
+
+    assert selected == application_root / "152.0.4191.66"
+
+
+def test_runtime_major_is_passed_only_to_the_voice_helper_environment(tmp_path: Path) -> None:
+    runtime = tmp_path / "152.0.4191.66"
+    runtime.mkdir()
+    (runtime / "msedgewebview2.exe").touch()
+    created = []
+
+    def create_process(command, **kwargs):
+        created.append((command, kwargs))
+        return LiveProcess()
+
+    engine = BrowserSpeechWebView2Engine(
+        lambda _event: None,
+        process_factory=create_process,
+        webview2_runtime_major=152,
+        runtime_resolver=lambda major: runtime if major == 152 else None,
+        process_environment={"EXISTING": "preserved"},
+    )
+
+    engine.start_capture("capture-1", "zh-TW")
+
+    assert created[0][1]["env"][WEBVIEW2_BROWSER_EXECUTABLE_FOLDER] == str(runtime)
+    assert created[0][1]["env"]["EXISTING"] == "preserved"
+
+
+def test_missing_requested_runtime_fails_setup_without_falling_back() -> None:
+    received = []
+    engine = BrowserSpeechWebView2Engine(
+        received.append,
+        webview2_runtime_major=152,
+        runtime_resolver=lambda _major: None,
+    )
+
+    engine.prepare("setup-1", "zh-TW")
+
+    assert received == [
+        VoiceEngineSetupFailed("setup-1", VoiceTransportFailure.INITIALIZATION_FAILED)
+    ]
 
 
 def test_shutdown_waits_for_forced_host_exit_and_closes_transport() -> None:

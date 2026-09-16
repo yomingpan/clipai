@@ -55,6 +55,9 @@ tts:
 voice_input:
   # Voice Input V1 always uses the controlled Edge WebView2 Browser Speech host.
   backend: edge_webview2_browser_speech
+  # Temporary M153 regression workaround. Selects the highest installed 152.*
+  # WebView2 Runtime on this computer; remove this line to use Evergreen again.
+  webview2_runtime_major: 152
 
 logging:
   enabled: true

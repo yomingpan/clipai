@@ -150,14 +150,27 @@ def _parse_tts(value: Any) -> TTSSettings:
 def _parse_voice_input(value: Any) -> VoiceInputSettings:
     path = "config.voice_input"
     data = _mapping(value, path, allow_none=True)
-    _reject_unknown(data, {"backend"}, path)
+    _reject_unknown(data, {"backend", "webview2_runtime_major"}, path)
     backend = _choice(
         data.get("backend"),
         f"{path}.backend",
         {"edge_webview2_browser_speech"},
         "edge_webview2_browser_speech",
     )
-    return VoiceInputSettings(backend=cast(Literal["edge_webview2_browser_speech"], backend))
+    runtime_major_value = data.get("webview2_runtime_major")
+    runtime_major = None
+    if runtime_major_value is not None:
+        runtime_major = _integer(
+            runtime_major_value,
+            f"{path}.webview2_runtime_major",
+            default=0,
+        )
+        if runtime_major < 1:
+            raise ConfigError(f"{path}.webview2_runtime_major must be at least 1")
+    return VoiceInputSettings(
+        backend=cast(Literal["edge_webview2_browser_speech"], backend),
+        webview2_runtime_major=runtime_major,
+    )
 
 
 def _parse_logging(value: Any) -> LoggingSettings:

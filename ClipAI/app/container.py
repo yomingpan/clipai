@@ -48,7 +48,7 @@ from ClipAI.platform.recent_actions import JsonRecentActionStore
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
 from ClipAI.platform.pointer_input import WindowsPointerPressReader
 from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
-from ClipAI.platform.browser_speech import BrowserSpeechWebView2Engine
+from ClipAI.platform.browser_speech import BrowserSpeechWebView2Engine, find_webview2_runtime_for_major
 from ClipAI.platform.voice_permissions import open_microphone_privacy_settings
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider
@@ -198,6 +198,7 @@ def build_runtime(
             "readiness_codes": [issue.code for issue in readiness_issues],
             "tts_enabled": bundle.tts.enabled,
             "voice_input_backend": bundle.voice_input.backend,
+            "voice_input_webview2_runtime_major": bundle.voice_input.webview2_runtime_major,
             "logging_enabled": bundle.logging.enabled,
             "action_language_pack": bundle.action_language.identity.pack_id,
             "action_language_pack_version": bundle.action_language.identity.pack_version,
@@ -377,9 +378,20 @@ def build_runtime(
         operation_tracker=operation_tracker,
     )
     owned_processes = AppOwnedProcessRegistry()
+    webview2_application_roots = tuple(
+        Path(base) / "Microsoft" / "EdgeWebView" / "Application"
+        for name in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")
+        if (base := os.environ.get(name))
+    )
     voice_engine = BrowserSpeechWebView2Engine(
         lambda event: enqueue(VoiceEngineEventReceived(event)),
-        profile_root=paths.voice_profile_root,
+        profile_root=local_app_data,
+        webview2_runtime_major=bundle.voice_input.webview2_runtime_major,
+        runtime_resolver=lambda major: find_webview2_runtime_for_major(
+            major,
+            application_roots=webview2_application_roots,
+        ),
+        process_environment=dict(os.environ),
         on_process_started=owned_processes.register,
         on_process_stopped=owned_processes.unregister,
     )
