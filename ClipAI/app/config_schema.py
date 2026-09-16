@@ -44,6 +44,7 @@ class VoiceInputSettings:
     """V1 has one deliberate engine path: controlled Edge WebView2 Browser Speech."""
 
     backend: Literal["edge_webview2_browser_speech"]
+    webview2_runtime_major: int | None = None
 
 
 @dataclass(frozen=True)

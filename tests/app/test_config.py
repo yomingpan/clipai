@@ -17,6 +17,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.providers.active == "gemini"
     assert bundle.runtime.maintenance_workers == 1
     assert bundle.voice_input.backend == "edge_webview2_browser_speech"
+    assert bundle.voice_input.webview2_runtime_major == 152
     assert bundle.app.modifier_mode == "ctrl_alt"
     assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
@@ -61,6 +62,15 @@ def test_voice_input_config_rejects_unsupported_engine_paths() -> None:
         _parse_voice_input({"backend": "openai"})
     with pytest.raises(ConfigError, match="auto_start"):
         _parse_voice_input({"backend": "edge_webview2_browser_speech", "auto_start": True})
+
+
+def test_voice_input_config_accepts_an_optional_webview2_runtime_major() -> None:
+    assert _parse_voice_input({}).webview2_runtime_major is None
+    assert _parse_voice_input({"webview2_runtime_major": 152}).webview2_runtime_major == 152
+
+    for value in (0, -1, True, "152", 152.0):
+        with pytest.raises(ConfigError, match="webview2_runtime_major"):
+            _parse_voice_input({"webview2_runtime_major": value})
 
 
 def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input() -> None:

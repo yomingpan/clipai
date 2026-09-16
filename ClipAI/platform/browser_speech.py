@@ -30,6 +30,39 @@ from ClipAI.platform.voice_webview_profile import reset_voice_webview_profile
 VOICE_PROTOCOL_VERSION = 1
 CAPTURE_START_TIMEOUT_SECONDS = 15.0
 CAPTURE_STOP_TIMEOUT_SECONDS = 5.0
+WEBVIEW2_BROWSER_EXECUTABLE_FOLDER = "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER"
+
+
+def find_webview2_runtime_for_major(
+    major: int,
+    *,
+    application_roots: tuple[Path, ...],
+) -> Path | None:
+    """Return the highest installed WebView2 runtime matching ``major``."""
+    if major < 1:
+        raise ValueError("WebView2 runtime major must be positive")
+    candidates: list[tuple[tuple[int, ...], Path]] = []
+    for root in application_roots:
+        try:
+            children = tuple(root.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            version = _webview2_version(child.name)
+            if version is None or version[0] != major:
+                continue
+            if (child / "msedgewebview2.exe").is_file():
+                candidates.append((version, child))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def _webview2_version(value: str) -> tuple[int, ...] | None:
+    parts = value.split(".")
+    if len(parts) < 2 or any(not part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
 
 
 def _schedule_capture_start_timeout(delay_seconds: float, callback: Callable[[], None]) -> threading.Timer:
@@ -49,6 +82,9 @@ class BrowserSpeechWebView2Engine:
         process_factory: Callable[..., Any] = subprocess.Popen,
         capture_start_timeout_schedule: Callable[[float, Callable[[], None]], object] = _schedule_capture_start_timeout,
         profile_root: Path | None = None,
+        webview2_runtime_major: int | None = None,
+        runtime_resolver: Callable[[int], Path | None] = lambda _major: None,
+        process_environment: dict[str, str] | None = None,
         on_process_started: Callable[[int], None] = lambda _process_id: None,
         on_process_stopped: Callable[[int], None] = lambda _process_id: None,
     ) -> None:
@@ -56,6 +92,9 @@ class BrowserSpeechWebView2Engine:
         self._process_factory = process_factory
         self._capture_start_timeout_schedule = capture_start_timeout_schedule
         self._profile_root = profile_root
+        self._webview2_runtime_major = webview2_runtime_major
+        self._runtime_resolver = runtime_resolver
+        self._process_environment = process_environment
         self._on_process_started = on_process_started
         self._on_process_stopped = on_process_stopped
         self._process: Any | None = None
@@ -135,6 +174,15 @@ class BrowserSpeechWebView2Engine:
         command = [sys.executable, "-m", "ClipAI.platform.voice_webview_host"]
         if self._profile_root is not None:
             command.extend(["--profile-root", str(self._profile_root)])
+        process_environment = None
+        if self._webview2_runtime_major is not None:
+            runtime_folder = self._runtime_resolver(self._webview2_runtime_major)
+            if runtime_folder is None:
+                raise OSError(
+                    f"WebView2 Runtime {self._webview2_runtime_major}.* is not installed"
+                )
+            process_environment = dict(self._process_environment or {})
+            process_environment[WEBVIEW2_BROWSER_EXECUTABLE_FOLDER] = str(runtime_folder)
         process = self._process_factory(
             command,
             stdin=subprocess.PIPE,
@@ -145,6 +193,7 @@ class BrowserSpeechWebView2Engine:
             errors="replace",
             bufsize=1,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=process_environment,
         )
         self._process = process
         self._notify_process_started(process)
