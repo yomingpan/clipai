@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 import os
 import uuid
 
@@ -385,7 +386,7 @@ def build_runtime(
     )
     voice_engine = BrowserSpeechWebView2Engine(
         lambda event: enqueue(VoiceEngineEventReceived(event)),
-        profile_root=local_app_data,
+        profile_root=paths.voice_profile_root,
         webview2_runtime_major=bundle.voice_input.webview2_runtime_major,
         runtime_resolver=lambda major: find_webview2_runtime_for_major(
             major,
