@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ClipAI.app.language_pack_loader import (
     ActionLanguagePackLoader,
     LanguagePackRegistryEntry,
@@ -9,6 +11,9 @@ from ClipAI.app.language_pack_loader import (
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.core.models import ActionDefinition, EntryActionRef
 from ClipAI.services.entry_panel import EntryPanelCoordinator
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load(pack_id: str):
@@ -69,6 +74,12 @@ def test_official_registry_releases_both_complete_packs_in_product_order() -> No
         "繁體中文",
         "日本語",
     )
+
+
+def test_content_addressed_language_pack_resources_checkout_with_stable_line_endings() -> None:
+    attributes = (PROJECT_ROOT / ".gitattributes").read_text(encoding="utf-8")
+
+    assert "config/language_packs/*/*.yaml text eol=lf" in attributes.splitlines()
 
 
 def test_japanese_pack_preserves_fixed_output_language_semantics() -> None:

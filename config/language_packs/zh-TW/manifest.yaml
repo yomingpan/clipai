@@ -7,13 +7,13 @@ feature_contract_hash: sha256:0a1e53fb8507283428a1ee3e9f2d99d06999ffe3c6f9ae3fff
 resources:
   app:
     path: app.yaml
-    sha256: 851c3573f5b8a2f6c91bb07756bec06b6ec5a357e1bded9a9b5312891c19b1d2
+    sha256: 01ef2431fefa14c83961350bf4ef6ce71eb3f3b4709eca0bc03f297710ab4dcd
   actions:
     path: actions.yaml
-    sha256: ae146856222ebf00dffa21e11bf90f418b80b80bb8d33e167dda532e8464a9fa
+    sha256: 9ee3bcfa10768d6248d846b30a72772c0ffe031e00fa79c5ea4742c99885e293
   output_profiles:
     path: output_profiles.yaml
-    sha256: d3edc7646e3ba82e9dd2f41f096f027f1e8cf0658cbbfdf35a222b39f2b2891c
+    sha256: 92158ebc2526a1593a7fef98e2a6995008ac68e449779f1c8ff43ef9ec8e95ca
   entry_panel:
     path: entry_panel.yaml
-    sha256: e009fc2cc1b5ac702eb51e3666f0f1cd32559d8002c70a78d70cb51f6f5cc859
+    sha256: 1fab31c81d2deb1525e0c109ce5069ad511ad2a3164a9c9a426d064955aa037e
