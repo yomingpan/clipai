@@ -18,6 +18,7 @@ from ClipAI.core.commands import (
 )
 from ClipAI.core.models import EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
+from ClipAI.ui.ime_composition import install_ime_composition_font
 from ClipAI.ui.base_dialog import (
     ACTION_COLOR,
     ACTION_HOVER_COLOR,
@@ -124,7 +125,8 @@ class UnifiedEntryPanelDialog:
         primary_surface_host: PrimarySurfaceHost | None = None,
         primary_surface_lease: PrimarySurfaceLease | None = None,
     ) -> None:
-        del native_window_surface, display_metrics, layout_policy
+        del display_metrics, layout_policy
+        self._native_window_surface = native_window_surface
         self._intent = EntryPanelIntentAdapter(command_sink)
         self._snapshot: EntryPanelSnapshot | None = None
         self._search_guard = False
@@ -385,6 +387,7 @@ class UnifiedEntryPanelDialog:
             search.insert(0, snapshot.search_text)
             search.grid(row=row, column=0, pady=(0, 8), sticky="ew")
             search.bind("<KeyRelease>", lambda _event: self._intent.search(search.get()))
+            install_ime_composition_font(search, self._native_window_surface)
             self._search_guard = False
             row += 1
 

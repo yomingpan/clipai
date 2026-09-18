@@ -18,6 +18,7 @@ from ClipAI.core.popup_presentation import project_popup_presentation
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
+from ClipAI.ui.ime_composition import install_ime_composition_font
 from ClipAI.ui.popup_control import PopupControl, PopupControlRegistered, PopupControlShown, PopupForegroundPolled, PopupInsidePointerPressed, PopupOutsideFocusRequested, PopupOutsidePointerPressed, PopupOwnedDialogClosed, PopupOwnedDialogOpened, PopupProjectionContext, ToolkitFocusEntered
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease, PrimarySurfaceSpec
@@ -72,6 +73,7 @@ class _SessionView:
     applied_voice_insertion_revision: int | None = None
     voice_draft_editing: bool = True
     applied_follow_up_capture_ids: set[str] = field(default_factory=set)
+    awaiting_initial_focus: bool = False
 
 
 @dataclass
@@ -531,8 +533,9 @@ class ResultDialogPresenter:
             if not view.dialog.is_alive():
                 self._close_dead_view(workflow_id, view)
                 continue
-            if view.dialog.is_visible():
+            if view.dialog.is_visible() and not self._in_active_voice_capture(view):
                 self._popup_control(workflow_id, view).observe_focus(PopupForegroundPolled())
+                self._recover_pending_initial_focus(workflow_id, view)
         point = self._pointer_press_reader.poll() if self._pointer_press_reader is not None else None
         if point is not None:
             self._handle_pointer_press(*point)
@@ -1090,6 +1093,10 @@ class ResultDialogPresenter:
         )
         surface = BaseResultSurface(dialog)
         view = _SessionView(dialog=dialog, surface=surface)
+        for name in ("content_text", "follow_entry", "feedback_note"):
+            widget = getattr(surface, name, None)
+            if widget is not None:
+                install_ime_composition_font(widget, self._native_window_surface)
         surface.close_button.configure(
             command=lambda sid=session_id: self._request_close(sid)
         )
@@ -1277,14 +1284,41 @@ class ResultDialogPresenter:
                 self._schedule_initial_focus(session_id, view)
 
     def _schedule_initial_focus(self, session_id: str, view: _SessionView) -> None:
-        def establish_initial_focus() -> None:
-            control = self._popup_control(session_id, view)
-            if self._views.get(session_id) is not view or control.focused_inside:
-                return
-            view.surface.focus_content()
-            control.observe_focus(ToolkitFocusEntered())
+        view.awaiting_initial_focus = True
 
-        view.dialog.lifecycle.schedule(0, establish_initial_focus)
+        def attempt(remaining: int) -> None:
+            if self._views.get(session_id) is not view or not view.awaiting_initial_focus:
+                return
+            if self._attempt_initial_focus(session_id, view):
+                return
+            if remaining > 1:
+                view.dialog.lifecycle.schedule(32, lambda: attempt(remaining - 1))
+
+        view.dialog.lifecycle.schedule(0, lambda: attempt(5))
+
+    def _attempt_initial_focus(self, session_id: str, view: _SessionView) -> bool:
+        if self._views.get(session_id) is not view:
+            return False
+        view.surface.focus_content()
+        if not view.dialog.native_owns_foreground():
+            return False
+        view.awaiting_initial_focus = False
+        self._popup_control(session_id, view).observe_focus(ToolkitFocusEntered())
+        return True
+
+    def _recover_pending_initial_focus(self, session_id: str, view: _SessionView) -> None:
+        control = self._popup_control(session_id, view)
+        if (
+            not control.focused_inside
+            and view.awaiting_initial_focus
+            and view.dialog.native_owns_foreground()
+        ):
+            self._attempt_initial_focus(session_id, view)
+
+    @staticmethod
+    def _in_active_voice_capture(view: _SessionView) -> bool:
+        snapshot = view.last_snapshot
+        return snapshot is not None and snapshot.voice_capture_id is not None
 
     def _shortcut(self, action: Callable[[str], None], session_id: str) -> str | None:
         view = self._interactive_view(session_id)
@@ -1337,6 +1371,8 @@ class ResultDialogPresenter:
     def _close_if_outside(self, session_id: str) -> None:
         view = self._interactive_view(session_id)
         if view is None:
+            return
+        if self._in_active_voice_capture(view):
             return
         self._popup_control(session_id, view).observe_focus(PopupOutsideFocusRequested())
 

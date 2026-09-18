@@ -81,6 +81,8 @@ class OutputProfileSkeleton:
 class EntryPanelCandidateSkeleton:
     action_id: str
     press_type: PressType
+    long_action_id: str | None = None
+    long_press_type: PressType = "long"
 
     @property
     def identity(self) -> str:
@@ -265,6 +267,8 @@ def feature_contract_hash(skeleton: FeatureSkeleton) -> str:
                     {
                         "action_id": candidate.action_id,
                         "press_type": candidate.press_type,
+                        "long_action_id": candidate.long_action_id,
+                        "long_press_type": candidate.long_press_type if candidate.long_action_id else None,
                     }
                     for candidate in category.flagship
                 ],
@@ -272,6 +276,8 @@ def feature_contract_hash(skeleton: FeatureSkeleton) -> str:
                     {
                         "action_id": candidate.action_id,
                         "press_type": candidate.press_type,
+                        "long_action_id": candidate.long_action_id,
+                        "long_press_type": candidate.long_press_type if candidate.long_action_id else None,
                     }
                     for candidate in category.advanced
                 ],
@@ -652,6 +658,12 @@ def _validate_skeleton(skeleton: FeatureSkeleton) -> None:
                 "contract_mismatch",
                 f"skeleton.entry_panel.candidates.{candidate.identity}",
                 "entry panel candidate references an unknown action",
+            )
+        if candidate.long_action_id is not None and candidate.long_action_id not in action_ids:
+            _fail(
+                "contract_mismatch",
+                f"skeleton.entry_panel.candidates.{candidate.identity}.long",
+                "entry panel long candidate references an unknown action",
             )
 
 

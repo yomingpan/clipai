@@ -33,6 +33,7 @@ class WorkflowController:
         self._feedback_step_ids: set[str] = set()
         self._feedback_operations: dict[str, str] = {}
         self._on_step_accepted = on_step_accepted
+        self._retryable: tuple[ActionInvocation, ResolvedAction] | None = None
         self._presenter.render(initial)
 
     @property
@@ -162,6 +163,7 @@ class WorkflowController:
         with self._lock:
             self._active_token.cancel()
             self._active_token = CancellationToken()
+            self._retryable = (invocation, action)
             status = SessionStatus.READING_INPUT if invocation.input_target.document is None else SessionStatus.PREPARING_REQUEST
             status_text = "Reading input..." if status == SessionStatus.READING_INPUT else f"Preparing {action.name}..."
             self._snapshot = self._snapshot.evolve(
@@ -233,8 +235,30 @@ class WorkflowController:
                 recovery.invocation, invocation_id=uuid.uuid4().hex,
                 input_target=InputTarget("external_text", recovery.clipboard_document),
             )
+            self._retryable = (invocation, recovery.action)
             self._snapshot = self._snapshot.evolve(input_recovery=None)
             return invocation, recovery.action
+
+    def prepare_retry(self) -> tuple[ActionInvocation, ResolvedAction] | None:
+        with self._lock:
+            if self._retryable is None or self._snapshot.status not in {
+                SessionStatus.COMPLETED,
+                SessionStatus.FAILED,
+                SessionStatus.STOPPED,
+                SessionStatus.READING_INPUT,
+                SessionStatus.PREPARING_REQUEST,
+                SessionStatus.REQUESTING_PROVIDER,
+            }:
+                return None
+            invocation, action = self._retryable
+            retry = replace(invocation, invocation_id=uuid.uuid4().hex)
+            index = self._snapshot.displayed_step_index
+            if (
+                0 <= index < len(self._snapshot.steps)
+                and self._snapshot.steps[index].step_id == invocation.invocation_id
+            ):
+                self._snapshot = self._snapshot.evolve(displayed_step_index=index - 1)
+            return retry, action
 
     def update(self, invocation_id: str, status: SessionStatus, **changes: object) -> SessionSnapshot | None:
         with self._lock:

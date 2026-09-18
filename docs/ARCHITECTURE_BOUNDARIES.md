@@ -75,6 +75,10 @@ tests/              # Unit sims 與 integration tests
   `BaseResultSurface.render(model)` 是唯一 widget 投影 seam。Content 與 flash 不
   進入該 model。Baseline Action availability 不得覆寫 `PopupControl` 擁有的
   in-flight/ack enable 與 pulse。
+- Popup 內容由 services 的 Markdown parser 產生 canonical `PresentationDocument`，再由
+  Tk-free `ui/presentation_render.py` 建立 render plan 與 canonical selection segments；
+  `BaseResultSurface` 只 apply plan，不得擁有第二套 Markdown regex。可編輯 Voice Draft
+  永遠保存 canonical、零 display-hint 文字；display break hints 只存在於 read-only 呈現。
 - Entry Panel 的 `Esc` 永遠是 close/cancel-preparation；`EntryPanelBack` 才是
   More → scene → root 導覽，root no-op。Preparing 是 option-level neutral pending，
   不得偽裝成 policy disabled；真實 disabled reason 優先。UI lifecycle 更新只能
@@ -174,7 +178,13 @@ Windows top-level foreground activation 的 thread-input attachment、bring-to-t
 activation 與 ownership verification 由 `platform.window_activation` 單一 primitive
 實作。`NativeWindowSurface` 負責解析 ClipAI toolkit shell，
 `ExternalWindowActivator` 負責驗證精確外部 HWND/PID 與有界重試；兩者不得各自複製
-另一套 `AttachThreadInput`／`SetForegroundWindow` 流程。
+另一套 `AttachThreadInput`／`SetForegroundWindow` 流程。該 primitive 必須在 activation
+前暫停 Windows foreground-lock timeout，並在反序 detach input queues 後於 `finally`
+還原原值；任何 native failure 都以 `False` fail closed。
+
+CJK IME composition font 的 `ImmGetContext`／`ImmSetCompositionFontW`／
+`ImmReleaseContext` 只由 `platform/native_window.py` 擁有。UI 只在 FocusIn 傳入 toolkit
+child id 與解析後的字型資料；Headless adapter 回傳 `False`，不得模擬 Windows 成功。
 
 Entry Panel 的 readiness policy 透過 immutable `ExternalWindowWaitPolicy`
 傳入既有 activator；runtime 協調擷取前後共用的剩餘等待額度，native adapter

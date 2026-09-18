@@ -147,3 +147,13 @@ shortcuts:
     hotkey: ctrl+alt+p
     command: start_action
     action_id: personal_style_presentation
+
+  - id: advisory_board
+    hotkey: ctrl+alt+j
+    command: start_action
+    action_id: advisory_board
+
+  - id: insight_engine
+    hotkey: ctrl+alt+k
+    command: start_action
+    action_id: insight_engine

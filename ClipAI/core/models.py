@@ -130,6 +130,8 @@ class EntryPanelOption:
     enabled: bool = True
     pending: bool = False
     disabled_reason: str = ""
+    long_action: EntryActionRef | None = None
+    long_label: str = ""
 
 
 @dataclass(frozen=True)

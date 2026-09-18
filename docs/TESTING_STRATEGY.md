@@ -448,6 +448,17 @@ elapsed 與雜湊來源 identity，不記文字或 executable path。
 settlement；它量測 first frame 與同 host Entry Panel → Popup reclaim，預設 p95
 門檻 150 ms，結果以 JSONL 保存。Synthetic frame construction 不得標示為此 gate。
 
+`scripts/voice_focus_reliability_gate.py` 每個 seed 執行 480 案 deterministic
+foreground-lock simulation；必須驗證 focus acquisition、lock timeout 還原與 input queue
+反序 detach 全數成功，p95 不超過 0.05ms。輸出只含 aggregate metrics，且每筆固定
+`content_recorded=false`、`device_evidence=false`。
+
+Presentation unit tests 必須在未建立 Tk widget 時覆蓋 heading、list、ordered、spacer、
+break hint、newline 與 canonical selection projection。Editable tests 必須拒絕任何
+display hint、timer normalization 或重複 `<<Modified>>` binding；IME tests 必須驗證
+Headless false、zero context 與 native exception fail closed，並由 architecture test 阻止
+`ctypes`／`imm32` 外洩至 UI。
+
 `integration` marker 表示測試會碰真實外部世界，例如：
 
 - OS clipboard。

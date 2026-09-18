@@ -69,6 +69,10 @@ categories:
         press_type: short
       - action_id: structure_score_prompt
         press_type: short
+      - action_id: advisory_board
+        press_type: short
+      - action_id: insight_engine
+        press_type: short
 
   - id: tools
     slot: 6

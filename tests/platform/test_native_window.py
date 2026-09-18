@@ -73,6 +73,24 @@ class User32:
         return True
 
 
+class Imm32:
+    def __init__(self, context: int = 91) -> None:
+        self.context = context
+        self.fonts = []
+        self.released = []
+
+    def ImmGetContext(self, hwnd: int) -> int:
+        return self.context
+
+    def ImmSetCompositionFontW(self, context: int, font) -> bool:
+        self.fonts.append((context, font._obj))
+        return True
+
+    def ImmReleaseContext(self, hwnd: int, context: int) -> bool:
+        self.released.append((hwnd, context))
+        return True
+
+
 def test_windows_surface_resolves_top_level_and_hides_task_switcher_entry() -> None:
     user32 = User32()
     surface = WindowsNativeWindowSurface(user32=user32, kernel32=Kernel32())
@@ -146,4 +164,29 @@ def test_native_surface_adapters_never_raise_when_os_facts_are_unavailable() -> 
         assert surface.show_without_activation(10) is False
         assert surface.owns_foreground(10) is False
         assert surface.install_icon(10, Path("missing.ico")) == ()
+        assert surface.set_ime_composition_font(10, family="Test", height=-16, weight=400, italic=False) is False
         surface.destroy_icons((1, 2))
+
+
+def test_windows_surface_sets_ime_font_and_releases_context() -> None:
+    imm32 = Imm32()
+    surface = WindowsNativeWindowSurface(user32=User32(), kernel32=Kernel32(), imm32=imm32)
+
+    assert surface.set_ime_composition_font(
+        10, family="A" * 40, height=-18, weight=700, italic=True
+    ) is True
+
+    font = imm32.fonts[0][1]
+    assert (font.lfHeight, font.lfWeight, font.lfItalic) == (-18, 700, 1)
+    assert font.lfFaceName == "A" * 31
+    assert imm32.released == [(20, 91)]
+
+
+def test_windows_surface_does_not_set_ime_font_without_context() -> None:
+    imm32 = Imm32(context=0)
+    surface = WindowsNativeWindowSurface(user32=User32(), kernel32=Kernel32(), imm32=imm32)
+
+    assert surface.set_ime_composition_font(
+        10, family="Test", height=-16, weight=400, italic=False
+    ) is False
+    assert imm32.fonts == []

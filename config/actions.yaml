@@ -434,3 +434,31 @@ actions:
   - safety_check_missing
   - command_behavior_changed
   - other
+- id: advisory_board
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.4
+  feedback_reason_ids:
+  - perspectives_too_similar
+  - key_stakeholder_missing
+  - advice_generic_or_vague
+  - recommendation_overreaches
+  - other
+- id: insight_engine
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.4
+  feedback_reason_ids:
+  - insight_is_obvious
+  - insight_unsupported
+  - key_pattern_missing
+  - framing_misleading
+  - other

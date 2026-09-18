@@ -347,17 +347,27 @@ class Surface:
     def set_title(self, title: str) -> None:
         self.title = title
 
+    _set_title = set_title
+
     def set_source_preview(self, source_preview: str) -> None:
         self.source_preview = source_preview
+
+    _set_source_preview = set_source_preview
 
     def set_model(self, model: str) -> None:
         self.model = model
 
+    _set_model = set_model
+
     def set_back_available(self, enabled: bool) -> None:
         self.back_available = enabled
 
+    _set_back_available = set_back_available
+
     def set_available_actions(self, enabled_actions: tuple[str, ...]) -> None:
         self.enabled_actions = enabled_actions
+
+    _set_available_actions = set_available_actions
 
     def selected_text(self) -> str | None:
         return self.selected
@@ -379,6 +389,8 @@ class Surface:
 
     def set_speaker_active(self, active: bool) -> None:
         self.events.append(f"speaker:{active}")
+
+    _set_speaker_active = set_speaker_active
 
     def toggle_pin(self) -> bool:
         self.events.append("pin:toggled")
@@ -402,15 +414,26 @@ class Surface:
     def configure_action_contract(self, contract, input_source: str) -> None:
         self.events.append(("contract", contract, input_source))
 
+    _configure_action_contract = configure_action_contract
+
     def show_action_guidance_hint(self) -> None:
         self.events.append("guidance:shown")
+
+    _show_action_guidance_hint = show_action_guidance_hint
+
+    def _hide_action_guidance_hint(self) -> None:
+        self.events.append("guidance:hidden")
 
     def configure_feedback(self, contract, state, message, on_submit) -> None:
         self.feedback_submit = on_submit
         self.events.append(("feedback", state, message))
 
+    _configure_feedback = configure_feedback
+
     def hide_feedback(self) -> None:
         self.events.append("feedback:hidden")
+
+    _hide_feedback = hide_feedback
 
     def toggle_feedback_overlay(self) -> bool:
         self.events.append("feedback:toggled")

@@ -289,6 +289,16 @@ class NativeWindowSurface(Protocol):
 
     def owns_foreground(self, toolkit_child_id: int) -> bool: ...
 
+    def set_ime_composition_font(
+        self,
+        toolkit_child_id: int,
+        *,
+        family: str,
+        height: int,
+        weight: int,
+        italic: bool,
+    ) -> bool: ...
+
     def install_icon(self, toolkit_child_id: int, icon_path: Path) -> tuple[int, ...]: ...
 
     def destroy_icons(self, handles: tuple[int, ...]) -> None: ...

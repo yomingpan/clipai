@@ -137,6 +137,10 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
   Voice Listening／Finalizing 保持 non-activating，直到進入 Voice Review 才提出
   初始焦點請求。只有 toolkit 確認焦點位於該 Popup 內，Presenter 才能回報
   confirmed activation；焦點呼叫失敗不得被投影成 focused state。
+- 初始 focus 最多立即嘗試一次並以 32ms 間隔重試四次；成功條件是 Popup 真正取得
+  native foreground，而不是特定 content child 是否持有 caret。重試用盡後仍保留
+  pending，只有 foreground poll 確認 ownership 時才補做一次。Voice capture active
+  期間不得由 FocusOut 或 foreground poll 推導使用者已離開 Popup。
 - Toolkit focus 已進入 Popup、但 native foreground 尚未成立時，`PopupControl`
   必須維持 unfocused projection，並以 generation-bound、有限次
   的重新採樣等待兩軸確認。Popup 內的明確 pointer press 可透過既有
@@ -152,6 +156,11 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
   insertion projection 可以替換 widget 內容。文字修改必須由 widget mutation 事件
   回報，不得等到 physical key release 才觀察；同一個 editor 任一時刻只能綁定
   一個 mutation handler，snapshot refresh 不得累積 callback。
+- 進入 editing 必須先設 normal、移除所有 display break hints，再綁定唯一
+  `<<Modified>>` handler；切回 reading 必須先解除 handler、套用 display-only hints，
+  再設 disabled。`semantic_content()`、selection offsets 與所有 output intent 都先 strip
+  hints。禁止在 editable 文字注入 hint 或以 timer 正規化，確保 BackSpace、方向鍵與
+  caret 永遠作用於使用者看得見的 canonical 字元。
 - Paste target 無效、已關閉或無法成為 foreground 時，系統不得向其他視窗
   fallback 或盲送 `Ctrl+V`，必須恢復 surface 並顯示失敗狀態。
 
@@ -215,6 +224,9 @@ state change。Toolkit focus、activation、geometry 與 close events 可以在 
 - 在 BaseDialog 中直接決定 action variant 或 prompt。
 
 Base dialog surface 對 projection 的反應只能改變 UI state，例如文字、enabled state、focus、border color、button state、visibility。
+Header、Action、speaking、feedback 與 guidance 的宣告式投影唯一入口是
+`BaseResultSurface.render(PopupPresentationModel)`；其 widget setter 為 private implementation
+detail，content 與 flash 不得進入該 model。
 
 ## Current Implementation Notes
 

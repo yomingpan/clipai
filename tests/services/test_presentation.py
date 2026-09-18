@@ -33,6 +33,20 @@ def test_supported_markdown_becomes_typed_blocks_and_spans() -> None:
     assert document.blocks[-1].ordinal == 2
 
 
+@pytest.mark.parametrize("source", ["snake_case_name", "a_b_c", "word__x__word"])
+def test_identifier_underscores_are_not_emphasis(source: str) -> None:
+    document = MarkdownPresentationParser().parse(source)
+    assert [(span.text, span.style) for span in document.blocks[0].spans] == [
+        (source, "plain")
+    ]
+
+
+@pytest.mark.parametrize("source", ["**bold**", "_em_", "*em*"])
+def test_emphasis_at_token_boundaries_remains_supported(source: str) -> None:
+    document = MarkdownPresentationParser().parse(source)
+    assert document.blocks[0].spans[0].style in {"bold", "italic"}
+
+
 def test_supported_markdown_retains_canonical_fragments_for_selection() -> None:
     document = MarkdownPresentationParser().parse("# Title\n\n- **First** item\n2) *Second*")
 

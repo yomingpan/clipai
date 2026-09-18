@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "inventory": {
-    "actions": 27,
+    "actions": 29,
     "explicit_variants": [
       "translate_to_english:long",
       "english_companion:long",
@@ -11,9 +11,9 @@
       "extract_screenshot_text:long"
     ],
     "output_profiles": 10,
-    "shortcuts": 30,
-    "start_action_shortcuts": 27,
-    "entry_panel_candidates": 27
+    "shortcuts": 32,
+    "start_action_shortcuts": 29,
+    "entry_panel_candidates": 29
   },
   "default_system_prompt": "sha256:cc82d8e411e8fdbea01e7b3e367d4632ce6ed712a05b0dc3b292e8be953e0394",
   "resolved_actions": {
@@ -70,7 +70,11 @@
     "extract_screenshot_text:short": "sha256:6817720aeb5a1ff6605d7fcb61ca65cca020fe8722710e929500f1ab4817ccd2",
     "extract_screenshot_text:long": "sha256:e3994f27fd9bd8da714e26f6ddb7c1bba78d656a2f1854306840b74878b16fc0",
     "command_copilot:short": "sha256:2a9c538c4f1f3e27c823d53d2493fa075b4b3ec62b69c6df798d4b14ade61559",
-    "command_copilot:long": "sha256:b5f51273d8e1695161538784bb5eb5f4c176e35916095e2e72cccd238e94603c"
+    "command_copilot:long": "sha256:b5f51273d8e1695161538784bb5eb5f4c176e35916095e2e72cccd238e94603c",
+    "advisory_board:short": "sha256:c4653273f3adabd856cfdecbb02af0bdcb8c1b6311d47df5097f487b6fbc5fca",
+    "advisory_board:long": "sha256:3593d42486dabd656ea25e4a5a9e1a244c731d328a8c7349ad716027067ee7ad",
+    "insight_engine:short": "sha256:a31fea5b2ce285ebd075815a1830ae6878b4f8ba1cf16792a6d16acdc4e9b9bd",
+    "insight_engine:long": "sha256:6fa452432c31b0fcb51ae71634cb7b2e9a9272ad10c8dfe0c77ceab43cdd133d"
   },
   "output_profiles": {
     "plain_text": "sha256:053034d73f094295dcda47391a6115377f85806fe8a85b0b4c43363a1d5e6646",
@@ -84,7 +88,7 @@
     "session_handoff": "sha256:bd008a8518ed9802b1b0f183cfa8637efffdbce2b1e141d3645f45b8dc4cdd4e",
     "score_compact": "sha256:15018c5ad770219dd48501bb9c49cbaed347956e9dd94859cf5c0f9eed248cf1"
   },
-  "shortcut_matrix": "sha256:225d94448c7f39e988ef20f3d139a9f43f05a03bfa32fc037650bbba67d520a5",
+  "shortcut_matrix": "sha256:806209c0caf37489bd0bfe77cc11760c09261dbb7b1dfe6fa486f8eec466291c",
   "entry_panel_candidates": {
     "translate_to_traditional_chinese:short": "sha256:3f2b79ca74b9bf97fd16d0e8d27f58bb00654fb39fdffcf07d3794ce3ec2672a",
     "english_companion:short": "sha256:2a6f804cbd2cf280ba5a47c4d690caf8faea6c1819910f5ee72de2ccab875410",
@@ -110,6 +114,8 @@
     "mece_decomposition:short": "sha256:dfc220d10b17bebf3bda09769125df01f8e3db21487d06f75017c02f2e965fe5",
     "minimum_action:short": "sha256:e3e49e97db3d5158011313c530ab4c77fd60eeb927a05487600efacac8a5d9ba",
     "structure_score_prompt:short": "sha256:43bd269415f716becf443984f08331e11b0350ca37cd83191dce3dce0a33ab15",
+    "advisory_board:short": "sha256:f463ea36c8f79deaab4ec6be597ef49423fbaee0d431ea75d36decb12f0a1821",
+    "insight_engine:short": "sha256:205296214936a64926d51f4d2776548b5cd59934ef176069f2a8d84d299baeaf",
     "extract_screenshot_text:short": "sha256:fab7e4655131b01da72ae72b8f9b6a85a84cc6fe9900e70829cbe2d8593112aa",
     "session_handoff:short": "sha256:5e702c523ee8002b366d352941a0d43136dba41435e94bc9ff6a3d65db3c7952",
     "command_copilot:short": "sha256:2b8479abeec43a7b44c66787c1d5256d2342fcda89e8fb8666f0298fbd0b8afc"

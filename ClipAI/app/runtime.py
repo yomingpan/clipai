@@ -224,6 +224,8 @@ class AppRuntime:
             if isinstance(command, (ShortcutPressStarted, ShortcutPressInvoked, ShortcutPressEnded)) and self._shortcuts.is_push_to_talk(command.shortcut_id):
                 if self._voice_input_module is not None and isinstance(command, ShortcutPressStarted):
                     self._voice_input_module.handle_shortcut_started(command)
+                elif self._voice_input_module is not None and isinstance(command, ShortcutPressInvoked):
+                    self._voice_input_module.handle_shortcut_invoked(command)
                 elif self._voice_input_module is not None and isinstance(command, ShortcutPressEnded):
                     self._voice_input_module.handle_shortcut_ended(command)
                 return

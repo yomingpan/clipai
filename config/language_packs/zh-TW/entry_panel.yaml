@@ -96,6 +96,14 @@ candidates:
     press_type: short
     label: SCORE 需求整理
     description: 用 SCORE 結構釐清需求與背景。
+  - action_id: advisory_board
+    press_type: short
+    label: 顧問團
+    description: 以多元顧問視角提出建言與取捨。
+  - action_id: insight_engine
+    press_type: short
+    label: 洞察引擎
+    description: 挖掘非顯而易見、有依據的洞察。
   - action_id: extract_screenshot_text
     press_type: short
     label: OCR／擷取截圖文字

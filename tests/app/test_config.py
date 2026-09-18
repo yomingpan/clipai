@@ -485,7 +485,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 27
+    assert len(start_actions) == 29
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
         "voice_input": "ctrl+alt+w",
         "contextual_question": "ctrl+alt+r",
@@ -517,6 +517,8 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
             "personal_style_informal": "ctrl+alt+i",
             "personal_style_oral": "ctrl+alt+o",
             "personal_style_presentation": "ctrl+alt+p",
+            "advisory_board": "ctrl+alt+j",
+            "insight_engine": "ctrl+alt+k",
         }
     for shortcut in start_actions:
         for press_type in ("short", "long"):

@@ -691,7 +691,7 @@ def _parse_entry_panel_candidate_skeletons(
         data = _mapping(item, candidate_path, "contract_mismatch")
         _reject_unknown(
             data,
-            {"action_id", "press_type"},
+            {"action_id", "press_type", "long"},
             candidate_path,
             "contract_mismatch",
         )
@@ -700,6 +700,9 @@ def _parse_entry_panel_candidate_skeletons(
             {"short", "long"},
             f"{candidate_path}.press_type",
         )
+        long_data = _mapping(data.get("long"), f"{candidate_path}.long", "contract_mismatch") if data.get("long") is not None else {}
+        if long_data:
+            _reject_unknown(long_data, {"action_id", "press_type"}, f"{candidate_path}.long", "contract_mismatch")
         candidates.append(
             EntryPanelCandidateSkeleton(
                 action_id=_text(
@@ -708,6 +711,15 @@ def _parse_entry_panel_candidate_skeletons(
                     "contract_mismatch",
                 ),
                 press_type=cast(PressType, press_type),
+                long_action_id=(
+                    _text(long_data.get("action_id"), f"{candidate_path}.long.action_id", "contract_mismatch")
+                    if long_data else None
+                ),
+                long_press_type=cast(PressType, _choice(
+                    long_data.get("press_type", "long"),
+                    {"short", "long"},
+                    f"{candidate_path}.long.press_type",
+                )),
             )
         )
     return tuple(candidates)

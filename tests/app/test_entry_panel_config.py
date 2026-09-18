@@ -257,6 +257,8 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
                 "mece_decomposition",
                 "minimum_action",
                 "structure_score_prompt",
+                "advisory_board",
+                "insight_engine",
             ),
         ),
         6: (

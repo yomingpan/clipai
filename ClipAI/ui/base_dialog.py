@@ -14,6 +14,7 @@ from ClipAI.core.popup_presentation import PopupPresentationModel
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
+from ClipAI.ui.presentation_render import RenderSelectionSegment, build_popup_render_plan, project_selection_text
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
 
 DialogState = Literal["idle", "success", "error", "warning"]
@@ -21,37 +22,27 @@ ResultActionId = Literal["speaker", "copy", "paste", "archive", "follow_up"]
 SOURCE_PREVIEW_MAX_CHARS = 36
 DISPLAY_BREAK_TAG = "display_break_hint"
 
-
-@dataclass(frozen=True)
-class _CanonicalSelectionSegment:
-    offset: int
-    display_text: str
-    canonical_text: str
-
-    @property
-    def end(self) -> int:
-        return self.offset + len(self.display_text)
+# Compatibility names for existing UI adapter tests; ownership lives in the
+# Tk-free presentation_render module.
+_CanonicalSelectionSegment = RenderSelectionSegment
+_canonical_selection_text = project_selection_text
 
 
-def _canonical_selection_text(
-    segments: tuple[_CanonicalSelectionSegment, ...],
-    selection_start: int,
-    selection_end: int,
-) -> str:
-    """Project a rendered selection back to canonical presentation fragments."""
-    projected: list[str] = []
-    for segment in segments:
-        overlap_start = max(selection_start, segment.offset)
-        overlap_end = min(selection_end, segment.end)
-        if overlap_start >= overlap_end:
+def canonical_caret_to_widget_offset(hinted: str, canonical_offset: int) -> int:
+    """Map a canonical caret offset onto a break-hinted widget character index."""
+    if canonical_offset <= 0:
+        return 0
+    counted = 0
+    index = 0
+    while index < len(hinted):
+        if hinted.startswith(DISPLAY_BREAK_HINT, index):
+            index += len(DISPLAY_BREAK_HINT)
             continue
-        if overlap_start == segment.offset and overlap_end == segment.end:
-            projected.append(segment.canonical_text)
-        else:
-            relative_start = overlap_start - segment.offset
-            relative_end = overlap_end - segment.offset
-            projected.append(segment.display_text[relative_start:relative_end])
-    return "".join(projected)
+        counted += 1
+        index += 1
+        if counted == canonical_offset:
+            return index
+    return len(hinted)
 
 
 class _TextInserter(Protocol):
@@ -1189,27 +1180,29 @@ class BaseResultSurface:
                 self.clipboard_choice_button.grid_remove()
         if previous is None or _popup_header_group(previous) != _popup_header_group(model):
             self.set_pinned_state(model.pinned)
-            self.set_title(model.title)
-            self.set_source_preview(model.source_preview)
-            self.set_model(model.model)
-            self.set_back_available(model.back)
-            self.configure_action_contract(model.contract, model.input_source)
+            self._set_title(model.title)
+            self._set_source_preview(model.source_preview)
+            self._set_model(model.model)
+            self._set_back_available(model.back)
+            self._configure_action_contract(model.contract, model.input_source)
         if previous is None or previous.enabled_actions != model.enabled_actions:
-            self.set_available_actions(model.enabled_actions)
+            self._set_available_actions(model.enabled_actions)
         if previous is None or previous.speaking != model.speaking:
-            self.set_speaker_active(model.speaking)
+            self._set_speaker_active(model.speaking)
         if previous is None or previous.feedback != model.feedback:
             if model.feedback is None:
-                self.hide_feedback()
+                self._hide_feedback()
             else:
-                self.configure_feedback(
+                self._configure_feedback(
                     model.feedback.contract,
                     model.feedback.state,
                     model.feedback.message,
                     self._feedback_submit,
                 )
         if model.guidance and (previous is None or not previous.guidance):
-            self.show_action_guidance_hint()
+            self._show_action_guidance_hint()
+        elif previous is not None and previous.guidance and not model.guidance:
+            self._hide_action_guidance_hint()
         self._last_model = model
 
     def _build(self) -> None:
@@ -1523,13 +1516,13 @@ class BaseResultSurface:
         )
         self.follow_send_button.grid(row=0, column=1, sticky="e")
 
-    def set_title(self, title: str) -> None:
+    def _set_title(self, title: str) -> None:
         self.title_label.configure(text=title)
 
-    def set_source_preview(self, text: str) -> None:
+    def _set_source_preview(self, text: str) -> None:
         self.source_label.configure(text=ellipsize_source_preview(text))
 
-    def set_model(self, model: str) -> None:
+    def _set_model(self, model: str) -> None:
         self.model_label.configure(text=f"model: {model}")
 
     def set_paste_focus_state(
@@ -1585,7 +1578,7 @@ class BaseResultSurface:
         )
         self.set_action_tooltip("paste", "Popup 未聚焦；Ctrl+V 會使用原剪貼簿內容")
 
-    def configure_action_contract(self, contract: ActionFeedbackContract | None, input_source: str) -> None:
+    def _configure_action_contract(self, contract: ActionFeedbackContract | None, input_source: str) -> None:
         if contract is None:
             self.info_button.pack_forget()
             self._feedback_contract = None
@@ -1596,22 +1589,22 @@ class BaseResultSurface:
         if not self.info_button.winfo_manager():
             self.info_button.pack(side="left", padx=(0, 4), before=self.close_button)
 
-    def show_action_guidance_hint(self) -> None:
+    def _show_action_guidance_hint(self) -> None:
         if self._feedback_contract is not None and self.info_button.winfo_manager():
             if self._guidance_job is not None:
                 self.dialog.lifecycle.cancel(self._guidance_job)
             self.guidance_coachmark_label.configure(text=action_contract_tooltip_text(self._feedback_contract))
             self.guidance_coachmark.place(relx=0.97, y=30, anchor="ne", relwidth=0.82)
             self.guidance_coachmark.lift()
-            self._guidance_job = self.dialog.lifecycle.schedule(3500, self.hide_action_guidance_hint)
+            self._guidance_job = self.dialog.lifecycle.schedule(3500, self._hide_action_guidance_hint)
 
-    def hide_action_guidance_hint(self) -> None:
+    def _hide_action_guidance_hint(self) -> None:
         self.guidance_coachmark.place_forget()
         if self._guidance_job is not None:
             self.dialog.lifecycle.cancel(self._guidance_job)
             self._guidance_job = None
 
-    def configure_feedback(
+    def _configure_feedback(
         self,
         contract: ActionFeedbackContract | None,
         state: FeedbackOperationState,
@@ -1619,7 +1612,7 @@ class BaseResultSurface:
         on_submit: Callable[[FeedbackOutcome, str, str, bool], None] | None,
     ) -> None:
         if contract is None or on_submit is None:
-            self.hide_feedback()
+            self._hide_feedback()
             return
         self._feedback_available = True
         self._feedback_submit = on_submit
@@ -1668,7 +1661,7 @@ class BaseResultSurface:
     ) -> None:
         self._feedback_submit = callback
 
-    def hide_feedback(self) -> None:
+    def _hide_feedback(self) -> None:
         self.close_feedback_overlay()
         self._feedback_available = False
         self._feedback_state = "idle"
@@ -1679,7 +1672,7 @@ class BaseResultSurface:
         if self._feedback_state == "succeeded":
             self.show_action_message("已記錄回饋")
             return True
-        self.hide_action_guidance_hint()
+        self._hide_action_guidance_hint()
         if self._feedback_overlay_open:
             self.close_feedback_overlay()
             return True
@@ -1767,7 +1760,7 @@ class BaseResultSurface:
             on_follow_up=on_follow_up,
         )
 
-    def set_available_actions(self, enabled_actions: tuple[str, ...]) -> None:
+    def _set_available_actions(self, enabled_actions: tuple[str, ...]) -> None:
         self.standard_actions.set_available(enabled_actions)
 
     def configure_voice_action(
@@ -1807,7 +1800,7 @@ class BaseResultSurface:
     def bind_back_action(self, command: Callable[[], None]) -> None:
         self._back_button.configure(command=command)
 
-    def set_back_available(self, enabled: bool) -> None:
+    def _set_back_available(self, enabled: bool) -> None:
         self._back_button.configure(state="normal" if enabled else "disabled")
         if not enabled:
             self._back_button.pack_forget()
@@ -1817,12 +1810,12 @@ class BaseResultSurface:
     def configure_back_action(self, command: Callable[[], None] | None) -> None:
         if command is not None:
             self.bind_back_action(command)
-        self.set_back_available(command is not None)
+        self._set_back_available(command is not None)
 
     def bind_back_shortcut(self, callback: Callable[[object], str]) -> None:
         self.content_text.bind("<Control-z>", callback, add="+")
 
-    def set_speaker_active(self, active: bool) -> None:
+    def _set_speaker_active(self, active: bool) -> None:
         self.standard_actions.set_speaker_active(active)
 
     def set_follow_up_active(self, active: bool) -> None:
@@ -1978,16 +1971,44 @@ class BaseResultSurface:
         """Switch the rendered Voice Draft between editable and reading presentation."""
         if editing:
             self.content_text.configure(state="normal")
+            self._strip_break_hints_for_editing()
             if self._editable_content_changed is not None:
                 self.content_text.unbind("<<Modified>>")
                 self.content_text.bind("<<Modified>>", self._notify_editable_content_changed)
             return
         self.content_text.unbind("<<Modified>>")
+        self._apply_break_hints_for_reading()
         self.content_text.configure(state="disabled")
+
+    def _strip_break_hints_for_editing(self) -> None:
+        try:
+            raw = self.content_text.get("1.0", "end-1c")
+            canonical = strip_display_break_hints(raw)
+            if raw == canonical:
+                return
+            caret = len(strip_display_break_hints(self.content_text.get("1.0", "insert")))
+            self.content_text.delete("1.0", "end")
+            self.content_text.insert("1.0", canonical, "body")
+            self.content_text.mark_set("insert", f"1.0 + {min(caret, len(canonical))} chars")
+            self.content_text.edit_modified(False)
+        except (tk.TclError, AttributeError):
+            return
+
+    def _apply_break_hints_for_reading(self) -> None:
+        try:
+            raw = self.content_text.get("1.0", "end-1c")
+            canonical = strip_display_break_hints(raw)
+            hinted = add_display_break_hints(canonical)
+            if raw == hinted:
+                return
+            self.content_text.delete("1.0", "end")
+            insert_display_text(self.content_text, "1.0", canonical, "body")
+        except (tk.TclError, AttributeError):
+            return
 
     def semantic_content(self) -> str:
         try:
-            return self.content_text.get("1.0", "end-1c")
+            return strip_display_break_hints(self.content_text.get("1.0", "end-1c"))
         except (tk.TclError, AttributeError):
             return ""
 
@@ -2002,7 +2023,10 @@ class BaseResultSurface:
             except (tk.TclError, AttributeError):
                 return (0, 0)
         try:
-            return (len(self.content_text.get("1.0", start)), len(self.content_text.get("1.0", end)))
+            return (
+                len(strip_display_break_hints(self.content_text.get("1.0", start))),
+                len(strip_display_break_hints(self.content_text.get("1.0", end))),
+            )
         except (tk.TclError, AttributeError):
             return (0, 0)
 
@@ -2038,62 +2062,18 @@ class BaseResultSurface:
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         self._list_indent_prefixes.clear()
-        selection_segments: list[_CanonicalSelectionSegment] = []
-        selection_offset = 0
-
-        def record_selection_segment(display_text: str, canonical_text: str) -> None:
-            nonlocal selection_offset
-            if display_text:
-                selection_segments.append(_CanonicalSelectionSegment(
-                    selection_offset,
-                    display_text,
-                    canonical_text,
-                ))
-                selection_offset += len(display_text)
-
         try:
-            for block_index, block in enumerate(document.blocks):
-                previous_last_char = ""
-                block_tag = "paragraph"
-                prefix = ""
-                if block.kind == "heading":
-                    block_tag = f"heading_{min(max(block.level, 1), 3)}"
-                elif block.kind == "unordered_item":
-                    block_tag, prefix = "list", "• "
-                elif block.kind == "ordered_item":
-                    block_tag, prefix = "list", f"{block.ordinal or 1}. "
-                elif block.kind == "spacer":
-                    block_tag = "retrieval_spacer"
-                indent_tag: str | None = None
-                if prefix:
-                    indent_tag = f"list_indent_{block_index}"
-                    self._list_indent_prefixes[indent_tag] = prefix
-                    configure_hanging_indent(self.content_text, indent_tag, prefix)
-                if prefix:
-                    assert indent_tag is not None
-                    insert_display_text(self.content_text, "end", prefix, (block_tag, indent_tag))
-                    record_selection_segment(prefix, block.canonical_prefix or prefix)
-                canonical_prefix = "" if prefix else block.canonical_prefix
-                for span_index, span in enumerate(block.spans):
-                    tags: tuple[str, ...] = ((block_tag,) if span.style == "plain" else (block_tag, span.style))
-                    if indent_tag is not None:
-                        tags += (indent_tag,)
-                    if previous_last_char and span.text and display_break_opportunity(previous_last_char, span.text[0]):
-                        self.content_text.insert("end", DISPLAY_BREAK_HINT, (*tags, DISPLAY_BREAK_TAG))
-                    insert_display_text(self.content_text, "end", span.text, tags)
-                    canonical_text = span.canonical_text if span.canonical_text is not None else span.text
-                    if span_index == 0:
-                        canonical_text = f"{canonical_prefix}{canonical_text}"
-                    record_selection_segment(span.text, canonical_text)
-                    if span.text:
-                        previous_last_char = span.text[-1]
-                self.content_text.insert("end", "\n", (block_tag,) if indent_tag is None else (block_tag, indent_tag))
-                record_selection_segment("\n", "\n")
+            plan = build_popup_render_plan(document)
+            for tag, prefix in plan.indent_prefixes:
+                self._list_indent_prefixes[tag] = prefix
+                configure_hanging_indent(self.content_text, tag, prefix)
+            for step in plan.steps:
+                self.content_text.insert("end", step.text, step.tags)
         except (tk.TclError, ValueError):
-            selection_segments.clear()
+            plan = None
             self.content_text.delete("1.0", "end")
             insert_display_text(self.content_text, "end", document.fallback_text, "body")
-        self._canonical_selection_segments = tuple(selection_segments)
+        self._canonical_selection_segments = () if plan is None else plan.selection_segments
         self.content_text.configure(state="disabled")
 
     def _reapply_list_indents(self) -> None:
@@ -2113,7 +2093,7 @@ class BaseResultSurface:
                     self.content_text.get("1.0", "sel.first"),
                     trailing=True,
                 )
-                selected = _canonical_selection_text(
+                selected = project_selection_text(
                     segments,
                     len(before_selection),
                     len(before_selection) + len(selected_display),

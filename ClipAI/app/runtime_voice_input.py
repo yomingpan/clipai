@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Generic, TypeVar
 
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
-from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired
+from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
 from ClipAI.core.ports import UserNotifier, VoiceInputEngine, VoiceSetupPresenter
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceDraftTarget, VoiceEngineListening, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
@@ -175,6 +175,7 @@ class VoiceInputRuntimeModule:
             ),
         )
         self._silence_watchdogs: dict[VoiceCaptureId, object] = {}
+        self._short_tap_presses: set[ShortcutPressId] = set()
 
     def admit_entry_panel_open(self) -> bool:
         if self._controller.projection.capture_phase not in {
@@ -227,12 +228,20 @@ class VoiceInputRuntimeModule:
         if self._notifier is not None:
             self._notifier.notify("Voice Input", message)
 
+    def handle_shortcut_invoked(self, command: ShortcutPressInvoked) -> bool:
+        if command.press_type == "short":
+            self._short_tap_presses.add(command.press_id)
+        return True
+
     def handle_shortcut_ended(self, command: ShortcutPressEnded) -> bool:
-        transition = (
-            self._controller.abandon_press(command.press_id)
-            if command.outcome == "cancelled"
-            else self._controller.request_release_for_press(command.press_id)
-        )
+        short_tap = command.press_id in self._short_tap_presses
+        self._short_tap_presses.discard(command.press_id)
+        if command.outcome == "cancelled":
+            transition = self._controller.abandon_press(command.press_id)
+        elif short_tap:
+            transition = self._controller.abandon_to_review_for_press(command.press_id)
+        else:
+            transition = self._controller.request_release_for_press(command.press_id)
         if transition.ignored:
             return False
         self._press_deadlines.cancel(command.press_id)
