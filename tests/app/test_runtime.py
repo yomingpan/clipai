@@ -2793,6 +2793,29 @@ def test_dispatched_voice_paste_closes_the_unpinned_workflow_before_the_next_sho
     assert runtime._workflow_module.has_foreground_workflow() is False
 
 
+def test_dispatched_action_paste_allows_next_voice_shortcut_to_create_fresh_draft() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime(include_voice_input=True)
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+
+    runtime.enqueue(PasteOperationCompleted(
+        "paste-op",
+        workflow_id,
+        PasteOutcome("dispatched_unconfirmed", "dispatched_unconfirmed", "restored"),
+    ))
+    runtime.drain_commands()
+
+    assert runtime._workflow_module.controller_for(workflow_id) is not None
+    assert runtime._workflow_module.has_foreground_workflow() is False
+    assert runtime._user_control.focused_surface is None
+
+    admission = runtime._workflow_module.admit_voice_capture(VoiceCaptureIntent("shortcut"))
+
+    assert admission.kind == "create"
+    assert admission.message == ""
+
+
 def test_new_voice_workflow_is_an_editable_standby_draft_before_microphone_open() -> None:
     runtime, _view, _supervisor, _outputs, _listener = make_runtime()
 

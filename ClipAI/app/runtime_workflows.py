@@ -225,7 +225,7 @@ class WorkflowRuntimeModule:
                 return VoiceCaptureAdmission("rejected", workflow_id=workflow_id)
             return self._voice_capture_admission_for_visible(intent, workflow_id, record)
         visible = self._visible_record()
-        if visible is not None:
+        if visible is not None and self._foreground_id == visible[0]:
             workflow_id, record = visible
             return self._voice_capture_admission_for_visible(intent, workflow_id, record)
         if intent.focused_surface is not None:
