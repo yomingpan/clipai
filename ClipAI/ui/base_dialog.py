@@ -27,6 +27,41 @@ DISPLAY_BREAK_TAG = "display_break_hint"
 _CanonicalSelectionSegment = RenderSelectionSegment
 _canonical_selection_text = project_selection_text
 
+_IME_MISMAPPED_KEYSYMS = frozenset({
+    "Prior",
+    "Next",
+    "End",
+    "Home",
+    "Left",
+    "Up",
+    "Right",
+    "Down",
+    "Select",
+    "Print",
+    "Execute",
+    "Snapshot",
+    "Insert",
+    "Delete",
+    "Help",
+    "Clear",
+    "Begin",
+    "Cancel",
+})
+
+
+def install_ime_halfwidth_punctuation_fix(widget) -> None:
+    """Keep printable IME punctuation from being mistaken for navigation."""
+
+    def insert_mismapped_character(event) -> str | None:
+        char = getattr(event, "char", "")
+        keysym = getattr(event, "keysym", "")
+        if char and keysym in _IME_MISMAPPED_KEYSYMS and char.isprintable():
+            widget.insert("insert", char)
+            return "break"
+        return None
+
+    widget.bind("<KeyPress>", insert_mismapped_character, add="+")
+
 
 def canonical_caret_to_widget_offset(hinted: str, canonical_offset: int) -> int:
     """Map a canonical caret offset onto a break-hinted widget character index."""
@@ -1352,6 +1387,7 @@ class BaseResultSurface:
             height=170,
             pady=0,
         )
+        install_ime_halfwidth_punctuation_fix(self.content_text)
         self.content_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 2))
         self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
         self.content_text.tag_config("body", foreground=CONTENT_COLOR)
@@ -1474,6 +1510,7 @@ class BaseResultSurface:
             height=28,
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
+        install_ime_halfwidth_punctuation_fix(self.feedback_note)
         self.feedback_note.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self.feedback_submit_button = ctk.CTkButton(
             self.feedback_other,
@@ -1502,6 +1539,7 @@ class BaseResultSurface:
             text_color=CONTENT_COLOR,
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
         )
+        install_ime_halfwidth_punctuation_fix(self.follow_entry)
         self.follow_entry.grid(row=0, column=0, sticky="ew", padx=(0, 7))
         self.follow_send_button = ctk.CTkButton(
             self.follow_row,

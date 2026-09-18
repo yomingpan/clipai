@@ -188,7 +188,7 @@ class WorkflowRuntimeModule:
         )
 
     def create_voice_workflow(self, workflow_id: str, target: PasteTarget | None) -> WorkflowController:
-        """Create the visible Workflow that exclusively owns one Voice draft."""
+        """Create a visible Voice draft standing by without opening the microphone."""
         if workflow_id in self._records:
             raise RuntimeError(f"workflow identity is already registered: {workflow_id}")
         if not self._replace_unpinned_visible_workflow():
@@ -197,15 +197,15 @@ class WorkflowRuntimeModule:
             SessionSnapshot(
                 workflow_id,
                 0,
-                SessionStatus.VOICE_PREPARING,
+                SessionStatus.VOICE_REVIEW,
                 "voice_input",
                 "Voice Input",
                 self._provider_configuration.active_binding.model,
                 content="",
                 source_preview="Voice Input draft",
-                status_text="Preparing microphone…",
-                available_actions=(),
-                result_completeness="none",
+                status_text="",
+                available_actions=("copy", "paste", "follow_up"),
+                result_completeness="complete",
                 voice_origin=VoiceOrigin(target),
             ),
             "visible",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureAdmission
-from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceSilenceWatchdogExpired
+from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceSetupId
@@ -143,6 +143,84 @@ class Watchdog:
     def cancel(self) -> None: self.cancelled = True
 
 
+def test_ptt_opens_the_microphone_only_after_the_hold_threshold() -> None:
+    engine, workflows, scheduled = Engine(), Workflows(), []
+
+    def hold_schedule(delay, callback):
+        timer = Watchdog(callback)
+        scheduled.append((delay, timer))
+        return timer
+
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        hold_schedule=hold_schedule,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(41, "voice_input")) is True
+    assert len(workflows.created) == 1
+    assert engine.calls == []
+    assert scheduled[0][0] == 0.18
+
+    assert runtime.handle(VoiceCaptureHoldElapsed(41)) is True
+    assert scheduled[0][1].cancelled is True
+    assert engine.calls == [("start", "voice-press-41", "zh-TW", 0)]
+
+
+def test_ptt_quick_tap_never_opens_the_microphone_and_keeps_the_draft() -> None:
+    engine, workflows, scheduled = Engine(), Workflows(), []
+
+    def hold_schedule(delay, callback):
+        timer = Watchdog(callback)
+        scheduled.append(timer)
+        return timer
+
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        hold_schedule=hold_schedule,
+    )
+
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(42, "voice_input")) is True
+    assert runtime.handle_shortcut_ended(
+        ShortcutPressEnded(42, "voice_input", "released")
+    ) is True
+
+    assert scheduled[0].cancelled is True
+    assert engine.calls == []
+    assert len(workflows.created) == 1
+
+
+def test_voice_shutdown_cancels_an_armed_hold_before_its_late_callback() -> None:
+    engine, workflows, dispatched, scheduled = Engine(), Workflows(), [], []
+
+    def hold_schedule(_delay, callback):
+        timer = Watchdog(callback)
+        scheduled.append(timer)
+        return timer
+
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=engine,
+        workflows=workflows,
+        paste_target_reader=lambda: None,
+        dispatch=dispatched.append,
+        hold_schedule=hold_schedule,
+    )
+    runtime.handle_shortcut_started(ShortcutPressStarted(43, "voice_input"))
+
+    runtime.stop()
+    scheduled[0].callback()
+
+    assert scheduled[0].cancelled is True
+    assert dispatched == []
+    assert engine.calls == [("shutdown",)]
+
+
 def test_ptt_flow_creates_workflow_after_admission_and_applies_finalized_text() -> None:
     engine, workflows = Engine(), Workflows()
     controller = VoiceInputController(enabled=True)
@@ -152,6 +230,7 @@ def test_ptt_flow_creates_workflow_after_admission_and_applies_finalized_text() 
 
     assert runtime.handle_shortcut_started(press) is True
     capture_id = "voice-press-1"
+    assert runtime.handle(VoiceCaptureHoldElapsed(1)) is True
     runtime.handle(VoiceEngineEventReceived(VoiceEngineListening(capture_id)))
     runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture_id, 0, "hello")))
     runtime.handle_shortcut_ended(ShortcutPressEnded(1, "voice_input", "released"))
@@ -179,6 +258,8 @@ def test_ptt_captures_the_current_external_target_when_the_cached_target_is_miss
     assert runtime.handle_shortcut_started(ShortcutPressStarted(2, "voice_input")) is True
     assert captured == [True]
     assert workflows.created[0][1] == current_target
+    assert engine.calls == []
+    assert runtime.handle(VoiceCaptureHoldElapsed(2)) is True
     assert engine.calls == [("start", "voice-press-2", "zh-TW", 0)]
 
 
@@ -194,6 +275,8 @@ def test_ptt_without_an_external_target_starts_a_targetless_voice_draft() -> Non
 
     assert runtime.handle_shortcut_started(ShortcutPressStarted(3, "voice_input")) is True
     assert workflows.created[0][1] is None
+    assert engine.calls == []
+    assert runtime.handle(VoiceCaptureHoldElapsed(3)) is True
     assert engine.calls == [("start", "voice-press-3", "zh-TW", 0)]
     assert notifier.messages == []
 
@@ -240,6 +323,7 @@ def test_ptt_over_a_completed_result_finalizes_into_its_follow_up() -> None:
     )
 
     assert runtime.handle_shortcut_started(ShortcutPressStarted(33, "voice_input")) is True
+    assert runtime.handle(VoiceCaptureHoldElapsed(33)) is True
     runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment("voice-press-33", 0, "What changed?")))
     runtime.handle_shortcut_ended(ShortcutPressEnded(33, "voice_input", "released"))
     runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded("voice-press-33")))
@@ -297,6 +381,8 @@ def test_ptt_from_voice_review_reuses_its_workflow_and_frozen_selection() -> Non
 
     assert runtime.handle_shortcut_started(ShortcutPressStarted(4, "voice_input")) is True
     assert workflows.created == []
+    assert engine.calls == []
+    assert runtime.handle(VoiceCaptureHoldElapsed(4)) is True
     assert engine.calls == [("start", "voice-press-4", "zh-TW", 0)]
 
 
@@ -309,6 +395,7 @@ def test_closing_the_capture_workflow_cancels_its_engine_capture() -> None:
         paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
     )
     runtime.handle_shortcut_started(ShortcutPressStarted(5, "voice_input"))
+    runtime.handle(VoiceCaptureHoldElapsed(5))
 
     assert runtime.close_workflow(workflows.created[0][0]) is True
     assert engine.calls[-1] == ("cancel", "voice-press-5")
@@ -393,6 +480,7 @@ def test_ptt_time_limit_starts_after_listening_and_saves_the_finalized_section()
 
     assert runtime.handle_shortcut_started(ShortcutPressStarted(9, "voice_input")) is True
     assert scheduled == []
+    assert runtime.handle(VoiceCaptureHoldElapsed(9)) is True
     assert runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("voice-press-9"))) is True
     assert scheduled[0][0] == 120.0
     scheduled[0][1].callback()
@@ -430,6 +518,7 @@ def test_ptt_countdown_uses_the_same_listening_deadline_as_the_safety_limit() ->
         monotonic_clock=lambda: now[0],
     )
     runtime.handle_shortcut_started(ShortcutPressStarted(11, "voice_input"))
+    runtime.handle(VoiceCaptureHoldElapsed(11))
     runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("voice-press-11")))
 
     assert scheduled[0][0] == 120.0
@@ -460,6 +549,7 @@ def test_ptt_release_cancels_watchdog_before_a_late_callback_can_cancel_again() 
         watchdog_schedule=schedule,
     )
     runtime.handle_shortcut_started(ShortcutPressStarted(10, "voice_input"))
+    runtime.handle(VoiceCaptureHoldElapsed(10))
     runtime.handle(VoiceEngineEventReceived(VoiceEngineListening("voice-press-10")))
 
     assert runtime.handle_shortcut_ended(ShortcutPressEnded(10, "voice_input", "released")) is True

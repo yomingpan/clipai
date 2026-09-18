@@ -10,10 +10,16 @@ categories:
         press_type: short
       - action_id: english_companion
         press_type: short
+        long:
+          action_id: english_companion
+          press_type: long
       - action_id: explain_like_friend
         press_type: short
       - action_id: reading_friction
         press_type: short
+        long:
+          action_id: reading_friction
+          press_type: long
     advanced:
       - action_id: article_structure
         press_type: short
@@ -27,8 +33,14 @@ categories:
     flagship:
       - action_id: translate_to_english
         press_type: short
+        long:
+          action_id: translate_to_english
+          press_type: long
       - action_id: shorten_content
         press_type: short
+        long:
+          action_id: shorten_content
+          press_type: long
       - action_id: personal_style_informal
         press_type: short
       - action_id: intent_preserving_dictation_editor
@@ -36,6 +48,9 @@ categories:
     advanced:
       - action_id: expression_retrieval
         press_type: short
+        long:
+          action_id: expression_retrieval
+          press_type: long
       - action_id: personal_style_oral
         press_type: short
       - action_id: personal_style_presentation
@@ -81,6 +96,9 @@ categories:
     flagship:
       - action_id: extract_screenshot_text
         press_type: short
+        long:
+          action_id: extract_screenshot_text
+          press_type: long
       - action_id: session_handoff
         press_type: short
       - action_id: command_copilot

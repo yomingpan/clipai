@@ -53,11 +53,35 @@ from ClipAI.ui.base_dialog import (
     configure_tooltip_layer,
     compact_action_message,
     insert_display_text,
+    install_ime_halfwidth_punctuation_fix,
     paste_target_display_text,
     _CanonicalSelectionSegment,
     _canonical_selection_text,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
+
+
+def test_ime_halfwidth_punctuation_fix_inserts_only_mismapped_printable_characters() -> None:
+    class Widget:
+        def __init__(self) -> None:
+            self.binding = None
+            self.insertions = []
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.binding = (sequence, callback, add)
+
+        def insert(self, index, text) -> None:
+            self.insertions.append((index, text))
+
+    widget = Widget()
+    install_ime_halfwidth_punctuation_fix(widget)
+    _, handler, add = widget.binding
+
+    assert handler(type("Event", (), {"char": ",", "keysym": "Left"})()) == "break"
+    assert handler(type("Event", (), {"char": "", "keysym": "Left"})()) is None
+    assert handler(type("Event", (), {"char": ".", "keysym": "period"})()) is None
+    assert widget.insertions == [("insert", ",")]
+    assert add == "+"
 
 
 def test_external_output_visibility_actions_are_mechanical() -> None:

@@ -16,7 +16,7 @@ from ClipAI.core.commands import (
     RetryEntryPanelInput,
     UseEntryPanelClipboard,
 )
-from ClipAI.core.models import EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
+from ClipAI.core.models import EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds, PressType
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
 from ClipAI.ui.ime_composition import install_ime_composition_font
 from ClipAI.ui.base_dialog import (
@@ -28,6 +28,7 @@ from ClipAI.ui.base_dialog import (
     SURFACE_BG,
     TC_FONT_FAMILY,
     _Tooltip,
+    install_ime_halfwidth_punctuation_fix,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
@@ -38,6 +39,9 @@ _TRANSPARENT_WINDOW_BACKGROUND = "#111111"
 _CARD_BACKGROUND = "#252525"
 _CARD_HOVER_BACKGROUND = "#303030"
 _CARD_BORDER = "#454545"
+_HOLD_SEC = 0.5
+_HOLD_STEPS = 12
+_KEY_RELEASE_DEBOUNCE_MS = 30
 
 
 class EntryPanelIntentAdapter:
@@ -53,7 +57,7 @@ class EntryPanelIntentAdapter:
             self._selection_pending = False
         self._snapshot = snapshot
 
-    def select(self, option: EntryPanelOption) -> None:
+    def select(self, option: EntryPanelOption, *, press: PressType = "short") -> None:
         snapshot = self._snapshot
         if (
             snapshot is None
@@ -62,10 +66,15 @@ class EntryPanelIntentAdapter:
             or self._selection_pending
         ):
             return
-        if option.action is not None:
+        action = (
+            option.long_action
+            if press == "long" and option.long_action is not None
+            else option.action
+        )
+        if action is not None:
             self._selection_pending = True
             self._command_sink(
-                EntryPanelActionSelected(snapshot.panel_id, option.action)
+                EntryPanelActionSelected(snapshot.panel_id, action)
             )
         elif option.slot is not None:
             self._command_sink(EntryPanelSlotSelected(snapshot.panel_id, option.slot))
@@ -132,6 +141,9 @@ class UnifiedEntryPanelDialog:
         self._search_guard = False
         self._option_buttons: list[tk.Misc] = []
         self._option_updaters: list[Callable[[EntryPanelOption], None]] = []
+        self._hold_controllers: dict[int, dict[str, Callable]] = {}
+        self._key_hold: dict[str, object] | None = None
+        self._key_release_job: object | None = None
         self._placed_panel_id: str | None = None
         self._body_render_key: tuple[object, ...] | None = None
         self._message_label: ctk.CTkLabel | None = None
@@ -151,6 +163,7 @@ class UnifiedEntryPanelDialog:
         self._window.bind("<Escape>", self._on_escape, add="+")
         self._window.bind("<Control-z>", self._on_back, add="+")
         self._window.bind("<KeyPress>", self._on_key, add="+")
+        self._window.bind("<KeyRelease>", self._on_key_release, add="+")
         self._window.bind("<FocusOut>", self._on_focus_out, add="+")
         self._window.bind("<Return>", self._on_enter, add="+")
         self._window.bind("<Down>", lambda event: self._move_focus(event, True), add="+")
@@ -322,6 +335,7 @@ class UnifiedEntryPanelDialog:
         return snapshot is not None and snapshot.panel_id == panel_id
 
     def close(self) -> None:
+        self._cancel_key_hold()
         self._density_tooltip._hide()
         self._schedule_lifecycle.cancel_scheduled()
         self._snapshot = None
@@ -368,6 +382,8 @@ class UnifiedEntryPanelDialog:
         return left <= x < left + width and top <= y < top + height
 
     def _rebuild_body(self, snapshot: EntryPanelSnapshot) -> None:
+        self._cancel_key_hold()
+        self._hold_controllers.clear()
         self._message_label = None
         for child in self._body.winfo_children():
             child.destroy()
@@ -387,6 +403,7 @@ class UnifiedEntryPanelDialog:
             search.insert(0, snapshot.search_text)
             search.grid(row=row, column=0, pady=(0, 8), sticky="ew")
             search.bind("<KeyRelease>", lambda _event: self._intent.search(search.get()))
+            install_ime_halfwidth_punctuation_fix(search)
             install_ime_composition_font(search, self._native_window_surface)
             self._search_guard = False
             row += 1
@@ -535,6 +552,7 @@ class UnifiedEntryPanelDialog:
             fg_color=_CARD_BACKGROUND,
         )
         card.grid_columnconfigure(0, weight=1)
+        card.grid_columnconfigure(1, weight=0)
         if option.slot is None:
             title = option.label
         else:
@@ -543,6 +561,21 @@ class UnifiedEntryPanelDialog:
         hovered = False
         focused = False
         latest_option = option
+        has_long = option.long_action is not None
+        hold: dict[str, object] = {
+            "job": None,
+            "reached": False,
+            "bar": None,
+            "progress": 0,
+            "started": False,
+        }
+
+        def option_title(current: EntryPanelOption) -> str:
+            return (
+                current.label
+                if current.slot is None
+                else f"{current.slot}  {current.label}"
+            )
 
         def redraw_card() -> None:
             if not latest_option.enabled or latest_option.pending:
@@ -643,6 +676,98 @@ class UnifiedEntryPanelDialog:
             ),
         )
         interactive_widgets.append(detail_label)
+        long_hint_label = ctk.CTkLabel(
+            card,
+            text="",
+            anchor="w",
+            text_color=MODEL_COLOR,
+            font=ctk.CTkFont(
+                family=TC_FONT_FAMILY,
+                size=POPUP_FONT_SIZES["auxiliary"],
+            ),
+        )
+        interactive_widgets.append(long_hint_label)
+
+        def clear_hold() -> None:
+            job = hold["job"]
+            if job is not None:
+                try:
+                    card.after_cancel(job)
+                except (AttributeError, tk.TclError):
+                    pass
+            bar = hold["bar"]
+            if bar is not None:
+                try:
+                    bar.destroy()
+                except (AttributeError, tk.TclError):
+                    pass
+            hold.update(job=None, reached=False, bar=None, progress=0, started=False)
+            title_label.configure(
+                text=option_title(latest_option),
+                text_color=CONTENT_COLOR,
+            )
+
+        def step() -> None:
+            hold["job"] = None
+            if not hold["started"]:
+                return
+            progress = int(hold["progress"]) + 1
+            hold["progress"] = progress
+            bar = hold["bar"]
+            if bar is not None:
+                bar.place_configure(relwidth=min(1.0, progress / _HOLD_STEPS))
+            if progress >= _HOLD_STEPS:
+                hold["reached"] = True
+                title_label.configure(
+                    text=latest_option.long_label or option_title(latest_option),
+                    text_color=ACTION_COLOR,
+                )
+                return
+            hold["job"] = card.after(
+                round(_HOLD_SEC * 1000 / _HOLD_STEPS),
+                step,
+            )
+
+        def hold_begin() -> None:
+            if hold["started"] or not latest_option.enabled or latest_option.pending:
+                return
+            hold.update(reached=False, progress=0, started=True)
+            bar = ctk.CTkFrame(card, height=3, fg_color=ACTION_COLOR)
+            bar.place(relx=0, rely=1, anchor="sw", relwidth=0)
+            hold["bar"] = bar
+            hold["job"] = card.after(
+                round(_HOLD_SEC * 1000 / _HOLD_STEPS),
+                step,
+            )
+
+        def hold_settle() -> bool | None:
+            if not hold["started"]:
+                return None
+            reached = bool(hold["reached"])
+            clear_hold()
+            return reached
+
+        def do_select(reached: bool) -> None:
+            current = latest_option
+            if current.enabled and not current.pending:
+                self._intent.select(
+                    current,
+                    press="long" if reached else "short",
+                )
+
+        def hold_press(_event=None) -> str:
+            hold_begin()
+            return "break"
+
+        def hold_release(_event=None) -> str:
+            reached = hold_settle()
+            if reached is not None:
+                do_select(reached)
+            return "break"
+
+        def hold_leave(_event=None) -> None:
+            if hold["started"]:
+                clear_hold()
 
         def update(updated: EntryPanelOption) -> None:
             nonlocal latest_option, hovered, focused
@@ -669,7 +794,37 @@ class UnifiedEntryPanelDialog:
                 )
             else:
                 detail_label.grid_forget()
+            if updated.long_action is not None and updated.long_label:
+                if snapshot.density == "compact":
+                    long_hint_label.configure(
+                        text=f"{updated.long_label}  ›",
+                        text_color=MODEL_COLOR,
+                    )
+                    long_hint_label.grid(
+                        row=0,
+                        column=1,
+                        padx=(4, 12),
+                        pady=7,
+                        sticky="e",
+                    )
+                else:
+                    long_hint_label.configure(
+                        text=f"長按 · {updated.long_label}",
+                        text_color=MODEL_COLOR,
+                    )
+                    long_hint_label.grid(
+                        row=2,
+                        column=0,
+                        columnspan=2,
+                        padx=12,
+                        pady=(0, 6),
+                        sticky="ew",
+                    )
+            else:
+                long_hint_label.grid_forget()
             if not updated.enabled or updated.pending:
+                if hold["started"]:
+                    clear_hold()
                 hovered = False
                 focused = False
                 card.configure(
@@ -682,13 +837,25 @@ class UnifiedEntryPanelDialog:
         for widget in interactive_widgets:
             widget.bind("<Enter>", show_hover, add="+")
             widget.bind("<Leave>", clear_hover, add="+")
-            widget.bind("<Button-1>", activate, add="+")
+            if has_long:
+                widget.bind("<ButtonPress-1>", hold_press, add="+")
+                widget.bind("<ButtonRelease-1>", hold_release, add="+")
+                widget.bind("<Leave>", hold_leave, add="+")
+            else:
+                widget.bind("<Button-1>", activate, add="+")
         card.bind("<Return>", activate, add="+")
         card.bind("<space>", activate, add="+")
         card.bind("<FocusIn>", show_focus, add="+")
         card.bind("<FocusOut>", clear_focus, add="+")
         self._option_buttons.append(card)
         self._option_updaters.append(update)
+        if has_long and option.slot is not None:
+            self._hold_controllers[option.slot] = {
+                "begin": hold_begin,
+                "settle": hold_settle,
+                "select": do_select,
+                "cancel": clear_hold,
+            }
         update(option)
         return card
 
@@ -728,11 +895,75 @@ class UnifiedEntryPanelDialog:
             self._intent.back()
         return "break"
 
-    def _on_key(self, event) -> None:
+    @staticmethod
+    def _event_digit(event) -> int | None:
+        char = getattr(event, "char", "")
+        if char and char.isdigit():
+            return int(char)
+        keysym = str(getattr(event, "keysym", ""))
+        if keysym.isdigit():
+            return int(keysym)
+        if keysym.startswith("KP_") and keysym[3:].isdigit():
+            return int(keysym[3:])
+        return None
+
+    def _on_key(self, event) -> str | None:
         if not self.is_primary_content_mounted():
+            return None
+        digit = self._event_digit(event)
+        if digit is None:
+            return None
+        controller = self._hold_controllers.get(digit)
+        if controller is None:
+            self._cancel_key_hold()
+            self._intent.select_slot(digit)
+            return "break"
+        current = self._key_hold
+        if current is not None and current["slot"] == digit:
+            self._cancel_key_release_finalize()
+            return "break"
+        self._cancel_key_hold()
+        self._key_hold = {"slot": digit, "controller": controller}
+        controller["begin"]()
+        return "break"
+
+    def _on_key_release(self, event) -> str | None:
+        if not self.is_primary_content_mounted():
+            return None
+        digit = self._event_digit(event)
+        current = self._key_hold
+        if digit is None or current is None or current["slot"] != digit:
+            return None
+        self._cancel_key_release_finalize()
+        self._key_release_job = self._window.after(
+            _KEY_RELEASE_DEBOUNCE_MS,
+            self._finalize_key_hold,
+        )
+        return "break"
+
+    def _finalize_key_hold(self) -> None:
+        self._key_release_job = None
+        current, self._key_hold = self._key_hold, None
+        if current is None:
             return
-        if event.char and event.char.isdigit():
-            self._intent.select_slot(int(event.char))
+        controller = current["controller"]
+        reached = controller["settle"]()
+        if reached is not None:
+            controller["select"](reached)
+
+    def _cancel_key_release_finalize(self) -> None:
+        job, self._key_release_job = getattr(self, "_key_release_job", None), None
+        if job is not None:
+            try:
+                self._window.after_cancel(job)
+            except (AttributeError, tk.TclError):
+                pass
+
+    def _cancel_key_hold(self) -> None:
+        self._cancel_key_release_finalize()
+        current, self._key_hold = getattr(self, "_key_hold", None), None
+        if current is not None:
+            current["controller"]["cancel"]()
 
     def _on_enter(self, event) -> str:
         if not self.is_primary_content_mounted():
@@ -786,6 +1017,8 @@ def _body_render_key(snapshot: EntryPanelSnapshot) -> tuple[object, ...]:
                 option.label,
                 option.description if snapshot.density == "detailed" else "",
                 option.action,
+                option.long_action,
+                option.long_label,
                 option.category_id,
             )
             for option in snapshot.options

@@ -355,21 +355,6 @@ class VoiceInputController:
             return self._ignored()
         return self.request_cancel(capture.capture_id)
 
-    def abandon_to_review_for_press(self, press_id: ShortcutPressId) -> VoiceTransition:
-        """End a short tap immediately and restore its draft for direct editing."""
-        capture = self._capture
-        if capture is None or capture.press_id != press_id:
-            return self._ignored()
-        capture_id, target = capture.capture_id, capture.target
-        self._capture = None
-        if self._awaiting_release_press_id == press_id:
-            self._awaiting_release_press_id = None
-        self._message = ""
-        return self._transition(
-            CancelVoiceCapture(capture_id),
-            self._restore_effect(capture_id, target, ""),
-        )
-
     def expire_capture_watchdog(self, press_id: ShortcutPressId) -> VoiceTransition:
         """Gracefully stop the PTT capture at its safety limit and require release."""
         capture = self._capture

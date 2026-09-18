@@ -8,7 +8,7 @@ import pytest
 from ClipAI.app import container
 from ClipAI.app.application_paths import build_application_paths
 from ClipAI.app.config_loader import load_config_bundle
-from ClipAI.app.container import _build_provider, _build_provider_snapshot, _needs_provider_setup, _resolve_active_credential, _resolve_active_model
+from ClipAI.app.container import _build_provider, _build_provider_snapshot, _resolve_active_credential, _resolve_active_model
 from ClipAI.app.provider_configuration import build_provider_snapshot
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.fake import FakeProvider
@@ -170,7 +170,7 @@ def test_missing_provider_key_is_a_first_run_settings_condition() -> None:
     snapshot = _build_provider_snapshot(load_config_bundle(), {"CLIPAI_PROVIDER": "gemini"})
     binding = next(item for item in snapshot.bindings if item.provider_id == snapshot.active_provider)
 
-    assert _needs_provider_setup(binding.readiness_issues)
+    assert binding.readiness_issues[0].feature == "llm"
 
 
 def test_unconfigured_custom_provider_is_a_nonfatal_first_run_settings_condition() -> None:
@@ -178,4 +178,4 @@ def test_unconfigured_custom_provider_is_a_nonfatal_first_run_settings_condition
     binding = next(item for item in snapshot.bindings if item.provider_id == snapshot.active_provider)
 
     assert binding.readiness_issues[0].code == "provider.gateway_not_configured"
-    assert _needs_provider_setup(binding.readiness_issues)
+    assert binding.readiness_issues[0].feature == "llm"

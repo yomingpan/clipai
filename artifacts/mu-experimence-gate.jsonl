@@ -1,0 +1,4 @@
+{"schema":1,"gate":"mu-experimence","step":"app-voice-hold","cases":25,"passed":true,"content_recorded":false,"device_evidence":false}
+{"schema":1,"gate":"mu-experimence","step":"entry-panel-long-press","cases":24,"passed":true,"content_recorded":false,"device_evidence":false}
+{"schema":1,"gate":"mu-experimence","step":"ime-and-architecture","cases":329,"passed":true,"content_recorded":false,"device_evidence":false}
+{"schema":1,"gate":"mu-experimence","step":"full-regression","cases":1583,"passed":true,"content_recorded":false,"device_evidence":false}

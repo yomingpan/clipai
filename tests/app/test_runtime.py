@@ -2793,6 +2793,20 @@ def test_dispatched_voice_paste_closes_the_unpinned_workflow_before_the_next_sho
     assert runtime._workflow_module.has_foreground_workflow() is False
 
 
+def test_new_voice_workflow_is_an_editable_standby_draft_before_microphone_open() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+
+    controller = runtime._workflow_module.create_voice_workflow(
+        "standby-voice-workflow",
+        None,
+    )
+
+    assert controller.snapshot.status is SessionStatus.VOICE_REVIEW
+    assert controller.snapshot.status_text == ""
+    assert controller.snapshot.available_actions == ("copy", "paste", "follow_up")
+    assert controller.snapshot.result_completeness == "complete"
+
+
 def test_completion_for_non_foreground_workflow_does_not_release_current_foreground() -> None:
     runtime, view, _supervisor, _outputs, _listener = make_runtime()
     runtime.enqueue(StartAction("a", "short"))

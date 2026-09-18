@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -30,7 +30,7 @@ from ClipAI.app.owned_processes import AppOwnedProcessRegistry
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
 from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenAbout, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SelectActionLanguagePack, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
-from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
+from ClipAI.core.models import ModelSelectionState, ProviderSelectionState
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
 from ClipAI.platform.clipboard import SystemClipboard
@@ -89,10 +89,6 @@ from ClipAI.support.logging_setup import configure_logging
 from ClipAI.support.diagnostics import SafeDiagnosticsExporter
 from ClipAI.support.diagnostics import IncidentReporter
 from ClipAI.core.voice import VoiceDisableId, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
-
-
-def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
-    return any(issue.feature == "llm" for issue in bundle_issues)
 
 
 def build_runtime(
@@ -499,8 +495,6 @@ def build_runtime(
         background_components=(selection_probe,),
     )
     runtime_holder.append(runtime)
-    if _needs_provider_setup(readiness_issues):
-        runtime.enqueue(OpenProviderSettings(snapshot.active_provider))
     return runtime
 
 

@@ -226,6 +226,79 @@ def test_intent_adapter_emits_one_action_selection_until_projection_changes() ->
     ]
 
 
+def test_intent_adapter_selects_the_long_action_and_falls_back_to_short() -> None:
+    commands = []
+    adapter = EntryPanelIntentAdapter(commands.append)
+    long_action = EntryActionRef("shorten_content", "long")
+    with_long = EntryPanelOption(
+        1,
+        "Shorten",
+        action=EntryActionRef("shorten_content", "short"),
+        long_action=long_action,
+        long_label="Shorten lightly",
+    )
+    without_long = EntryPanelOption(
+        2,
+        "Translate",
+        action=EntryActionRef("translate_to_english", "short"),
+    )
+    snapshot = EntryPanelSnapshot(
+        "panel-1",
+        "scene",
+        options=(with_long, without_long),
+    )
+
+    adapter.apply(snapshot)
+    adapter.select(with_long, press="long")
+    adapter.apply(replace(snapshot, message="selection settled"))
+    adapter.select(without_long, press="long")
+
+    assert commands == [
+        EntryPanelActionSelected("panel-1", long_action),
+        EntryPanelActionSelected("panel-1", without_long.action),
+    ]
+
+
+def test_keyboard_number_hold_uses_one_controller_across_auto_repeat() -> None:
+    events = []
+
+    class Window:
+        def __init__(self) -> None:
+            self.jobs = []
+
+        def after(self, _delay, callback):
+            self.jobs.append(callback)
+            return callback
+
+        def after_cancel(self, callback) -> None:
+            if callback in self.jobs:
+                self.jobs.remove(callback)
+
+    controller = {
+        "begin": lambda: events.append("begin"),
+        "settle": lambda: events.append("settle") or True,
+        "select": lambda reached: events.append(("select", reached)),
+        "cancel": lambda: events.append("cancel"),
+    }
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog._window = Window()
+    dialog._primary_surface_host = None
+    dialog._primary_surface_lease = None
+    dialog._hold_controllers = {1: controller}
+    dialog._key_hold = None
+    dialog._key_release_job = None
+    dialog._intent = type("Intent", (), {"select_slot": lambda _self, slot: events.append(("slot", slot))})()
+    event = type("Event", (), {"char": "1", "keysym": "1"})()
+
+    dialog._on_key(event)
+    dialog._on_key_release(event)
+    dialog._on_key(event)
+    dialog._on_key_release(event)
+    dialog._window.jobs.pop()()
+
+    assert events == ["begin", "settle", ("select", True)]
+
+
 def test_disabled_option_does_not_emit_action_intent() -> None:
     commands = []
     adapter = EntryPanelIntentAdapter(commands.append)
@@ -339,6 +412,69 @@ def test_option_card_callback_reads_latest_option_after_in_place_update(monkeypa
     card.bindings["<Button-1>"]()
 
     assert selected == [latest]
+
+
+def test_option_card_release_selects_short_or_long_and_ignores_orphan_release(monkeypatch) -> None:
+    class Widget:
+        jobs = []
+
+        def __init__(self, _parent=None, **_kwargs) -> None:
+            self.bindings = {}
+
+        def grid_columnconfigure(self, *_args, **_kwargs) -> None: pass
+        def bind(self, sequence, callback, add=None) -> None: self.bindings[sequence] = callback
+        def configure(self, **_kwargs) -> None: pass
+        def grid(self, **_kwargs) -> None: pass
+        def grid_configure(self, **_kwargs) -> None: pass
+        def grid_forget(self) -> None: pass
+        def after_idle(self, callback) -> None: callback()
+        def place(self, **_kwargs) -> None: pass
+        def place_configure(self, **_kwargs) -> None: pass
+        def destroy(self) -> None: pass
+
+        def after(self, _delay, callback):
+            self.jobs.append(callback)
+            return callback
+
+        def after_cancel(self, callback) -> None:
+            if callback in self.jobs:
+                self.jobs.remove(callback)
+
+    selected = []
+    monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkFrame", Widget)
+    monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkLabel", Widget)
+    monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkFont", lambda **_kwargs: object())
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog._intent = type(
+        "Intent",
+        (),
+        {"select": lambda _self, option, *, press="short": selected.append((option, press))},
+    )()
+    dialog._option_buttons = []
+    dialog._option_updaters = []
+    dialog._hold_controllers = {}
+    option = EntryPanelOption(
+        1,
+        "Shorten",
+        action=EntryActionRef("shorten_content", "short"),
+        long_action=EntryActionRef("shorten_content", "long"),
+        long_label="Shorten lightly",
+    )
+    card = dialog._create_option_card(
+        object(),
+        option,
+        EntryPanelSnapshot("panel-1", "scene"),
+    )
+
+    card.bindings["<ButtonRelease-1>"]()
+    card.bindings["<ButtonPress-1>"]()
+    for _ in range(12):
+        Widget.jobs.pop(0)()
+    card.bindings["<ButtonRelease-1>"]()
+    card.bindings["<ButtonPress-1>"]()
+    card.bindings["<ButtonRelease-1>"]()
+
+    assert selected == [(option, "long"), (option, "short")]
 
 
 def test_projection_text_respects_density_and_keeps_disabled_reason() -> None:
