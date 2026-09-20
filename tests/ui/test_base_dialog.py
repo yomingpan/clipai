@@ -949,12 +949,20 @@ def test_base_dialog_delegates_drag_binding_to_shared_controller() -> None:
 
 
 def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
-    assert [spec.slot_id for spec in STANDARD_RESULT_ACTIONS] == ["speaker", "copy", "paste", "archive", "follow_up"]
+    assert [spec.slot_id for spec in STANDARD_RESULT_ACTIONS] == [
+        "speaker",
+        "copy",
+        "paste",
+        "archive",
+        "regenerate",
+        "follow_up",
+    ]
     assert [spec.icon for spec in STANDARD_RESULT_ACTIONS] == [
         SPEAKER_ICON,
         COPY_ICON,
         PASTE_ICON,
         ARCHIVE_ICON,
+        "↻",
         FOLLOW_UP_ICON,
     ]
     assert [spec.tooltip for spec in STANDARD_RESULT_ACTIONS] == [
@@ -962,6 +970,7 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         "Copy result (Ctrl+C)",
         "Paste result to target",
         "Archive result (Ctrl+S)",
+        "Regenerate result (Ctrl+R)",
         "Ask follow-up (Ctrl+/)",
     ]
     assert [spec.active_tooltip for spec in STANDARD_RESULT_ACTIONS] == [
@@ -969,6 +978,7 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         "Copy accepted (Ctrl+C)",
         None,
         "Archive accepted (Ctrl+S)",
+        None,
         "Close follow-up (Ctrl+/)",
     ]
 
@@ -1072,10 +1082,11 @@ def test_action_slot_selects_text_font_only_for_word_labels(monkeypatch) -> None
 
 
 def test_primary_and_overflow_action_placement_is_stable() -> None:
-    primary = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id not in {"paste", "archive"}]
-    overflow = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id in {"paste", "archive"}]
+    overflow_slots = {"paste", "archive", "regenerate"}
+    primary = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id not in overflow_slots]
+    overflow = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id in overflow_slots]
     assert primary == ["speaker", "copy", "follow_up"]
-    assert overflow == ["paste", "archive"]
+    assert overflow == ["paste", "archive", "regenerate"]
 
 
 def test_presentation_tags_avoid_customtkinter_forbidden_font_option() -> None:
@@ -1615,6 +1626,18 @@ def test_standard_result_action_active_styles_are_semantic() -> None:
     }
 
 
+def test_regenerate_action_is_an_overflow_control_with_ctrl_r_tooltip() -> None:
+    regenerate = next(
+        spec for spec in STANDARD_RESULT_ACTIONS if spec.slot_id == "regenerate"
+    )
+
+    assert regenerate.icon == "↻"
+    assert regenerate.tooltip == "Regenerate result (Ctrl+R)"
+    assert 'overflow=spec.slot_id in {"paste", "archive", "regenerate"}' in inspect.getsource(
+        StandardResultActions.__init__
+    )
+
+
 def test_popup_render_is_the_content_free_field_group_projection_seam() -> None:
     events: list[object] = []
     contract = ActionFeedbackContract(
@@ -1888,7 +1911,7 @@ def test_action_contract_tooltip_explains_ai_scope_and_feedback_entry_points() -
     assert text == (
         "AI 幫你\n縮短內容\n\n"
         "AI 不做什麼\n不替你改變原本的立場與語氣\n\n"
-        "若結果不符合預期，可按右上角 ⓘ 或 Ctrl + R 回饋。"
+        "若結果不符合預期，可按右上角 ⓘ 回饋。"
     )
 
 

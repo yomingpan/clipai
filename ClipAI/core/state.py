@@ -110,6 +110,7 @@ class SessionSnapshot:
     contextual_source_kind: str = ""
     question_composer_revision: int = 0
     input_recovery: InputRecovery | None = field(default=None, repr=False)
+    can_regenerate: bool = False
 
     def evolve(self, **changes: object) -> SessionSnapshot:
         return replace(self, revision=self.revision + 1, **changes)

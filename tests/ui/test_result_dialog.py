@@ -4,7 +4,7 @@ import queue
 import inspect
 from dataclasses import replace
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, PopupBounds, WorkflowAttention, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
@@ -1260,7 +1260,7 @@ def test_feedback_submission_is_a_typed_identified_command() -> None:
     assert command.save_case is True
 
 
-def test_ctrl_r_feedback_request_reports_unsupported_recipe() -> None:
+def test_feedback_button_reports_unsupported_recipe() -> None:
     presenter, events = presenter_with_selection(None)
 
     presenter._toggle_feedback("s1")
@@ -1268,13 +1268,37 @@ def test_ctrl_r_feedback_request_reports_unsupported_recipe() -> None:
     assert events == ["feedback:toggled", "message:此 Recipe 尚未啟用回饋:1000"]
 
 
-def test_ctrl_r_feedback_request_opens_supported_recipe_overlay() -> None:
+def test_feedback_button_opens_supported_recipe_overlay() -> None:
     presenter, events = presenter_with_selection(None)
     presenter._views["s1"].surface.feedback_available = True
 
     presenter._toggle_feedback("s1")
 
     assert events == ["feedback:toggled"]
+
+
+def test_ctrl_r_emits_regenerate_for_the_active_popup() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+
+    presenter._register_view("s1", view)
+    result = view.dialog.root.bindings["<Control-r>"](None)
+
+    assert result == "break"
+    assert events == [RegenerateResult("s1")]
 
 
 def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:

@@ -11,7 +11,7 @@ import webbrowser
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
+from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
 from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, ManagedUpdatePresentation, OutputOperationResult, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.popup_presentation import project_popup_presentation
@@ -961,6 +961,10 @@ class ResultDialogPresenter:
         view.surface.toggle_pin()
         self._command_sink(TogglePin(session_id))
 
+    def _regenerate(self, session_id: str) -> None:
+        if self._interactive_view(session_id) is not None:
+            self._command_sink(RegenerateResult(session_id))
+
     def _submit_feedback(
         self,
         session_id: str,
@@ -1114,6 +1118,7 @@ class ResultDialogPresenter:
             on_copy=lambda sid=session_id: self._copy(sid),
             on_paste=lambda sid=session_id: self._paste(sid),
             on_archive=lambda sid=session_id: self._archive(sid),
+            on_regenerate=lambda sid=session_id: self._regenerate(sid),
             on_follow_up=lambda sid=session_id: self._toggle_follow_up(sid),
         )
         surface.bind_feedback_submit(
@@ -1266,7 +1271,7 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-e>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_pin, sid), add="+")
         dialog.root.bind("<Control-c>", lambda event, sid=session_id: self._popup_shortcut(event, self._copy, sid), add="+")
         dialog.root.bind("<Control-s>", lambda event, sid=session_id: self._popup_shortcut(event, self._archive, sid), add="+")
-        dialog.root.bind("<Control-r>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_feedback, sid), add="+")
+        dialog.root.bind("<Control-r>", lambda event, sid=session_id: self._popup_shortcut(event, self._regenerate, sid), add="+")
         dialog.root.bind("<Control-v>", lambda event, sid=session_id: self._paste_shortcut(event, sid), add="+")
         dialog.root.bind("<Control-z>", navigate_back, add="+")
         dialog.root.bind("<Control-Return>", toggle_voice_draft_mode, add="+")

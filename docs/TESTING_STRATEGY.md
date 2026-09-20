@@ -311,8 +311,8 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 Recipe 回饋與使用引導應測：
 
 - Popup 原始尺寸與結果區高度不因契約、回饋或 coachmark 縮小。
-- `ⓘ` Tooltip 固定呈現「AI 幫你」與「AI 不做什麼」，並提示結果不符合預期時可按右上角 `ⓘ` 或 `Ctrl+R` 回饋。
-- Ctrl+R 僅作用於聚焦的 Popup；不支援的 Recipe 必須顯示明確狀態。
+- `ⓘ` Tooltip 固定呈現「AI 幫你」與「AI 不做什麼」，並提示結果不符合預期時可按右上角 `ⓘ` 回饋；回饋不綁定快捷鍵。
+- `Ctrl+R` 僅作用於聚焦的 Popup，使用原 invocation 已凍結的輸入與 provider binding 重新產生結果；進行中的舊 invocation 必須先依 identity 取消，晚到結果不得覆寫新 invocation。重新產生按鈕只出現在延伸操作區，不支援的 Workflow 必須維持 disabled。
 - 正負案例都只有在使用者明確勾選時保存原文與結果。
 - 回饋 pending、成功、失敗與重試反映真實 operation identity。
 - 每個 `start_action` Shortcut 的短按與長按 resolved Action 都必須有完整回饋契約；非 Action Shortcut 必須明確列為例外。

@@ -187,6 +187,7 @@ class WorkflowController:
                 feedback_message="",
                 show_guidance_hint=False,
                 result_completeness="none",
+                can_regenerate=True,
             )
             snapshot = self._snapshot
             token = self._active_token
@@ -214,6 +215,7 @@ class WorkflowController:
                 presentation=None,
                 available_actions=(),
                 result_completeness="none",
+                can_regenerate=False,
             )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
@@ -239,7 +241,7 @@ class WorkflowController:
             self._snapshot = self._snapshot.evolve(input_recovery=None)
             return invocation, recovery.action
 
-    def prepare_retry(self) -> tuple[ActionInvocation, ResolvedAction] | None:
+    def prepare_retry(self) -> tuple[str, ActionInvocation, ResolvedAction] | None:
         with self._lock:
             if self._retryable is None or self._snapshot.status not in {
                 SessionStatus.COMPLETED,
@@ -248,9 +250,19 @@ class WorkflowController:
                 SessionStatus.READING_INPUT,
                 SessionStatus.PREPARING_REQUEST,
                 SessionStatus.REQUESTING_PROVIDER,
+                SessionStatus.PROCESSING_RESULT,
             }:
                 return None
             invocation, action = self._retryable
+            if self._snapshot.status is SessionStatus.COMPLETED:
+                index = self._snapshot.displayed_step_index
+                if (
+                    index < 0
+                    or index >= len(self._snapshot.steps)
+                    or self._snapshot.steps[index].step_id != invocation.invocation_id
+                ):
+                    return None
+            self._active_token.cancel()
             retry = replace(invocation, invocation_id=uuid.uuid4().hex)
             index = self._snapshot.displayed_step_index
             if (
@@ -258,7 +270,28 @@ class WorkflowController:
                 and self._snapshot.steps[index].step_id == invocation.invocation_id
             ):
                 self._snapshot = self._snapshot.evolve(displayed_step_index=index - 1)
-            return retry, action
+            return invocation.invocation_id, retry, action
+
+    def bind_retry_input(self, invocation_id: str, document: InputDocument) -> bool:
+        """Freeze the resolved trigger-time input used by a future regeneration."""
+        with self._lock:
+            if self._retryable is None or self._snapshot.active_invocation_id != invocation_id:
+                return False
+            invocation, action = self._retryable
+            if invocation.invocation_id != invocation_id:
+                return False
+            self._retryable = (
+                replace(
+                    invocation,
+                    input_target=replace(
+                        invocation.input_target,
+                        document=document,
+                        selection_request=None,
+                    ),
+                ),
+                action,
+            )
+            return True
 
     def update(self, invocation_id: str, status: SessionStatus, **changes: object) -> SessionSnapshot | None:
         with self._lock:
@@ -440,7 +473,16 @@ class WorkflowController:
                     feedback_message="已記錄回饋" if step.step_id in self._feedback_step_ids else "",
                     show_guidance_hint=False,
                 )
-            self._snapshot = next_snapshot
+            retryable_id = self._retryable[0].invocation_id if self._retryable is not None else None
+            displayed_id = (
+                next_snapshot.steps[next_snapshot.displayed_step_index].step_id
+                if 0 <= next_snapshot.displayed_step_index < len(next_snapshot.steps)
+                else None
+            )
+            self._snapshot = replace(
+                next_snapshot,
+                can_regenerate=displayed_id == retryable_id,
+            )
             snapshot = self._snapshot
         self._presenter.render(snapshot)
         return snapshot

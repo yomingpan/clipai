@@ -72,6 +72,7 @@ class ActionExecutor:
                     f"input:{invocation.invocation_id}",
                     lambda: self._input_resolver.resolve(action.input_mode, token, request=invocation.input_target.selection_request),
                 )
+            workflow.bind_retry_input(invocation.invocation_id, document)
             if workflow.update(
                 invocation.invocation_id,
                 SessionStatus.PREPARING_REQUEST,

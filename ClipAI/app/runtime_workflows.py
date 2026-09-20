@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted, WorkflowStepAccepted
+from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, RegenerateResult, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted, WorkflowStepAccepted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActionAdmissionOrigin, ActionInvocation, ActionStartAdmission, ControlSurfaceRef, EntryActionRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, PressType, ResultRoute, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceCaptureContextReader, WorkflowAttentionPresenter, WorkflowContextReader
@@ -63,6 +63,7 @@ WorkflowRuntimeCommand: TypeAlias = (
     | CancelSession
     | TogglePin
     | FollowUp
+    | RegenerateResult
     | ActivateWorkflow
     | NavigateWorkflowBack
     | WorkflowInvocationFailed
@@ -79,6 +80,11 @@ class _WorkflowRecord:
     binding: ProviderExecutionBinding
     presentation: WorkflowPresentation
     personal_style: PersonalStyleProfile | None = None
+    replay_by_invocation: dict[str, FollowUpContinuation | None] = field(
+        default_factory=dict,
+        compare=False,
+        repr=False,
+    )
 
 
 @dataclass(frozen=True)
@@ -469,6 +475,7 @@ class WorkflowRuntimeModule:
                 return
             invocation, action = choice
             record.controller.begin_invocation(invocation, action)
+            record.replay_by_invocation[invocation.invocation_id] = None
             self._submit_invocation(
                 command.workflow_id, invocation.invocation_id,
                 lambda: self._execute_action.execute_invocation(action, invocation, record.controller, binding=record.binding),
@@ -491,6 +498,8 @@ class WorkflowRuntimeModule:
                 controller.toggle_pin()
         elif isinstance(command, FollowUp):
             self._follow_up(command)
+        elif isinstance(command, RegenerateResult):
+            self._regenerate(command)
         elif isinstance(command, ActivateWorkflow):
             record = self._records.get(command.workflow_id)
             if record is not None and record.presentation == "visible":
@@ -663,6 +672,7 @@ class WorkflowRuntimeModule:
         )
         controller.begin_invocation(invocation, action)
         self._foreground_id = workflow_id
+        record.replay_by_invocation[invocation.invocation_id] = None
         self._submit_invocation(
             workflow_id,
             invocation.invocation_id,
@@ -794,15 +804,69 @@ class WorkflowRuntimeModule:
         )
         controller = record.controller
         controller.begin_invocation(invocation, action)
+        record.replay_by_invocation[invocation.invocation_id] = continuation
         self._submit_invocation(
             workflow_id,
             invocation.invocation_id,
-            lambda: self._execute_action.execute_follow_up_invocation(
+            lambda: self._execute_continuation(
                 continuation,
                 invocation,
                 controller,
-                binding=record.binding,
+                record,
             ),
+        )
+
+    def _regenerate(self, command: RegenerateResult) -> None:
+        record = self._records.get(command.workflow_id)
+        if record is None or record.presentation != "visible":
+            return
+        prepared = record.controller.prepare_retry()
+        if prepared is None:
+            self._request_attention(
+                command.workflow_id,
+                "目前內容無法重新產生",
+                duration_ms=1500,
+                warning=True,
+            )
+            return
+        source_invocation_id, invocation, action = prepared
+        continuation = record.replay_by_invocation.get(source_invocation_id)
+        if source_invocation_id == record.controller.snapshot.active_invocation_id:
+            self._provider_execution.cancel(source_invocation_id)
+        record.controller.begin_invocation(invocation, action)
+        record.replay_by_invocation[invocation.invocation_id] = continuation
+        if continuation is None:
+            work = lambda: self._execute_action.execute_invocation(
+                action,
+                invocation,
+                record.controller,
+                binding=record.binding,
+            )
+        else:
+            work = lambda: self._execute_continuation(
+                continuation,
+                invocation,
+                record.controller,
+                record,
+            )
+        self._submit_invocation(
+            command.workflow_id,
+            invocation.invocation_id,
+            work,
+        )
+
+    def _execute_continuation(
+        self,
+        continuation: FollowUpContinuation,
+        invocation: ActionInvocation,
+        controller: WorkflowController,
+        record: _WorkflowRecord,
+    ) -> Awaitable[None]:
+        return self._execute_action.execute_follow_up_invocation(
+            continuation,
+            invocation,
+            controller,
+            binding=record.binding,
         )
 
     def _open_contextual_question(self) -> None:
