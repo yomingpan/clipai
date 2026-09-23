@@ -57,6 +57,7 @@ from ClipAI.ui.base_dialog import (
     install_select_all_shortcut,
     paste_target_display_text,
     word_selection_bounds,
+    paragraph_selection_bounds,
     _CanonicalSelectionSegment,
     _canonical_selection_text,
 )
@@ -100,6 +101,18 @@ def test_ime_halfwidth_punctuation_fix_inserts_only_mismapped_printable_characte
 )
 def test_word_selection_bounds_keep_adjacent_writing_systems_separate(text, index, expected) -> None:
     assert word_selection_bounds(text, index) == expected
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    (
+        (2, (0, 11)),
+        (8, (0, 11)),
+        (12, (12, 16)),
+    ),
+)
+def test_paragraph_selection_keeps_single_newlines_and_stops_at_blank_lines(index, expected) -> None:
+    assert paragraph_selection_bounds("first\nnext\n\nlast", index) == expected
 
 
 def test_select_all_shortcut_overrides_tk_default_and_breaks_propagation() -> None:
@@ -1353,6 +1366,37 @@ def test_presentation_surface_returns_canonical_markdown_for_rendered_selection(
     assert surface.selected_text() == "- **First** item\n- *Second*"
 
 
+def test_presentation_surface_records_whole_multiline_blocks_for_triple_click() -> None:
+    from ClipAI.services.presentation import MarkdownPresentationParser
+    from ClipAI.ui.text_layout import strip_display_break_hints
+
+    class Textbox:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def configure(self, **_kwargs) -> None:
+            pass
+
+        def delete(self, *_args) -> None:
+            self.text = ""
+
+        def insert(self, _index, text, _tags) -> None:
+            self.text += text
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._list_indent_prefixes = {}
+    surface.set_presentation_document(
+        MarkdownPresentationParser().parse("# Title\n\nfirst\nnext\n\n- item")
+    )
+
+    blocks = tuple(
+        strip_display_break_hints(surface.content_text.text[start:end]).strip()
+        for start, end in surface._selection_block_ranges
+    )
+    assert blocks == ("Title", "first\nnext", "• item")
+
+
 def test_presentation_surface_projects_double_clicked_word_without_partial_break_hints() -> None:
     class Textbox:
         def get(self, start, end) -> str:
@@ -1373,13 +1417,26 @@ def test_presentation_surface_projects_double_clicked_word_without_partial_break
     assert surface.selected_text() == "appetizer"
 
 
+def test_surface_selection_keeps_selected_boundary_whitespace() -> None:
+    class Textbox:
+        def get(self, start, end) -> str:
+            assert (start, end) == ("sel.first", "sel.last")
+            return " first line\n"
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._canonical_selection_segments = ()
+
+    assert surface.selected_text() == " first line\n"
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     (
         ("A I", "I"),
         (
             "- I went from [not doing X] to [basically doing Y].",
-            "I went from [not doing X] to [basically doing Y].",
+            " I went from [not doing X] to [basically doing Y].",
         ),
     ),
 )

@@ -343,7 +343,7 @@ class ResultOutputRuntimeModule:
             return
         self._cancel_current_speech_projection()
         controller.set_speaking(True)
-        text = selected_text.strip() if selected_text and selected_text.strip() else controller.snapshot.content
+        text = selected_text if selected_text and selected_text.strip() else controller.snapshot.content
         operation_id = requested_operation_id or uuid.uuid4().hex
         intent = OutputOperationIntent(operation_id, session_id, "speech", text)
         job = self._speech_coordinator.create_text_job(operation_id=operation_id, workflow_id=session_id, text=text)
@@ -460,4 +460,4 @@ class ResultOutputRuntimeModule:
 
 
 def _selected_or_result(selected: str | None, controller: WorkflowController) -> str:
-    return selected.strip() if selected is not None else controller.snapshot.content
+    return selected if selected is not None else controller.snapshot.content

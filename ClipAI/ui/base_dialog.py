@@ -118,18 +118,67 @@ def word_selection_bounds(text: str, index: int) -> tuple[int, int]:
     return (start, end)
 
 
-def install_script_aware_word_selection(widget) -> None:
-    """Override Tk's broad Unicode word boundary on double-click."""
+def paragraph_selection_bounds(text: str, index: int) -> tuple[int, int]:
+    """Select a paragraph delimited by blank lines, including one final newline."""
+    if not text:
+        return (0, 0)
+    index = max(0, min(index, len(text) - 1))
+    before = text.rfind("\n\n", 0, index + 1)
+    start = 0 if before < 0 else before + 2
+    after = text.find("\n\n", index)
+    end = len(text) if after < 0 else after + 1
+    return (start, end)
+
+
+def install_script_aware_word_selection(
+    widget,
+    *,
+    block_ranges: Callable[[], tuple[tuple[int, int], ...]] | None = None,
+) -> None:
+    """Keep double/triple-click selection and subsequent drag at one granularity."""
+
+    selection_mode: str | None = None
+    anchor: tuple[int, int] = (0, 0)
+
+    def text_hit(event) -> tuple[str, int, int]:
+        display = widget.get("1.0", "end-1c")
+        raw_index = widget.index(f"@{event.x},{event.y}")
+        raw_offset = len(widget.get("1.0", raw_index))
+        canonical_offset = len(strip_display_break_hints(display[:raw_offset]))
+        return display, raw_offset, canonical_offset
+
+    def select_text(start: int, end: int, *, caret: int | None = None) -> None:
+        widget.tag_remove("sel", "1.0", "end")
+        widget.tag_add("sel", f"1.0+{start}c", f"1.0+{end}c")
+        widget.mark_set("insert", f"1.0+{end if caret is None else caret}c")
+
+    def word_bounds(display: str, canonical_offset: int) -> tuple[int, int]:
+        canonical = strip_display_break_hints(display)
+        start, end = word_selection_bounds(canonical, canonical_offset)
+        return (
+            canonical_caret_to_widget_offset(display, start),
+            canonical_caret_to_widget_offset(display, end),
+        )
+
+    def paragraph_bounds(display: str, raw_offset: int, canonical_offset: int) -> tuple[int, int]:
+        ranges = block_ranges() if block_ranges is not None else ()
+        for start, end in ranges:
+            if start <= raw_offset < end:
+                return (start, end)
+        canonical = strip_display_break_hints(display)
+        start, end = paragraph_selection_bounds(canonical, canonical_offset)
+        return (
+            canonical_caret_to_widget_offset(display, start),
+            canonical_caret_to_widget_offset(display, end),
+        )
 
     def select_word(event) -> str:
+        nonlocal selection_mode, anchor
         if hasattr(widget, "tag_add"):
-            raw_index = widget.index(f"@{event.x},{event.y}")
-            text = widget.get("1.0", "end-1c")
-            offset = len(widget.get("1.0", raw_index))
-            start, end = word_selection_bounds(text, offset)
-            widget.tag_remove("sel", "1.0", "end")
-            widget.tag_add("sel", f"1.0+{start}c", f"1.0+{end}c")
-            widget.mark_set("insert", f"1.0+{end}c")
+            display, _raw_offset, canonical_offset = text_hit(event)
+            anchor = word_bounds(display, canonical_offset)
+            select_text(*anchor)
+            selection_mode = "word"
         else:
             text = widget.get()
             start, end = word_selection_bounds(text, int(widget.index(f"@{event.x}")))
@@ -138,6 +187,41 @@ def install_script_aware_word_selection(widget) -> None:
         return "break"
 
     widget.bind("<Double-Button-1>", select_word, add="+")
+    if not hasattr(widget, "tag_add"):
+        return
+
+    def select_paragraph(event) -> str:
+        nonlocal selection_mode, anchor
+        display, raw_offset, canonical_offset = text_hit(event)
+        anchor = paragraph_bounds(display, raw_offset, canonical_offset)
+        select_text(*anchor)
+        selection_mode = "paragraph"
+        return "break"
+
+    def reset_mode(_event) -> None:
+        nonlocal selection_mode
+        selection_mode = None
+
+    def extend_selection(event) -> str | None:
+        if selection_mode is None:
+            return None
+        display, raw_offset, canonical_offset = text_hit(event)
+        current = (
+            word_bounds(display, canonical_offset)
+            if selection_mode == "word"
+            else paragraph_bounds(display, raw_offset, canonical_offset)
+        )
+        if raw_offset < anchor[0]:
+            select_text(current[0], anchor[1], caret=current[0])
+        elif raw_offset >= anchor[1]:
+            select_text(anchor[0], current[1])
+        else:
+            select_text(*anchor)
+        return "break"
+
+    widget.bind("<Button-1>", reset_mode, add="+")
+    widget.bind("<Triple-Button-1>", select_paragraph, add="+")
+    widget.bind("<B1-Motion>", extend_selection, add="+")
 
 
 def canonical_caret_to_widget_offset(hinted: str, canonical_offset: int) -> int:
@@ -1480,7 +1564,12 @@ class BaseResultSurface:
         )
         install_ime_halfwidth_punctuation_fix(self.content_text)
         install_select_all_shortcut(self.content_text)
-        install_script_aware_word_selection(self.content_text)
+        self._selection_block_ranges: tuple[tuple[int, int], ...] = ()
+        install_script_aware_word_selection(
+            self.content_text,
+            block_ranges=lambda: self._selection_block_ranges,
+        )
+        self._install_content_context_menu()
         self.content_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 2))
         self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
         self.content_text.tag_config("body", foreground=CONTENT_COLOR)
@@ -2058,6 +2147,7 @@ class BaseResultSurface:
         self._editable_content_changed = None
         self.content_text.unbind("<<Modified>>")
         self._canonical_selection_segments = ()
+        self._selection_block_ranges = ()
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         for text, tag in chunks:
@@ -2073,6 +2163,7 @@ class BaseResultSurface:
     ) -> None:
         """Render canonical Voice draft text and apply explicit insertion placement."""
         self._canonical_selection_segments = ()
+        self._selection_block_ranges = ()
         self._editable_content_changed = on_changed
         self.content_text.unbind("<<Modified>>")
         self.content_text.configure(state="normal")
@@ -2111,12 +2202,14 @@ class BaseResultSurface:
         if editing:
             self.content_text.configure(state="normal")
             self._strip_break_hints_for_editing()
+            self._selection_block_ranges = ()
             if self._editable_content_changed is not None:
                 self.content_text.unbind("<<Modified>>")
                 self.content_text.bind("<<Modified>>", self._notify_editable_content_changed)
             return
         self.content_text.unbind("<<Modified>>")
         self._apply_break_hints_for_reading()
+        self._selection_block_ranges = ()
         self.content_text.configure(state="disabled")
 
     def _strip_break_hints_for_editing(self) -> None:
@@ -2184,6 +2277,7 @@ class BaseResultSurface:
         if not text:
             return
         self._canonical_selection_segments = ()
+        self._selection_block_ranges = ()
         try:
             at_bottom = self.content_text.yview()[1] >= 0.999
         except (tk.TclError, AttributeError, IndexError):
@@ -2206,13 +2300,21 @@ class BaseResultSurface:
             for tag, prefix in plan.indent_prefixes:
                 self._list_indent_prefixes[tag] = prefix
                 configure_hanging_indent(self.content_text, tag, prefix)
+            block_start = 0
+            widget_offset = 0
+            block_ranges: list[tuple[int, int]] = []
             for step in plan.steps:
                 self.content_text.insert("end", step.text, step.tags)
+                widget_offset += len(step.text)
+                if step.kind == "newline":
+                    block_ranges.append((block_start, widget_offset))
+                    block_start = widget_offset
         except (tk.TclError, ValueError):
             plan = None
             self.content_text.delete("1.0", "end")
             insert_display_text(self.content_text, "end", document.fallback_text, "body")
         self._canonical_selection_segments = () if plan is None else plan.selection_segments
+        self._selection_block_ranges = () if plan is None else tuple(block_ranges)
         self.content_text.configure(state="disabled")
 
     def _reapply_list_indents(self) -> None:
@@ -2236,12 +2338,39 @@ class BaseResultSurface:
                     segments,
                     len(before_selection),
                     len(before_selection) + len(selected_display),
-                ).strip()
+                )
             else:
-                selected = selected_display.strip()
+                selected = selected_display
         except (tk.TclError, AttributeError):
             return None
-        return selected or None
+        return selected if selected.strip() else None
+
+    def bind_content_context_copy(self, callback: Callable[[], None]) -> None:
+        self._content_context_copy = callback
+
+    def _install_content_context_menu(self) -> None:
+        self._content_context_copy: Callable[[], None] | None = None
+        self._content_context_menu = tk.Menu(self.content_text._textbox, tearoff=False)
+        self._content_context_menu.add_command(label="複製", command=self._copy_from_context_menu)
+        self._content_context_menu.add_command(label="全選", command=self._select_all_content)
+        self.content_text.bind("<Button-3>", self._show_content_context_menu, add="+")
+
+    def _copy_from_context_menu(self) -> None:
+        if self.selected_text() is not None and self._content_context_copy is not None:
+            self._content_context_copy()
+
+    def _select_all_content(self) -> None:
+        self.content_text.tag_add("sel", "1.0", "end-1c")
+        self.content_text.mark_set("insert", "end-1c")
+
+    def _show_content_context_menu(self, event) -> str:
+        self._content_context_menu.entryconfigure(
+            0,
+            state="normal" if self.selected_text() is not None and self._content_context_copy is not None else "disabled",
+        )
+        self._content_context_menu.tk_popup(event.x_root, event.y_root)
+        self._content_context_menu.grab_release()
+        return "break"
 
     def bind_header_double_click(self, callback: Callable) -> None:
         for widget in (self.header, self.title_area, self.title_label):
@@ -2254,6 +2383,11 @@ class BaseResultSurface:
     def bind_voice_draft_paste(self, callback: Callable) -> None:
         """Bind before Tk's Text class handler can perform native paste."""
         self.content_text.bind("<Control-v>", callback, add="+")
+
+    def bind_copy_shortcut(self, callback: Callable) -> None:
+        """Route content copy before Tk's native clipboard class handler."""
+        self.content_text.bind("<Control-c>", callback, add="+")
+        self.content_text.bind("<Control-C>", callback, add="+")
 
     def focus_content(self) -> bool:
         """Focus the content widget and report verified toolkit focus truth."""

@@ -161,6 +161,16 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
   再設 disabled。`semantic_content()`、selection offsets 與所有 output intent 都先 strip
   hints。禁止在 editable 文字注入 hint 或以 timer 正規化，確保 BackSpace、方向鍵與
   caret 永遠作用於使用者看得見的 canonical 字元。
+- Popup 內容文字的單擊與拖曳維持字元粒度；雙擊選字後拖曳按字詞擴選；三擊選
+  語意段落後拖曳按段落擴選。Voice Draft 以空白行為段落邊界；唯讀結果使用
+  presentation block 邊界。視覺折行與 display-only hints 不得切斷段落。
+  `normal` 與 `disabled` 共用選取手勢，但 `disabled` 不得接受文字編輯。
+  文字框的 Ctrl+C 必須在 Tk 原生 Copy 之前進入唯一 typed Copy intent；
+  不得同時發生原生剪貼簿寫入與 Popup output operation。
+  內容區右鍵選單提供「複製」與「全選」；無非空 selection 時「複製」停用，
+  不得使用 Popup Copy 按鈕的全文 fallback。有效 selection 的首尾空白與換行
+  屬於使用者選取內容，Copy／Paste／Archive 必須保留；僅全空白 selection
+  視為無語意選取。
 - Paste target 無效、已關閉或無法成為 foreground 時，系統不得向其他視窗
   fallback 或盲送 `Ctrl+V`，必須恢復 surface 並顯示失敗狀態。
 

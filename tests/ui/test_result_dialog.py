@@ -320,6 +320,8 @@ class Surface:
         self.feedback_available = False
         self.header_double_click_callback = None
         self.voice_draft_paste_callback = None
+        self.copy_shortcut_callback = None
+        self.context_copy_callback = None
         self.focus_result = True
         self.follow_up_visible = False
         self.follow_entry = FollowUpEntry()
@@ -407,6 +409,12 @@ class Surface:
 
     def bind_voice_draft_paste(self, callback) -> None:
         self.voice_draft_paste_callback = callback
+
+    def bind_copy_shortcut(self, callback) -> None:
+        self.copy_shortcut_callback = callback
+
+    def bind_content_context_copy(self, callback) -> None:
+        self.context_copy_callback = callback
 
     def focus_content(self) -> bool:
         return self.focus_result
@@ -1758,6 +1766,30 @@ def test_voice_draft_intercepts_ctrl_v_before_the_text_widget_can_paste() -> Non
 
     assert result == "break"
     assert events == ["paste:s1"]
+
+
+def test_popup_content_ctrl_c_uses_one_typed_copy_route() -> None:
+    class ShortcutRoot:
+        def bind(self, _sequence, _callback, add=None) -> None:
+            pass
+
+    class Lifecycle:
+        def schedule(self, _delay, _callback) -> None:
+            pass
+
+    presenter, events = presenter_with_selection("chosen")
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    presenter._copy = lambda session_id: events.append(f"copy:{session_id}")
+
+    presenter._register_view("s1", view)
+    result = view.surface.copy_shortcut_callback(
+        type("Event", (), {"state": 0x0004})()
+    )
+
+    assert result == "break"
+    assert events == ["copy:s1"]
 
 
 def test_voice_capture_surface_context_projects_semantic_follow_up_intent() -> None:

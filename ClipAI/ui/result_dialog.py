@@ -1300,6 +1300,10 @@ class ResultDialogPresenter:
         view.surface.bind_voice_draft_paste(
             lambda event, sid=session_id: self._paste_shortcut(event, sid)
         )
+        view.surface.bind_copy_shortcut(
+            lambda event, sid=session_id: self._popup_shortcut(event, self._copy, sid)
+        )
+        view.surface.bind_content_context_copy(lambda sid=session_id: self._copy(sid))
         if announce_shown:
             control.observe_focus(PopupControlShown())
             if focus_on_show:

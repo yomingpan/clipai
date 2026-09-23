@@ -2492,7 +2492,7 @@ def test_copy_prefers_selected_command_text() -> None:
     runtime.enqueue(CopyResult(session_id, " selected ", "copy-op"))
     runtime.drain_commands()
     _supervisor.work["copy-op"]()
-    assert outputs.copied == ["selected"]
+    assert outputs.copied == [" selected "]
 
 
 def test_stop_releases_listener_supervisor_and_view() -> None:
