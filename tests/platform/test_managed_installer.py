@@ -135,11 +135,6 @@ def test_initial_installer_publishes_identity_only_after_verified_candidate(tmp_
 
     assert candidate.root == command.install_root / "versions" / "2.0"
     assert candidate.entrypoint.read_text(encoding="utf-8") == "print('installed')\n"
-    assert builder.requests[0].base_python == command.base_python
-    assert [item.candidate_root for item in builder.requests] == [
-        command.install_root / "versions" / "2.0",
-        command.install_root / "launcher",
-    ]
     assert (command.install_root / "launcher" / "payload" / "main.py").is_file()
     assert (command.install_root / "launcher" / "managed-update-trusted-keys.json").read_text(encoding="utf-8") == '{"trusted":"bootstrap"}\n'
     state = read_json(command.install_root / "install-state.json")

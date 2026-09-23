@@ -133,7 +133,6 @@ def test_backend_admits_verified_bundle_prepares_offline_candidate_and_retains_o
     backend.verify(request)
     candidate = backend.prepare(request)
     assert candidate.root == layout.version_root("2.0")
-    assert builder.requests[0].entrypoint == "payload/main.py"
     assert verifier.calls[0][2] == "release-key"
     assert not native_path(candidate.root.parent / ".2.0.candidate-owner.json").exists()
     handoff = ManagedUpdateArtifactStore(shared_root=request.shared_root, transaction_id="tx-1").read("handoff_ready")

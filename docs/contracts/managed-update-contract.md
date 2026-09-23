@@ -158,6 +158,15 @@ bundle SHA-256, manifest SHA-256, version, and key identity; its output is an
 immutable verified staging root with the parsed manifest. Callers may copy or
 build only from that staging root, never from the admitted archive again.
 
+Prepared Managed Payload materialization has one platform owner shared by the
+initial managed version, stable launcher, and update candidate. Given an
+admitted staging root, target root, transaction identity, and base interpreter,
+it copies the verified files, checks the copied inventory, builds the offline
+environment, and validates the resulting launch identity before returning it.
+The caller retains target reservation, failure cleanup, failure-code mapping,
+and publication. Materialization works in the caller's reserved target root;
+it does not publish a current-version pointer or install marker.
+
 ## Signing
 
 Manifests are signed with Ed25519 over canonical UTF-8 JSON bytes under

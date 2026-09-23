@@ -7,27 +7,24 @@ from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure
 from ClipAI.core.managed_update_commands import InstallManagedCommand
 from ClipAI.core.update_bundle import BundleAdmissionRequest
 from ClipAI.core.update_ports import (
-    CandidateBuildRequest,
     CandidateEnvironment,
     CandidateEnvironmentBuilder,
     ManagedUpdateGate,
 )
-from ClipAI.platform.candidate_environment import validate_candidate_environment
 from ClipAI.platform.managed_install import DocumentVerifier, MARKER_KIND, STATE_KIND
 from ClipAI.platform.managed_update_fs import (
     ManagedUpdateFileError,
     atomic_write_json,
     canonical_path,
     copy_file_atomically,
-    copy_regular_tree,
     native_path,
     remove_tree,
     require_contained,
     unlink_file,
 )
 from ClipAI.platform.managed_update_mutex import WindowsManagedUpdateGate
-from ClipAI.platform.update_bundle import verify_bundle_inventory
 from ClipAI.platform.update_catalog import MAX_BUNDLE_SIZE
+from ClipAI.platform.prepared_managed_payload import PreparedManagedPayloadMaterializer
 from ClipAI.platform.verified_managed_bundle import VerifiedManagedBundleStager
 
 
@@ -43,7 +40,7 @@ class FilesystemManagedInstaller:
         update_gate_factory: Callable[[Path], ManagedUpdateGate] = WindowsManagedUpdateGate,
     ) -> None:
         self._stager = VerifiedManagedBundleStager(manifest_verifier=manifest_verifier)
-        self._candidate_builder = candidate_builder
+        self._materializer = PreparedManagedPayloadMaterializer(candidate_builder=candidate_builder)
         self._trusted_keyring_path = canonical_path(trusted_keyring_path)
         self._update_gate_factory = update_gate_factory
 
@@ -90,27 +87,18 @@ class FilesystemManagedInstaller:
                 expected_version=command.expected_version,
                 key_id=command.key_id,
             ))
-            copy_regular_tree(verified.staging_root, target_root)
-            verify_bundle_inventory(target_root, verified.manifest)
-            build_request = CandidateBuildRequest(
+            candidate = self._materializer.prepare(
+                verified,
+                target_root=target_root,
                 transaction_id=command.transaction_id,
-                candidate_root=target_root,
                 base_python=command.base_python,
-                expected_version=command.expected_version,
-                entrypoint=verified.manifest.entrypoint,
             )
-            candidate = self._candidate_builder.build(build_request)
-            validate_candidate_environment(candidate, build_request)
-            copy_regular_tree(verified.staging_root, launcher_root)
-            launcher_request = CandidateBuildRequest(
+            self._materializer.prepare(
+                verified,
+                target_root=launcher_root,
                 transaction_id=command.transaction_id,
-                candidate_root=launcher_root,
                 base_python=command.base_python,
-                expected_version=command.expected_version,
-                entrypoint=verified.manifest.entrypoint,
             )
-            launcher = self._candidate_builder.build(launcher_request)
-            validate_candidate_environment(launcher, launcher_request)
             copy_file_atomically(
                 self._trusted_keyring_path,
                 launcher_root / "managed-update-trusted-keys.json",

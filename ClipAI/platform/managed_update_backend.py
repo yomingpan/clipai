@@ -9,21 +9,19 @@ from packaging.version import Version
 from ClipAI.core.managed_update import CommitReceipt, FailureCode, ManagedUpdateFailure, TransactionId
 from ClipAI.core.update_artifacts import HandoffReadyArtifact, UpdateRequestArtifact
 from ClipAI.core.update_bundle import BundleAdmissionRequest, VerifiedManagedBundle
-from ClipAI.core.update_ports import CandidateBuildRequest, CandidateEnvironment, CandidateEnvironmentBuilder
+from ClipAI.core.update_ports import CandidateEnvironment, CandidateEnvironmentBuilder
 from ClipAI.platform.managed_install import DocumentVerifier, ManagedInstallLayout
-from ClipAI.platform.candidate_environment import validate_candidate_environment
 from ClipAI.platform.managed_update_fs import (
     ManagedUpdateFileError,
     atomic_write_json,
-    copy_regular_tree,
     native_path,
     read_json,
     remove_tree,
     require_contained,
     unlink_file,
 )
-from ClipAI.platform.update_bundle import verify_bundle_inventory
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
+from ClipAI.platform.prepared_managed_payload import PreparedManagedPayloadMaterializer
 from ClipAI.platform.verified_managed_bundle import VerifiedManagedBundleStager
 
 
@@ -40,7 +38,7 @@ class FilesystemManagedUpdateBackend:
         now: Callable[[], str],
     ) -> None:
         self._layout = layout
-        self._candidate_builder = candidate_builder
+        self._materializer = PreparedManagedPayloadMaterializer(candidate_builder=candidate_builder)
         self._base_python = Path(base_python).resolve()
         self._now = now
         self._bundle_stager = VerifiedManagedBundleStager(manifest_verifier=manifest_verifier)
@@ -72,17 +70,12 @@ class FilesystemManagedUpdateBackend:
         owner_path = target_root.parent / f".{target_root.name}.candidate-owner.json"
         try:
             self._reserve_target(target_root, owner_path, request)
-            copy_regular_tree(verified.staging_root, target_root)
-            verify_bundle_inventory(target_root, verified.manifest)
-            build_request = CandidateBuildRequest(
+            candidate = self._materializer.prepare(
+                verified,
+                target_root=target_root,
                 transaction_id=request.transaction_id,
-                candidate_root=target_root,
                 base_python=self._base_python,
-                expected_version=request.target_version,
-                entrypoint=verified.manifest.entrypoint,
             )
-            candidate = self._candidate_builder.build(build_request)
-            validate_candidate_environment(candidate, build_request)
             unlink_file(owner_path)
             ManagedUpdateArtifactStore(
                 shared_root=request.shared_root,

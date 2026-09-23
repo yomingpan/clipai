@@ -63,6 +63,20 @@ def test_bundle_admission_has_one_platform_owner():
     assert "VerifiedManagedBundleStager" in installer
 
 
+def test_prepared_payload_materialization_has_one_platform_owner():
+    platform_root = ROOT / "ClipAI" / "platform"
+    materializer = (platform_root / "prepared_managed_payload.py").read_text(encoding="utf-8")
+    assert "copy_regular_tree(verified.staging_root, target_root)" in materializer
+    assert "verify_bundle_inventory(target_root, verified.manifest)" in materializer
+    assert "validate_candidate_environment(candidate, request)" in materializer
+    for name in ("managed_installer.py", "managed_update_backend.py"):
+        caller = (platform_root / name).read_text(encoding="utf-8")
+        assert "PreparedManagedPayloadMaterializer" in caller
+        assert "copy_regular_tree(" not in caller
+        assert "verify_bundle_inventory(" not in caller
+        assert "validate_candidate_environment(" not in caller
+
+
 def test_signing_namespace_and_test_identity_have_one_core_owner():
     owner = ROOT / "ClipAI" / "core" / "update_signing.py"
     definitions = []

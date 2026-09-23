@@ -51,3 +51,9 @@ _Avoid_: Paste completion, successful paste
 The promise that temporary clipboard use either restores every original format
 or stops before Paste Dispatch. Partial restoration does not satisfy this promise.
 _Avoid_: Best-effort restore
+
+**Prepared Managed Payload**:
+A verified managed release placed at a target location with its runtime
+dependencies prepared and its identity checked. It is ready for either a
+managed version or the stable launcher, but has not been published as either.
+_Avoid_: Candidate Version
