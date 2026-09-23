@@ -78,7 +78,8 @@ def restore_review(
         content=origin.text,
         status_text=message,
         result_completeness="complete",
-        available_actions=("copy", "paste", "follow_up"),
+        available_actions=("copy", "paste", "follow_up", "refine"),
+        active_invocation_id=None,
         voice_capture_id=None,
         voice_capture_phase=None,
         voice_audio_level=0.0,
@@ -132,7 +133,7 @@ def finalize_capture(
         feedback_message="",
         show_guidance_hint=False,
         result_completeness="complete",
-        available_actions=("copy", "paste", "follow_up"),
+        available_actions=("copy", "paste", "follow_up", "refine"),
         voice_origin=replace(
             origin,
             text=content,
@@ -200,5 +201,5 @@ def return_to_review(snapshot: SessionSnapshot) -> SessionSnapshot | None:
         feedback_message="",
         show_guidance_hint=False,
         result_completeness="complete",
-        available_actions=("copy", "paste", "follow_up"),
+        available_actions=("copy", "paste", "follow_up", "refine"),
     )

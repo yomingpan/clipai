@@ -14,6 +14,7 @@ from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
+from ClipAI.platform.browser_speech import WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT
 
 
 def test_runtime_composition_injects_voice_profile_from_application_paths(
@@ -39,6 +40,34 @@ def test_runtime_composition_injects_voice_profile_from_application_paths(
     )
 
     with pytest.raises(CompositionReachedVoiceProfile):
+        container.build_runtime(load_config_bundle(), paths=paths)
+
+
+def test_runtime_composition_appends_webview2_speech_fallback_once(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class CompositionReachedVoiceEngine(Exception):
+        pass
+
+    paths = build_application_paths(
+        Path.cwd(),
+        {"LOCALAPPDATA": str(tmp_path / "local-app-data")},
+    )
+    monkeypatch.setenv(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, "--existing-argument")
+
+    def capture_voice_engine(*_args, **_kwargs):
+        value = __import__("os").environ[WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS]
+        assert value.split().count(WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT) == 1
+        assert "--existing-argument" in value
+        raise CompositionReachedVoiceEngine
+
+    monkeypatch.setattr(container, "BrowserSpeechWebView2Engine", capture_voice_engine)
+
+    with pytest.raises(CompositionReachedVoiceEngine):
+        container.build_runtime(load_config_bundle(), paths=paths)
+
+    with pytest.raises(CompositionReachedVoiceEngine):
         container.build_runtime(load_config_bundle(), paths=paths)
 
 

@@ -8,6 +8,7 @@ from ClipAI.core.errors import CancelledError, ClipAIError, ProviderUnavailableE
 from ClipAI.core.models import ActionInvocation, LLMCompleted, LLMProviderEvent, LLMRequest, LLMResult, LLMTextDelta, ResolvedAction
 from ClipAI.core.ports import OperationHandle, OperationTracker
 from ClipAI.core.state import SessionStatus
+from ClipAI.core.voice import VoiceDraftTarget
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.follow_up_continuation import FollowUpContinuation
 from ClipAI.services.prompt_builder import PromptBuilder
@@ -209,6 +210,81 @@ class ActionExecutor:
             return
         except ClipAIError as exc:
             workflow.fail(invocation.invocation_id, _provider_error_message(exc, binding.provider_id))
+
+    async def execute_refine_voice_draft_invocation(
+        self,
+        action: ResolvedAction,
+        invocation: ActionInvocation,
+        workflow: WorkflowController,
+        *,
+        binding: ProviderExecutionBinding,
+        target: VoiceDraftTarget,
+    ) -> None:
+        """Refine one frozen Voice Draft range without leaving Voice Review."""
+        token = workflow.cancellation
+        try:
+            issue = next((item for item in binding.readiness_issues if item.feature == "llm"), None)
+            if issue is not None:
+                if workflow.restore_voice_review(target, issue.message) is None:
+                    workflow.fail(invocation.invocation_id, issue.message)
+                return
+            document = invocation.input_target.document
+            if document is None:
+                if workflow.restore_voice_review(target, "Review your dictation.") is None:
+                    workflow.fail(invocation.invocation_id, "Review your dictation.")
+                return
+            if workflow.update(
+                invocation.invocation_id,
+                SessionStatus.PREPARING_REQUEST,
+                status_text=f"Preparing {action.name}...",
+                input_source=document.source,
+            ) is None:
+                return
+            request = await self._run_blocking(
+                f"prompt:{invocation.invocation_id}",
+                lambda: self._prompt_builder.build(
+                    action,
+                    document.text,
+                    model=binding.model,
+                    default_temperature=self._default_temperature,
+                    image=document.image,
+                ),
+            )
+            if workflow.update(
+                invocation.invocation_id,
+                SessionStatus.REQUESTING_PROVIDER,
+                status_text=f"Asking {binding.provider_id}...",
+            ) is None:
+                return
+            result = await self._complete_provider_for_invocation(
+                request,
+                invocation.invocation_id,
+                token,
+                binding,
+                action.stream,
+                workflow,
+            )
+            if workflow.update(
+                invocation.invocation_id,
+                SessionStatus.PROCESSING_RESULT,
+                status_text="Rendering result...",
+            ) is None:
+                return
+            processed = await self._run_blocking(
+                f"result:{invocation.invocation_id}",
+                lambda: self._result_processor.process(result.text, action.output_profile),
+            )
+            if workflow.apply_voice_finalization(target, processed.text) is None:
+                if workflow.restore_voice_review(target, "Review your dictation.") is None:
+                    workflow.fail(invocation.invocation_id, "Review your dictation.")
+        except CancelledError:
+            return
+        except ClipAIError as exc:
+            if token.is_cancelled:
+                return
+            message = _provider_error_message(exc, binding.provider_id)
+            if workflow.restore_voice_review(target, message) is None:
+                workflow.fail(invocation.invocation_id, message)
 
     def _consume_guidance_hint(self, action: ResolvedAction, invocation: ActionInvocation) -> bool:
         return bool(

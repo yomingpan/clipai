@@ -7,7 +7,7 @@ import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, RegenerateResult, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted, WorkflowStepAccepted
+from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, RefineVoiceDraftInPlace, RegenerateResult, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted, WorkflowStepAccepted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActionAdmissionOrigin, ActionInvocation, ActionStartAdmission, ControlSurfaceRef, EntryActionRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, PressType, ResultRoute, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceCaptureContextReader, WorkflowAttentionPresenter, WorkflowContextReader
@@ -32,6 +32,7 @@ from ClipAI.support.diagnostics import IncidentReporter
 
 
 WorkflowPresentation: TypeAlias = Literal["visible", "headless"]
+REFINE_VOICE_DRAFT_ACTION_ID = "intent_preserving_dictation_editor"
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ WorkflowRuntimeCommand: TypeAlias = (
     | TogglePin
     | FollowUp
     | RegenerateResult
+    | RefineVoiceDraftInPlace
     | ActivateWorkflow
     | NavigateWorkflowBack
     | WorkflowInvocationFailed
@@ -210,7 +212,7 @@ class WorkflowRuntimeModule:
                 content="",
                 source_preview="Voice Input draft",
                 status_text="",
-                available_actions=("copy", "paste", "follow_up"),
+                available_actions=("copy", "paste", "follow_up", "refine"),
                 result_completeness="complete",
                 voice_origin=VoiceOrigin(target),
             ),
@@ -500,6 +502,8 @@ class WorkflowRuntimeModule:
             self._follow_up(command)
         elif isinstance(command, RegenerateResult):
             self._regenerate(command)
+        elif isinstance(command, RefineVoiceDraftInPlace):
+            self._refine_voice_draft(command)
         elif isinstance(command, ActivateWorkflow):
             record = self._records.get(command.workflow_id)
             if record is not None and record.presentation == "visible":
@@ -853,6 +857,60 @@ class WorkflowRuntimeModule:
             command.workflow_id,
             invocation.invocation_id,
             work,
+        )
+
+    def _refine_voice_draft(self, command: RefineVoiceDraftInPlace) -> None:
+        record = self._records.get(command.workflow_id)
+        if record is None or record.presentation != "visible":
+            return
+        controller = record.controller
+        snapshot = controller.snapshot
+        origin = snapshot.voice_origin
+        if (
+            snapshot.status is not SessionStatus.VOICE_REVIEW
+            or origin is None
+            or snapshot.active_invocation_id is not None
+            or origin.revision != command.expected_revision
+        ):
+            return
+        text_length = len(origin.text)
+        start = max(0, min(command.selection_start, text_length))
+        end = max(0, min(command.selection_end, text_length))
+        if end <= start:
+            start, end = 0, text_length
+        selected_text = origin.text[start:end]
+        if not selected_text.strip():
+            return
+        target = controller.freeze_voice_insertion(start, end)
+        if target is None:
+            return
+        try:
+            action = self._actions.resolve(REFINE_VOICE_DRAFT_ACTION_ID, "short")
+        except ValueError as error:
+            self._sequence_error(str(error), "Check the Action configuration and try again.")
+            return
+        invocation = ActionInvocation(
+            uuid.uuid4().hex,
+            action.id,
+            action.press_type,
+            InputTarget(
+                "workflow_result",
+                InputDocument(selected_text, "voice_draft", workflow_id=command.workflow_id),
+            ),
+            workflow_id=command.workflow_id,
+        )
+        controller.begin_invocation(invocation, action)
+        record.replay_by_invocation[invocation.invocation_id] = None
+        self._submit_invocation(
+            command.workflow_id,
+            invocation.invocation_id,
+            lambda: self._execute_action.execute_refine_voice_draft_invocation(
+                action,
+                invocation,
+                controller,
+                binding=record.binding,
+                target=target,
+            ),
         )
 
     def _execute_continuation(

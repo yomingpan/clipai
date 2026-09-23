@@ -4,7 +4,7 @@ import asyncio
 import pytest
 from dataclasses import replace
 
-from ClipAI.core.models import SelectionCaptureOutcome, ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
+from ClipAI.core.models import SelectionCaptureOutcome, ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputDocument, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
 from ClipAI.core.errors import ProviderResponseError, ProviderUnavailableError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceOrigin
@@ -265,6 +265,130 @@ def test_execute_invocation_appends_successful_workflow_step() -> None:
     assert controller.snapshot.content == "result"
     assert controller.snapshot.steps[0].input_text == "selected"
     assert controller.snapshot.steps[0].step_id == "i1"
+
+
+def test_refine_voice_draft_replaces_only_the_frozen_range_and_returns_to_review() -> None:
+    presenter = RecordingPresenter()
+    controller = WorkflowController(
+        SessionSnapshot(
+            "w1", 0, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+            content="rough voice draft",
+            voice_origin=VoiceOrigin(None, "rough voice draft", 3),
+            available_actions=("copy", "paste", "follow_up", "refine"),
+        ),
+        presenter,
+    )
+    target = controller.freeze_voice_insertion(6, 11)
+    assert target is not None
+    resolved = replace(
+        action(),
+        id="intent_preserving_dictation_editor",
+        prompt="Refine without changing intent: {input}",
+    )
+    invocation = ActionInvocation(
+        "refine-1",
+        resolved.id,
+        "short",
+        InputTarget("workflow_result", InputDocument("voice", "voice_draft", workflow_id="w1")),
+        workflow_id="w1",
+    )
+    controller.begin_invocation(invocation, resolved)
+
+    asyncio.run(workflow(FakeClipboard(""), FakeSelection("")).execute_refine_voice_draft_invocation(
+        resolved,
+        invocation,
+        controller,
+        binding=binding(FakeProvider("polished")),
+        target=target,
+    ))
+
+    assert controller.snapshot.status is SessionStatus.VOICE_REVIEW
+    assert controller.snapshot.content == "rough polished draft"
+    assert controller.snapshot.voice_origin is not None
+    assert controller.snapshot.voice_origin.text == "rough polished draft"
+    assert controller.snapshot.available_actions == ("copy", "paste", "follow_up", "refine")
+
+
+def test_refine_voice_draft_failure_restores_the_unchanged_review() -> None:
+    class FailingProvider:
+        async def execute(self, request, cancellation, *, stream):
+            raise ProviderResponseError("provider failed")
+            yield
+
+    controller = WorkflowController(
+        SessionSnapshot(
+            "w1", 0, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+            content="keep this draft",
+            voice_origin=VoiceOrigin(None, "keep this draft", 2),
+            available_actions=("copy", "paste", "follow_up", "refine"),
+        ),
+        RecordingPresenter(),
+    )
+    target = controller.freeze_voice_insertion(0, len("keep this draft"))
+    assert target is not None
+    resolved = replace(action(), id="intent_preserving_dictation_editor")
+    invocation = ActionInvocation(
+        "refine-1", resolved.id, "short",
+        InputTarget("workflow_result", InputDocument("keep this draft", "voice_draft", workflow_id="w1")),
+        workflow_id="w1",
+    )
+    controller.begin_invocation(invocation, resolved)
+
+    asyncio.run(workflow(FakeClipboard(""), FakeSelection("")).execute_refine_voice_draft_invocation(
+        resolved,
+        invocation,
+        controller,
+        binding=binding(FailingProvider()),
+        target=target,
+    ))
+
+    assert controller.snapshot.status is SessionStatus.VOICE_REVIEW
+    assert controller.snapshot.content == "keep this draft"
+    assert controller.snapshot.active_invocation_id is None
+    assert controller.snapshot.status_text == "provider failed"
+
+
+def test_cancelled_refine_failure_cannot_restore_over_a_newer_invocation() -> None:
+    controller = WorkflowController(
+        SessionSnapshot(
+            "w1", 0, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+            content="keep this draft",
+            voice_origin=VoiceOrigin(None, "keep this draft", 2),
+            available_actions=("copy", "paste", "follow_up", "refine"),
+        ),
+        RecordingPresenter(),
+    )
+    target = controller.freeze_voice_insertion(0, 4)
+    assert target is not None
+    resolved = replace(action(), id="intent_preserving_dictation_editor")
+    old = ActionInvocation(
+        "old", resolved.id, "short",
+        InputTarget("workflow_result", InputDocument("keep", "voice_draft", workflow_id="w1")),
+        workflow_id="w1",
+    )
+    newer = ActionInvocation(
+        "new", resolved.id, "short",
+        InputTarget("workflow_result", InputDocument("this", "voice_draft", workflow_id="w1")),
+        workflow_id="w1",
+    )
+
+    class ReplacingFailingProvider:
+        async def execute(self, request, cancellation, *, stream):
+            controller.begin_invocation(newer, resolved)
+            raise ProviderResponseError("late provider failure")
+            yield
+
+    controller.begin_invocation(old, resolved)
+    asyncio.run(workflow(FakeClipboard(""), FakeSelection("")).execute_refine_voice_draft_invocation(
+        resolved,
+        old,
+        controller,
+        binding=binding(ReplacingFailingProvider()),
+        target=target,
+    ))
+
+    assert controller.snapshot.active_invocation_id == "new"
+    assert controller.snapshot.content == "keep this draft"
 
 
 def test_replaced_invocation_cancels_operation_without_late_success() -> None:

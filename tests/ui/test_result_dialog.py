@@ -4,7 +4,7 @@ import queue
 import inspect
 from dataclasses import replace
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, PopupBounds, WorkflowAttention, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
@@ -535,6 +535,22 @@ def test_copy_and_archive_wait_for_typed_acknowledgment() -> None:
     assert len(events) == 2
     assert isinstance(events[0], CopyResult) and events[0].text == "selected" and events[0].operation_id
     assert isinstance(events[1], ArchiveResult) and events[1].text == "selected" and events[1].operation_id
+
+
+def test_refine_voice_draft_emits_frozen_revision_and_selection() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.surface.selection_range = lambda: (2, 7)
+    view.last_snapshot = SessionSnapshot(
+        "s1", 8, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+        content="draft text",
+        voice_origin=VoiceOrigin(None, "draft text", 5),
+        available_actions=("copy", "paste", "follow_up", "refine"),
+    )
+
+    presenter._refine_voice_draft("s1")
+
+    assert events == [RefineVoiceDraftInPlace("s1", 5, 2, 7)]
 
 
 def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:

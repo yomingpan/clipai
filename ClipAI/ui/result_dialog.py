@@ -11,7 +11,7 @@ import webbrowser
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
+from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
 from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, ManagedUpdatePresentation, OutputOperationResult, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.popup_presentation import project_popup_presentation
@@ -965,6 +965,21 @@ class ResultDialogPresenter:
         if self._interactive_view(session_id) is not None:
             self._command_sink(RegenerateResult(session_id))
 
+    def _refine_voice_draft(self, session_id: str) -> None:
+        view = self._interactive_view(session_id)
+        if view is None or view.last_snapshot is None:
+            return
+        snapshot = view.last_snapshot
+        if snapshot.status is not SessionStatus.VOICE_REVIEW or snapshot.voice_origin is None:
+            return
+        start, end = view.surface.selection_range()
+        self._command_sink(RefineVoiceDraftInPlace(
+            session_id,
+            snapshot.voice_origin.revision,
+            start,
+            end,
+        ))
+
     def _submit_feedback(
         self,
         session_id: str,
@@ -1119,6 +1134,7 @@ class ResultDialogPresenter:
             on_paste=lambda sid=session_id: self._paste(sid),
             on_archive=lambda sid=session_id: self._archive(sid),
             on_regenerate=lambda sid=session_id: self._regenerate(sid),
+            on_refine=lambda sid=session_id: self._refine_voice_draft(sid),
             on_follow_up=lambda sid=session_id: self._toggle_follow_up(sid),
         )
         surface.bind_feedback_submit(
@@ -1272,6 +1288,7 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-c>", lambda event, sid=session_id: self._popup_shortcut(event, self._copy, sid), add="+")
         dialog.root.bind("<Control-s>", lambda event, sid=session_id: self._popup_shortcut(event, self._archive, sid), add="+")
         dialog.root.bind("<Control-r>", lambda event, sid=session_id: self._popup_shortcut(event, self._regenerate, sid), add="+")
+        dialog.root.bind("<Control-p>", lambda event, sid=session_id: self._popup_shortcut(event, self._refine_voice_draft, sid), add="+")
         dialog.root.bind("<Control-v>", lambda event, sid=session_id: self._paste_shortcut(event, sid), add="+")
         dialog.root.bind("<Control-z>", navigate_back, add="+")
         dialog.root.bind("<Control-Return>", toggle_voice_draft_mode, add="+")

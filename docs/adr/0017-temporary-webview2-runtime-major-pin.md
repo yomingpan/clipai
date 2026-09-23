@@ -2,9 +2,12 @@
 
 ## Status
 
-Accepted as a reversible workaround. Review after Microsoft fixes the M153
-cloud SpeechRecognition 403 regression or when 152 is no longer available on
-supported machines.
+Superseded. The shipped configuration no longer pins WebView2 152. Evergreen
+WebView2 153+ is used with the Ceto speech-service feature disabled so browser
+speech falls back to the working Bing speech endpoint.
+
+The optional runtime-major setting and resolver remain available only as a
+rollback mechanism; they are not the current production workaround.
 
 ## Context
 
@@ -64,3 +67,12 @@ supported Evergreen runtime. After the fixed runtime passes the same physical
 microphone and WebSocket handshake comparison, remove
 `webview2_runtime_major: 152` from the shipped config. Remove the resolver and
 schema field once no supported deployment relies on the pin.
+
+## Superseding decision
+
+At composition time, ClipAI preserves any existing
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` value and idempotently appends
+`--disable-features=msSpeechRecognitionServiceUseCetoService`. The Voice helper
+therefore uses the installed Evergreen runtime without depending on an older
+major remaining installed. The platform module declares the environment name
+and fallback flag; it does not mutate process environment on import.

@@ -4,7 +4,12 @@ from pathlib import Path
 import subprocess
 
 from ClipAI.core.voice import VoiceEngineAudioLevel, VoiceEngineEnded, VoiceEngineFailed, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupFailed, VoiceEngineSetupReady, VoiceTransportFailure
-from ClipAI.platform.browser_speech import CAPTURE_START_TIMEOUT_SECONDS, CAPTURE_STOP_TIMEOUT_SECONDS, WEBVIEW2_BROWSER_EXECUTABLE_FOLDER, BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event, find_webview2_runtime_for_major
+from ClipAI.platform.browser_speech import CAPTURE_START_TIMEOUT_SECONDS, CAPTURE_STOP_TIMEOUT_SECONDS, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, WEBVIEW2_BROWSER_EXECUTABLE_FOLDER, WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT, BrowserSpeechWebView2Engine, VOICE_PROTOCOL_VERSION, _decode_event, find_webview2_runtime_for_major
+
+
+def test_webview2_speech_fallback_constants_do_not_mutate_the_environment() -> None:
+    assert WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS == "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+    assert WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT == "--disable-features=msSpeechRecognitionServiceUseCetoService"
 
 
 class BrokenInput:

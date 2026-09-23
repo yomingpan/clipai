@@ -2,3 +2,10 @@
 {"schema":1,"gate":"mu-experimence","step":"entry-panel-long-press","cases":24,"passed":true,"content_recorded":false,"device_evidence":false}
 {"schema":1,"gate":"mu-experimence","step":"ime-and-architecture","cases":329,"passed":true,"content_recorded":false,"device_evidence":false}
 {"schema":1,"gate":"mu-experimence","step":"full-regression","cases":1583,"passed":true,"content_recorded":false,"device_evidence":false}
+{"schema":1,"gate":"mu-experimence","step":"stt-config","cases":73,"passed":true,"content_recorded":false,"device_evidence":false}
+{"schema":1,"gate":"mu-experimence","step":"refine-service","cases":53,"passed":true,"content_recorded":false,"device_evidence":false}
+{"schema":1,"gate":"mu-experimence","step":"refine-runtime","cases":8,"passed":true,"content_recorded":false,"device_evidence":false}
+{"schema":1,"gate":"mu-experimence","step":"ui-selection","cases":11,"passed":true,"content_recorded":false,"device_evidence":false}
+{"schema":1,"gate":"mu-experimence","step":"ime-and-architecture","cases":233,"passed":true,"content_recorded":false,"device_evidence":false}
+{"schema":1,"gate":"mu-experimence","step":"integration-smoke","cases":1,"passed":true,"content_recorded":false,"device_evidence":false}
+{"schema":1,"gate":"mu-experimence","step":"full-regression","cases":1611,"passed":true,"content_recorded":false,"device_evidence":false}

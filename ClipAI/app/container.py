@@ -49,7 +49,7 @@ from ClipAI.platform.recent_actions import JsonRecentActionStore
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
 from ClipAI.platform.pointer_input import WindowsPointerPressReader
 from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
-from ClipAI.platform.browser_speech import BrowserSpeechWebView2Engine, find_webview2_runtime_for_major
+from ClipAI.platform.browser_speech import WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT, BrowserSpeechWebView2Engine, find_webview2_runtime_for_major
 from ClipAI.platform.voice_permissions import open_microphone_privacy_settings
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider
@@ -380,6 +380,13 @@ def build_runtime(
         for name in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")
         if (base := os.environ.get(name))
     )
+    browser_arguments = os.environ.get(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, "")
+    if WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT not in browser_arguments:
+        os.environ[WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS] = " ".join(
+            part
+            for part in (browser_arguments.strip(), WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT)
+            if part
+        )
     voice_engine = BrowserSpeechWebView2Engine(
         lambda event: enqueue(VoiceEngineEventReceived(event)),
         profile_root=paths.voice_profile_root,

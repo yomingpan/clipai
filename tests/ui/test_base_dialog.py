@@ -54,7 +54,9 @@ from ClipAI.ui.base_dialog import (
     compact_action_message,
     insert_display_text,
     install_ime_halfwidth_punctuation_fix,
+    install_select_all_shortcut,
     paste_target_display_text,
+    word_selection_bounds,
     _CanonicalSelectionSegment,
     _canonical_selection_text,
 )
@@ -82,6 +84,48 @@ def test_ime_halfwidth_punctuation_fix_inserts_only_mismapped_printable_characte
     assert handler(type("Event", (), {"char": ".", "keysym": "period"})()) is None
     assert widget.insertions == [("insert", ",")]
     assert add == "+"
+
+
+@pytest.mark.parametrize(
+    ("text", "index", "expected"),
+    (
+        ("OK,有的時候projects is a good thing", 10, (7, 15)),
+        ("OK,有的時候projects is a good thing", 4, (3, 7)),
+        ("かなカナABC", 1, (0, 4)),
+        ("한글Latin", 1, (0, 2)),
+        ("hello world", 6, (6, 11)),
+        ("hello world", 5, (5, 6)),
+        ("", 0, (0, 0)),
+    ),
+)
+def test_word_selection_bounds_keep_adjacent_writing_systems_separate(text, index, expected) -> None:
+    assert word_selection_bounds(text, index) == expected
+
+
+def test_select_all_shortcut_overrides_tk_default_and_breaks_propagation() -> None:
+    class Entry:
+        def __init__(self) -> None:
+            self.bindings = {}
+            self.selection = None
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+        def winfo_class(self) -> str:
+            return "Entry"
+
+        def select_range(self, start, end) -> None:
+            self.selection = (start, end)
+
+        def icursor(self, index) -> None:
+            self.cursor = index
+
+    widget = Entry()
+    install_select_all_shortcut(widget)
+
+    assert widget.bindings["<Control-a>"](object()) == "break"
+    assert widget.selection == (0, "end")
+    assert widget.cursor == "end"
 
 
 def test_external_output_visibility_actions_are_mechanical() -> None:
@@ -955,6 +999,7 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         "paste",
         "archive",
         "regenerate",
+        "refine",
         "follow_up",
     ]
     assert [spec.icon for spec in STANDARD_RESULT_ACTIONS] == [
@@ -963,6 +1008,7 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         PASTE_ICON,
         ARCHIVE_ICON,
         "↻",
+        "\uE70F",
         FOLLOW_UP_ICON,
     ]
     assert [spec.tooltip for spec in STANDARD_RESULT_ACTIONS] == [
@@ -971,6 +1017,7 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         "Paste result to target",
         "Archive result (Ctrl+S)",
         "Regenerate result (Ctrl+R)",
+        "Refine dictation (Ctrl+P)",
         "Ask follow-up (Ctrl+/)",
     ]
     assert [spec.active_tooltip for spec in STANDARD_RESULT_ACTIONS] == [
@@ -978,6 +1025,7 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         "Copy accepted (Ctrl+C)",
         None,
         "Archive accepted (Ctrl+S)",
+        None,
         None,
         "Close follow-up (Ctrl+/)",
     ]
@@ -1082,11 +1130,11 @@ def test_action_slot_selects_text_font_only_for_word_labels(monkeypatch) -> None
 
 
 def test_primary_and_overflow_action_placement_is_stable() -> None:
-    overflow_slots = {"paste", "archive", "regenerate"}
+    overflow_slots = {"paste", "archive", "regenerate", "refine"}
     primary = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id not in overflow_slots]
     overflow = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id in overflow_slots]
     assert primary == ["speaker", "copy", "follow_up"]
-    assert overflow == ["paste", "archive", "regenerate"]
+    assert overflow == ["paste", "archive", "regenerate", "refine"]
 
 
 def test_presentation_tags_avoid_customtkinter_forbidden_font_option() -> None:
@@ -1633,7 +1681,7 @@ def test_regenerate_action_is_an_overflow_control_with_ctrl_r_tooltip() -> None:
 
     assert regenerate.icon == "↻"
     assert regenerate.tooltip == "Regenerate result (Ctrl+R)"
-    assert 'overflow=spec.slot_id in {"paste", "archive", "regenerate"}' in inspect.getsource(
+    assert 'overflow=spec.slot_id in {"paste", "archive", "regenerate", "refine"}' in inspect.getsource(
         StandardResultActions.__init__
     )
 

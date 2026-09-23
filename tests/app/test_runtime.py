@@ -10,7 +10,7 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, RegenerateResult, ReloadConfiguration, ResetFirstUseHints, SelectActionLanguagePack, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefineVoiceDraftInPlace, RefreshProviderModels, RegenerateResult, ReloadConfiguration, ResetFirstUseHints, SelectActionLanguagePack, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ActionInvocation, ControlSurfaceRef, EntryActionRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -141,6 +141,7 @@ class FakeExecute:
         self.bindings = []
         self.follow_ups = []
         self.actions = []
+        self.refinements = []
 
     def execute(self, action, controller) -> None:
         pass
@@ -156,6 +157,9 @@ class FakeExecute:
 
     async def execute_follow_up_invocation(self, *args, **kwargs) -> None:
         self.follow_ups.append((args, kwargs))
+
+    async def execute_refine_voice_draft_invocation(self, *args, **kwargs) -> None:
+        self.refinements.append((args, kwargs))
 
 
 class ContextResolver:
@@ -600,6 +604,13 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
             (FeedbackReason("meaning_lost", "Meaning lost"),),
         ),
     )
+    refine = ActionDefinition(
+        "intent_preserving_dictation_editor",
+        "Refine dictation",
+        "Preserve intent.",
+        "{input}",
+        {},
+    )
     view = FakeView()
     supervisor = FakeSupervisor(submit_error)
     provider_execution = FakeProviderExecution(supervisor)
@@ -634,7 +645,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
     if include_voice_input:
         shortcut_definitions.append(ShortcutDefinition("voice_input", "ctrl+alt+w", "push_to_talk"))
     shortcuts = ShortcutCatalog(shortcut_definitions)
-    actions = ActionCatalog([action, shorten])
+    actions = ActionCatalog([action, shorten, refine])
     execute_action = FakeExecute()
     provider_configuration = ProviderConfigurationCoordinator(snapshot, backend)
     incident_reporter = IncidentReporter()
@@ -2848,8 +2859,104 @@ def test_new_voice_workflow_is_an_editable_standby_draft_before_microphone_open(
 
     assert controller.snapshot.status is SessionStatus.VOICE_REVIEW
     assert controller.snapshot.status_text == ""
-    assert controller.snapshot.available_actions == ("copy", "paste", "follow_up")
+    assert controller.snapshot.available_actions == ("copy", "paste", "follow_up", "refine")
     assert controller.snapshot.result_completeness == "complete"
+
+
+def test_refine_voice_draft_freezes_selection_before_submitting_provider_work() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(workflow_id, None)
+    controller._snapshot = controller.snapshot.evolve(
+        content="rough voice draft",
+        voice_origin=VoiceOrigin(None, "rough voice draft", 4),
+    )
+
+    runtime.enqueue(RefineVoiceDraftInPlace(workflow_id, 4, 6, 11))
+    runtime.drain_commands()
+
+    invocation_id = controller.snapshot.active_invocation_id
+    assert invocation_id is not None
+    assert invocation_id in supervisor.work
+    supervisor.work[invocation_id]()
+    args, kwargs = view.execute_action.refinements[0]
+    invocation = args[1]
+    assert invocation.input_target.document == InputDocument("voice", "voice_draft", workflow_id=workflow_id)
+    assert kwargs["target"].expected_revision == 4
+    assert kwargs["target"].selection_start == 6
+    assert kwargs["target"].selection_end == 11
+
+
+def test_refine_voice_draft_without_selection_targets_the_whole_draft() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(workflow_id, None)
+    controller._snapshot = controller.snapshot.evolve(
+        content="whole draft",
+        voice_origin=VoiceOrigin(None, "whole draft", 2),
+    )
+
+    runtime.enqueue(RefineVoiceDraftInPlace(workflow_id, 2, 5, 5))
+    runtime.drain_commands()
+    invocation_id = controller.snapshot.active_invocation_id
+    assert invocation_id is not None
+    supervisor.work[invocation_id]()
+
+    args, kwargs = view.execute_action.refinements[0]
+    assert args[1].input_target.document == InputDocument("whole draft", "voice_draft", workflow_id=workflow_id)
+    assert (kwargs["target"].selection_start, kwargs["target"].selection_end) == (0, 11)
+
+
+def test_refine_voice_draft_rejects_a_non_visible_workflow() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(workflow_id, None)
+    controller._snapshot = controller.snapshot.evolve(
+        content="voice draft",
+        voice_origin=VoiceOrigin(None, "voice draft", 1),
+    )
+    record = runtime._workflow_module._records[workflow_id]
+    runtime._workflow_module._records[workflow_id] = replace(record, presentation="headless")
+
+    runtime.enqueue(RefineVoiceDraftInPlace(workflow_id, 1, 0, 5))
+    runtime.drain_commands()
+
+    assert view.execute_action.refinements == []
+    assert supervisor.work == {}
+    assert controller.snapshot.content == "voice draft"
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_revision", "selection", "active_invocation_id"),
+    (
+        (SessionStatus.COMPLETED, 4, (0, 5), None),
+        (SessionStatus.VOICE_REVIEW, 3, (0, 5), None),
+        (SessionStatus.VOICE_REVIEW, 4, (5, 6), None),
+        (SessionStatus.VOICE_REVIEW, 4, (0, 5), "already-active"),
+    ),
+)
+def test_refine_voice_draft_rejects_invalid_or_stale_intent_without_provider_submission(
+    status,
+    expected_revision,
+    selection,
+    active_invocation_id,
+) -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(workflow_id, None)
+    controller._snapshot = controller.snapshot.evolve(
+        status=status,
+        content="voice draft",
+        voice_origin=VoiceOrigin(None, "voice draft", 4),
+        active_invocation_id=active_invocation_id,
+    )
+
+    runtime.enqueue(RefineVoiceDraftInPlace(workflow_id, expected_revision, *selection))
+    runtime.drain_commands()
+
+    assert view.execute_action.refinements == []
+    assert supervisor.work == {}
+    assert controller.snapshot.content == "voice draft"
 
 
 def test_completion_for_non_foreground_workflow_does_not_release_current_foreground() -> None:

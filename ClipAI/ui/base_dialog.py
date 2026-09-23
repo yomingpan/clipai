@@ -18,7 +18,7 @@ from ClipAI.ui.presentation_render import RenderSelectionSegment, build_popup_re
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
 
 DialogState = Literal["idle", "success", "error", "warning"]
-ResultActionId = Literal["speaker", "copy", "paste", "archive", "regenerate", "follow_up"]
+ResultActionId = Literal["speaker", "copy", "paste", "archive", "regenerate", "refine", "follow_up"]
 SOURCE_PREVIEW_MAX_CHARS = 36
 DISPLAY_BREAK_TAG = "display_break_hint"
 
@@ -61,6 +61,83 @@ def install_ime_halfwidth_punctuation_fix(widget) -> None:
         return None
 
     widget.bind("<KeyPress>", insert_mismapped_character, add="+")
+
+
+def install_select_all_shortcut(widget) -> None:
+    """Use the Windows Ctrl+A convention instead of Tk's class binding."""
+
+    def select_all(_event) -> str:
+        if hasattr(widget, "tag_add"):
+            widget.tag_add("sel", "1.0", "end-1c")
+            widget.mark_set("insert", "end-1c")
+        else:
+            widget.select_range(0, "end")
+            widget.icursor("end")
+        return "break"
+
+    widget.bind("<Control-a>", select_all, add="+")
+    widget.bind("<Control-A>", select_all, add="+")
+
+
+def _writing_system_class(char: str) -> str:
+    codepoint = ord(char)
+    if char.isspace():
+        return "space"
+    if (
+        0x3040 <= codepoint <= 0x30FF
+        or 0x31F0 <= codepoint <= 0x31FF
+        or 0x3400 <= codepoint <= 0x4DBF
+        or 0x4E00 <= codepoint <= 0x9FFF
+        or 0xAC00 <= codepoint <= 0xD7AF
+        or 0xF900 <= codepoint <= 0xFAFF
+        or 0x20000 <= codepoint <= 0x3134F
+    ):
+        return "cjk"
+    if (
+        char == "_"
+        or char.isascii() and char.isalnum()
+        or 0x00C0 <= codepoint <= 0x024F
+        or 0x1E00 <= codepoint <= 0x1EFF
+    ):
+        return "latin"
+    return "other"
+
+
+def word_selection_bounds(text: str, index: int) -> tuple[int, int]:
+    """Return the maximal run sharing one writing-system category."""
+    if not text:
+        return (0, 0)
+    index = max(0, min(index, len(text) - 1))
+    category = _writing_system_class(text[index])
+    start = index
+    end = index + 1
+    while start > 0 and _writing_system_class(text[start - 1]) == category:
+        start -= 1
+    while end < len(text) and _writing_system_class(text[end]) == category:
+        end += 1
+    return (start, end)
+
+
+def install_script_aware_word_selection(widget) -> None:
+    """Override Tk's broad Unicode word boundary on double-click."""
+
+    def select_word(event) -> str:
+        if hasattr(widget, "tag_add"):
+            raw_index = widget.index(f"@{event.x},{event.y}")
+            text = widget.get("1.0", "end-1c")
+            offset = len(widget.get("1.0", raw_index))
+            start, end = word_selection_bounds(text, offset)
+            widget.tag_remove("sel", "1.0", "end")
+            widget.tag_add("sel", f"1.0+{start}c", f"1.0+{end}c")
+            widget.mark_set("insert", f"1.0+{end}c")
+        else:
+            text = widget.get()
+            start, end = word_selection_bounds(text, int(widget.index(f"@{event.x}")))
+            widget.select_range(start, end)
+            widget.icursor(end)
+        return "break"
+
+    widget.bind("<Double-Button-1>", select_word, add="+")
 
 
 def canonical_caret_to_widget_offset(hinted: str, canonical_offset: int) -> int:
@@ -1042,6 +1119,11 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
         tooltip="Regenerate result (Ctrl+R)",
     ),
     ResultActionSpec(
+        slot_id="refine",
+        icon="\uE70F",
+        tooltip="Refine dictation (Ctrl+P)",
+    ),
+    ResultActionSpec(
         slot_id="follow_up",
         icon=FOLLOW_UP_ICON,
         tooltip="Ask follow-up (Ctrl+/)",
@@ -1085,7 +1167,7 @@ class StandardResultActions:
                 None,
                 width=24,
                 tooltip=spec.tooltip,
-                overflow=spec.slot_id in {"paste", "archive", "regenerate"},
+                overflow=spec.slot_id in {"paste", "archive", "regenerate", "refine"},
             )
             for spec in STANDARD_RESULT_ACTIONS
         }
@@ -1098,6 +1180,7 @@ class StandardResultActions:
         on_paste: Callable[[], None] | None = None,
         on_archive: Callable[[], None] | None = None,
         on_regenerate: Callable[[], None] | None = None,
+        on_refine: Callable[[], None] | None = None,
         on_follow_up: Callable[[], None] | None = None,
     ) -> None:
         self._set_command("speaker", on_speak)
@@ -1105,6 +1188,7 @@ class StandardResultActions:
         self._set_command("paste", on_paste)
         self._set_command("archive", on_archive)
         self._set_command("regenerate", on_regenerate)
+        self._set_command("refine", on_refine)
         self._set_command("follow_up", on_follow_up)
 
     def set_speaker_active(self, active: bool) -> None:
@@ -1395,6 +1479,8 @@ class BaseResultSurface:
             pady=0,
         )
         install_ime_halfwidth_punctuation_fix(self.content_text)
+        install_select_all_shortcut(self.content_text)
+        install_script_aware_word_selection(self.content_text)
         self.content_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 2))
         self.content_text.tag_config("heading", foreground=CONTENT_COLOR)
         self.content_text.tag_config("body", foreground=CONTENT_COLOR)
@@ -1518,6 +1604,8 @@ class BaseResultSurface:
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["auxiliary"]),
         )
         install_ime_halfwidth_punctuation_fix(self.feedback_note)
+        install_select_all_shortcut(self.feedback_note)
+        install_script_aware_word_selection(self.feedback_note)
         self.feedback_note.pack(side="left", fill="x", expand=True, padx=(0, 6))
         self.feedback_submit_button = ctk.CTkButton(
             self.feedback_other,
@@ -1547,6 +1635,8 @@ class BaseResultSurface:
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
         )
         install_ime_halfwidth_punctuation_fix(self.follow_entry)
+        install_select_all_shortcut(self.follow_entry)
+        install_script_aware_word_selection(self.follow_entry)
         self.follow_entry.grid(row=0, column=0, sticky="ew", padx=(0, 7))
         self.follow_send_button = ctk.CTkButton(
             self.follow_row,
@@ -1796,6 +1886,7 @@ class BaseResultSurface:
         on_paste: Callable[[], None] | None = None,
         on_archive: Callable[[], None] | None = None,
         on_regenerate: Callable[[], None] | None = None,
+        on_refine: Callable[[], None] | None = None,
         on_follow_up: Callable[[], None] | None = None,
     ) -> None:
         self.standard_actions.configure(
@@ -1804,6 +1895,7 @@ class BaseResultSurface:
             on_paste=on_paste,
             on_archive=on_archive,
             on_regenerate=on_regenerate,
+            on_refine=on_refine,
             on_follow_up=on_follow_up,
         )
 

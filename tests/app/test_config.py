@@ -17,7 +17,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.providers.active == "gemini"
     assert bundle.runtime.maintenance_workers == 1
     assert bundle.voice_input.backend == "edge_webview2_browser_speech"
-    assert bundle.voice_input.webview2_runtime_major == 152
+    assert bundle.voice_input.webview2_runtime_major is None
     assert bundle.app.modifier_mode == "ctrl_alt"
     assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
