@@ -3,7 +3,7 @@ pack_id: zh-TW
 locale: zh-TW
 display_name: 繁體中文
 pack_version: 1.1.0
-feature_contract_hash: sha256:0a1e53fb8507283428a1ee3e9f2d99d06999ffe3c6f9ae3fffe233eb83923372
+feature_contract_hash: sha256:b57fb7c13e7b890dae52a0f9daf4d66d69b683642086a72a5a8e9dd2c642eee3
 resources:
   app:
     path: app.yaml

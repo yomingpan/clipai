@@ -5,6 +5,10 @@ shortcuts:
     hotkey: ctrl+alt+w
     command: push_to_talk
 
+  - id: inline_dictation
+    hotkey: ctrl+alt+m
+    command: inline_dictation
+
   - id: contextual_question
     hotkey: ctrl+alt+r
     command: open_contextual_question

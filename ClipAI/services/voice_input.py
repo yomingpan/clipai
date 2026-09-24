@@ -21,13 +21,14 @@ from ClipAI.core.voice import (
     VoiceEngineSetupFailed,
     VoiceEngineSetupReady,
     VoiceFollowUpTarget,
+    VoiceInlineTarget,
     VoiceLanguage,
     VoiceLanguageChangeId,
     VoiceProjection,
     VoiceSetupId,
     VoiceTransportFailure,
 )
-from ClipAI.core.models import ShortcutPressId
+from ClipAI.core.models import PasteTarget, ShortcutPressId
 
 
 _UNSET_DISABLE_RESULT = object()
@@ -106,7 +107,25 @@ class RestoreVoiceFollowUp:
     message: str
 
 
-VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | ShutdownVoiceEngine | PersistVoiceDisabled | PersistVoiceLanguage | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft | FinalizeVoiceFollowUp | RestoreVoiceReview | RestoreVoiceFollowUp
+@dataclass(frozen=True)
+class PresentInlineChoice:
+    text: str
+
+
+@dataclass(frozen=True)
+class PasteInlineDictation:
+    text: str
+    target: PasteTarget
+    refine: bool = False
+    workflow_id: str = ""
+
+
+@dataclass(frozen=True)
+class DiscardInlineDictation:
+    message: str = ""
+
+
+VoiceEffect = PrepareVoiceSetup | PersistVoiceEnabled | ShutdownVoiceEngine | PersistVoiceDisabled | PersistVoiceLanguage | StartVoiceCapture | StopVoiceCapture | CancelVoiceCapture | FinalizeVoiceDraft | FinalizeVoiceFollowUp | RestoreVoiceReview | RestoreVoiceFollowUp | PresentInlineChoice | PasteInlineDictation | DiscardInlineDictation
 
 
 @dataclass(frozen=True)
@@ -132,10 +151,18 @@ class _Capture:
     silence_detected: bool = False
     remaining_seconds: int | None = None
     safety_limit_reached: bool = False
+    progress_since_restart: bool = False
+    restarts_without_progress: int = 0
 
     def __post_init__(self) -> None:
         if self.segments is None:
             self.segments = {}
+
+
+@dataclass(frozen=True)
+class _PendingInline:
+    text: str
+    target: VoiceInlineTarget
 
 
 class VoiceInputController:
@@ -156,6 +183,7 @@ class VoiceInputController:
         self._disable_preference_result: str | object = _UNSET_DISABLE_RESULT
         self._pending_language: tuple[VoiceLanguageChangeId, VoiceLanguage] | None = None
         self._capture: _Capture | None = None
+        self._pending_inline: _PendingInline | None = None
         self._awaiting_release_press_id: ShortcutPressId | None = None
         self._message = ""
 
@@ -175,6 +203,8 @@ class VoiceInputController:
             (
                 VoiceCaptureDestination.FOLLOW_UP
                 if capture is not None and isinstance(capture.target, VoiceFollowUpTarget)
+                else VoiceCaptureDestination.INLINE
+                if capture is not None and isinstance(capture.target, VoiceInlineTarget)
                 else VoiceCaptureDestination.VOICE_DRAFT if capture is not None else None
             ),
             capture.remaining_seconds if capture is not None else None,
@@ -228,7 +258,13 @@ class VoiceInputController:
         self._message = "Disabling Voice Input…"
         effects: list[VoiceEffect] = [ShutdownVoiceEngine(disable_id), PersistVoiceDisabled(disable_id)]
         if self._capture is not None:
+            self._capture.cancelled = True
+            self._capture.stop_requested = True
+            self._capture.phase = VoiceCapturePhase.CANCEL_REQUESTED
             effects.insert(0, CancelVoiceCapture(self._capture.capture_id))
+        if self._pending_inline is not None:
+            self._pending_inline = None
+            effects.insert(0, DiscardInlineDictation())
         return self._transition(*effects)
 
     def complete_disable_shutdown(self, disable_id: VoiceDisableId, error: str = "") -> VoiceTransition:
@@ -274,7 +310,7 @@ class VoiceInputController:
         *,
         press_id: ShortcutPressId | None = None,
     ) -> VoiceTransition:
-        if self._capability is not VoiceCapabilityPhase.READY or self._capture is not None:
+        if self._capability is not VoiceCapabilityPhase.READY or self._capture is not None or self._pending_inline is not None:
             return self._ignored()
         self._capture = _Capture(capture_id, target, press_id)
         self._message = "Preparing microphone…"
@@ -289,6 +325,35 @@ class VoiceInputController:
     def press_id_for_capture(self, capture_id: VoiceCaptureId) -> ShortcutPressId | None:
         capture = self._matching_capture(capture_id)
         return capture.press_id if capture is not None else None
+
+    def active_inline_capture_id(self) -> VoiceCaptureId | None:
+        capture = self._capture
+        return capture.capture_id if capture is not None and isinstance(capture.target, VoiceInlineTarget) else None
+
+    def has_pending_inline_choice(self) -> bool:
+        return self._pending_inline is not None
+
+    def confirm_inline_settlement(self, refine: bool = False) -> VoiceTransition:
+        pending = self._pending_inline
+        if pending is None or pending.target.paste_target is None:
+            return self._ignored()
+        self._pending_inline = None
+        return self._transition(PasteInlineDictation(pending.text, pending.target.paste_target, refine, pending.target.workflow_id))
+
+    def cancel_inline(self) -> VoiceTransition:
+        if self._pending_inline is not None:
+            self._pending_inline = None
+            return self._transition(DiscardInlineDictation())
+        capture_id = self.active_inline_capture_id()
+        if capture_id is not None:
+            return self.request_cancel(capture_id)
+        return self._ignored()
+
+    def force_settle_pending_stop(self, capture_id: VoiceCaptureId) -> VoiceTransition:
+        capture = self._matching_capture(capture_id)
+        if capture is None or not capture.stop_requested:
+            return self._ignored()
+        return self._settle_stop(capture, timed_out=True)
 
     def note_capture_countdown(
         self,
@@ -408,6 +473,8 @@ class VoiceInputController:
             if capture.stop_requested:
                 return self._ignored()
             capture.interim_text = event.text
+            if event.text.strip():
+                capture.progress_since_restart = True
             return self._transition()
         if isinstance(event, VoiceEngineAudioLevel):
             if capture.stop_requested:
@@ -415,6 +482,7 @@ class VoiceInputController:
             capture.audio_level = event.level
             if event.level > 0.02:
                 capture.heard_audio = True
+                capture.progress_since_restart = True
                 capture.silence_detected = False
                 self._message = self._listening_message(capture)
             return self._transition()
@@ -444,6 +512,8 @@ class VoiceInputController:
         if event.sequence < capture.next_sequence:
             return self._ignored()
         capture.segments[event.sequence] = event.text
+        if event.text.strip():
+            capture.progress_since_restart = True
         while capture.next_sequence in capture.segments:
             capture.next_sequence += 1
         return self._transition()
@@ -456,10 +526,22 @@ class VoiceInputController:
                 self._capture = None
                 self._message = "Voice Input stopped before the microphone was ready. Try again."
                 return self._transition(self._restore_effect(capture.capture_id, target, self._message))
+            if capture.progress_since_restart:
+                capture.restarts_without_progress = 0
+            else:
+                capture.restarts_without_progress += 1
+            if capture.restarts_without_progress >= 3:
+                capture.stop_requested = True
+                return self._settle_stop(capture)
+            capture.progress_since_restart = False
             capture.phase = VoiceCapturePhase.STARTING
             capture.interim_text = ""
             self._message = self._listening_message(capture)
             return self._transition(StartVoiceCapture(capture.capture_id, self._language, capture.next_sequence))
+        return self._settle_stop(capture)
+
+    def _settle_stop(self, capture: _Capture, *, timed_out: bool = False) -> VoiceTransition:
+        assert capture.segments is not None
         text_parts = [capture.segments[sequence] for sequence in range(capture.next_sequence)]
         warning = (
             "Recognition completed with a missing segment."
@@ -468,6 +550,8 @@ class VoiceInputController:
         )
         if capture.safety_limit_reached:
             warning = "The 2-minute Voice Input limit was reached. This section was saved; release the shortcut and press it again to continue."
+        if timed_out:
+            warning = "Voice Input timed out while finalizing. Try again."
         text = " ".join(part.strip() for part in text_parts if part.strip())
         capture_id, target, cancelled = capture.capture_id, capture.target, capture.cancelled
         self._capture = None
@@ -475,11 +559,8 @@ class VoiceInputController:
             self._message = "Voice Input cancelled."
             return self._transition(self._restore_effect(capture_id, target, self._message))
         if not text:
-            if isinstance(target, VoiceFollowUpTarget):
-                self._message = "No speech was recognized. Try again."
-                return self._transition(self._restore_effect(capture_id, target, self._message))
-            self._message = ""
-            return self._transition(self._finalize_effect(capture_id, target, "", ""))
+            self._message = warning or "No speech was recognized. Try again."
+            return self._transition(self._restore_effect(capture_id, target, self._message))
         self._message = warning or "Review your dictation."
         return self._transition(self._finalize_effect(capture_id, target, text, warning))
 
@@ -507,25 +588,32 @@ class VoiceInputController:
             )
         return self._transition(self._restore_effect(event.capture_id, target, self._message))
 
-    @staticmethod
     def _restore_effect(
+        self,
         capture_id: VoiceCaptureId,
         target: VoiceCaptureTarget,
         message: str,
     ) -> VoiceEffect:
+        if isinstance(target, VoiceInlineTarget):
+            return DiscardInlineDictation(message)
         return (
             RestoreVoiceFollowUp(capture_id, target, message)
             if isinstance(target, VoiceFollowUpTarget)
             else RestoreVoiceReview(target, message)
         )
 
-    @staticmethod
     def _finalize_effect(
+        self,
         capture_id: VoiceCaptureId,
         target: VoiceCaptureTarget,
         text: str,
         warning: str,
     ) -> VoiceEffect:
+        if isinstance(target, VoiceInlineTarget):
+            if target.paste_target is None:
+                return DiscardInlineDictation("No paste target is available.")
+            self._pending_inline = _PendingInline(text, target)
+            return PresentInlineChoice(text)
         return (
             FinalizeVoiceFollowUp(capture_id, target, text, warning)
             if isinstance(target, VoiceFollowUpTarget)

@@ -25,11 +25,13 @@ from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_action_language import ActionLanguageRuntimeModule
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
+from ClipAI.app.inline_dictation import InlineDictationCoordinator
 from ClipAI.app.managed_update_composition import ManagedUpdateRuntimeConfiguration, build_managed_update_runtime
 from ClipAI.app.owned_processes import AppOwnedProcessRegistry
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
 from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenAbout, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SelectActionLanguagePack, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
+from ClipAI.core.commands import InlineDictationRefineSettled
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -433,6 +435,19 @@ def build_runtime(
         tray.set_voice_projection(projection)
         view.set_voice_projection(projection)
 
+    try:
+        inline_refine_action = bundle.actions.resolve("intent_preserving_dictation_editor", "short")
+    except (KeyError, ValueError):
+        inline_refine_action = None
+    inline_dictation = InlineDictationCoordinator(
+        provider_execution=provider_execution,
+        executor=execute_action,
+        refine_action=inline_refine_action,
+        binding=lambda: provider_configuration.active_binding,
+        paste=result_output_module.paste_inline,
+        on_refine_settled=lambda workflow_id: enqueue(InlineDictationRefineSettled(workflow_id)),
+    )
+
     voice_input_module = VoiceInputRuntimeModule(
         controller=voice_controller,
         engine=voice_engine,
@@ -459,6 +474,8 @@ def build_runtime(
         projection_sink=project_voice,
         notifier=tray,
         setup_presenter=view,
+        inline_presenter=view,
+        paste_inline=lambda text, target, refine, workflow_id: inline_dictation.submit(text, target, refine=refine, workflow_id=workflow_id),
         focused_surface_reader=lambda: user_control.focused_surface,
         open_permission_settings=open_microphone_privacy_settings,
     )

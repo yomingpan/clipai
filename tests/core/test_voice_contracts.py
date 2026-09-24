@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ClipAI.core.commands import AppCommand, EnableVoiceInput, StartPopupVoiceCapture, VoiceEngineEventReceived
+from ClipAI.core.commands import ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired
 from ClipAI.core.voice import (
     SUPPORTED_VOICE_LANGUAGES,
     VoiceCaptureId,
@@ -63,6 +64,10 @@ def test_voice_commands_are_part_of_the_typed_application_command_union() -> Non
     assert isinstance(setup, AppCommand)
     assert isinstance(event, AppCommand)
     assert isinstance(popup, AppCommand)
+    assert isinstance(ToggleInlineDictation(), AppCommand)
+    assert isinstance(ConfirmInlineDictation(True), AppCommand)
+    assert isinstance(InlineDictationRefineSettled("inline-1"), AppCommand)
+    assert isinstance(VoiceFinalizeWatchdogExpired(VoiceCaptureId("capture-1")), AppCommand)
 
 
 def test_voice_origin_rejects_an_insertion_outside_its_canonical_text() -> None:

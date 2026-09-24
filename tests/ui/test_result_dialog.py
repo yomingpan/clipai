@@ -13,6 +13,26 @@ from ClipAI.ui.popup_control import PopupControlRegistered, PopupControlShown, P
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, _voice_status_word, workflow_render_patch
 
 
+def test_late_inline_refinement_cannot_close_a_newer_window() -> None:
+    class Window:
+        workflow_id = "inline-new"
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self, **_kwargs) -> None:
+            self.closed = True
+
+    presenter = object.__new__(ResultDialogPresenter)
+    window = Window()
+    presenter._inline_dictation_window = window
+
+    presenter.close_inline_dictation(workflow_id="inline-old")
+
+    assert not window.closed
+    assert presenter._inline_dictation_window is window
+
+
 def test_voice_waveform_uses_canvas_and_packs_after_right_anchors() -> None:
     source = inspect.getsource(BaseResultSurface._build)
     creation = source.index("self.voice_input_button = _VoiceWaveIndicator")

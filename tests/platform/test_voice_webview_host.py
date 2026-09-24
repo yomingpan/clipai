@@ -3,8 +3,13 @@ from __future__ import annotations
 import io
 import sys
 import threading
+import json
+import shutil
+import subprocess
 from types import SimpleNamespace
 from pathlib import Path
+
+import pytest
 
 from ClipAI.platform.voice_webview_host import (
     _Api,
@@ -22,6 +27,31 @@ def test_browser_speech_transient_errors_allow_the_capture_restart_path() -> Non
     source = Path("ClipAI/platform/voice_webview_host.html").read_text(encoding="utf-8")
 
     assert 'if (event.error === "no-speech" || event.error === "network") return;' in source
+
+
+def test_browser_speech_stop_preserves_last_interim_and_cancel_discards_it() -> None:
+    source = Path("ClipAI/platform/voice_webview_host.html").read_text(encoding="utf-8")
+
+    assert "lastInterim: \"\"" in source
+    assert "if (item.lastInterim && !item.cancelled)" in source
+    assert "capture.cancelled = true" in source
+
+
+def test_browser_speech_terminal_events_preserve_only_explicit_stop_interim() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is unavailable for WebView script simulation")
+    result = subprocess.run(
+        [node, "tests/platform/fixtures/voice_webview_finish_case.js"],
+        check=True, capture_output=True, text=True, timeout=5,
+    )
+    stopped, cancelled = json.loads(result.stdout)
+
+    assert stopped == [
+        {"kind": "final", "capture_id": "capture-1", "sequence": 0, "text": "unfinished phrase"},
+        {"kind": "ended", "capture_id": "capture-1"},
+    ]
+    assert cancelled == [{"kind": "ended", "capture_id": "capture-1"}]
 
 
 class PermissionRequest:

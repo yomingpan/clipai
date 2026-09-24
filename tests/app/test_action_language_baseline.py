@@ -122,7 +122,7 @@ def test_action_language_inventory_and_prompt_contract_are_frozen() -> None:
 
     assert len(actions) == 29
     assert len(explicit_variants) == 6
-    assert len(shortcut_payload["shortcuts"]) == 32
+    assert len(shortcut_payload["shortcuts"]) == 33
     assert sum(
         shortcut["command"] == "start_action"
         for shortcut in shortcut_payload["shortcuts"]

@@ -37,6 +37,7 @@ ShortcutCommandKind = Literal[
     "open_contextual_question",
     "speak_selection_or_clipboard",
     "push_to_talk",
+    "inline_dictation",
 ]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal[

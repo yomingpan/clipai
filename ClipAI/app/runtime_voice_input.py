@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import uuid
 import threading
-import math
 import time
 from collections.abc import Callable
-from typing import Generic, Protocol, TypeVar
+from typing import Protocol
 
+from ClipAI.app.voice_capture_timing import VoiceCaptureTiming
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
+from ClipAI.core.commands import ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired
 from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
-from ClipAI.core.ports import UserNotifier, VoiceInputEngine, VoiceSetupPresenter
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureTarget, VoiceDraftTarget, VoiceEngineListening, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
+from ClipAI.core.ports import InlineDictationPresenter, UserNotifier, VoiceInputEngine, VoiceSetupPresenter
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureTarget, VoiceDraftTarget, VoiceInlineTarget, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
 from ClipAI.services.voice_input import FinalizeVoiceDraft, FinalizeVoiceFollowUp, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceFollowUp, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
+from ClipAI.services.voice_input import PresentInlineChoice, PasteInlineDictation, DiscardInlineDictation
 
 
-VOICE_CAPTURE_WATCHDOG_SECONDS = 120.0
-VOICE_SILENCE_HINT_SECONDS = 2.0
 VOICE_MIC_HOLD_SECONDS = 0.18
 
 
@@ -30,91 +30,6 @@ def _schedule_watchdog(delay_seconds: float, callback: Callable[[], None]) -> th
 
 class _CancellableTimer(Protocol):
     def cancel(self) -> None: ...
-
-
-DeadlineIdentity = TypeVar("DeadlineIdentity")
-
-
-class _VoiceDeadlineScheduler(Generic[DeadlineIdentity]):
-    """Own one typed family of Voice deadlines and countdown timers."""
-
-    def __init__(
-        self,
-        *,
-        duration_seconds: float,
-        schedule: Callable[[float, Callable[[], None]], object],
-        clock: Callable[[], float],
-        dispatch_tick: Callable[[DeadlineIdentity, int], None],
-        dispatch_expired: Callable[[DeadlineIdentity], None],
-    ) -> None:
-        self._duration_seconds = duration_seconds
-        self._schedule = schedule
-        self._clock = clock
-        self._dispatch_tick = dispatch_tick
-        self._dispatch_expired = dispatch_expired
-        self._deadlines: dict[DeadlineIdentity, float] = {}
-        self._expiry_timers: dict[DeadlineIdentity, object] = {}
-        self._countdown_timers: dict[DeadlineIdentity, object] = {}
-
-    def start(self, identity: DeadlineIdentity) -> bool:
-        if identity in self._deadlines:
-            return False
-        self._deadlines[identity] = self._clock() + self._duration_seconds
-        self._expiry_timers[identity] = self._schedule(
-            self._duration_seconds,
-            lambda: self._expire(identity),
-        )
-        self.schedule_countdown(identity)
-        return True
-
-    def note_countdown_fired(self, identity: DeadlineIdentity) -> None:
-        self._countdown_timers.pop(identity, None)
-
-    def schedule_countdown(self, identity: DeadlineIdentity) -> None:
-        deadline = self._deadlines.get(identity)
-        if deadline is None:
-            return
-        remaining = deadline - self._clock()
-        if remaining <= 0:
-            return
-        self._cancel_timer(self._countdown_timers.pop(identity, None))
-        self._countdown_timers[identity] = self._schedule(
-            min(1.0, remaining),
-            lambda: self._tick(identity),
-        )
-
-    def cancel(self, identity: DeadlineIdentity) -> None:
-        self._cancel_timer(self._expiry_timers.pop(identity, None))
-        self._cancel_timer(self._countdown_timers.pop(identity, None))
-        self._deadlines.pop(identity, None)
-
-    def cancel_all(self) -> None:
-        for identity in tuple(self._deadlines):
-            self.cancel(identity)
-
-    def _tick(self, identity: DeadlineIdentity) -> None:
-        deadline = self._deadlines.get(identity)
-        if deadline is None:
-            return
-        self._dispatch_tick(identity, max(0, math.ceil(deadline - self._clock())))
-
-    def _expire(self, identity: DeadlineIdentity) -> None:
-        deadline = self._deadlines.get(identity)
-        if deadline is None:
-            return
-        remaining = deadline - self._clock()
-        if remaining > 0:
-            self._expiry_timers[identity] = self._schedule(
-                remaining,
-                lambda: self._expire(identity),
-            )
-            return
-        self._dispatch_expired(identity)
-
-    @staticmethod
-    def _cancel_timer(timer: object | None) -> None:
-        if timer is not None and hasattr(timer, "cancel"):
-            timer.cancel()
 
 
 class VoiceInputRuntimeModule:
@@ -141,6 +56,8 @@ class VoiceInputRuntimeModule:
         hold_schedule: Callable[[float, Callable[[], None]], _CancellableTimer] = _schedule_watchdog,
         monotonic_clock: Callable[[], float] = time.monotonic,
         notifier: UserNotifier | None = None,
+        inline_presenter: InlineDictationPresenter | None = None,
+        paste_inline: Callable[[str, PasteTarget, bool, str], None] = lambda _text, _target, _refine, _workflow_id: None,
     ) -> None:
         self._controller = controller
         self._engine = engine
@@ -156,32 +73,11 @@ class VoiceInputRuntimeModule:
         self._setup_presenter = setup_presenter
         self._focused_surface_reader = focused_surface_reader
         self._open_permission_settings = open_permission_settings
-        self._watchdog_schedule = watchdog_schedule
         self._hold_schedule = hold_schedule
         self._notifier = notifier
-        self._press_deadlines = _VoiceDeadlineScheduler[ShortcutPressId](
-            duration_seconds=VOICE_CAPTURE_WATCHDOG_SECONDS,
-            schedule=watchdog_schedule,
-            clock=monotonic_clock,
-            dispatch_tick=lambda press_id, remaining: self._dispatch(
-                VoiceCaptureCountdownTick(press_id, remaining)
-            ),
-            dispatch_expired=lambda press_id: self._dispatch(
-                VoiceCaptureWatchdogExpired(press_id)
-            ),
-        )
-        self._capture_deadlines = _VoiceDeadlineScheduler[VoiceCaptureId](
-            duration_seconds=VOICE_CAPTURE_WATCHDOG_SECONDS,
-            schedule=watchdog_schedule,
-            clock=monotonic_clock,
-            dispatch_tick=lambda capture_id, remaining: self._dispatch(
-                VoiceCaptureCountdownTickForCapture(capture_id, remaining)
-            ),
-            dispatch_expired=lambda capture_id: self._dispatch(
-                VoiceCaptureTimeout(capture_id)
-            ),
-        )
-        self._silence_watchdogs: dict[VoiceCaptureId, object] = {}
+        self._inline_presenter = inline_presenter
+        self._paste_inline = paste_inline
+        self._timing = VoiceCaptureTiming(watchdog_schedule, monotonic_clock, dispatch, controller.press_id_for_capture)
         self._pending_presses: dict[ShortcutPressId, VoiceCaptureTarget] = {}
         self._hold_timers: dict[ShortcutPressId, _CancellableTimer] = {}
         self._capturing_presses: set[ShortcutPressId] = set()
@@ -201,6 +97,9 @@ class VoiceInputRuntimeModule:
         return False
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
+        if self._controller.has_pending_inline_choice():
+            self._notify_shortcut_rejected("Finish or cancel the pending dictation first.")
+            return False
         focused_surface = self._focused_surface_reader()
         admission = self._workflows.admit_voice_capture(VoiceCaptureIntent(
             "shortcut",
@@ -250,7 +149,6 @@ class VoiceInputRuntimeModule:
             transition = self._controller.request_release_for_press(command.press_id)
         if transition.ignored:
             return False
-        self._press_deadlines.cancel(command.press_id)
         self._execute(transition)
         return True
 
@@ -259,8 +157,6 @@ class VoiceInputRuntimeModule:
         transition = self._controller.cancel_capture_for_workflow(workflow_id)
         if transition.ignored:
             return False
-        self._cancel_all_watchdogs()
-        self._cancel_all_silence_watchdogs()
         self._execute(transition)
         return True
 
@@ -272,7 +168,53 @@ class VoiceInputRuntimeModule:
             return VoiceTransition(self._controller.projection, ignored=True)
         return self._controller.request_capture(command.capture_id, admission.target)
 
-    def handle(self, command: OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureHoldElapsed | VoiceCaptureCountdownTick | VoiceCaptureCountdownTickForCapture | VoiceCaptureTimeout | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
+    def toggle_inline_dictation(self) -> bool:
+        active = self._controller.active_inline_capture_id()
+        if active is not None:
+            transition = self._controller.request_stop(active)
+        else:
+            if self._controller.has_pending_inline_choice():
+                self._notify_shortcut_rejected("Finish or cancel the pending dictation first.")
+                return False
+            if self._controller.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED:
+                if self._setup_presenter is not None:
+                    self._setup_presenter.show_voice_setup()
+                return True
+            target = self._capture_external_target() or self._paste_target_reader()
+            capture_id = VoiceCaptureId(f"inline-{uuid.uuid4().hex}")
+            transition = self._controller.request_capture(
+                capture_id, VoiceInlineTarget(str(capture_id), target)
+            )
+            if not transition.ignored and self._inline_presenter is not None:
+                self._inline_presenter.open_inline_dictation()
+        if transition.ignored:
+            self._notify_shortcut_rejected("Voice Input is busy. Finish or cancel the current dictation.")
+            return False
+        self._execute(transition)
+        return True
+
+    def cancel_inline_dictation(self) -> bool:
+        transition = self._controller.cancel_inline()
+        if transition.ignored:
+            return False
+        self._execute(transition)
+        if self._inline_presenter is not None:
+            self._inline_presenter.close_inline_dictation()
+        return True
+
+    def handle(self, command: OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | VoicePreferenceSaved | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureHoldElapsed | VoiceCaptureCountdownTick | VoiceCaptureCountdownTickForCapture | VoiceCaptureTimeout | VoiceCaptureWatchdogExpired | VoiceFinalizeWatchdogExpired | VoiceSilenceWatchdogExpired | ToggleInlineDictation | ConfirmInlineDictation | InlineDictationRefineSettled | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft) -> bool:
+        if isinstance(command, ToggleInlineDictation):
+            return self.toggle_inline_dictation()
+        if isinstance(command, ConfirmInlineDictation):
+            transition = self._controller.confirm_inline_settlement(command.refine)
+            if transition.ignored:
+                return False
+            self._execute(transition)
+            return True
+        if isinstance(command, InlineDictationRefineSettled):
+            if self._inline_presenter is not None:
+                self._inline_presenter.close_inline_dictation(workflow_id=command.workflow_id)
+            return True
         if isinstance(command, VoiceCaptureHoldElapsed):
             return self._open_mic_for_press(command.press_id)
         if isinstance(command, OpenVoiceSetup):
@@ -297,25 +239,22 @@ class VoiceInputRuntimeModule:
             self._execute(transition)
             return True
         if isinstance(command, VoiceCaptureWatchdogExpired):
-            self._press_deadlines.cancel(command.press_id)
             transition = self._controller.expire_capture_watchdog(command.press_id)
         elif isinstance(command, VoiceCaptureCountdownTick):
-            self._press_deadlines.note_countdown_fired(command.press_id)
             transition = self._controller.note_capture_countdown(
                 command.press_id,
                 command.remaining_seconds,
             )
         elif isinstance(command, VoiceCaptureCountdownTickForCapture):
-            self._capture_deadlines.note_countdown_fired(command.capture_id)
             transition = self._controller.note_capture_countdown_for_capture(
                 command.capture_id,
                 command.remaining_seconds,
             )
         elif isinstance(command, VoiceCaptureTimeout):
-            self._capture_deadlines.cancel(command.capture_id)
             transition = self._controller.request_stop(command.capture_id)
+        elif isinstance(command, VoiceFinalizeWatchdogExpired):
+            transition = self._controller.force_settle_pending_stop(command.capture_id)
         elif isinstance(command, VoiceSilenceWatchdogExpired):
-            self._cancel_silence_watchdog(command.capture_id)
             transition = self._controller.note_silence_timeout(command.capture_id)
         elif isinstance(command, StartPopupVoiceCapture):
             transition = self._start_popup_capture(command)
@@ -330,21 +269,6 @@ class VoiceInputRuntimeModule:
             transition = self._controller.complete_disable_preference(command.disable_id, command.error)
         elif isinstance(command, VoiceEngineEventReceived):
             transition = self._controller.observe_engine(command.event)
-            if (
-                not transition.ignored
-                and isinstance(command.event, VoiceEngineListening)
-            ):
-                press_id = self._controller.press_id_for_capture(command.event.capture_id)
-                if press_id is not None and self._press_deadlines.start(press_id):
-                    transition = self._controller.note_capture_countdown(
-                        press_id,
-                        int(VOICE_CAPTURE_WATCHDOG_SECONDS),
-                    )
-                elif press_id is None and self._capture_deadlines.start(command.event.capture_id):
-                    transition = self._controller.note_capture_countdown_for_capture(
-                        command.event.capture_id,
-                        int(VOICE_CAPTURE_WATCHDOG_SECONDS),
-                    )
         elif isinstance(command, VoicePreferenceSaved):
             self._complete_voice_preference(command.setup_id, command.error)
             transition = self._controller.complete_enable_save(command.setup_id, command.error)
@@ -363,28 +287,14 @@ class VoiceInputRuntimeModule:
             transition = self._controller.request_cancel(command.capture_id)
         if transition.ignored:
             return False
-        if isinstance(command, (DisableVoiceInput, StopVoiceCapture, CancelVoiceCapture, VoiceCaptureTimeout)):
-            self._cancel_all_watchdogs()
-            self._cancel_all_silence_watchdogs()
         self._execute(transition)
-        if (
-            isinstance(command, VoiceCaptureCountdownTick)
-            and command.remaining_seconds > 0
-        ):
-            self._press_deadlines.schedule_countdown(command.press_id)
-        if (
-            isinstance(command, VoiceCaptureCountdownTickForCapture)
-            and command.remaining_seconds > 0
-        ):
-            self._capture_deadlines.schedule_countdown(command.capture_id)
-        if isinstance(command, VoiceEngineEventReceived) and isinstance(command.event, VoiceEngineListening):
-            self._start_silence_watchdog(command.event.capture_id)
         return True
 
     def stop(self) -> None:
         self._cancel_all_mic_holds()
-        self._cancel_all_watchdogs()
-        self._cancel_all_silence_watchdogs()
+        self._timing.cancel_all()
+        if self._inline_presenter is not None:
+            self._inline_presenter.close_inline_dictation()
         self._engine.shutdown()
 
     def _open_mic_for_press(self, press_id: ShortcutPressId) -> bool:
@@ -421,10 +331,24 @@ class VoiceInputRuntimeModule:
         self._pending_presses.clear()
 
     def _execute(self, transition: VoiceTransition) -> None:
-        if transition.projection.capture_id is None:
-            self._cancel_all_watchdogs()
-            self._cancel_all_silence_watchdogs()
+        self._timing.observe(transition.projection)
+        if (
+            transition.projection.capture_phase is VoiceCapturePhase.LISTENING
+            and transition.projection.remaining_seconds is None
+            and transition.projection.capture_id is not None
+        ):
+            capture_id = transition.projection.capture_id
+            press_id = self._controller.press_id_for_capture(capture_id)
+            countdown = (
+                self._controller.note_capture_countdown(press_id, 120)
+                if press_id is not None
+                else self._controller.note_capture_countdown_for_capture(capture_id, 120)
+            )
+            if not countdown.ignored:
+                transition = countdown
         self._projection_sink(transition.projection)
+        if self._controller.active_inline_capture_id() is not None and self._inline_presenter is not None:
+            self._inline_presenter.update_inline_dictation(transition.projection)
         if self._setup_presenter is not None:
             self._setup_presenter.set_voice_projection(transition.projection)
         if transition.projection.capability is VoiceCapabilityPhase.READY and self._setup_presenter is not None:
@@ -468,6 +392,16 @@ class VoiceInputRuntimeModule:
             controller = self._workflows.controller_for(effect.target.workflow_id)
             if controller is not None:
                 controller.restore_voice_review(effect.target, effect.message)
+        elif isinstance(effect, PresentInlineChoice):
+            if self._inline_presenter is not None:
+                self._inline_presenter.present_inline_choice(effect.text)
+        elif isinstance(effect, PasteInlineDictation):
+            self._paste_inline(effect.text, effect.target, effect.refine, effect.workflow_id)
+            if not effect.refine and self._inline_presenter is not None:
+                self._inline_presenter.close_inline_dictation()
+        elif isinstance(effect, DiscardInlineDictation):
+            if self._inline_presenter is not None:
+                self._inline_presenter.close_inline_dictation(flash_failure=bool(effect.message), message=effect.message)
         elif isinstance(effect, FinalizeVoiceDraft):
             controller = self._workflows.controller_for(effect.target.workflow_id)
             if controller is not None:
@@ -486,23 +420,3 @@ class VoiceInputRuntimeModule:
                     effect.text,
                     effect.warning,
                 )
-
-    def _cancel_all_watchdogs(self) -> None:
-        self._press_deadlines.cancel_all()
-        self._capture_deadlines.cancel_all()
-
-    def _start_silence_watchdog(self, capture_id: VoiceCaptureId) -> None:
-        self._cancel_silence_watchdog(capture_id)
-        self._silence_watchdogs[capture_id] = self._watchdog_schedule(
-            VOICE_SILENCE_HINT_SECONDS,
-            lambda: self._dispatch(VoiceSilenceWatchdogExpired(capture_id)),
-        )
-
-    def _cancel_silence_watchdog(self, capture_id: VoiceCaptureId) -> None:
-        watchdog = self._silence_watchdogs.pop(capture_id, None)
-        if watchdog is not None and hasattr(watchdog, "cancel"):
-            watchdog.cancel()
-
-    def _cancel_all_silence_watchdogs(self) -> None:
-        for capture_id in tuple(self._silence_watchdogs):
-            self._cancel_silence_watchdog(capture_id)

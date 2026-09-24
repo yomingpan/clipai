@@ -12,6 +12,7 @@ import webbrowser
 import customtkinter as ctk
 
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
+from ClipAI.core.commands import ConfirmInlineDictation, InterruptCurrent
 from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, ManagedUpdatePresentation, OutputOperationResult, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.popup_presentation import project_popup_presentation
@@ -27,6 +28,7 @@ from ClipAI.ui.personal_styles import PersonalStylesDialog
 from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
 from ClipAI.ui.unified_entry_panel import UnifiedEntryPanelDialog
 from ClipAI.ui.voice_setup import VoiceSetupDialog
+from ClipAI.ui.inline_dictation import InlineDictationWindow
 from ClipAI.ui.about import AboutDialog
 
 _LOGGER = logging.getLogger("clipai.ui.result_dialog")
@@ -151,6 +153,7 @@ class ResultDialogPresenter:
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
         self._voice_setup_dialog: VoiceSetupDialog | None = None
+        self._inline_dictation_window: InlineDictationWindow | None = None
         self._voice_projection = voice_projection
         self._application_version = application_version
         self._github_url = github_url
@@ -397,6 +400,35 @@ class ResultDialogPresenter:
         for view in self._views.values():
             if view.last_snapshot is not None:
                 self._configure_voice_control(view.last_snapshot, view)
+
+    def open_inline_dictation(self) -> None:
+        if self._inline_dictation_window is not None:
+            return
+        self._inline_dictation_window = InlineDictationWindow(
+            self._root,
+            on_confirm=lambda refine: self._command_sink(ConfirmInlineDictation(refine)),
+            on_cancel=lambda: self._command_sink(InterruptCurrent()),
+        )
+        self._inline_dictation_window.show()
+
+    def update_inline_dictation(self, projection: VoiceProjection) -> None:
+        if self._inline_dictation_window is not None:
+            self._inline_dictation_window.update(projection)
+
+    def present_inline_choice(self, text: str) -> None:
+        if self._inline_dictation_window is not None:
+            self._inline_dictation_window.present_choice(text)
+
+    def show_inline_refining(self) -> None:
+        if self._inline_dictation_window is not None:
+            self._inline_dictation_window.show_refining()
+
+    def close_inline_dictation(self, *, flash_failure: bool = False, message: str = "", workflow_id: str = "") -> None:
+        if workflow_id and self._inline_dictation_window is not None and self._inline_dictation_window.workflow_id != workflow_id:
+            return
+        window, self._inline_dictation_window = self._inline_dictation_window, None
+        if window is not None:
+            window.close(flash_failure=flash_failure, message=message)
 
     def _hold_focus_for_shortcut_guide(self) -> None:
         self._hold_focus_for_owned_surface()

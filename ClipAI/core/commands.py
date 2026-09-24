@@ -587,6 +587,26 @@ class VoiceSilenceWatchdogExpired:
 
 
 @dataclass(frozen=True)
+class VoiceFinalizeWatchdogExpired:
+    capture_id: VoiceCaptureId
+
+
+@dataclass(frozen=True)
+class ToggleInlineDictation:
+    pass
+
+
+@dataclass(frozen=True)
+class ConfirmInlineDictation:
+    refine: bool = False
+
+
+@dataclass(frozen=True)
+class InlineDictationRefineSettled:
+    workflow_id: str = ""
+
+
+@dataclass(frozen=True)
 class SetVoiceLanguage:
     language: VoiceLanguage
     operation_id: VoiceLanguageChangeId = VoiceLanguageChangeId("")
@@ -613,4 +633,4 @@ class RefineVoiceDraftInPlace:
     selection_end: int
 
 
-AppCommand: TypeAlias = EntryPanelInputPreparationProgress | ExpireInputRecovery | UseWorkflowClipboard | ShortcutInputEvent | EntryPanelInputPreparationCompleted | EntryPanelInputPreparationFailed | RetryEntryPanelInput | UseEntryPanelClipboard | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelBack | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CheckForManagedUpdate | ManagedUpdateCheckCompleted | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | RegenerateResult | RefineVoiceDraftInPlace | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureHoldElapsed | VoiceCaptureCountdownTick | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft
+AppCommand: TypeAlias = ToggleInlineDictation | ConfirmInlineDictation | InlineDictationRefineSettled | VoiceFinalizeWatchdogExpired | VoiceCaptureCountdownTickForCapture | VoiceCaptureTimeout | EntryPanelInputPreparationProgress | ExpireInputRecovery | UseWorkflowClipboard | ShortcutInputEvent | EntryPanelInputPreparationCompleted | EntryPanelInputPreparationFailed | RetryEntryPanelInput | UseEntryPanelClipboard | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelBack | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CheckForManagedUpdate | ManagedUpdateCheckCompleted | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | RegenerateResult | RefineVoiceDraftInPlace | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureHoldElapsed | VoiceCaptureCountdownTick | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

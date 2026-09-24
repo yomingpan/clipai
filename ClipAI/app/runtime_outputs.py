@@ -222,6 +222,38 @@ class ResultOutputRuntimeModule:
             self._paste_operations.fail_to_start(intent.operation_id, exc)
             logger.error("Could not schedule paste session_id=%s: %s", command.session_id, exc)
 
+    def paste_inline(self, text: str, target: PasteTarget) -> None:
+        """Dispatch explicit dictation through the shared Paste Operation owner."""
+        if not text.strip():
+            return
+        operation_id = uuid.uuid4().hex
+        workflow_id = f"inline-{operation_id}"
+        intent = OutputOperationIntent(operation_id, workflow_id, "paste", text)
+        begun = False
+        admitted = False
+        try:
+            self._operations.begin(intent)
+            begun = True
+            admitted = self._paste_operations.admit(
+                PasteRequest(operation_id, workflow_id, text, target)
+            )
+            if not admitted:
+                logger.warning("Inline Paste Operation was not admitted")
+                return
+            self._supervisor.submit(
+                operation_id,
+                lambda: self._paste_operations.execute(operation_id),
+                lambda error: logger.error("Inline paste failed: %s", type(error).__name__),
+                task_class="interactive",
+                cancellation_hook=lambda: self._paste_operations.request_cancel(operation_id),
+            )
+        except BaseException as error:
+            if admitted:
+                self._paste_operations.fail_to_start(operation_id, error)
+            elif begun:
+                self._operations.fail(intent, error)
+            logger.error("Could not dispatch inline paste: %s", type(error).__name__)
+
     def _reject_paste(
         self,
         operation_id: str,

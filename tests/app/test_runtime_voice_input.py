@@ -7,6 +7,7 @@ from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceSetupId
 from ClipAI.services.voice_input import VoiceInputController
+from ClipAI.core.commands import ToggleInlineDictation, ConfirmInlineDictation
 
 
 class Engine:
@@ -118,6 +119,98 @@ class Setup:
 class Notifier:
     def __init__(self) -> None: self.messages = []
     def notify(self, title, message) -> None: self.messages.append((title, message))
+
+
+class InlinePresenter:
+    def __init__(self):
+        self.opened = 0
+        self.choices = []
+        self.closed = []
+        self.projections = []
+
+    def open_inline_dictation(self): self.opened += 1
+    def update_inline_dictation(self, projection): self.projections.append(projection)
+    def present_inline_choice(self, text): self.choices.append(text)
+    def close_inline_dictation(self, *, flash_failure=False, message="", workflow_id=""):
+        self.closed.append((flash_failure, message))
+
+
+def test_inline_target_is_frozen_at_start_and_choice_blocks_restart():
+    engine, presenter, pasted = Engine(), InlinePresenter(), []
+    target = PasteTarget("hwnd:1", 1, "Editor", "private", 1)
+    reader = [target]
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: reader[0], inline_presenter=presenter,
+        paste_inline=lambda text, captured, refine, _workflow_id: pasted.append((text, captured, refine)),
+    )
+
+    assert runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    reader[0] = None
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening(capture)))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+    assert runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+    assert presenter.choices == ["spoken words"]
+    assert not runtime.handle(ToggleInlineDictation())
+    assert runtime.handle(ConfirmInlineDictation())
+    assert pasted == [("spoken words", target, False)]
+
+
+def test_inline_without_target_never_offers_paste_choice():
+    engine, presenter = Engine(), InlinePresenter()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: None, inline_presenter=presenter,
+    )
+    runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening(capture)))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+
+    assert presenter.choices == []
+    assert presenter.closed[-1][0] is True
+
+
+def test_cancel_inline_choice_closes_without_pasting():
+    engine, presenter, pasted = Engine(), InlinePresenter(), []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        inline_presenter=presenter,
+        paste_inline=lambda text, target, refine, _workflow_id: pasted.append(text),
+    )
+    runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening(capture)))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+
+    assert runtime.cancel_inline_dictation()
+    assert not runtime.handle(ConfirmInlineDictation())
+    assert pasted == []
+    assert presenter.closed[-1] == (False, "")
+
+
+def test_pending_inline_choice_rejects_ptt_before_workflow_admission():
+    engine, workflows = Engine(), Workflows()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=workflows,
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+    )
+    runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening(capture)))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+
+    assert not runtime.handle_shortcut_started(ShortcutPressStarted(99, "voice_input"))
+    assert workflows.created == []
 
 
 def test_active_voice_capture_rejects_entry_panel_open_with_feedback() -> None:
@@ -489,7 +582,8 @@ def test_ptt_time_limit_starts_after_listening_and_saves_the_finalized_section()
     scheduled[0][1].callback()
     assert dispatched == [VoiceCaptureWatchdogExpired(9)]
     assert runtime.handle(dispatched.pop()) is True
-    assert scheduled[-1][1].cancelled is True
+    assert any(delay == 6.0 and not timer.cancelled for delay, timer in scheduled)
+    assert [timer for delay, timer in scheduled if delay == 120.0][-1].cancelled
     assert engine.calls[-1] == ("stop", "voice-press-9")
     runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment("voice-press-9", 0, "keep this thought")))
     runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded("voice-press-9")))

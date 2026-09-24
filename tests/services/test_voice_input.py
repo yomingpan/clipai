@@ -17,6 +17,7 @@ from ClipAI.core.voice import (
     VoiceEngineSetupReady,
     VoiceFollowUpTarget,
     VoiceLanguage,
+    VoiceInlineTarget,
     VoiceSetupId,
     VoiceTransportFailure,
 )
@@ -34,7 +35,96 @@ from ClipAI.services.voice_input import (
     ShutdownVoiceEngine,
     StopVoiceCapture,
     VoiceInputController,
+    PresentInlineChoice,
+    PasteInlineDictation,
+    DiscardInlineDictation,
 )
+
+
+def test_inline_choice_preserves_text_and_blocks_another_capture_until_confirmed() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("inline-1")
+    inline = VoiceInlineTarget("inline-workflow", target().paste_target)
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineListening(capture))
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "hello"))
+    controller.request_stop(capture)
+
+    settled = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert settled.effects == (PresentInlineChoice("hello"),)
+    assert controller.request_capture(VoiceCaptureId("inline-2"), inline).ignored
+    assert controller.confirm_inline_settlement(True).effects == (
+        PasteInlineDictation("hello", inline.paste_target, True, "inline-workflow"),
+    )
+
+
+def test_inline_without_target_discards_without_presenting_choice() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("inline-1")
+    controller.request_capture(capture, VoiceInlineTarget("inline-workflow", None))
+    controller.request_stop(capture)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "hello"))
+
+    assert isinstance(controller.observe_engine(VoiceEngineEnded(capture)).effects[0], DiscardInlineDictation)
+
+
+def test_empty_voice_draft_restores_review_instead_of_finalizing_empty_text() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-empty")
+    controller.request_capture(capture, target())
+    controller.request_stop(capture)
+
+    settled = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert isinstance(settled.effects[0], RestoreVoiceReview)
+
+
+def test_no_progress_self_end_is_bounded_and_audio_resets_restart_count() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("restart-1")
+    controller.request_capture(capture, target())
+    controller.observe_engine(VoiceEngineListening(capture))
+    for _ in range(2):
+        assert controller.observe_engine(VoiceEngineEnded(capture)).effects == (
+            StartVoiceCapture(capture, "zh-TW", 0),
+        )
+        controller.observe_engine(VoiceEngineListening(capture))
+    controller.observe_engine(VoiceEngineAudioLevel(capture, 0.1))
+    controller.observe_engine(VoiceEngineEnded(capture))
+    controller.observe_engine(VoiceEngineListening(capture))
+    for _ in range(2):
+        assert isinstance(controller.observe_engine(VoiceEngineEnded(capture)).effects[0], StartVoiceCapture)
+        controller.observe_engine(VoiceEngineListening(capture))
+    settled = controller.observe_engine(VoiceEngineEnded(capture))
+    assert isinstance(settled.effects[0], RestoreVoiceReview)
+    assert settled.projection.capture_id is None
+
+
+def test_stop_watchdog_settles_as_retryable_timeout_without_ended() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("stalled-1")
+    controller.request_capture(capture, target())
+    controller.request_stop(capture)
+
+    settled = controller.force_settle_pending_stop(capture)
+
+    assert isinstance(settled.effects[0], RestoreVoiceReview)
+    assert "timed out" in settled.effects[0].message
+    assert controller.force_settle_pending_stop(capture).ignored
+
+
+def test_cancel_watchdog_discards_text_without_engine_acknowledgement() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("cancel-stalled")
+    controller.request_capture(capture, target())
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "must not insert"))
+    controller.request_cancel(capture)
+
+    settled = controller.force_settle_pending_stop(capture)
+
+    assert isinstance(settled.effects[0], RestoreVoiceReview)
+    assert settled.projection.capture_id is None
 
 
 def target() -> VoiceDraftTarget:

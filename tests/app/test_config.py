@@ -487,7 +487,8 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
 
     assert len(start_actions) == 29
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
-        "voice_input": "ctrl+alt+w",
+            "voice_input": "ctrl+alt+w",
+            "inline_dictation": "ctrl+alt+m",
         "contextual_question": "ctrl+alt+r",
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -529,10 +530,11 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
             assert resolved.feedback_contract.reasons[-1].id == "other"
             assert 4 <= len(resolved.feedback_contract.reasons) <= 5
 
-    non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
-    assert [(item["id"], item["command"]) for item in non_action] == [
-        ("voice_input", "push_to_talk"),
-        ("contextual_question", "open_contextual_question"),
+        non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
+        assert [(item["id"], item["command"]) for item in non_action] == [
+            ("voice_input", "push_to_talk"),
+            ("inline_dictation", "inline_dictation"),
+            ("contextual_question", "open_contextual_question"),
         ("speak_selection_or_clipboard", "speak_selection_or_clipboard")
     ]
     assert bundle.shortcuts.resolve("contextual_question", "short") == OpenContextualQuestion()

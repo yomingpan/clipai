@@ -286,6 +286,40 @@ class ActionExecutor:
             if workflow.restore_voice_review(target, message) is None:
                 workflow.fail(invocation.invocation_id, message)
 
+    async def refine_text(
+        self,
+        action: ResolvedAction,
+        text: str,
+        *,
+        binding: ProviderExecutionBinding,
+        cancellation,
+    ) -> str:
+        """Edit frozen dictation as data; never interpret instructions inside it."""
+        if not text.strip() or any(issue.feature == "llm" for issue in binding.readiness_issues):
+            return text
+        if cancellation.is_cancelled:
+            raise CancelledError("dictation refinement was cancelled")
+        request = await self._run_blocking(
+            f"inline-prompt:{id(cancellation)}",
+            lambda: self._prompt_builder.build(
+                action, text, model=binding.model,
+                default_temperature=self._default_temperature,
+            ),
+        )
+        result: LLMResult | None = None
+        async for event in binding.provider.execute(request, cancellation, stream=False):
+            if isinstance(event, LLMCompleted):
+                result = event.result
+        if cancellation.is_cancelled:
+            raise CancelledError("dictation refinement was cancelled")
+        if result is None:
+            raise ClipAIError("AI provider did not return a terminal result")
+        processed = await self._run_blocking(
+            f"inline-result:{id(cancellation)}",
+            lambda: self._result_processor.process(result.text, action.output_profile),
+        )
+        return processed.text or text
+
     def _consume_guidance_hint(self, action: ResolvedAction, invocation: ActionInvocation) -> bool:
         return bool(
             invocation.result_route == "popup"

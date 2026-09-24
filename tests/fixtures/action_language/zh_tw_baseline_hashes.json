@@ -11,7 +11,7 @@
       "extract_screenshot_text:long"
     ],
     "output_profiles": 10,
-    "shortcuts": 32,
+    "shortcuts": 33,
     "start_action_shortcuts": 29,
     "entry_panel_candidates": 29
   },
@@ -88,7 +88,7 @@
     "session_handoff": "sha256:bd008a8518ed9802b1b0f183cfa8637efffdbce2b1e141d3645f45b8dc4cdd4e",
     "score_compact": "sha256:15018c5ad770219dd48501bb9c49cbaed347956e9dd94859cf5c0f9eed248cf1"
   },
-  "shortcut_matrix": "sha256:806209c0caf37489bd0bfe77cc11760c09261dbb7b1dfe6fa486f8eec466291c",
+  "shortcut_matrix": "sha256:fbb2e207b2097c54babe9ed15ff0094bfed032b53690b649dd60a9b044a0ebe2",
   "entry_panel_candidates": {
     "translate_to_traditional_chinese:short": "sha256:3f2b79ca74b9bf97fd16d0e8d27f58bb00654fb39fdffcf07d3794ce3ec2672a",
     "english_companion:short": "sha256:2a6f804cbd2cf280ba5a47c4d690caf8faea6c1819910f5ee72de2ccab875410",

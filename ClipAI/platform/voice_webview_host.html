@@ -51,6 +51,10 @@
     stopMeter(item);
     stopTracks(item.stream);
     window.pywebview.api.hide();
+    if (item.lastInterim && !item.cancelled) {
+      emit({kind: "final", capture_id: item.id, sequence: item.sequence++, text: item.lastInterim});
+    }
+    item.lastInterim = "";
     if (failure) emit({kind: "failed", capture_id: item.id, failure, ...(detail ? {detail} : {})});
     emit({kind: "ended", capture_id: item.id});
     if (capture === item) capture = null;
@@ -71,7 +75,7 @@
   };
   const start = async command => {
     if (capture) return;
-    const item = {id: command.capture_id, stream: null, recognition: null, stopped: false, finished: false, sequence: command.sequence_start || 0, audioContext: null, audioSource: null, analyser: null, meterTimer: null};
+    const item = {id: command.capture_id, stream: null, recognition: null, stopped: false, cancelled: false, lastInterim: "", finished: false, sequence: command.sequence_start || 0, audioContext: null, audioSource: null, analyser: null, meterTimer: null};
     capture = item;
     try {
       item.stream = await navigator.mediaDevices.getUserMedia({audio: true});
@@ -89,12 +93,15 @@
         window.pywebview.api.hide();
       };
       recognition.onresult = event => {
-        let interim = "";
         for (let index = event.resultIndex; index < event.results.length; index += 1) {
           const text = event.results[index][0].transcript || "";
           if (event.results[index].isFinal) emit({kind: "final", capture_id: item.id, sequence: item.sequence++, text});
-          else interim += text;
         }
+        let interim = "";
+        for (let index = 0; index < event.results.length; index += 1) {
+          if (!event.results[index].isFinal) interim += event.results[index][0].transcript || "";
+        }
+        item.lastInterim = interim;
         if (interim) emit({kind: "interim", capture_id: item.id, text: interim});
       };
       recognition.onerror = event => {
@@ -118,11 +125,12 @@
         else if (command.command === "start") start(command);
         else if (capture && capture.id === command.capture_id) {
           capture.stopped = true;
+          if (command.command === "cancel") capture.cancelled = true;
           try { command.command === "cancel" ? capture.recognition.abort() : capture.recognition.stop(); }
           catch (_) { finish(capture); }
         }
       },
-      shutdown() { if (capture) { capture.stopped = true; try { capture.recognition.abort(); } catch (_) { finish(capture); } } }
+      shutdown() { if (capture) { capture.stopped = true; capture.cancelled = true; try { capture.recognition.abort(); } catch (_) { finish(capture); } } }
     };
     emit({kind: "bridge_ready"});
   }, {once: true});

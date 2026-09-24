@@ -103,6 +103,27 @@ def binding(provider=None, readiness_issues=(), provider_id="fake") -> ProviderE
     return ProviderExecutionBinding(provider or FakeProvider("result"), provider_id, "model", readiness_issues)
 
 
+def test_inline_refinement_returns_processed_text_without_workflow() -> None:
+    executor = workflow(FakeClipboard("untouched"), FakeSelection(""))
+    refined = asyncio.run(executor.refine_text(
+        action(), "spoken words", binding=binding(FakeProvider("polished words")),
+        cancellation=CancellationToken(),
+    ))
+
+    assert refined == "polished words"
+
+
+def test_inline_refinement_preserves_original_when_provider_unavailable() -> None:
+    executor = workflow(FakeClipboard("untouched"), FakeSelection(""))
+    issue = ReadinessIssue("missing_credential", "Provider unavailable", "llm")
+    refined = asyncio.run(executor.refine_text(
+        action(), "spoken words", binding=binding(readiness_issues=(issue,)),
+        cancellation=CancellationToken(),
+    ))
+
+    assert refined == "spoken words"
+
+
 def run_invocation(
     use_case: ActionExecutor,
     *,

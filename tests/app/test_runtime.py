@@ -13,6 +13,28 @@ from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModu
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefineVoiceDraftInPlace, RefreshProviderModels, RegenerateResult, ReloadConfiguration, ResetFirstUseHints, SelectActionLanguagePack, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ActionInvocation, ControlSurfaceRef, EntryActionRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
+from ClipAI.core.commands import ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired
+from ClipAI.app.runtime import _VOICE_COMMANDS
+
+
+def test_new_voice_commands_are_in_runtime_routing_whitelist() -> None:
+    assert {ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired} <= set(_VOICE_COMMANDS)
+
+
+def test_inline_paste_uses_output_operation_without_creating_workflow() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    target = PasteTarget("hwnd:1", 1, "Editor", "private", 1)
+
+    runtime._result_output_module.paste_inline("spoken words", target)
+    assert view.snapshots == []
+    assert view.output_results[-1].state == "pending"
+    assert len(supervisor.work) == 1
+    next(iter(supervisor.work.values()))()
+    runtime.drain_commands()
+
+    assert outputs.pasted == ["spoken words"]
+    assert outputs.paste_targets == [target]
+    assert view.output_results[-1].state == "dispatched_unconfirmed"
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog

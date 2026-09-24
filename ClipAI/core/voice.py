@@ -60,6 +60,7 @@ class VoiceCapturePhase(str, Enum):
 class VoiceCaptureDestination(str, Enum):
     VOICE_DRAFT = "voice_draft"
     FOLLOW_UP = "follow_up"
+    INLINE = "inline"
 
 
 @dataclass(frozen=True)
@@ -179,7 +180,15 @@ class VoiceFollowUpTarget:
     workflow_id: str
 
 
-VoiceCaptureTarget: TypeAlias = VoiceDraftTarget | VoiceFollowUpTarget
+@dataclass(frozen=True)
+class VoiceInlineTarget:
+    """A non-Workflow dictation target frozen when capture is requested."""
+
+    workflow_id: str
+    paste_target: PasteTarget | None
+
+
+VoiceCaptureTarget: TypeAlias = VoiceDraftTarget | VoiceFollowUpTarget | VoiceInlineTarget
 
 
 @dataclass(frozen=True)

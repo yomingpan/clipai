@@ -583,7 +583,7 @@ def _parse_shortcut_skeleton(path: Path) -> tuple[ShortcutDefinition, ...]:
         _reject_unknown(data, {"id", "hotkey", "command", "action_id"}, item_path, "contract_mismatch")
         command = _choice(
             data.get("command"),
-            {"start_action", "open_contextual_question", "speak_selection_or_clipboard", "push_to_talk"},
+            {"start_action", "open_contextual_question", "speak_selection_or_clipboard", "push_to_talk", "inline_dictation"},
             f"{item_path}.command",
         )
         action_id = data.get("action_id")

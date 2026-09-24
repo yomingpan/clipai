@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActionFeedbackCompleted, ActionLanguagePackSelectionCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, CloseAbout, CloseEntryPanel, ClosePersonalStyles, CloseProviderSettings, CloseSession, CloseShortcutGuide, ContextualSourceCaptured, ContextualSourceCaptureFailed, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, DisableVoiceInput, EnableVoiceInput, EntryPanelActionSelected, EntryPanelBack, EntryPanelDensityPreferencesCompleted, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelInputPreparationProgress, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, ImportPersonalStyle, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenAbout, OpenContextualQuestion, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenUnifiedEntryPanel, OpenVoicePermissionSettings, OpenVoiceSetup, PasteOperationCompleted, PasteResult, PersonalStyleOperationCompleted, RefineVoiceDraftInPlace, RefreshProviderModels, RegenerateResult, ReloadConfiguration, ResetFirstUseHints, RetryEntryPanelInput, UseEntryPanelClipboard, RetryVoiceInputSetup, SelectActionLanguagePack, SelectPersonalStyle, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetEntryPanelDensity, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, ValidateAndSaveProviderSettings, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired, WorkflowAttentionCompleted, WorkflowStepAccepted
+from ClipAI.core.commands import ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired
 from collections.abc import Callable
 from contextlib import ExitStack
 from typing import cast
@@ -45,7 +46,7 @@ _SHORTCUT_INPUT_EVENTS = (
     ShortcutPressEnded,
     ShortcutAttemptRejected,
 )
-_VOICE_COMMANDS = (OpenVoiceSetup, OpenVoicePermissionSettings, EnableVoiceInput, RetryVoiceInputSetup, DisableVoiceInput, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved, StartPopupVoiceCapture, StopVoiceCapture, CancelVoiceCapture, VoiceCaptureHoldElapsed, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceSilenceWatchdogExpired, SetVoiceLanguage, VoiceLanguagePreferenceSaved, UpdateVoiceDraft)
+_VOICE_COMMANDS = (OpenVoiceSetup, OpenVoicePermissionSettings, EnableVoiceInput, RetryVoiceInputSetup, DisableVoiceInput, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved, StartPopupVoiceCapture, StopVoiceCapture, CancelVoiceCapture, VoiceCaptureHoldElapsed, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceFinalizeWatchdogExpired, VoiceSilenceWatchdogExpired, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, SetVoiceLanguage, VoiceLanguagePreferenceSaved, UpdateVoiceDraft)
 _ENTRY_PANEL_COMMANDS = (OpenUnifiedEntryPanel, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelInputPreparationProgress, RetryEntryPanelInput, UseEntryPanelClipboard, CloseEntryPanel, EntryPanelActionSelected, EntryPanelSlotSelected, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelToggleDensity, EntryPanelBack)
 logger = logging.getLogger("clipai.runtime")
 
@@ -262,6 +263,8 @@ class AppRuntime:
         elif isinstance(command, ControlSurfaceReleased):
             self._user_control.release(command.surface)
         elif isinstance(command, InterruptCurrent):
+            if self._voice_input_module is not None and self._voice_input_module.cancel_inline_dictation():
+                return
             if (
                 self._user_control.focused_surface is None
                 and self._workflow_module.has_pending_shortcut_sequence()
@@ -270,6 +273,8 @@ class AppRuntime:
                 return
             self._execute_interruption(self._user_control.interrupt_current())
         elif isinstance(command, InterruptAll):
+            if self._voice_input_module is not None:
+                self._voice_input_module.cancel_inline_dictation()
             self._execute_interruption(self._user_control.interrupt_all())
             task_ids = (
                 *self._workflow_module.cancel_all_content_operations(),
