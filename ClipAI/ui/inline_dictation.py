@@ -5,6 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from collections.abc import Callable
 
+from ClipAI.core.ports import NativeWindowSurface
 from ClipAI.core.voice import VoiceCapturePhase, VoiceProjection
 from ClipAI.ui.base_dialog import _VoiceWaveIndicator
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
@@ -17,6 +18,7 @@ class InlineDictationWindow:
         *,
         on_confirm: Callable[[bool], None],
         on_cancel: Callable[[], None],
+        native_window_surface: NativeWindowSurface | None = None,
     ) -> None:
         self._window = tk.Toplevel(root)
         self._window.withdraw()
@@ -27,7 +29,15 @@ class InlineDictationWindow:
         except tk.TclError:
             pass
         self._window.configure(bg="#20272B", padx=8, pady=8)
-        self._lifecycle = DialogLifecycle(self._window, owns_mainloop=False)
+        self._lifecycle = DialogLifecycle(
+            self._window,
+            owns_mainloop=False,
+            window_activator=(
+                lambda window: native_window_surface.activate(window.winfo_id())
+                if native_window_surface is not None
+                else None
+            ),
+        )
         self._wave = _VoiceWaveIndicator(self._window, lifecycle=self._lifecycle, font_family="Microsoft JhengHei")
         self._wave.pack(anchor="w")
         self._choice: tk.Frame | None = None
@@ -80,7 +90,7 @@ class InlineDictationWindow:
         tk.Label(frame, text=text[:160], anchor="w", justify="left", wraplength=340, fg="white", bg="#20272B").pack(fill="x")
         tk.Label(frame, text="Enter 貼上原文    Ctrl+P 潤飾後貼上    Esc 取消", fg="white", bg="#20272B").pack(fill="x")
         tk.Label(frame, text="AI 幫你順稿，不替你改立場與用字選擇", fg="#B8C9C3", bg="#20272B").pack(fill="x")
-        self._window.focus_force()
+        self._lifecycle.focus()
 
     def show_refining(self) -> None:
         if self._lifecycle.is_closed:

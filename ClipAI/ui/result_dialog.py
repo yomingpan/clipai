@@ -408,6 +408,7 @@ class ResultDialogPresenter:
             self._root,
             on_confirm=lambda refine: self._command_sink(ConfirmInlineDictation(refine)),
             on_cancel=lambda: self._command_sink(InterruptCurrent()),
+            native_window_surface=self._native_window_surface,
         )
         self._inline_dictation_window.show()
 

@@ -33,6 +33,30 @@ def test_late_inline_refinement_cannot_close_a_newer_window() -> None:
     assert presenter._inline_dictation_window is window
 
 
+def test_inline_dictation_receives_the_presenters_native_window_surface(monkeypatch) -> None:
+    import ClipAI.ui.result_dialog as result_dialog
+
+    created: list[object] = []
+
+    class Window:
+        def __init__(self, _root, **kwargs) -> None:
+            created.append(kwargs["native_window_surface"])
+
+        def show(self) -> None:
+            pass
+
+    monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
+    presenter = object.__new__(ResultDialogPresenter)
+    presenter._root = object()
+    presenter._inline_dictation_window = None
+    presenter._native_window_surface = object()
+    presenter._command_sink = lambda _command: None
+
+    presenter.open_inline_dictation()
+
+    assert created == [presenter._native_window_surface]
+
+
 def test_voice_waveform_uses_canvas_and_packs_after_right_anchors() -> None:
     source = inspect.getsource(BaseResultSurface._build)
     creation = source.index("self.voice_input_button = _VoiceWaveIndicator")
