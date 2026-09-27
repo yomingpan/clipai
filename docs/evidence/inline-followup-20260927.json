@@ -26,6 +26,12 @@
     "available_endpoint_classes": ["built_in_speakers", "built_in_microphone_array"],
     "virtual_or_loopback_input_observed": false,
     "second_windows_device_available": false,
+    "synthetic_wav_fixtures": {
+      "status": "generated_and_wave_header_verified",
+      "languages": ["zh-TW", "en-US"],
+      "artifact": "artifacts/inline-audio-fixtures-20260927/manifest.json",
+      "microphone_chain_test": "pending_attended_acoustic_replay"
+    },
     "replayable_audio_capture": "not_covered"
   },
   "baseline_status": "not_established",

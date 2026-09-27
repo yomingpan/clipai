@@ -1,8 +1,31 @@
 import json
 import sys
+import pytest
 
 from scripts import run_inline_controlled_desktop
 from scripts.run_inline_controlled_desktop import assess
+
+
+def test_attended_audio_replay_requires_existing_wav_and_delivery_scenario(monkeypatch, tmp_path) -> None:
+    missing = tmp_path / "missing.wav"
+    monkeypatch.setattr(sys, "argv", [
+        "controlled", "--mode", "minimal", "--scenario", "raw", "--freeform",
+        "--audio-file", str(missing), "--output-dir", str(tmp_path / "run"),
+    ])
+    with pytest.raises(SystemExit) as absent:
+        run_inline_controlled_desktop.main()
+    assert absent.value.code == 2
+    assert not (tmp_path / "run").exists()
+
+    missing.write_bytes(b"RIFF")
+    monkeypatch.setattr(sys, "argv", [
+        "controlled", "--mode", "minimal", "--scenario", "cancel",
+        "--audio-file", str(missing), "--output-dir", str(tmp_path / "run"),
+    ])
+    with pytest.raises(SystemExit) as cancel:
+        run_inline_controlled_desktop.main()
+    assert cancel.value.code == 2
+    assert not (tmp_path / "run").exists()
 
 
 def _target(kind: str, ns: int, *, digest: str, pastes: int) -> dict:

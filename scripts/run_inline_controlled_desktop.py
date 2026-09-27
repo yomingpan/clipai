@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -197,11 +198,17 @@ def main() -> int:
     parser.add_argument("--scenario", choices=("raw", "refine", "cancel"), required=True)
     parser.add_argument("--expected-text", default="", help="fixed test phrase expected in the target")
     parser.add_argument("--freeform", action="store_true", help="check nonempty stable insertion without transcript comparison")
+    parser.add_argument("--audio-file", type=Path, help="fixed WAV to play through speakers after capture starts")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--late-wait", type=float, default=3.0)
     args = parser.parse_args()
     if args.freeform and args.scenario == "cancel":
         parser.error("--freeform is only valid for raw and refine")
+    if args.audio_file and args.scenario == "cancel":
+        parser.error("--audio-file is only valid for raw and refine")
+    audio_file = args.audio_file.resolve() if args.audio_file else None
+    if audio_file is not None and (not audio_file.is_file() or audio_file.suffix.lower() != ".wav"):
+        parser.error("--audio-file must point to an existing WAV file")
     if args.scenario != "cancel" and not args.freeform and not args.expected_text:
         parser.error("--expected-text is required for raw and refine")
     if args.late_wait < 1:
@@ -256,7 +263,7 @@ def main() -> int:
         print("受控文字框已開啟。請確認這個工作樹的 ClipAI 正在執行，並已從 Tray 選好模式。")
         print("本輪只做一次聽寫互動；完成後不要再次啟動聽寫或修改文字框／剪貼簿。")
         print("按 Enter 後，請點選受控文字框，再以實體 Ctrl+Alt+M 開始聽寫。")
-        spoken_prompt = "說一段話" if args.freeform else "說出固定測試文字"
+        spoken_prompt = "播放固定測試音檔" if audio_file else "說一段話" if args.freeform else "說出固定測試文字"
         if args.scenario == "cancel":
             print("請在錄音期間按 Esc 取消；不要手動貼上。")
         elif args.scenario == "raw":
@@ -275,6 +282,22 @@ def main() -> int:
             return 2
         _command(process, "focus")
         _wait_record(events_path, "focus_requested")
+        if audio_file is not None:
+            import winsound
+
+            input("以實體快捷鍵開始錄音後，回到此視窗按 Enter 播放固定音檔：")
+            try:
+                winsound.PlaySound(str(audio_file), winsound.SND_FILENAME)
+            except RuntimeError:
+                _write_blocked_report(
+                    report_path, mode=args.mode, scenario=args.scenario,
+                    run_nonce=run_nonce, reason_code="audio_playback_unavailable",
+                    check_name="audio_playback",
+                )
+                print("固定音檔無法由喇叭播放；本輪不計為語音鏈路驗證。", file=sys.stderr)
+                print(report_path)
+                return 2
+            print("音檔播放結束。請依本輪模式停止錄音並完成終態。")
         input("完成 ClipAI 的終態／取消後，回到此視窗按 Enter：")
         _command(process, "observe")
         _wait_record(events_path, "observation")
@@ -306,6 +329,14 @@ def main() -> int:
     trace_path.write_text("\n".join(trace_lines) + ("\n" if trace_lines else ""), encoding="utf-8")
     report = assess(_records(events_path), trace_lines, mode=args.mode, scenario=args.scenario,
                     text_policy="nonempty" if args.freeform else "exact")
+    if audio_file is not None:
+        report["audio_replay"] = {
+            "source": "fixed_wav_speaker_playback",
+            "sha256": hashlib.sha256(audio_file.read_bytes()).hexdigest(),
+            "playback_returned": True,
+            "microphone_input_independently_confirmed": False,
+        }
+        report["microphone_audio_source"] = "speaker_replay_triggered_input_not_independently_confirmed"
     if not trace_lines and not app_instance_is_running():
         report["checks"]["app_instance"] = "blocked"
         report["reason_code"] = "clipai_app_exited_during_run"
