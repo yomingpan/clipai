@@ -32,6 +32,32 @@ def test_missing_speed_uses_normal_without_rewriting_preferences() -> None:
     assert store.saved == []
 
 
+def test_inline_mode_becomes_active_only_after_successful_atomic_save() -> None:
+    store = MemoryStore()
+    coordinator = UserPreferencesCoordinator(store)
+    update = coordinator.begin_set_inline_input_mode("minimal", "mode-1")
+
+    assert update.inline_input_mode.selected_mode == "choice"
+    assert update.inline_input_mode.pending_mode == "minimal"
+    assert coordinator.inline_input_mode == "choice"
+    assert coordinator.execute(update.work) == ""
+    assert coordinator.inline_input_mode == "minimal"
+    assert coordinator.complete("mode-1").inline_input_mode.selected_mode == "minimal"
+
+
+def test_failed_inline_mode_save_keeps_choice_and_clears_pending_on_completion() -> None:
+    store = MemoryStore(fail=True)
+    coordinator = UserPreferencesCoordinator(store)
+    update = coordinator.begin_set_inline_input_mode("minimal", "mode-1")
+    error = coordinator.execute(update.work)
+
+    assert error
+    assert coordinator.inline_input_mode == "choice"
+    completed = coordinator.complete("mode-1", error)
+    assert completed.inline_input_mode.selected_mode == "choice"
+    assert completed.inline_input_mode.pending_mode is None
+
+
 def test_custom_legacy_rate_is_preserved_until_a_preset_is_saved() -> None:
     store = MemoryStore()
     coordinator = UserPreferencesCoordinator(store, base_speech_rate="+12%")

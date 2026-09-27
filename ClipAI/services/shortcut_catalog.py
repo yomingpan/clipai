@@ -26,7 +26,7 @@ class ShortcutCatalog:
         if shortcut.command == "open_contextual_question":
             return OpenContextualQuestion()
         if shortcut.command == "inline_dictation":
-            return ToggleInlineDictation()
+            return ToggleInlineDictation(press_type)
         raise ValueError("push-to-talk shortcuts are dispatched from their physical press lifecycle")
 
     def is_push_to_talk(self, shortcut_id: str) -> bool:

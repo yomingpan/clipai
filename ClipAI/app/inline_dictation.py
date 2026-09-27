@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from collections.abc import Callable
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
@@ -24,8 +23,8 @@ class InlineDictationCoordinator:
         executor: ActionExecutor | None,
         refine_action: ResolvedAction | None,
         binding: Callable[[], ProviderExecutionBinding | None],
-        paste: Callable[[str, PasteTarget], None],
-        on_refine_settled: Callable[[str], None],
+        paste: Callable[[str, PasteTarget, str, str], None],
+        on_refine_settled: Callable[[str, str, str, bool], None],
     ) -> None:
         self._provider_execution = provider_execution
         self._executor = executor
@@ -34,38 +33,50 @@ class InlineDictationCoordinator:
         self._paste = paste
         self._on_refine_settled = on_refine_settled
 
-    def submit(self, text: str, target: PasteTarget, *, refine: bool = False, workflow_id: str = "") -> None:
+    def submit(self, text: str, target: PasteTarget, *, refine: bool = False, interaction_id: str = "", operation_id: str = "") -> bool:
+        if not operation_id:
+            if refine:
+                self._on_refine_settled(interaction_id, operation_id, "", True)
+            return False
         if not text.strip():
             if refine:
-                self._on_refine_settled(workflow_id)
-            return
+                self._on_refine_settled(interaction_id, operation_id, "", True)
+            return False
         action, executor = self._refine_action, self._executor
-        binding = self._binding() if refine and action is not None and executor is not None else None
+        try:
+            binding = self._binding() if refine and action is not None and executor is not None else None
+        except BaseException as error:
+            logger.warning("Dictation refinement binding failed: %s", type(error).__name__)
+            self._on_refine_settled(interaction_id, operation_id, "", True)
+            return False
         if not refine or action is None or executor is None or binding is None:
-            self._paste(text, target)
             if refine:
-                self._on_refine_settled(workflow_id)
-            return
+                self._on_refine_settled(interaction_id, operation_id, "", True)
+            else:
+                self._paste(text, target, interaction_id, operation_id)
+            return False
         cancellation = CancellationToken()
 
-        def paste_settled(result: str) -> None:
-            try:
-                self._paste(result or text, target)
-            finally:
-                self._on_refine_settled(workflow_id)
+        def refine_settled(result: str) -> None:
+            self._on_refine_settled(interaction_id, operation_id, result, not bool(result.strip()))
 
         def fallback(error: BaseException | None = None) -> None:
             if error is not None:
                 logger.warning("Dictation refinement failed: %s", type(error).__name__)
-            paste_settled(text)
+            self._on_refine_settled(interaction_id, operation_id, "", True)
 
         try:
             self._provider_execution.start(
-                f"inline-refine-{uuid.uuid4().hex}",
+                operation_id,
                 lambda: executor.refine_text(action, text, binding=binding, cancellation=cancellation),
-                paste_settled,
+                refine_settled,
                 fallback,
                 lambda: fallback(),
             )
         except BaseException as error:
             fallback(error)
+            return False
+        return True
+
+    def cancel(self, operation_id: str) -> bool:
+        return self._provider_execution.cancel(operation_id)

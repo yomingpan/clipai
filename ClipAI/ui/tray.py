@@ -7,7 +7,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from ClipAI.core.models import ActionLanguagePackSelectionState, ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
+from ClipAI.core.models import ActionLanguagePackSelectionState, ApplicationStatus, GuidancePreferences, InlineInputMode, InlineInputModeState, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceLanguage, VoiceProjection
 
 logger = logging.getLogger("clipai.tray")
@@ -101,6 +101,8 @@ class TrayController:
         on_enable_voice: Callable[[], None] | None = None,
         on_disable_voice: Callable[[], None] | None = None,
         on_set_voice_language: Callable[[VoiceLanguage], None] | None = None,
+        inline_input_mode: InlineInputModeState | None = None,
+        on_set_inline_input_mode: Callable[[InlineInputMode], None] | None = None,
         on_manage_voice_permission: Callable[[], None] | None = None,
         on_open_about: Callable[[], None] | None = None,
         application_version: str = "development",
@@ -129,6 +131,8 @@ class TrayController:
         self._on_enable_voice = on_enable_voice
         self._on_disable_voice = on_disable_voice
         self._on_set_voice_language = on_set_voice_language
+        self._inline_input_mode = inline_input_mode
+        self._on_set_inline_input_mode = on_set_inline_input_mode
         self._on_manage_voice_permission = on_manage_voice_permission
         self._on_open_about = on_open_about
         self._icon = None
@@ -398,6 +402,24 @@ class TrayController:
         ]
         if language_items:
             menu_items.append(pystray.MenuItem("Language", pystray.Menu(*language_items)))
+        if self._inline_input_mode is not None and self._on_set_inline_input_mode is not None:
+            menu_items.append(pystray.MenuItem(
+                "Inline Dictation",
+                pystray.Menu(
+                    pystray.MenuItem(
+                        "完整選擇",
+                        lambda _icon, _item: self._on_set_inline_input_mode("choice"),
+                        checked=lambda _item: self._inline_input_mode is not None and self._inline_input_mode.selected_mode == "choice",
+                        enabled=lambda _item: self._inline_input_mode is not None and not self._inline_input_mode.update_pending,
+                    ),
+                    pystray.MenuItem(
+                        "極簡輸入",
+                        lambda _icon, _item: self._on_set_inline_input_mode("minimal"),
+                        checked=lambda _item: self._inline_input_mode is not None and self._inline_input_mode.selected_mode == "minimal",
+                        enabled=lambda _item: self._inline_input_mode is not None and not self._inline_input_mode.update_pending,
+                    ),
+                ),
+            ))
         if self._on_manage_voice_permission is not None:
             menu_items.append(
                 pystray.MenuItem(
@@ -440,6 +462,10 @@ class TrayController:
 
     def set_voice_projection(self, projection: VoiceProjection) -> None:
         self._voice = projection
+        self._refresh_menu()
+
+    def set_inline_input_mode(self, state: InlineInputModeState) -> None:
+        self._inline_input_mode = state
         self._refresh_menu()
 
     def set_action_language_selection(

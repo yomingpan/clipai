@@ -3,6 +3,9 @@
 ## Status
 
 Accepted. Amends ADR-0016's statement that PTT is the only global Voice Input interaction.
+ADR-0019 extends Inline Dictation ownership through refinement and Paste
+settlement, adds the optional minimal input mode, and supersedes the choice,
+fallback, and window-settlement statements below where they differ.
 
 ## Context
 
@@ -24,7 +27,8 @@ schedulers plus silence timers, making stop and finalization ordering fragile.
   interactive worker. It reports Paste Dispatch truth, never confirmed success.
 - Refinement uses the existing intent-preserving dictation Action through the
   provider execution module. Provider unavailability or refinement failure
-  falls back to the original recognized text. The dictated text is data and
+  preserves the original recognized text for an explicit raw-paste, Copy, or
+  discard choice; it never silently pastes a fallback. The dictated text is data and
   instructions inside it are never executed as application commands.
 - `VoiceCaptureTiming` owns the 120-second listening deadline, one-second
   countdown, two-second silence hint, and six-second stop/cancel settlement
@@ -41,8 +45,10 @@ schedulers plus silence timers, making stop and finalization ordering fragile.
 PTT retains its recoverable 120-second limit and Review behavior. Inline
 Dictation is a separate explicit interaction. A terminal Paste acknowledgement
 can be `failed`, `cancelled`, `dispatched_unconfirmed`, or `cleanup_failed`.
-The waveform choice remains visible during asynchronous refinement, then
-closes on the identity-scoped settlement command.
+The choice surface in choice-based mode remains available during refinement
+and through Paste settlement. Minimal mode uses a non-activating status surface
+in the normal path and an actionable recovery surface on failure. Both close
+only under identity-scoped terminal presentation rules from ADR-0019.
 
 ## Review trigger
 

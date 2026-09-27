@@ -3,11 +3,11 @@ from __future__ import annotations
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureAdmission
 from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceSilenceWatchdogExpired
-from ClipAI.core.models import ControlSurfaceRef, PasteTarget, ShortcutPressId
+from ClipAI.core.models import ControlSurfaceRef, InlineOrigin, PasteOutcome, PasteTarget, ShortcutPressId
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceSetupId
-from ClipAI.services.voice_input import VoiceInputController
-from ClipAI.core.commands import ToggleInlineDictation, ConfirmInlineDictation
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCapturePhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceSetupId
+from ClipAI.services.voice_input import CancelInlinePaste, DiscardInlineDictation, PresentInlineCopyState, VoiceInputController
+from ClipAI.core.commands import CancelInlineDictation, CopyInlineDictation, DismissInlineDictationTerminal, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationCopyCompleted, InlineDictationRefineSettled, InlineDictationRefineCancelAccepted, PasteOperationCompleted
 
 
 class Engine:
@@ -124,14 +124,32 @@ class Notifier:
 class InlinePresenter:
     def __init__(self):
         self.opened = 0
+        self.modes = []
+        self.interaction_ids = []
         self.choices = []
         self.closed = []
         self.projections = []
+        self.paste_outcomes = []
+        self.paste_pending = []
+        self.paste_cancelling = []
+        self.refining = []
+        self.refinement_pending = []
+        self.cancel_unconfirmed = []
+        self.recoveries = []
+        self.copy_states = []
 
-    def open_inline_dictation(self): self.opened += 1
+    def open_inline_dictation(self, interaction_id="", mode="choice"): self.opened += 1; self.modes.append(mode); self.interaction_ids.append(interaction_id)
     def update_inline_dictation(self, projection): self.projections.append(projection)
-    def present_inline_choice(self, text): self.choices.append(text)
-    def close_inline_dictation(self, *, flash_failure=False, message="", workflow_id=""):
+    def present_inline_choice(self, _interaction_id, text, allow_refine=True, message=""): self.choices.append(text)
+    def present_inline_paste_outcome(self, interaction_id, outcome, text): self.paste_outcomes.append((interaction_id, outcome, text))
+    def present_inline_paste_pending(self, interaction_id): self.paste_pending.append(interaction_id)
+    def present_inline_paste_cancelling(self, interaction_id): self.paste_cancelling.append(interaction_id)
+    def present_inline_refining(self, interaction_id): self.refining.append(interaction_id)
+    def present_inline_refinement_pending(self, interaction_id): self.refinement_pending.append(interaction_id)
+    def present_inline_cancel_unconfirmed(self, interaction_id, text): self.cancel_unconfirmed.append((interaction_id, text))
+    def present_inline_recovery(self, interaction_id, text, message): self.recoveries.append((interaction_id, text, message))
+    def present_inline_copy_state(self, interaction_id, state): self.copy_states.append((interaction_id, state))
+    def close_inline_dictation(self, *, flash_failure=False, message="", interaction_id=""):
         self.closed.append((flash_failure, message))
 
 
@@ -142,11 +160,12 @@ def test_inline_target_is_frozen_at_start_and_choice_blocks_restart():
     runtime = VoiceInputRuntimeModule(
         controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
         paste_target_reader=lambda: reader[0], inline_presenter=presenter,
-        paste_inline=lambda text, captured, refine, _workflow_id: pasted.append((text, captured, refine)),
+        paste_inline=lambda text, captured, refine, _interaction_id, _operation_id: pasted.append((text, captured, refine)),
     )
 
     assert runtime.handle(ToggleInlineDictation())
     capture = engine.calls[-1][1]
+    assert presenter.interaction_ids[0] != str(capture)
     reader[0] = None
     runtime.handle(VoiceEngineEventReceived(VoiceEngineListening(capture)))
     runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
@@ -154,11 +173,83 @@ def test_inline_target_is_frozen_at_start_and_choice_blocks_restart():
     runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
     assert presenter.choices == ["spoken words"]
     assert not runtime.handle(ToggleInlineDictation())
-    assert runtime.handle(ConfirmInlineDictation())
+    assert runtime.handle(ConfirmInlineDictation(presenter.interaction_ids[0]))
     assert pasted == [("spoken words", target, False)]
 
 
-def test_inline_without_target_never_offers_paste_choice():
+def test_inline_stage_log_links_separate_ids_without_content_or_target_title(caplog) -> None:
+    import logging
+
+    caplog.set_level(logging.INFO, logger="clipai.inline_trace")
+    engine, presenter = Engine(), InlinePresenter()
+    target = PasteTarget("hwnd:1", 1, "Editor", "private target title", 1)
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: target, inline_presenter=presenter,
+    )
+    assert runtime.handle(ToggleInlineDictation())
+    capture_id = engine.calls[-1][1]
+    interaction_id = presenter.interaction_ids[0]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening(capture_id)))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture_id, 0, "private dictated words")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture_id)))
+
+    trace = "\n".join(record.getMessage() for record in caplog.records if record.name == "clipai.inline_trace")
+    assert f"interaction_id={interaction_id}" in trace
+    assert f"capture_id={capture_id}" in trace
+    assert "stage=listening" in trace
+    assert "stage=recognition_settled" in trace
+    assert "stage=choice_ready" in trace
+    assert "monotonic_ns=" in trace
+    assert "private dictated words" not in trace
+    assert "private target title" not in trace
+
+
+def test_inline_recovery_trace_records_only_outcomes(caplog) -> None:
+    import logging
+
+    caplog.set_level(logging.INFO, logger="clipai.inline_trace")
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=Engine(), workflows=Workflows(),
+        paste_target_reader=lambda: None, inline_presenter=InlinePresenter(),
+    )
+    runtime._execute_effect(PresentInlineCopyState("interaction-1", "succeeded"))
+    runtime._execute_effect(DiscardInlineDictation("interaction-1", "Voice Input cancellation timed out."))
+
+    trace = "\n".join(record.getMessage() for record in caplog.records if record.name == "clipai.inline_trace")
+    assert "stage=copy_result interaction_id=interaction-1" in trace
+    assert "outcome=succeeded" in trace
+    assert "stage=discard_terminal interaction_id=interaction-1" in trace
+    assert "outcome=failed" in trace
+    assert "Voice Input cancellation timed out." not in trace
+
+
+def test_minimal_mode_is_frozen_at_start_and_second_press_selects_raw_or_refine():
+    for stop_press_type, expected_refine in (("short", False), ("long", True)):
+        engine, presenter, requests = Engine(), InlinePresenter(), []
+        selected_mode = ["minimal"]
+        runtime = VoiceInputRuntimeModule(
+            controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+            paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+            inline_input_mode_reader=lambda: selected_mode[0],
+            inline_presenter=presenter,
+            paste_inline=lambda *args: requests.append(args),
+        )
+        assert runtime.handle(ToggleInlineDictation("short"))
+        selected_mode[0] = "choice"
+        capture = engine.calls[-1][1]
+        runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+        assert runtime.handle(ToggleInlineDictation(stop_press_type))
+        runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+
+        assert presenter.modes == ["minimal"]
+        assert presenter.choices == []
+        assert len(requests) == 1
+        assert requests[0][2] is expected_refine
+
+
+def test_inline_without_target_preserves_text_without_offering_paste_choice():
     engine, presenter = Engine(), InlinePresenter()
     runtime = VoiceInputRuntimeModule(
         controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
@@ -172,7 +263,52 @@ def test_inline_without_target_never_offers_paste_choice():
     runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
 
     assert presenter.choices == []
-    assert presenter.closed[-1][0] is True
+    assert presenter.recoveries[0][:2] == (presenter.interaction_ids[0], "spoken words")
+    assert presenter.closed == []
+
+
+def test_inline_does_not_reuse_a_stale_foreground_target_when_capture_probe_fails() -> None:
+    engine, presenter, pasted = Engine(), InlinePresenter(), []
+    stale = PasteTarget("hwnd:old", 1, "Previous editor", "private", 1)
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: stale,
+        capture_external_target=lambda: None,
+        inline_presenter=presenter,
+        paste_inline=lambda *args: pasted.append(args),
+    )
+    assert runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+
+    assert presenter.recoveries[0][:2] == (presenter.interaction_ids[0], "spoken words")
+    assert presenter.choices == []
+    assert pasted == []
+
+
+def test_inline_recovery_copy_is_explicit_and_reports_matching_completion() -> None:
+    engine, presenter, copies = Engine(), InlinePresenter(), []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: None, inline_presenter=presenter,
+        copy_inline=lambda *args: copies.append(args),
+    )
+    runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "complete original text")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+    interaction_id = presenter.interaction_ids[0]
+
+    assert runtime.handle(CopyInlineDictation(interaction_id))
+    assert copies[0][:2] == ("complete original text", interaction_id)
+    assert presenter.copy_states[-1] == (interaction_id, "pending")
+    assert not runtime.handle(CopyInlineDictation(interaction_id))
+    assert not runtime.handle(InlineDictationCopyCompleted(interaction_id, "stale"))
+    assert runtime.handle(InlineDictationCopyCompleted(interaction_id, copies[0][2]))
+    assert presenter.copy_states[-1] == (interaction_id, "succeeded")
 
 
 def test_cancel_inline_choice_closes_without_pasting():
@@ -181,7 +317,7 @@ def test_cancel_inline_choice_closes_without_pasting():
         controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
         paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
         inline_presenter=presenter,
-        paste_inline=lambda text, target, refine, _workflow_id: pasted.append(text),
+        paste_inline=lambda text, target, refine, _interaction_id, _operation_id: pasted.append(text),
     )
     runtime.handle(ToggleInlineDictation())
     capture = engine.calls[-1][1]
@@ -191,9 +327,241 @@ def test_cancel_inline_choice_closes_without_pasting():
     runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
 
     assert runtime.cancel_inline_dictation()
-    assert not runtime.handle(ConfirmInlineDictation())
+    assert not runtime.handle(ConfirmInlineDictation(presenter.interaction_ids[0]))
     assert pasted == []
     assert presenter.closed[-1] == (False, "")
+
+
+def test_stale_view_commands_cannot_confirm_or_cancel_the_new_interaction() -> None:
+    engine, presenter, pasted = Engine(), InlinePresenter(), []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        inline_presenter=presenter,
+        paste_inline=lambda *args: pasted.append(args),
+    )
+    assert runtime.handle(ToggleInlineDictation())
+    old_id = presenter.interaction_ids[-1]
+    old_capture = engine.calls[-1][1]
+    assert runtime.handle(CancelInlineDictation(old_id))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(old_capture)))
+
+    assert runtime.handle(ToggleInlineDictation())
+    new_id = presenter.interaction_ids[-1]
+    new_capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(new_capture, 0, "new text")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(new_capture)))
+
+    assert old_id != new_id
+    closed_before = list(presenter.closed)
+    assert not runtime.handle(ConfirmInlineDictation(old_id))
+    assert not runtime.handle(CancelInlineDictation(old_id))
+    assert presenter.closed == closed_before
+    assert pasted == []
+    assert runtime.handle(ConfirmInlineDictation(new_id))
+    assert pasted[0][0] == "new text"
+
+
+def test_inline_capture_cancel_remains_visible_until_engine_settles() -> None:
+    engine, presenter = Engine(), InlinePresenter()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        inline_presenter=presenter,
+    )
+    assert runtime.handle(ToggleInlineDictation())
+    capture_id = engine.calls[-1][1]
+    interaction_id = presenter.interaction_ids[-1]
+
+    assert runtime.handle(CancelInlineDictation(interaction_id))
+    assert engine.calls[-1] == ("cancel", capture_id)
+    assert presenter.projections[-1].capture_phase is VoiceCapturePhase.CANCEL_REQUESTED
+    assert presenter.closed == []
+    assert not runtime.handle(ToggleInlineDictation())
+
+    assert runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture_id)))
+    assert presenter.closed == [(False, "")]
+    assert not runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture_id)))
+    assert presenter.closed == [(False, "")]
+
+
+def test_inline_capture_cancel_watchdog_reports_timeout_and_closes_once() -> None:
+    engine, presenter = Engine(), InlinePresenter()
+    scheduled, dispatched = [], []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        inline_presenter=presenter,
+        watchdog_schedule=lambda delay, callback: scheduled.append((delay, callback)),
+        dispatch=dispatched.append,
+    )
+    assert runtime.handle(ToggleInlineDictation())
+    capture_id = engine.calls[-1][1]
+    interaction_id = presenter.interaction_ids[-1]
+    assert runtime.handle(CancelInlineDictation(interaction_id))
+    assert presenter.closed == []
+
+    callback = next(callback for delay, callback in scheduled if delay == 6.0)
+    callback()
+    assert presenter.closed == []
+    assert len(dispatched) == 1
+    assert runtime.handle(dispatched.pop())
+    assert presenter.closed == [(True, "Voice Input cancellation timed out.")]
+    assert not runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture_id)))
+    assert len(presenter.closed) == 1
+
+
+def test_inline_cancel_and_discard_effects_forward_their_frozen_interaction() -> None:
+    class Presenter(InlinePresenter):
+        def __init__(self) -> None:
+            super().__init__()
+            self.close_ids = []
+
+        def close_inline_dictation(self, *, flash_failure=False, message="", interaction_id=""):
+            self.close_ids.append(interaction_id)
+
+    presenter = Presenter()
+    cancelled = []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=Engine(), workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        inline_presenter=presenter,
+        cancel_inline_paste=cancelled.append,
+    )
+    assert runtime.handle(ToggleInlineDictation())
+    current_id = presenter.interaction_ids[0]
+
+    runtime._execute_effect(CancelInlinePaste("paste-old", "inline-old"))
+    runtime._execute_effect(DiscardInlineDictation("inline-old"))
+
+    assert current_id != "inline-old"
+    assert presenter.paste_cancelling == ["inline-old"]
+    assert cancelled == ["paste-old"]
+    assert presenter.close_ids == ["inline-old"]
+
+
+def test_discard_during_refinement_quarantines_late_provider_result():
+    engine, presenter, requested = Engine(), InlinePresenter(), []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        inline_presenter=presenter,
+        paste_inline=lambda *args: requested.append(args),
+    )
+    runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineListening(capture)))
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+    interaction_id = presenter.interaction_ids[0]
+    assert runtime.handle(ConfirmInlineDictation(interaction_id, True))
+    assert len(requested) == 1
+    assert not runtime.handle(ToggleInlineDictation())
+    assert runtime.cancel_inline_dictation()
+    refine_operation_id = requested[0][4]
+    assert runtime.handle(InlineDictationRefineSettled(interaction_id, "late refined words", operation_id=refine_operation_id))
+    assert len(requested) == 1
+
+
+def test_refinement_escape_requests_provider_cancel_and_waits_for_typed_admission():
+    engine, presenter, requested, dispatched, cancelled = Engine(), InlinePresenter(), [], [], []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        inline_presenter=presenter, paste_inline=lambda *args: requested.append(args),
+        cancel_inline_refinement=lambda operation_id: cancelled.append(operation_id) or True,
+        dispatch=dispatched.append,
+    )
+    runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+    runtime.handle(ConfirmInlineDictation(presenter.interaction_ids[0], True))
+    operation_id = requested[0][4]
+
+    assert runtime.cancel_inline_dictation()
+    assert cancelled == [operation_id]
+    interaction_id = presenter.interaction_ids[0]
+    assert presenter.paste_cancelling == [interaction_id]
+    assert not runtime.handle(ToggleInlineDictation())
+    assert dispatched == [InlineDictationRefineCancelAccepted(interaction_id, operation_id, True)]
+    assert runtime.handle(dispatched.pop())
+    assert not runtime.handle(InlineDictationRefineSettled(interaction_id, "late", operation_id=operation_id))
+    assert runtime.handle(ToggleInlineDictation())
+
+
+def test_refinement_failure_reopens_original_text_and_never_pastes_fallback():
+    engine, presenter, requested = Engine(), InlinePresenter(), []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        inline_presenter=presenter,
+        paste_inline=lambda *args: requested.append(args),
+    )
+    runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+    assert runtime.handle(ConfirmInlineDictation(presenter.interaction_ids[0], True))
+    assert runtime.handle(InlineDictationRefineSettled(presenter.interaction_ids[0], error=True, operation_id=requested[0][4]))
+    assert presenter.choices == ["spoken words", "spoken words"]
+    assert len(requested) == 1
+    assert not runtime.handle(ToggleInlineDictation())
+
+
+def test_refining_state_waits_for_provider_task_admission():
+    for admitted in (False, True):
+        engine, presenter = Engine(), InlinePresenter()
+        runtime = VoiceInputRuntimeModule(
+            controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+            paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+            inline_presenter=presenter,
+            paste_inline=lambda *_args: admitted,
+        )
+        runtime.handle(ToggleInlineDictation())
+        capture = engine.calls[-1][1]
+        runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+        runtime.handle(ToggleInlineDictation())
+        runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+        assert runtime.handle(ConfirmInlineDictation(presenter.interaction_ids[0], True))
+
+        assert presenter.refinement_pending == [presenter.interaction_ids[0]]
+        assert presenter.refining == ([presenter.interaction_ids[0]] if admitted else [])
+
+
+def test_inline_paste_terminal_requires_matching_operation_and_keeps_uncertain_truth_visible():
+    engine, presenter, requests = Engine(), InlinePresenter(), []
+    controller = VoiceInputController(enabled=True)
+    runtime = VoiceInputRuntimeModule(
+        controller=controller, engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        inline_presenter=presenter, paste_inline=lambda *args: requests.append(args),
+    )
+    runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "spoken words")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+    assert runtime.handle(ConfirmInlineDictation(presenter.interaction_ids[0]))
+    interaction_id = presenter.interaction_ids[0]
+    operation_id = controller.inline_paste_operation_id(interaction_id)
+    assert operation_id is not None
+    assert presenter.paste_pending == [interaction_id]
+    assert not runtime.handle(ToggleInlineDictation())
+
+    outcome = PasteOutcome("dispatched_unconfirmed", "dispatched_unconfirmed", "restored")
+    assert not runtime.handle_inline_paste_completion(PasteOperationCompleted("stale", "", outcome, InlineOrigin(interaction_id)))
+    assert not runtime.handle_inline_paste_completion(PasteOperationCompleted(operation_id, "", outcome, InlineOrigin("other")))
+    assert runtime.handle_inline_paste_completion(PasteOperationCompleted(operation_id, "", outcome, InlineOrigin(interaction_id)))
+    assert presenter.paste_outcomes == [(interaction_id, outcome, "spoken words")]
+    assert not runtime.handle_inline_paste_completion(PasteOperationCompleted(operation_id, "", outcome, InlineOrigin(interaction_id)))
+    assert runtime.handle(ToggleInlineDictation())
+    assert not runtime.handle(DismissInlineDictationTerminal(interaction_id))
+    assert len(engine.calls) >= 3
 
 
 def test_pending_inline_choice_rejects_ptt_before_workflow_admission():

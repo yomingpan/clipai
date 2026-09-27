@@ -12,29 +12,94 @@ from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefineVoiceDraftInPlace, RefreshProviderModels, RegenerateResult, ReloadConfiguration, ResetFirstUseHints, SelectActionLanguagePack, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ActionInvocation, ControlSurfaceRef, EntryActionRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
-from ClipAI.core.commands import ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ActionInvocation, ControlSurfaceRef, EntryActionRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InlineOrigin, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
+from ClipAI.core.commands import CancelInlineDictation, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired
 from ClipAI.app.runtime import _VOICE_COMMANDS
 
 
 def test_new_voice_commands_are_in_runtime_routing_whitelist() -> None:
-    assert {ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired} <= set(_VOICE_COMMANDS)
+    assert {ToggleInlineDictation, ConfirmInlineDictation, CancelInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired} <= set(_VOICE_COMMANDS)
+
+
+def test_inline_view_cancel_routes_to_voice_module_with_its_interaction_id() -> None:
+    class VoiceModule:
+        def __init__(self) -> None:
+            self.commands = []
+
+        def handle(self, command) -> None:
+            self.commands.append(command)
+
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    voice = VoiceModule()
+    runtime._voice_input_module = voice
+    command = CancelInlineDictation("inline-old")
+
+    runtime.enqueue(command)
+    runtime.drain_commands()
+
+    assert voice.commands == [command]
 
 
 def test_inline_paste_uses_output_operation_without_creating_workflow() -> None:
     runtime, view, supervisor, outputs, _listener = make_runtime()
     target = PasteTarget("hwnd:1", 1, "Editor", "private", 1)
 
-    runtime._result_output_module.paste_inline("spoken words", target)
+    runtime._result_output_module.paste_inline("spoken words", target, "inline-1", "paste-1")
     assert view.snapshots == []
-    assert view.output_results[-1].state == "pending"
+    assert view.output_results == []
+    assert isinstance(runtime._result_output_module._paste_operations.active.origin, InlineOrigin)
     assert len(supervisor.work) == 1
     next(iter(supervisor.work.values()))()
     runtime.drain_commands()
 
     assert outputs.pasted == ["spoken words"]
     assert outputs.paste_targets == [target]
-    assert view.output_results[-1].state == "dispatched_unconfirmed"
+    assert view.output_results == []
+
+
+def test_inline_paste_begin_failure_reports_terminal_acknowledgement() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    module = runtime._result_output_module
+    completions = []
+    module._inline_paste_completion_sink = completions.append
+
+    def fail_begin(_intent):
+        raise RuntimeError("begin unavailable")
+
+    module._operations.begin = fail_begin
+    module.paste_inline("spoken words", PasteTarget("hwnd:1", 1, "Editor", "private", 1), "inline-1", "paste-1")
+
+    assert len(completions) == 1
+    assert completions[0].origin == InlineOrigin("inline-1")
+    assert completions[0].operation_id == "paste-1"
+    assert completions[0].outcome.state == "failed"
+
+
+def test_explicit_inline_discard_before_dispatch_does_not_copy_dictation_to_clipboard() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    target = PasteTarget("hwnd:1", 1, "Editor", "private", 1)
+    original_clipboard = outputs.clipboard_bits
+    runtime._result_output_module.paste_inline("spoken words", target, "inline-1", "paste-1")
+
+    assert runtime._result_output_module.cancel_operation("paste-1") == ("paste-1",)
+    runtime.drain_commands()
+
+    assert outputs.pasted == []
+    assert outputs.copied == []
+    assert outputs.clipboard_bits == original_clipboard
+    assert view.output_results == []
+
+
+def test_explicit_inline_copy_uses_output_owner_and_does_not_project_workflow_result() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime._result_output_module.copy_inline("complete original text", "inline-1", "copy-1")
+
+    assert outputs.copied == []
+    supervisor.work["copy-1"]()
+    runtime.drain_commands()
+
+    assert outputs.copied == ["complete original text"]
+    assert view.output_results == []
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
@@ -235,6 +300,7 @@ class FakePasteOperations:
                 request.operation_id,
                 request.workflow_id,
                 PasteOutcome("failed", "not_dispatched", "not_required", "Paste still in progress."),
+                request.origin,
             ))
             return False
         self.active = request
@@ -307,7 +373,7 @@ class FakePasteOperations:
     def _complete(self, request: PasteRequest, outcome: PasteOutcome) -> None:
         if self.active is not request:
             return
-        self.completion_sink(PasteOperationCompleted(request.operation_id, request.workflow_id, outcome))
+        self.completion_sink(PasteOperationCompleted(request.operation_id, request.workflow_id, outcome, request.origin))
         self.active = None
         self.running = False
 

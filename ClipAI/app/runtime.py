@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActionFeedbackCompleted, ActionLanguagePackSelectionCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, CloseAbout, CloseEntryPanel, ClosePersonalStyles, CloseProviderSettings, CloseSession, CloseShortcutGuide, ContextualSourceCaptured, ContextualSourceCaptureFailed, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, DisableVoiceInput, EnableVoiceInput, EntryPanelActionSelected, EntryPanelBack, EntryPanelDensityPreferencesCompleted, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelInputPreparationProgress, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, ImportPersonalStyle, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenAbout, OpenContextualQuestion, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenUnifiedEntryPanel, OpenVoicePermissionSettings, OpenVoiceSetup, PasteOperationCompleted, PasteResult, PersonalStyleOperationCompleted, RefineVoiceDraftInPlace, RefreshProviderModels, RegenerateResult, ReloadConfiguration, ResetFirstUseHints, RetryEntryPanelInput, UseEntryPanelClipboard, RetryVoiceInputSetup, SelectActionLanguagePack, SelectPersonalStyle, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetEntryPanelDensity, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, ValidateAndSaveProviderSettings, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired, WorkflowAttentionCompleted, WorkflowStepAccepted
-from ClipAI.core.commands import ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired
+from ClipAI.core.commands import CancelInlineDictation, DismissInlineDictationTerminal, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, InlineDictationRefineCancelAccepted, InlineDictationRefineCancelTimedOut, VoiceFinalizeWatchdogExpired
+from ClipAI.core.commands import SetInlineInputMode, InlineInputModePreferencesCompleted
+from ClipAI.core.commands import CopyInlineDictation, InlineDictationCopyCompleted
+from ClipAI.core.models import InlineOrigin
 from collections.abc import Callable
 from contextlib import ExitStack
 from typing import cast
@@ -35,7 +38,7 @@ _WORKFLOW_COMMANDS = (StartAction, ExpireInputRecovery, UseWorkflowClipboard, Op
 _OUTPUT_COMMANDS = (CopyResult, PasteResult, ArchiveResult, ToggleSpeech, SpeakSelectionOrClipboard, ExportDiagnostics)
 _PROVIDER_COMMANDS = (SelectProviderModel, SelectProvider, ReloadConfiguration, OpenProviderSettings, CloseProviderSettings, ValidateAndSaveProviderSettings, RefreshProviderModels, ProviderConfigurationResult)
 _ACTION_FEEDBACK_COMMANDS = (SubmitActionFeedback, ActionFeedbackCompleted)
-_USER_PREFERENCES_COMMANDS = (SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted, SetSpeechSpeed, SpeechSpeedPreferencesCompleted, SetEntryPanelDensity, EntryPanelDensityPreferencesCompleted)
+_USER_PREFERENCES_COMMANDS = (SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted, SetSpeechSpeed, SpeechSpeedPreferencesCompleted, SetEntryPanelDensity, EntryPanelDensityPreferencesCompleted, SetInlineInputMode, InlineInputModePreferencesCompleted)
 _ACTION_LANGUAGE_COMMANDS = (SelectActionLanguagePack, ActionLanguagePackSelectionCompleted)
 _SHORTCUT_GUIDE_COMMANDS = (OpenShortcutGuide, CloseShortcutGuide, SelectShortcutGuideItem)
 _PERSONAL_STYLE_COMMANDS = (OpenPersonalStyles, ClosePersonalStyles, ImportPersonalStyle, SelectPersonalStyle, PersonalStyleOperationCompleted)
@@ -46,7 +49,7 @@ _SHORTCUT_INPUT_EVENTS = (
     ShortcutPressEnded,
     ShortcutAttemptRejected,
 )
-_VOICE_COMMANDS = (OpenVoiceSetup, OpenVoicePermissionSettings, EnableVoiceInput, RetryVoiceInputSetup, DisableVoiceInput, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved, StartPopupVoiceCapture, StopVoiceCapture, CancelVoiceCapture, VoiceCaptureHoldElapsed, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceFinalizeWatchdogExpired, VoiceSilenceWatchdogExpired, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, SetVoiceLanguage, VoiceLanguagePreferenceSaved, UpdateVoiceDraft)
+_VOICE_COMMANDS = (OpenVoiceSetup, OpenVoicePermissionSettings, EnableVoiceInput, RetryVoiceInputSetup, DisableVoiceInput, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoicePreferenceSaved, StartPopupVoiceCapture, StopVoiceCapture, CancelVoiceCapture, VoiceCaptureHoldElapsed, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceFinalizeWatchdogExpired, VoiceSilenceWatchdogExpired, ToggleInlineDictation, ConfirmInlineDictation, CancelInlineDictation, CopyInlineDictation, InlineDictationRefineSettled, InlineDictationRefineCancelAccepted, InlineDictationRefineCancelTimedOut, DismissInlineDictationTerminal, SetVoiceLanguage, VoiceLanguagePreferenceSaved, UpdateVoiceDraft)
 _ENTRY_PANEL_COMMANDS = (OpenUnifiedEntryPanel, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelInputPreparationProgress, RetryEntryPanelInput, UseEntryPanelClipboard, CloseEntryPanel, EntryPanelActionSelected, EntryPanelSlotSelected, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelToggleDensity, EntryPanelBack)
 logger = logging.getLogger("clipai.runtime")
 
@@ -214,11 +217,13 @@ class AppRuntime:
 
     def _route(self, command: object) -> None:
         if isinstance(command, InterruptionRequested):
+            logger.info("Escape interruption received: scope=%s", command.scope)
             if (
                 command.scope == "current"
                 and self._entry_panel_module is not None
                 and self._entry_panel_module.request_escape()
             ):
+                logger.info("Escape interruption handled: entry_panel")
                 return
             self._route(InterruptCurrent() if command.scope == "current" else InterruptAll())
         elif isinstance(command, _SHORTCUT_INPUT_EVENTS):
@@ -340,11 +345,19 @@ class AppRuntime:
                 self._personal_styles_module.handle(cast(PersonalStyleRuntimeCommand, command))
         elif isinstance(command, PasteOperationCompleted):
             self._result_output_module.handle(command)
+            if isinstance(command.origin, InlineOrigin):
+                if self._voice_input_module is not None:
+                    self._voice_input_module.handle_inline_paste_completion(command)
+                return
             disposition = self._workflow_module.observe_paste_completion(command)
             if disposition == "closed":
                 self._route(CloseSession(command.workflow_id))
             elif disposition == "released":
                 self._user_control.release(ControlSurfaceRef(command.workflow_id, "workflow"))
+        elif isinstance(command, InlineDictationCopyCompleted):
+            self._result_output_module.handle(command)
+            if self._voice_input_module is not None:
+                self._voice_input_module.handle(command)
         elif isinstance(command, _WORKFLOW_COMMANDS):
             self._workflow_module.handle(cast(WorkflowRuntimeCommand, command))
             if (

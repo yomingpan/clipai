@@ -4,8 +4,8 @@ import queue
 import inspect
 from dataclasses import replace
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
-from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, PopupBounds, WorkflowAttention, WorkflowStep
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelInlineDictation, CloseSession, ConfirmInlineDictation, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteOutcome, PasteTarget, PopupBounds, WorkflowAttention, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.ui.base_dialog import BaseResultSurface, _VoiceWaveIndicator
@@ -15,7 +15,7 @@ from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter
 
 def test_late_inline_refinement_cannot_close_a_newer_window() -> None:
     class Window:
-        workflow_id = "inline-new"
+        interaction_id = "inline-new"
 
         def __init__(self) -> None:
             self.closed = False
@@ -27,20 +27,97 @@ def test_late_inline_refinement_cannot_close_a_newer_window() -> None:
     window = Window()
     presenter._inline_dictation_window = window
 
-    presenter.close_inline_dictation(workflow_id="inline-old")
+    presenter.close_inline_dictation(interaction_id="inline-old")
 
     assert not window.closed
     assert presenter._inline_dictation_window is window
 
 
-def test_inline_dictation_receives_the_presenters_native_window_surface(monkeypatch) -> None:
+def test_new_inline_interaction_retires_the_old_failure_notice(monkeypatch) -> None:
     import ClipAI.ui.result_dialog as result_dialog
 
-    created: list[object] = []
+    windows = []
 
     class Window:
         def __init__(self, _root, **kwargs) -> None:
-            created.append(kwargs["native_window_surface"])
+            self.interaction_id = kwargs["interaction_id"]
+            self.close_calls = []
+            windows.append(self)
+
+        def show(self) -> None:
+            pass
+
+        def close(self, **kwargs) -> None:
+            self.close_calls.append(kwargs)
+
+    monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
+    presenter = object.__new__(ResultDialogPresenter)
+    presenter._root = object()
+    presenter._inline_dictation_window = None
+    presenter._native_window_surface = object()
+    presenter._command_sink = lambda _command: None
+
+    presenter.open_inline_dictation("old")
+    presenter.close_inline_dictation(flash_failure=True, message="timed out", interaction_id="old")
+    assert presenter._inline_dictation_window is windows[0]
+    assert windows[0].close_calls == [{"flash_failure": True, "message": "timed out"}]
+
+    presenter.open_inline_dictation("new")
+    assert windows[0].close_calls[-1] == {}
+    assert presenter._inline_dictation_window is windows[1]
+    presenter.close_inline_dictation(interaction_id="old")
+    assert windows[1].close_calls == []
+
+
+def test_inline_result_only_updates_the_matching_interaction_window() -> None:
+    class Window:
+        interaction_id = "inline-new"
+
+        def __init__(self) -> None:
+            self.results = []
+
+        def show_paste_outcome(self, outcome, text) -> None:
+            self.results.append((outcome, text))
+
+    presenter = object.__new__(ResultDialogPresenter)
+    window = Window()
+    presenter._inline_dictation_window = window
+    outcome = PasteOutcome("failed", "not_dispatched", "not_required")
+
+    presenter.present_inline_paste_outcome("inline-old", outcome, "old text")
+    presenter.present_inline_paste_outcome("inline-new", outcome, "new text")
+
+    assert window.results == [(outcome, "new text")]
+
+
+def test_inline_choice_only_updates_the_matching_interaction_window() -> None:
+    class Window:
+        interaction_id = "inline-new"
+
+        def __init__(self) -> None:
+            self.choices = []
+
+        def present_choice(self, text, allow_refine, message) -> None:
+            self.choices.append((text, allow_refine, message))
+
+    presenter = object.__new__(ResultDialogPresenter)
+    window = Window()
+    presenter._inline_dictation_window = window
+
+    presenter.present_inline_choice("inline-old", "old text")
+    presenter.present_inline_choice("inline-new", "new text", False, "recover")
+
+    assert window.choices == [("new text", False, "recover")]
+
+
+def test_inline_dictation_receives_the_presenters_native_window_surface(monkeypatch) -> None:
+    import ClipAI.ui.result_dialog as result_dialog
+
+    created: list[tuple[object, str]] = []
+
+    class Window:
+        def __init__(self, _root, **kwargs) -> None:
+            created.append((kwargs["native_window_surface"], kwargs["interaction_id"]))
 
         def show(self) -> None:
             pass
@@ -52,9 +129,38 @@ def test_inline_dictation_receives_the_presenters_native_window_surface(monkeypa
     presenter._native_window_surface = object()
     presenter._command_sink = lambda _command: None
 
-    presenter.open_inline_dictation()
+    presenter.open_inline_dictation("inline-1")
 
-    assert created == [presenter._native_window_surface]
+    assert created == [(presenter._native_window_surface, "inline-1")]
+
+
+def test_inline_view_callbacks_keep_the_interaction_that_created_them(monkeypatch) -> None:
+    import ClipAI.ui.result_dialog as result_dialog
+
+    callbacks = {}
+
+    class Window:
+        def __init__(self, _root, **kwargs) -> None:
+            callbacks[kwargs["interaction_id"]] = kwargs
+
+        def show(self) -> None:
+            pass
+
+    monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
+    presenter = object.__new__(ResultDialogPresenter)
+    presenter._root = object()
+    presenter._inline_dictation_window = None
+    presenter._native_window_surface = object()
+    commands = []
+    presenter._command_sink = commands.append
+
+    presenter.open_inline_dictation("old")
+    presenter._inline_dictation_window = None
+    presenter.open_inline_dictation("new")
+    callbacks["old"]["on_confirm"](True)
+    callbacks["old"]["on_cancel"]()
+
+    assert commands == [ConfirmInlineDictation("old", True), CancelInlineDictation("old")]
 
 
 def test_voice_waveform_uses_canvas_and_packs_after_right_anchors() -> None:
@@ -770,9 +876,9 @@ def test_voice_status_word_keeps_phase_semantics_in_the_presenter() -> None:
     for phase in (
         VoiceCapturePhase.STOP_REQUESTED,
         VoiceCapturePhase.FINALIZING,
-        VoiceCapturePhase.CANCEL_REQUESTED,
     ):
         assert _voice_status_word(phase, silence_detected=True) == "整理"
+    assert _voice_status_word(VoiceCapturePhase.CANCEL_REQUESTED, silence_detected=True) == "取消中"
 
 
 def test_voice_status_word_remains_stable_while_countdown_is_projected_elsewhere() -> None:
@@ -924,7 +1030,8 @@ def test_every_finalizing_phase_disables_the_control_and_overrides_silence() -> 
         presenter._configure_voice_control(snapshot, presenter._views["s1"])
         action = presenter._views["s1"].surface.voice_action
 
-        assert action["word"] == "整理"
+        assert action["word"] == ("取消中" if phase is VoiceCapturePhase.CANCEL_REQUESTED else "整理")
+        assert action["tooltip"] == ("Cancelling Voice Input" if phase is VoiceCapturePhase.CANCEL_REQUESTED else "Finalizing Voice Input")
         assert action["level"] == 0.7
         assert action["listening"] is False
         assert action["silence"] is True

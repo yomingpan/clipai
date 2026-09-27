@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Literal, NewType
+from typing import Literal, NewType, TypeAlias
 
 from ClipAI.core.errors import ActionLanguagePackErrorCode, PasteFailureReason
 from ClipAI.core.managed_update import FailureCode
@@ -26,6 +26,7 @@ PersonalStyleMode = Literal["formal", "informal"]
 ResultRoute = Literal["popup", "speech"]
 SpeechSpeed = Literal["slow", "normal", "fast", "super_fast"]
 VoiceLanguagePreference = Literal["zh-TW", "en-US"]
+InlineInputMode = Literal["choice", "minimal"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
 OperationKind = Literal["llm", "tts", "copy", "paste", "archive"]
 FeedbackOutcome = Literal["helpful", "needs_adjustment", "not_applicable"]
@@ -243,6 +244,13 @@ class VoicePreferencesState:
 
 
 @dataclass(frozen=True)
+class InlineInputModeState:
+    selected_mode: InlineInputMode = "choice"
+    pending_mode: InlineInputMode | None = None
+    update_pending: bool = False
+
+
+@dataclass(frozen=True)
 class ActionLanguagePackIdentity:
     pack_id: str
     pack_version: str
@@ -395,11 +403,25 @@ class UserFacingError:
 
 
 @dataclass(frozen=True)
+class WorkflowOrigin:
+    workflow_id: str
+
+
+@dataclass(frozen=True)
+class InlineOrigin:
+    interaction_id: str
+
+
+OutputOrigin: TypeAlias = WorkflowOrigin | InlineOrigin
+
+
+@dataclass(frozen=True)
 class OutputOperationIntent:
     operation_id: str
     workflow_id: str
     kind: OutputActionKind
     text: str
+    origin: OutputOrigin | None = None
 
 
 @dataclass(frozen=True)
@@ -411,6 +433,7 @@ class OutputOperationResult:
     error: UserFacingError | None = None
     message: str = ""
     reason: PasteFailureReason | None = None
+    origin: OutputOrigin | None = None
 
     def __post_init__(self) -> None:
         common_states = {"pending", "failed", "cancelled"}
@@ -619,6 +642,7 @@ class UserPreferences:
     voice_input_enabled: bool = False
     voice_language: VoiceLanguagePreference = "zh-TW"
     entry_panel_density: EntryPanelDensity = "detailed"
+    inline_input_mode: InlineInputMode = "choice"
 
 
 @dataclass(frozen=True)
@@ -889,6 +913,7 @@ class PasteRequest:
     workflow_id: str
     text: str
     target: PasteTarget
+    origin: OutputOrigin | None = None
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, TypeAlias
 
 if TYPE_CHECKING:
-    from ClipAI.core.models import PasteTarget
+    from ClipAI.core.models import InlineInputMode, PasteTarget
 
 
 class VoiceLanguage(str):
@@ -184,8 +184,9 @@ class VoiceFollowUpTarget:
 class VoiceInlineTarget:
     """A non-Workflow dictation target frozen when capture is requested."""
 
-    workflow_id: str
+    interaction_id: str
     paste_target: PasteTarget | None
+    mode: InlineInputMode = "choice"
 
 
 VoiceCaptureTarget: TypeAlias = VoiceDraftTarget | VoiceFollowUpTarget | VoiceInlineTarget

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from ClipAI.core.models import ActionLanguagePackDescriptor, ActionLanguagePackIdentity, ActionLanguagePackRecovery, ActionLanguagePackSelectionState, GuidancePreferences, ModelSelectionState, ProviderOption, ProviderSelectionState, SpeechSpeedState
+from ClipAI.core.models import ActionLanguagePackDescriptor, ActionLanguagePackIdentity, ActionLanguagePackRecovery, ActionLanguagePackSelectionState, GuidancePreferences, InlineInputModeState, ModelSelectionState, ProviderOption, ProviderSelectionState, SpeechSpeedState
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceProjection
 from ClipAI.ui.tray import SHORTCUT_GUIDE_MENU_LABEL, STATUS_COLORS, TrayController, create_tray_image
 
@@ -46,6 +46,29 @@ class Pystray:
         def update_menu(self) -> None:
             self.menu_updates += 1
 
+
+def test_tray_inline_mode_stays_checked_on_saved_value_while_save_is_pending() -> None:
+    selected = []
+    tray = TrayController(
+        lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.READY, "zh-TW"),
+        on_enable_voice=lambda: None,
+        on_disable_voice=lambda: None,
+        inline_input_mode=InlineInputModeState(),
+        on_set_inline_input_mode=selected.append,
+    )
+    voice_menu = tray._build_voice_menu(Pystray)
+    mode_menu = next(item for item in voice_menu.action.items if item.text == "Inline Dictation")
+    choice, minimal = mode_menu.action.items
+    assert choice.checked(None) and not minimal.checked(None)
+    minimal.action(None, None)
+    assert selected == ["minimal"]
+
+    tray.set_inline_input_mode(InlineInputModeState("choice", "minimal", True))
+    assert choice.checked(None) and not minimal.checked(None)
+    assert not minimal.enabled(None)
+    tray.set_inline_input_mode(InlineInputModeState("minimal"))
+    assert minimal.checked(None)
 
 class NotificationIcon:
     def __init__(self) -> None:

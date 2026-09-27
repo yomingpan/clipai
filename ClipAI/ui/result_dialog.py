@@ -12,8 +12,8 @@ import webbrowser
 import customtkinter as ctk
 
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
-from ClipAI.core.commands import ConfirmInlineDictation, InterruptCurrent
-from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, ManagedUpdatePresentation, OutputOperationResult, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
+from ClipAI.core.commands import CancelInlineDictation, ConfirmInlineDictation, CopyInlineDictation, DismissInlineDictationTerminal
+from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, InlineInputMode, ManagedUpdatePresentation, OutputOperationResult, PasteOutcome, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.popup_presentation import project_popup_presentation
 from ClipAI.core.state import SessionSnapshot, SessionStatus
@@ -44,10 +44,11 @@ def _voice_status_word(
     *,
     silence_detected: bool,
 ) -> str:
+    if phase is VoiceCapturePhase.CANCEL_REQUESTED:
+        return "取消中"
     if phase in {
         VoiceCapturePhase.STOP_REQUESTED,
         VoiceCapturePhase.FINALIZING,
-        VoiceCapturePhase.CANCEL_REQUESTED,
     }:
         return "整理"
     if phase is None:
@@ -401,35 +402,87 @@ class ResultDialogPresenter:
             if view.last_snapshot is not None:
                 self._configure_voice_control(view.last_snapshot, view)
 
-    def open_inline_dictation(self) -> None:
-        if self._inline_dictation_window is not None:
-            return
-        self._inline_dictation_window = InlineDictationWindow(
+    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice") -> None:
+        previous = self._inline_dictation_window
+        if previous is not None:
+            if previous.interaction_id == interaction_id:
+                return
+            previous.close()
+            self._inline_dictation_window = None
+        window = InlineDictationWindow(
             self._root,
-            on_confirm=lambda refine: self._command_sink(ConfirmInlineDictation(refine)),
-            on_cancel=lambda: self._command_sink(InterruptCurrent()),
+            on_confirm=lambda refine: self._command_sink(ConfirmInlineDictation(interaction_id, refine)),
+            on_cancel=lambda: self._command_sink(CancelInlineDictation(interaction_id)),
+            on_copy=lambda: self._command_sink(CopyInlineDictation(interaction_id)),
             native_window_surface=self._native_window_surface,
+            interaction_id=interaction_id,
+            mode=mode,
         )
-        self._inline_dictation_window.show()
+        self._inline_dictation_window = window
+        window.show()
 
     def update_inline_dictation(self, projection: VoiceProjection) -> None:
         if self._inline_dictation_window is not None:
             self._inline_dictation_window.update(projection)
 
-    def present_inline_choice(self, text: str) -> None:
-        if self._inline_dictation_window is not None:
-            self._inline_dictation_window.present_choice(text)
+    def present_inline_paste_outcome(self, interaction_id: str, outcome: PasteOutcome, text: str) -> None:
+        window = self._inline_dictation_window
+        if window is not None and window.interaction_id == interaction_id:
+            window.show_paste_outcome(outcome, text)
+            if outcome.state in {"dispatched_unconfirmed", "cancelled"}:
+                self._root.after(
+                    3000,
+                    lambda: self._command_sink(DismissInlineDictationTerminal(interaction_id)),
+                )
 
-    def show_inline_refining(self) -> None:
-        if self._inline_dictation_window is not None:
-            self._inline_dictation_window.show_refining()
+    def present_inline_paste_pending(self, interaction_id: str) -> None:
+        window = self._inline_dictation_window
+        if window is not None and window.interaction_id == interaction_id:
+            window.show_paste_pending()
 
-    def close_inline_dictation(self, *, flash_failure: bool = False, message: str = "", workflow_id: str = "") -> None:
-        if workflow_id and self._inline_dictation_window is not None and self._inline_dictation_window.workflow_id != workflow_id:
+    def present_inline_paste_cancelling(self, interaction_id: str) -> None:
+        window = self._inline_dictation_window
+        if window is not None and window.interaction_id == interaction_id:
+            window.show_paste_cancelling()
+
+    def present_inline_choice(self, interaction_id: str, text: str, allow_refine: bool = True, message: str = "") -> None:
+        window = self._inline_dictation_window
+        if window is not None and window.interaction_id == interaction_id:
+            window.present_choice(text, allow_refine, message)
+
+    def present_inline_refining(self, interaction_id: str) -> None:
+        window = self._inline_dictation_window
+        if window is not None and window.interaction_id == interaction_id:
+            window.show_refining()
+
+    def present_inline_refinement_pending(self, interaction_id: str) -> None:
+        window = self._inline_dictation_window
+        if window is not None and window.interaction_id == interaction_id:
+            window.show_refinement_pending()
+
+    def present_inline_cancel_unconfirmed(self, interaction_id: str, text: str) -> None:
+        window = self._inline_dictation_window
+        if window is not None and window.interaction_id == interaction_id:
+            window.show_cancel_unconfirmed(text)
+
+    def present_inline_recovery(self, interaction_id: str, text: str, message: str) -> None:
+        window = self._inline_dictation_window
+        if window is not None and window.interaction_id == interaction_id:
+            window.show_recovery(text, message)
+
+    def present_inline_copy_state(self, interaction_id: str, state: str) -> None:
+        window = self._inline_dictation_window
+        if window is not None and window.interaction_id == interaction_id:
+            window.show_copy_state(state)
+
+    def close_inline_dictation(self, *, flash_failure: bool = False, message: str = "", interaction_id: str = "") -> None:
+        if interaction_id and self._inline_dictation_window is not None and self._inline_dictation_window.interaction_id != interaction_id:
             return
-        window, self._inline_dictation_window = self._inline_dictation_window, None
+        window = self._inline_dictation_window
         if window is not None:
             window.close(flash_failure=flash_failure, message=message)
+            if not flash_failure:
+                self._inline_dictation_window = None
 
     def _hold_focus_for_shortcut_guide(self) -> None:
         self._hold_focus_for_owned_surface()
@@ -1226,7 +1279,9 @@ class ResultDialogPresenter:
                 command=(lambda cid=capture_id: self._command_sink(StopVoiceCapture(cid))) if not finalizing else None,
                 enabled=not finalizing,
                 tooltip=(
-                    "Finalizing Voice Input"
+                    "Cancelling Voice Input"
+                    if phase is VoiceCapturePhase.CANCEL_REQUESTED
+                    else "Finalizing Voice Input"
                     if finalizing
                     else "No sound detected; click to stop Voice Input"
                     if silence_detected

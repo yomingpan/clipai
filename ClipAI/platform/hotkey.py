@@ -481,6 +481,8 @@ class _HotkeyDispatcher:
         # Synthetic input must never become a ClipAI user intent or mutate the
         # physical-key state used to resolve short and long presses.
         if injected:
+            if _normalize_key(key) == "esc":
+                logger.info("[clipai] Escape press ignored: injected")
             if self._diagnostics_enabled("hotkey_raw_events"):
                 logger.debug("[clipai] Ignored injected key press: %s", _describe_key(key))
             return
@@ -512,6 +514,7 @@ class _HotkeyDispatcher:
                 return
             if token == "esc":
                 if self._pressed:
+                    logger.info("[clipai] Escape press ignored as chord: pressed=%s", sorted(self._pressed))
                     # Esc participates in native Alt/Ctrl/Shift combinations.
                     # Only exact Esc is ClipAI's progressive interruption
                     # gesture; observing a chord must remain passive.
@@ -519,6 +522,7 @@ class _HotkeyDispatcher:
                     self._report_key_state()
                     return
                 if self._escape is not None:
+                    logger.info("[clipai] Escape press ignored: repeated")
                     return
                 for state in tuple(self._active.values()):
                     if state.timer is not None:
@@ -557,6 +561,7 @@ class _HotkeyDispatcher:
                 state.timer.start()
                 self._escape = state
                 self._report_key_state()
+                logger.info("[clipai] Escape interruption requested: current")
                 self._emit(InterruptionRequested("current"))
                 return
             if token in self._pressed:

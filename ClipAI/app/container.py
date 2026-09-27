@@ -32,6 +32,7 @@ from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
 from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenAbout, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SelectActionLanguagePack, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.commands import InlineDictationRefineSettled
+from ClipAI.core.commands import SetInlineInputMode
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -168,6 +169,8 @@ def build_runtime(
         on_enable_voice=lambda: runtime_holder[0].enqueue(OpenVoiceSetup()),
         on_disable_voice=lambda: runtime_holder[0].enqueue(DisableVoiceInput(VoiceDisableId(uuid.uuid4().hex))),
         on_set_voice_language=lambda language: runtime_holder[0].enqueue(SetVoiceLanguage(language)),
+        inline_input_mode=user_preferences.inline_input_mode_state,
+        on_set_inline_input_mode=lambda mode: runtime_holder[0].enqueue(SetInlineInputMode(mode, uuid.uuid4().hex)),
         on_manage_voice_permission=lambda: runtime_holder[0].enqueue(OpenVoicePermissionSettings()),
         on_open_about=lambda: runtime_holder[0].enqueue(OpenAbout()),
         application_version=application_version,
@@ -330,6 +333,8 @@ def build_runtime(
         speech_coordinator=speech_coordinator,
         paste_targets=paste_targets,
         user_control=user_control,
+        inline_copy_completion_sink=enqueue,
+        inline_paste_completion_sink=enqueue,
     )
     provider_configuration_module = ProviderConfigurationRuntimeModule(
         coordinator=provider_configuration,
@@ -355,6 +360,7 @@ def build_runtime(
         user_preferences=user_preferences,
         guidance_preferences_presenter=tray,
         speech_speed_presenter=tray,
+        inline_input_mode_presenter=tray,
         operation_tracker=operation_tracker,
         notifier=tray,
     )
@@ -445,7 +451,7 @@ def build_runtime(
         refine_action=inline_refine_action,
         binding=lambda: provider_configuration.active_binding,
         paste=result_output_module.paste_inline,
-        on_refine_settled=lambda workflow_id: enqueue(InlineDictationRefineSettled(workflow_id)),
+        on_refine_settled=lambda interaction_id, operation_id, text, error: enqueue(InlineDictationRefineSettled(interaction_id, text, error, operation_id)),
     )
 
     voice_input_module = VoiceInputRuntimeModule(
@@ -453,6 +459,7 @@ def build_runtime(
         engine=voice_engine,
         workflows=workflow_module,
         paste_target_reader=lambda: result_output_module.current_paste_target,
+        inline_input_mode_reader=lambda: user_preferences.inline_input_mode,
         capture_external_target=foreground_monitor.capture_foreground_target,
         persist_enabled=lambda setup_id: user_preferences_module.begin_voice_enabled(
             True,
@@ -475,7 +482,10 @@ def build_runtime(
         notifier=tray,
         setup_presenter=view,
         inline_presenter=view,
-        paste_inline=lambda text, target, refine, workflow_id: inline_dictation.submit(text, target, refine=refine, workflow_id=workflow_id),
+        paste_inline=lambda text, target, refine, interaction_id, operation_id: inline_dictation.submit(text, target, refine=refine, interaction_id=interaction_id, operation_id=operation_id),
+        cancel_inline_paste=lambda operation_id: result_output_module.cancel_operation(operation_id),
+        cancel_inline_refinement=inline_dictation.cancel,
+        copy_inline=result_output_module.copy_inline,
         focused_surface_reader=lambda: user_control.focused_surface,
         open_permission_settings=open_microphone_privacy_settings,
     )
