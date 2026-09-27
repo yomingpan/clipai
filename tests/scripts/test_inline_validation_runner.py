@@ -177,6 +177,18 @@ def test_attended_manifest_rechecks_raw_evidence_instead_of_old_verdict(tmp_path
     assert reassessed["status"] == "pass"
     assert reassessed["checks"]["stop_gesture"] == "pass"
 
+    old_report = json.loads(report.read_text(encoding="utf-8"))
+    old_report["audio_replay"] = {
+        "source": "fixed_wav_speaker_playback",
+        "sha256": "a" * 64,
+        "playback_returned": True,
+    }
+    report.write_text(json.dumps(old_report), encoding="utf-8")
+    with_audio = reassess_attended_report(report)
+    assert with_audio["status"] == "pass"
+    assert with_audio["microphone_audio_source"] == "speaker_replay_reported_input_not_independently_confirmed"
+    assert with_audio["audio_replay_sha256"] == "a" * 64
+
     lines[2] = trace("stop_requested", 12, outcome="long")
     (run / "inline-trace.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
     reassessed = reassess_attended_report(report)

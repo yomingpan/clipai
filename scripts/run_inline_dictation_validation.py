@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -154,6 +155,14 @@ def reassess_attended_report(report_path: Path) -> dict[str, object]:
     status = result["status"]
     if original.get("run_nonce") != result["target"].get("run_nonce"):
         status = "fail"
+    audio_replay = original.get("audio_replay")
+    replay_reported = (
+        isinstance(audio_replay, dict)
+        and audio_replay.get("source") == "fixed_wav_speaker_playback"
+        and audio_replay.get("playback_returned") is True
+        and isinstance(audio_replay.get("sha256"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", audio_replay["sha256"]) is not None
+    )
     return {
         "artifact": artifact,
         "status": status,
@@ -162,7 +171,11 @@ def reassess_attended_report(report_path: Path) -> dict[str, object]:
         "checks": result["checks"],
         "evidence": "attended_controlled_target_and_app_trace",
         "physical_hotkey": result["physical_hotkey"],
-        "microphone_audio_source": result["microphone_audio_source"],
+        "microphone_audio_source": (
+            "speaker_replay_reported_input_not_independently_confirmed"
+            if replay_reported else result["microphone_audio_source"]
+        ),
+        "audio_replay_sha256": audio_replay["sha256"] if replay_reported else None,
         "content_accuracy": result["target"]["content_accuracy"],
     }
 

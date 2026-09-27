@@ -1,5 +1,6 @@
 import json
 import sys
+import threading
 import pytest
 
 from scripts import run_inline_controlled_desktop
@@ -27,6 +28,34 @@ def test_attended_audio_replay_requires_existing_wav_and_delivery_scenario(monke
     assert cancel.value.code == 2
     assert not (tmp_path / "run").exists()
 
+
+def test_audio_replay_waits_for_the_matching_new_inline_listening_trace(tmp_path) -> None:
+    log = tmp_path / "clipai.log"
+    old = _trace(1, "capture_requested", mode="minimal") + "\n"
+    log.write_text(old, encoding="utf-8")
+    offset = log.stat().st_size
+    log.write_text(old + _trace(2, "listening") + "\n", encoding="utf-8")
+    assert not run_inline_controlled_desktop._wait_for_inline_listening(
+        log, offset, threading.Event(), timeout=0.01,
+    )
+
+    mismatched = _trace(4, "listening").replace("interaction_id=inline-1", "interaction_id=inline-2")
+    log.write_text(
+        old + _trace(3, "capture_requested", mode="minimal") + "\n" + mismatched + "\n",
+        encoding="utf-8",
+    )
+    assert not run_inline_controlled_desktop._wait_for_inline_listening(
+        log, offset, threading.Event(), timeout=0.01,
+    )
+
+    log.write_text(
+        old + _trace(3, "capture_requested", mode="minimal") + "\n"
+        + _trace(4, "listening") + "\n",
+        encoding="utf-8",
+    )
+    assert run_inline_controlled_desktop._wait_for_inline_listening(
+        log, offset, threading.Event(), timeout=0.01,
+    )
 
 def _target(kind: str, ns: int, *, digest: str, pastes: int) -> dict:
     return {

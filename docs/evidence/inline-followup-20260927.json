@@ -30,12 +30,23 @@
       "status": "generated_and_wave_header_verified",
       "languages": ["zh-TW", "en-US"],
       "artifact": "artifacts/inline-audio-fixtures-20260927/manifest.json",
-      "microphone_chain_test": "pending_attended_acoustic_replay"
+      "microphone_chain_test": "first_acoustic_replay_app_recognition_content_available_but_target_readback_failed",
+      "first_run_artifact": "artifacts/inline-controlled-audio-minimal-2/report.json",
+      "first_run_target_paste_count": 0,
+      "first_run_clipboard_restored": true,
+      "repeat_with_background_playback": "pass",
+      "repeat_run_artifact": "artifacts/inline-controlled-audio-minimal-3/report.json",
+      "repeat_target_readback": "pass",
+      "repeat_app_trace": "pass",
+      "repeat_wav_sha256_matches_fixture": true,
+      "repeat_target_paste_count": 1,
+      "repeat_clipboard_restored": true,
+      "repeat_content_accuracy": "not_machine_verified"
     },
-    "replayable_audio_capture": "not_covered"
+    "replayable_audio_capture": "single_attended_acoustic_replay_observed_without_independent_microphone_input_confirmation"
   },
   "baseline_status": "not_established",
-  "baseline_reason": "one_device_and_one_exploratory_run_per_mode_path_without_replayable_audio_or_first_frame_observer",
+  "baseline_reason": "one_device_and_one_exploratory_acoustic_replay_without_independent_microphone_input_or_first_frame_observer",
   "prior_attended_evidence": "docs/evidence/inline-attended-20260927.json",
   "notes": [
     "Operator confirmation of the LINE hotkey behavior is physical desktop evidence but has no independent HID trace.",

@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 from uuid import uuid4
 
@@ -94,6 +95,35 @@ def _command(process: subprocess.Popen[str], name: str) -> None:
         raise RuntimeError("controlled target input is unavailable")
     process.stdin.write(json.dumps({"command": name}) + "\n")
     process.stdin.flush()
+
+
+def _wait_for_inline_listening(
+    log_path: Path, start_offset: int, stop: threading.Event, *, timeout: float = 30.0,
+) -> bool:
+    """Observe the new interaction's Listening acknowledgement without changing focus."""
+    deadline = time.monotonic() + timeout
+    while not stop.is_set() and time.monotonic() < deadline:
+        try:
+            with log_path.open("rb") as source:
+                source.seek(start_offset)
+                lines = source.read().decode("utf-8", errors="replace").splitlines()
+        except OSError:
+            lines = []
+        current_interaction = ""
+        for line in lines:
+            match = TRACE.search(line)
+            if match is None:
+                continue
+            if match["stage"] == "capture_requested":
+                current_interaction = match["interaction"]
+            if (
+                current_interaction
+                and match["stage"] == "listening"
+                and match["interaction"] == current_interaction
+            ):
+                return True
+        stop.wait(0.1)
+    return False
 
 
 def assess(
@@ -258,6 +288,9 @@ def main() -> int:
         cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         text=True, encoding="utf-8", errors="replace",
     )
+    playback_stop = threading.Event()
+    playback_thread: threading.Thread | None = None
+    playback_result: list[str] = []
     try:
         _wait_record(events_path, "ready")
         print("受控文字框已開啟。請確認這個工作樹的 ClipAI 正在執行，並已從 Tray 選好模式。")
@@ -285,20 +318,37 @@ def main() -> int:
         if audio_file is not None:
             import winsound
 
-            input("以實體快捷鍵開始錄音後，回到此視窗按 Enter 播放固定音檔：")
-            try:
-                winsound.PlaySound(str(audio_file), winsound.SND_FILENAME)
-            except RuntimeError:
+            def replay_after_listening() -> None:
+                if not _wait_for_inline_listening(app_log, log_offset, playback_stop):
+                    playback_result.append("listening_not_observed")
+                    return
+                if playback_stop.is_set():
+                    playback_result.append("audio_playback_cancelled")
+                    return
+                try:
+                    winsound.PlaySound(str(audio_file), winsound.SND_FILENAME)
+                except RuntimeError:
+                    playback_result.append("audio_playback_unavailable")
+                    return
+                playback_result.append("played")
+
+            playback_thread = threading.Thread(target=replay_after_listening, daemon=True)
+            playback_thread.start()
+            print("請保持受控文字框焦點。ClipAI 開始聆聽後，固定音檔會自動從喇叭播放；聽完再按第二次快捷鍵。")
+        input("完成 ClipAI 的終態／取消後，回到此視窗按 Enter：")
+        if playback_thread is not None:
+            playback_thread.join(timeout=35)
+            if not playback_result or playback_result[0] != "played":
+                playback_stop.set()
+                reason = playback_result[0] if playback_result else "audio_playback_incomplete"
                 _write_blocked_report(
                     report_path, mode=args.mode, scenario=args.scenario,
-                    run_nonce=run_nonce, reason_code="audio_playback_unavailable",
+                    run_nonce=run_nonce, reason_code=reason,
                     check_name="audio_playback",
                 )
-                print("固定音檔無法由喇叭播放；本輪不計為語音鏈路驗證。", file=sys.stderr)
+                print("固定音檔播放未確認；本輪不計為語音鏈路驗證。", file=sys.stderr)
                 print(report_path)
                 return 2
-            print("音檔播放結束。請依本輪模式停止錄音並完成終態。")
-        input("完成 ClipAI 的終態／取消後，回到此視窗按 Enter：")
         _command(process, "observe")
         _wait_record(events_path, "observation")
         time.sleep(args.late_wait)
@@ -312,6 +362,7 @@ def main() -> int:
         print(f"桌面執行未完成：{type(exc).__name__}", file=sys.stderr)
         return 2
     finally:
+        playback_stop.set()
         if process.poll() is None:
             try:
                 _command(process, "shutdown")
@@ -334,6 +385,7 @@ def main() -> int:
             "source": "fixed_wav_speaker_playback",
             "sha256": hashlib.sha256(audio_file.read_bytes()).hexdigest(),
             "playback_returned": True,
+            "trigger": "matching_inline_listening_trace",
             "microphone_input_independently_confirmed": False,
         }
         report["microphone_audio_source"] = "speaker_replay_triggered_input_not_independently_confirmed"
