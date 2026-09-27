@@ -308,6 +308,39 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
   取樣目標行程全部 visible top-level windows；每個候選策略至少四次，記錄
   samples、visible frames、opaque frames 與最終 layered/visibility 狀態。
 
+### Inline Dictation 端到端量測（規劃中）
+
+固定驗證可執行 `python scripts/run_inline_dictation_validation.py --output-dir artifacts/inline-validation-<run>`；互動式 Windows 桌面另加 `--tk --webview`。腳本輸出 JUnit XML 與不含口述內容的 `manifest.json`，將快速模擬、Tk 視窗與 WebView2 分層。桌面層的 pytest 暫存放在 `%LOCALAPPDATA%/ClipAI/InlineValidation`；WebView2 profile 與測試頁面另外建立在 `%LOCALAPPDATA%/ClipAI/InlineValidationProfiles`，繼承目錄 ACL，避免 pytest 的受限 `tmp_path` 權限阻止瀏覽器子行程使用 profile。必要桌面案例若因無法取得 foreground 而 skip，該層標為 `blocked`，不能由其餘 Tk 通過案例推論焦點已驗證。自動化多目標矩陣、獨立實體快捷鍵／音源觀察及裝置基線維持 `not_covered` 或 `blocked`。模擬與 pytest 時間不可當成裝置延遲。
+
+已保存的單輪受控桌面案例可重複指定 --attended-report <path> 交給固定 runner；它會由 target.jsonl 和 inline-trace.log 重新判定後列入 manifest 的 attended_smoke。未覆蓋的自動化多目標矩陣仍獨立標示。單輪探索性結果見 docs/evidence/inline-attended-20260927.json，不能當正式裝置基線。
+
+若 WebView2 host 在 `test_loaded` 前逾時，先於同一桌面執行 `python scripts/probe_pywebview_bridge.py --visible --timeout 20`。探針只載入固定的純 HTML，檢查 JavaScript `ping` 能否到 Python，並求值固定的 JSON 算式；不使用麥克風、快捷鍵或剪貼簿。輸出 `page_loaded`、`bridge_ready`、`script_eval` 與例外類型。探針失敗可縮小基礎 pywebview／WebView2 鏈路的調查範圍，但不得將產品整合案例改判為通過。
+
+已有受控桌面的內容安全日誌後，可執行 `python scripts/report_inline_dictation_baseline.py <log> --device-cohort <cohort> --evidence controlled_desktop --output <report.json>` 彙整單調時鐘的階段間隔。報表按模式、原文／潤稿與終態分組，缺少終態時記為 `not_observable`；應由外部 observer 補上實際畫面與受控目標讀回，不能由 ClipAI 日誌推論文字已插入。
+同一裝置與條件下的兩份報表可用 `python scripts/compare_inline_dictation_baselines.py <before.json> <after.json> --output <comparison.json>` 比較；工具拒絕模擬時鐘與不同裝置分組，並保留樣本數與終態分布。
+
+`Ctrl+Alt+M` 的階段、指標、裝置矩陣、隱私界線與工具順序見
+[`docs/specs/inline-dictation-measurement-plan.md`](specs/inline-dictation-measurement-plan.md)。
+可重播使用者旅程、故障注入、受控桌面目標與發版 gate 見
+[`docs/specs/inline-dictation-autonomous-validation-plan.md`](specs/inline-dictation-autonomous-validation-plan.md)。
+目前沒有已驗證的 Inline Dictation 裝置延遲基線或發版門檻；PTT 的 Voice V1
+目標不可直接當作 Inline Dictation 的量測結果。
+
+- 以同一個非 Workflow interaction identity 串起快捷鍵、capture、choice、
+  provider invocation、Paste Operation 與終端顯示；各 operation identity 仍獨立。
+  缺少的階段標示 `not_observable`，不得補零或把視窗關閉當成 Paste 完成。
+- 同時驗證 UI 首次可見回應、分階段 p50/p95 與失敗率、目標文字實際接收、
+  剪貼簿還原、取消後無晚到副作用。`dispatched_unconfirmed` 不可計為已插入成功。
+- 虛擬時間／故障注入測排序與歸屬；真實互動式 Windows 測延遲、焦點與貼上。
+  兩類結果分開報告，並按裝置、冷暖啟動、語言、raw/refine、負載與目標程式分層。
+- 一般 trace 不保存音訊、轉錄、prompt、結果文字、剪貼簿內容或視窗標題；
+  品質語料需獨立取得明確同意。量測本身的耗時亦須驗證。
+- 完整選擇與極簡輸入共用同一個非 Workflow interaction owner；模式在首次
+  快捷鍵接受時凍結。極簡模式的第二次短按形成原文貼上意圖，第二次長按形成
+  潤稿意圖；正常流程只顯示不搶焦點的狀態，失敗才顯示可操作恢復介面。
+  潤稿失敗不得默默貼原文；舊終態通知不得關閉新互動。發版 gate 中錯目標、
+  丟棄後貼上、重複貼上、未處理的剪貼簿／麥克風清理與虛假成功不可豁免。
+
 Recipe 回饋與使用引導應測：
 
 - Popup 原始尺寸與結果區高度不因契約、回饋或 coachmark 縮小。
