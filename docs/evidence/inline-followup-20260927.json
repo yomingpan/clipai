@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-27",
+  "scope": "post_hotkey_fix_single_windows_desktop_followup",
+  "source_commit": "dde9df2",
+  "desktop_observation": {
+    "line_hotkey_m_leak": "not_observed_by_operator",
+    "line_escape_window_close_during_inline": "not_observed_by_operator",
+    "observer": "attended_operator_report",
+    "independent_hid_or_window_trace": false
+  },
+  "validation": {
+    "fast": {"status": "pass", "passed": 378},
+    "tk_agent": {
+      "status": "blocked",
+      "reason_code": "tcl_initialization_failed",
+      "passed": 12,
+      "failed_at_tcl_init": 2,
+      "artifact": "artifacts/inline-validation-tcl-classification-20260927/manifest.json"
+    },
+    "tk_direct_after_ui_fix": {"status": "pass", "passed": 11, "skipped": 1},
+    "unit_non_integration": {"status": "pass", "passed": 1763},
+    "architecture": {"status": "pass", "passed": 53}
+  },
+  "audio_environment": {
+    "available_endpoint_classes": ["built_in_speakers", "built_in_microphone_array"],
+    "virtual_or_loopback_input_observed": false,
+    "second_windows_device_available": false,
+    "replayable_audio_capture": "not_covered"
+  },
+  "baseline_status": "not_established",
+  "baseline_reason": "one_device_and_one_exploratory_run_per_mode_path_without_replayable_audio_or_first_frame_observer",
+  "prior_attended_evidence": "docs/evidence/inline-attended-20260927.json",
+  "notes": [
+    "Operator confirmation of the LINE hotkey behavior is physical desktop evidence but has no independent HID trace.",
+    "Tk Tcl initialization failures were classified as blocked; no failing UI assertion was reclassified.",
+    "Existing stage samples remain exploratory and cannot support representative percentiles or before-and-after latency claims."
+  ]
+}

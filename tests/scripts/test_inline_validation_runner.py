@@ -78,6 +78,27 @@ def test_skipped_required_desktop_case_blocks_the_layer(tmp_path: Path, monkeypa
     assert layer["skipped"] == 1
 
 
+def test_tcl_initialization_error_blocks_desktop_layer_without_claiming_pass(tmp_path: Path, monkeypatch) -> None:
+    def fake_run(command, **_kwargs):
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="2" failures="1" errors="0" skipped="0">'
+            '<testcase name="window"><failure message="_tkinter.TclError">'
+            '_tkinter.TclError: could not read tk.tcl</failure></testcase>'
+            '<testcase name="layout" />'
+            '</testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("tk", ("test_window.py",), tmp_path, integration=True)
+
+    assert layer["status"] == "blocked"
+    assert layer["reason_code"] == "tcl_initialization_failed"
+    assert not requested_layers_pass({"fast": {"status": "pass"}, "tk": layer}, tk=True, webview=False)
+
+
 def test_desktop_layer_uses_local_app_data_for_webview_profile(tmp_path: Path, monkeypatch) -> None:
     commands = []
 
@@ -96,6 +117,26 @@ def test_desktop_layer_uses_local_app_data_for_webview_profile(tmp_path: Path, m
     assert layer["status"] == "pass"
     assert basetemp.is_relative_to(tmp_path / "local-app-data" / "ClipAI" / "InlineValidation")
     assert not basetemp.is_relative_to(tmp_path / "evidence")
+
+
+def test_tk_layer_keeps_temporary_files_with_its_evidence(tmp_path: Path, monkeypatch) -> None:
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="1" failures="0" errors="0" skipped="0"><testcase name="window" /></testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("tk", ("test_window.py",), tmp_path, integration=True)
+
+    basetemp = Path(next(item.removeprefix("--basetemp=") for item in commands[0] if item.startswith("--basetemp=")))
+    assert layer["status"] == "pass"
+    assert basetemp == tmp_path / "tk-tmp"
 
 
 def test_attended_manifest_rechecks_raw_evidence_instead_of_old_verdict(tmp_path: Path) -> None:

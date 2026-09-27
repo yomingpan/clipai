@@ -50,9 +50,10 @@ def source_revision() -> dict[str, object]:
 
 def run_layer(name: str, cases: tuple[str, ...], output_dir: Path, *, integration: bool = False, webview: bool = False) -> dict[str, object]:
     report = output_dir / f"{name}.xml"
-    # The WebView2 controller succeeds with a profile under LocalAppData on
-    # the interactive desktop. Both the worktree and system temp failed there.
-    if integration:
+    # WebView2 needs its browser profile under LocalAppData on the interactive
+    # desktop. Tk tests do not use a browser profile and keep temporary files
+    # beside the evidence so restricted LocalAppData does not block them.
+    if webview:
         local_data = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir())
         desktop_root = local_data / "ClipAI" / "InlineValidation"
         desktop_root.mkdir(parents=True, exist_ok=True)
@@ -74,6 +75,7 @@ def run_layer(name: str, cases: tuple[str, ...], output_dir: Path, *, integratio
     counts = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
     webview_initialization_timeout = False
     webview2_initialization_failed = False
+    tcl_initialization_failed = False
     if report.exists():
         root = ElementTree.parse(report).getroot()
         suite = root if root.tag == "testsuite" else root.find("testsuite")
@@ -85,16 +87,22 @@ def run_layer(name: str, cases: tuple[str, ...], output_dir: Path, *, integratio
                 "WebView2 initialization failed" in (node.attrib.get("message", "") + (node.text or ""))
                 for node in failures
             )
+            tcl_initialization_failed = bool(failures) and all(
+                "_tkinter.TclError" in (node.attrib.get("message", "") + (node.text or ""))
+                for node in failures
+            )
     passed = counts["tests"] - counts["failures"] - counts["errors"] - counts["skipped"]
     status = (
-        "blocked" if integration and completed.returncode == 0 and counts["skipped"] > 0
+        "blocked" if integration and tcl_initialization_failed
+        else "blocked" if integration and completed.returncode == 0 and counts["skipped"] > 0
         else "pass" if completed.returncode == 0 and passed > 0
         else "fail"
     )
     return {
         "status": status,
         "reason_code": (
-            "required_desktop_case_skipped" if status == "blocked"
+            "tcl_initialization_failed" if tcl_initialization_failed and status == "blocked"
+            else "required_desktop_case_skipped" if status == "blocked"
             else "webview2_initialization_failed" if webview and webview2_initialization_failed
             else "webview_initialization_timeout" if webview and webview_initialization_timeout
             else ""
