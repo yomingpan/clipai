@@ -103,6 +103,19 @@ def test_attended_delivery_requires_target_readback_and_matching_app_trace() -> 
     assert report["physical_hotkey"] == "operator_attested_not_independently_observed"
     assert report["device_baseline"] == "not_established_from_one_run"
 
+    during_capture = assess(
+        records, trace, mode="minimal", scenario="raw",
+        audio_playback_interval_ns=(11, 12),
+    )
+    assert during_capture["status"] == "pass"
+    assert during_capture["checks"]["audio_replay_during_capture"] == "pass"
+    after_stop = assess(
+        records, trace, mode="minimal", scenario="raw",
+        audio_playback_interval_ns=(13, 14),
+    )
+    assert after_stop["status"] == "fail"
+    assert after_stop["checks"]["audio_replay_during_capture"] == "fail"
+
     missing_app_receipt = assess(records, trace[:-1], mode="minimal", scenario="raw")
     assert missing_app_receipt["status"] == "blocked"
     assert missing_app_receipt["checks"]["app_terminal"] == "blocked"

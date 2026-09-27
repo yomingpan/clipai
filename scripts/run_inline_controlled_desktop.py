@@ -126,9 +126,25 @@ def _wait_for_inline_listening(
     return False
 
 
+def _audio_playback_within_capture(
+    trace_lines: list[str], interval_ns: tuple[int, int],
+) -> bool:
+    """Require the whole speaker playback inside one observed capture interval."""
+    start_ns, end_ns = interval_ns
+    if start_ns <= 0 or end_ns <= start_ns:
+        return False
+    events = [match for line in trace_lines if (match := TRACE.search(line)) is not None]
+    interactions = {match["interaction"] for match in events if match["interaction"]}
+    if len(interactions) != 1:
+        return False
+    listening = [int(match["ns"]) for match in events if match["stage"] == "listening"]
+    stops = [int(match["ns"]) for match in events if match["stage"] == "stop_requested"]
+    return len(listening) == len(stops) == 1 and listening[0] <= start_ns < end_ns <= stops[0]
+
+
 def assess(
     records: list[dict], trace_lines: list[str], *, mode: str, scenario: str,
-    text_policy: str = "exact",
+    text_policy: str = "exact", audio_playback_interval_ns: tuple[int, int] | None = None,
 ) -> dict[str, object]:
     target_scenario = "cancel" if scenario == "cancel" else "delivery"
     target_result = verify(records, scenario=target_scenario, text_policy=text_policy)
@@ -136,6 +152,11 @@ def assess(
     interactions = {match["interaction"] for match in parsed if match["interaction"]}
     app_trace = summarize(trace_lines, cohort="single_attended_run", evidence="controlled_desktop")
     checks: dict[str, str] = {"target_readback": target_result["status"]}
+    if audio_playback_interval_ns is not None:
+        checks["audio_replay_during_capture"] = (
+            "pass" if _audio_playback_within_capture(trace_lines, audio_playback_interval_ns)
+            else "fail"
+        )
     if scenario == "cancel":
         checks["escape_input"] = (
             "pass" if any(record.get("kind") == "escape_observed" for record in records)
@@ -291,6 +312,7 @@ def main() -> int:
     playback_stop = threading.Event()
     playback_thread: threading.Thread | None = None
     playback_result: list[str] = []
+    playback_interval_ns: list[int] = []
     try:
         _wait_record(events_path, "ready")
         print("受控文字框已開啟。請確認這個工作樹的 ClipAI 正在執行，並已從 Tray 選好模式。")
@@ -326,7 +348,9 @@ def main() -> int:
                     playback_result.append("audio_playback_cancelled")
                     return
                 try:
+                    playback_interval_ns.append(time.monotonic_ns())
                     winsound.PlaySound(str(audio_file), winsound.SND_FILENAME)
+                    playback_interval_ns.append(time.monotonic_ns())
                 except RuntimeError:
                     playback_result.append("audio_playback_unavailable")
                     return
@@ -379,13 +403,16 @@ def main() -> int:
     trace_lines = [line for line in lines if "Inline trace " in line]
     trace_path.write_text("\n".join(trace_lines) + ("\n" if trace_lines else ""), encoding="utf-8")
     report = assess(_records(events_path), trace_lines, mode=args.mode, scenario=args.scenario,
-                    text_policy="nonempty" if args.freeform else "exact")
+                    text_policy="nonempty" if args.freeform else "exact",
+                    audio_playback_interval_ns=tuple(playback_interval_ns) if audio_file is not None and len(playback_interval_ns) == 2 else None)
     if audio_file is not None:
         report["audio_replay"] = {
             "source": "fixed_wav_speaker_playback",
             "sha256": hashlib.sha256(audio_file.read_bytes()).hexdigest(),
             "playback_returned": True,
             "trigger": "matching_inline_listening_trace",
+            "start_monotonic_ns": playback_interval_ns[0],
+            "end_monotonic_ns": playback_interval_ns[1],
             "microphone_input_independently_confirmed": False,
         }
         report["microphone_audio_source"] = "speaker_replay_triggered_input_not_independently_confirmed"

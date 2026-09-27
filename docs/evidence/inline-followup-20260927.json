@@ -39,6 +39,7 @@
       "repeat_target_readback": "pass",
       "repeat_app_trace": "pass",
       "repeat_wav_sha256_matches_fixture": true,
+      "repeat_playback_within_capture": "not_covered_by_original_report",
       "repeat_target_paste_count": 1,
       "repeat_clipboard_restored": true,
       "repeat_content_accuracy": "not_machine_verified"
@@ -51,6 +52,7 @@
   "notes": [
     "Operator confirmation of the LINE hotkey behavior is physical desktop evidence but has no independent HID trace.",
     "Tk Tcl initialization failures were classified as blocked; no failing UI assertion was reclassified.",
-    "Existing stage samples remain exploratory and cannot support representative percentiles or before-and-after latency claims."
+    "Existing stage samples remain exploratory and cannot support representative percentiles or before-and-after latency claims.",
+    "The original acoustic replay report lacks playback start and end timestamps; newer reports verify that speaker playback falls between Listening and Stop."
   ]
 }

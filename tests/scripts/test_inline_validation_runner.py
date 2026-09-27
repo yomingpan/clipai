@@ -188,6 +188,27 @@ def test_attended_manifest_rechecks_raw_evidence_instead_of_old_verdict(tmp_path
     assert with_audio["status"] == "pass"
     assert with_audio["microphone_audio_source"] == "speaker_replay_reported_input_not_independently_confirmed"
     assert with_audio["audio_replay_sha256"] == "a" * 64
+    assert with_audio["audio_replay_timing"] == "not_covered"
+
+    old_report["audio_replay"]["start_monotonic_ns"] = 11
+    old_report["audio_replay"]["end_monotonic_ns"] = 12
+    report.write_text(json.dumps(old_report), encoding="utf-8")
+    timed = reassess_attended_report(report)
+    assert timed["status"] == "pass"
+    assert timed["audio_replay_timing"] == "pass"
+
+    old_report["audio_replay"]["start_monotonic_ns"] = 13
+    old_report["audio_replay"]["end_monotonic_ns"] = 14
+    report.write_text(json.dumps(old_report), encoding="utf-8")
+    late_replay = reassess_attended_report(report)
+    assert late_replay["status"] == "fail"
+    assert late_replay["audio_replay_timing"] == "fail"
+
+    old_report["audio_replay"].pop("end_monotonic_ns")
+    report.write_text(json.dumps(old_report), encoding="utf-8")
+    assert reassess_attended_report(report)["status"] == "fail"
+    old_report["audio_replay"].pop("start_monotonic_ns")
+    report.write_text(json.dumps(old_report), encoding="utf-8")
 
     lines[2] = trace("stop_requested", 12, outcome="long")
     (run / "inline-trace.log").write_text("\n".join(lines) + "\n", encoding="utf-8")

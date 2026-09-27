@@ -151,11 +151,20 @@ def reassess_attended_report(report_path: Path) -> dict[str, object]:
         from .run_inline_controlled_desktop import assess
     else:
         from run_inline_controlled_desktop import assess
-    result = assess(records, trace_lines, mode=mode, scenario=scenario, text_policy=text_policy)
+    audio_replay = original.get("audio_replay")
+    interval = None
+    if isinstance(audio_replay, dict):
+        start = audio_replay.get("start_monotonic_ns")
+        end = audio_replay.get("end_monotonic_ns")
+        if type(start) is int and type(end) is int:
+            interval = (start, end)
+    result = assess(
+        records, trace_lines, mode=mode, scenario=scenario, text_policy=text_policy,
+        audio_playback_interval_ns=interval,
+    )
     status = result["status"]
     if original.get("run_nonce") != result["target"].get("run_nonce"):
         status = "fail"
-    audio_replay = original.get("audio_replay")
     replay_reported = (
         isinstance(audio_replay, dict)
         and audio_replay.get("source") == "fixed_wav_speaker_playback"
@@ -163,6 +172,15 @@ def reassess_attended_report(report_path: Path) -> dict[str, object]:
         and isinstance(audio_replay.get("sha256"), str)
         and re.fullmatch(r"[0-9a-f]{64}", audio_replay["sha256"]) is not None
     )
+    replay_timing = (
+        result["checks"].get("audio_replay_during_capture", "not_covered")
+        if replay_reported else "not_covered"
+    )
+    if isinstance(audio_replay, dict) and (
+        "start_monotonic_ns" in audio_replay or "end_monotonic_ns" in audio_replay
+    ) and replay_timing == "not_covered":
+        status = "fail"
+        replay_timing = "fail"
     return {
         "artifact": artifact,
         "status": status,
@@ -176,6 +194,7 @@ def reassess_attended_report(report_path: Path) -> dict[str, object]:
             if replay_reported else result["microphone_audio_source"]
         ),
         "audio_replay_sha256": audio_replay["sha256"] if replay_reported else None,
+        "audio_replay_timing": replay_timing,
         "content_accuracy": result["target"]["content_accuracy"],
     }
 
