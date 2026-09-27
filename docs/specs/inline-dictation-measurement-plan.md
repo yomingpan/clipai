@@ -73,7 +73,7 @@ Exercise negative paths: no speech, permission/device denial, engine timeout or 
 
 The [post-hotkey follow-up](../evidence/inline-followup-20260927.json) records the operator's successful LINE key-propagation check, the agent's blocked Tcl batch, and the local audio endpoint inventory. This PC exposed built-in speakers and a microphone array but no virtual or loopback input endpoint; a second Windows device is unavailable. The representative baseline therefore remains unestablished.
 
-The attended acoustic replay passed controlled-target readback once. That saved run lacks speaker-playback start/end timestamps, so it cannot prove the WAV completed before Stop. Subsequent reports record those monotonic timestamps and require the entire playback to fall between the same interaction's Listening and Stop stages. The timing check establishes ordering, not independent microphone input or transcription accuracy.
+The first attended acoustic replay passed controlled-target readback but lacks speaker-playback start/end timestamps. A subsequent attended run at `artifacts/inline-controlled-audio-minimal-4/report.json` passed the controlled-target, clipboard-restoration, and same-interaction playback-timing checks. Its saved monotonic timestamps place the full WAV between Listening and Stop; the offline validation at `artifacts/inline-validation-audio-timed-user-20260927/manifest.json` reproduces the verdict. This establishes speaker-playback ordering on one PC, not independent microphone input, transcription accuracy, or a representative latency distribution.
 
 ## Tooling sequence and status
 

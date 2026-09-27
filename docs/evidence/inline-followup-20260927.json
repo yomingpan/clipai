@@ -42,7 +42,20 @@
       "repeat_playback_within_capture": "not_covered_by_original_report",
       "repeat_target_paste_count": 1,
       "repeat_clipboard_restored": true,
-      "repeat_content_accuracy": "not_machine_verified"
+      "repeat_content_accuracy": "not_machine_verified",
+      "timed_replay_artifact": "artifacts/inline-controlled-audio-minimal-4/report.json",
+      "timed_replay_validation": "artifacts/inline-validation-audio-timed-user-20260927/manifest.json",
+      "timed_replay_status": "pass",
+      "timed_replay_within_same_capture": "pass",
+      "timed_replay_target_readback": "pass",
+      "timed_replay_clipboard_restored": true,
+      "timed_replay_content_accuracy": "not_machine_verified",
+      "timed_replay_exploratory_stage_ms": {
+        "first_press_to_listening": 719,
+        "stop_to_recognition": 78,
+        "paste_to_terminal": 343,
+        "stop_to_terminal": 421
+      }
     },
     "replayable_audio_capture": "single_attended_acoustic_replay_observed_without_independent_microphone_input_confirmation"
   },
@@ -53,6 +66,6 @@
     "Operator confirmation of the LINE hotkey behavior is physical desktop evidence but has no independent HID trace.",
     "Tk Tcl initialization failures were classified as blocked; no failing UI assertion was reclassified.",
     "Existing stage samples remain exploratory and cannot support representative percentiles or before-and-after latency claims.",
-    "The original acoustic replay report lacks playback start and end timestamps; newer reports verify that speaker playback falls between Listening and Stop."
+    "The original acoustic replay report lacks playback start and end timestamps; the subsequent attended report verifies that speaker playback falls between Listening and Stop."
   ]
 }
