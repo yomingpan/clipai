@@ -89,6 +89,15 @@
   },
   "baseline_status": "not_established",
   "baseline_reason": "one_device_and_one_exploratory_acoustic_replay_without_independent_microphone_input_or_first_frame_observer",
+  "current_seven_run_matrix": {
+    "artifact": "artifacts/inline-validation-current-matrix-20260927/manifest.json",
+    "scope": "selected_successful_regression_cases_not_all_attempts",
+    "reassessed_from_raw_evidence": true,
+    "attended_runs": 7,
+    "passed": 7,
+    "fixed_wav_runs_with_playback_timing": 2,
+    "representative_baseline": false
+  },
   "prior_attended_evidence": "docs/evidence/inline-attended-20260927.json",
   "notes": [
     "Operator confirmation of the LINE hotkey behavior is physical desktop evidence but has no independent HID trace.",
