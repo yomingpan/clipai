@@ -27,6 +27,8 @@ FAST_CASES = (
     "tests/services/test_clipboard_transaction.py",
     "tests/app/test_runtime_voice_input.py",
     "tests/app/test_runtime.py",
+    "tests/platform/test_hotkey.py",
+    "tests/platform/test_hotkey_edge_cases.py",
     "tests/scripts/test_inline_trace_report.py",
     "tests/scripts/test_inline_baseline_comparison.py",
     "tests/scripts/test_inline_controlled_target.py",

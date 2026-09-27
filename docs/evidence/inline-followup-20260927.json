@@ -22,6 +22,20 @@
     "unit_non_integration": {"status": "pass", "passed": 1763},
     "architecture": {"status": "pass", "passed": 53}
   },
+  "suppressed_trigger_hold_fix": {
+    "first_failed_run": "artifacts/inline-controlled-audio-refine-minimal-1/report.json",
+    "second_failed_run": "artifacts/inline-controlled-audio-refine-minimal-2/report.json",
+    "observed_stop_outcome": "short_in_both_runs_despite_operator_held_m",
+    "observed_hotkey_log": "repeated_stale_m_reset_during_hold",
+    "diagnosis": "docs/evidence/inline-suppressed-trigger-state-20260927.md",
+    "non_integration_tests": {"status": "pass", "passed": 1770},
+    "inline_fast_tests": {
+      "status": "pass",
+      "passed": 417,
+      "artifact": "artifacts/inline-validation-longpress-gate-20260927/manifest.json"
+    },
+    "post_fix_physical_long_press": "pending"
+  },
   "audio_environment": {
     "available_endpoint_classes": ["built_in_speakers", "built_in_microphone_array"],
     "virtual_or_loopback_input_observed": false,

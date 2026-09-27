@@ -400,3 +400,50 @@ def test_registered_windows_listener_filters_injected_keys_before_dispatch(
     assert event_filter(0, SimpleNamespace(flags=0x10)) is False
     assert event_filter(0, SimpleNamespace(flags=0)) is True
     assert captured["started"] is True
+
+
+def test_registered_inline_listener_keeps_suppressed_m_hold_when_async_state_is_false(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+    events = []
+
+    class Listener:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def start(self) -> None:
+            pass
+
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr("pynput.keyboard.Listener", Listener)
+    monkeypatch.setattr(
+        "ClipAI.platform.hotkey.windows_key_is_pressed",
+        lambda token: False if token == "m" else True,
+    )
+    listener = register_hotkeys_with_long_press(
+        {"inline_dictation": {"hotkey": "ctrl+alt+m"}},
+        events.append,
+        modifier_mode="ctrl_alt",
+        long_press_sec=10,
+    )
+    try:
+        press = captured["on_press"]
+        release = captured["on_release"]
+        press(FakeKey(name="ctrl_l"))
+        press(FakeKey(name="alt_l"))
+        press(FakeKey(char="m", vk=0x4D))
+        for _ in range(5):
+            press(FakeKey(char="m", vk=0x4D))
+        state = listener._dispatcher._active["inline_dictation"]
+        state.timer.function()
+        release(FakeKey(char="m", vk=0x4D))
+    finally:
+        listener.stop()
+
+    invoked = [event for event in events if isinstance(event, ShortcutPressInvoked)]
+    assert [(event.shortcut_id, event.press_type) for event in invoked] == [
+        ("inline_dictation", "long"),
+    ]

@@ -85,6 +85,15 @@ active Shortcut Press emits one `ShortcutPressEnded(..., "cancelled")`. The
 revealing key may then participate in a fresh match, but stale recovery alone
 does not produce a rejected-attempt event.
 
+For a trigger consumed by the Windows low-level hook, asynchronous physical
+key polling may read released while the hook is still delivering held key-down
+events. The registrar identifies such trigger tokens to the same dispatcher;
+their active hold ends on the ordered hook release, not a contradictory poll.
+Repeated key-downs cannot restart its timer. If the chord's modifiers become
+stale or are gone before a later key-down, recovery clears a suppressed trigger
+whose release was missed and cancels the affected press. This is adapter
+metadata, not a second press-state owner.
+
 `stop()` is idempotent and completely silent. It cancels timers, clears state
 and observers, stops the OS listener, and prevents keyboard or timer callbacks
 from emitting late facts.

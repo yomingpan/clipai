@@ -262,6 +262,7 @@ class _HotkeyDispatcher:
         timer_factory: Callable[..., threading.Timer] = threading.Timer,
         diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
         key_is_pressed: Callable[[str], bool | None] | None = None,
+        suppressed_trigger_tokens: frozenset[str] = frozenset(),
         entry_panel_enabled: bool = False,
         entry_panel_hold_sec: float = ENTRY_PANEL_HOLD_SEC,
     ) -> None:
@@ -271,6 +272,9 @@ class _HotkeyDispatcher:
         self._timer_factory = timer_factory
         self._diagnostics_enabled = diagnostics_enabled
         self._key_is_pressed = key_is_pressed
+        # A key consumed by the native hook may read as released through
+        # GetAsyncKeyState even while its physical press is still repeating.
+        self._suppressed_trigger_tokens = suppressed_trigger_tokens
         self._entry_panel_enabled = entry_panel_enabled
         self._entry_panel_hold_sec = entry_panel_hold_sec
         self._tracked_tokens = frozenset(
@@ -461,7 +465,8 @@ class _HotkeyDispatcher:
             released_tokens = {
                 token
                 for token in trigger_tokens
-                if self._key_is_pressed is not None
+                if token not in self._suppressed_trigger_tokens
+                and self._key_is_pressed is not None
                 and self._key_is_pressed(token) is False
             }
             if released_tokens:
@@ -490,13 +495,23 @@ class _HotkeyDispatcher:
         stale_tokens = {
             token
             for token in self._pressed
-            if self._key_is_pressed(token) is False
+            if token not in self._suppressed_trigger_tokens
+            and self._key_is_pressed(token) is False
         }
         # Windows can report Alt as released while its low-level hook is still
         # delivering the press lifecycle. A live Entry Panel hold therefore
         # owns Alt until the listener observes a semantic transition itself.
         if self._entry_hold is not None:
             stale_tokens.discard("alt")
+        # Once the chord's modifiers are gone, a missed suppressed-key release
+        # cannot be checked through GetAsyncKeyState. Drop it before the next
+        # genuine chord instead of leaving a permanently pressed trigger.
+        if self._pressed.isdisjoint(MODIFIER_KEYS):
+            stale_tokens.update(self._pressed & self._suppressed_trigger_tokens)
+        elif stale_tokens:
+            for state in self._active.values():
+                if not state.binding_tokens.isdisjoint(stale_tokens):
+                    stale_tokens.update(state.binding_tokens & self._suppressed_trigger_tokens)
         if not stale_tokens:
             return set()
 
@@ -740,6 +755,7 @@ def create_hotkey_dispatcher(
     timer_factory: Callable[..., threading.Timer] = threading.Timer,
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
     key_is_pressed: Callable[[str], bool | None] | None = None,
+    suppressed_trigger_tokens: frozenset[str] = frozenset(),
     entry_panel_enabled: bool = False,
     entry_panel_hold_sec: float = ENTRY_PANEL_HOLD_SEC,
 ) -> _HotkeyDispatcher:
@@ -750,6 +766,7 @@ def create_hotkey_dispatcher(
         timer_factory=timer_factory,
         diagnostics_enabled=diagnostics_enabled,
         key_is_pressed=key_is_pressed,
+        suppressed_trigger_tokens=suppressed_trigger_tokens,
         entry_panel_enabled=entry_panel_enabled,
         entry_panel_hold_sec=entry_panel_hold_sec,
     )
@@ -776,17 +793,19 @@ def register_hotkeys_with_long_press(
 
     logger.info("[clipai] Hotkey listener modifier_mode=%s long_press_sec=%s", modifier_mode, long_press_sec)
 
+    suppressible_m = any(tokens == {"ctrl", "alt", "m"} for _, tokens in hotkeys)
     dispatcher = _HotkeyDispatcher(
         hotkeys,
         on_event,
         long_press_sec=long_press_sec,
         diagnostics_enabled=diagnostics_enabled,
         key_is_pressed=windows_key_is_pressed,
+        suppressed_trigger_tokens=frozenset({"m"}) if suppressible_m else frozenset(),
         entry_panel_enabled=entry_panel_enabled,
     )
     event_filter = _WindowsHotkeyEventFilter(
         dispatcher,
-        suppressible_m=any(tokens == {"ctrl", "alt", "m"} for _, tokens in hotkeys),
+        suppressible_m=suppressible_m,
         inline_escape_owner=inline_escape_owner,
     )
     listener = keyboard.Listener(
