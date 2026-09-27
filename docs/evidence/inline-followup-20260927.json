@@ -34,7 +34,21 @@
       "passed": 417,
       "artifact": "artifacts/inline-validation-longpress-gate-20260927/manifest.json"
     },
-    "post_fix_physical_long_press": "pending"
+    "post_fix_physical_long_press": "pass",
+    "post_fix_run": "artifacts/inline-controlled-audio-refine-minimal-3/report.json",
+    "post_fix_validation": "artifacts/inline-validation-audio-refine-fixed-20260927/manifest.json",
+    "post_fix_observed_stop_outcome": "long",
+    "post_fix_refine_settled": "completed",
+    "post_fix_controlled_target_paste_count": 1,
+    "post_fix_clipboard_restored": true,
+    "post_fix_audio_timing": "pass",
+    "post_fix_exploratory_stage_ms": {
+      "first_press_to_listening": 657,
+      "stop_to_recognition": 156,
+      "refine_to_result": 1187,
+      "paste_to_terminal": 329,
+      "stop_to_terminal": 1672
+    }
   },
   "audio_environment": {
     "available_endpoint_classes": ["built_in_speakers", "built_in_microphone_array"],

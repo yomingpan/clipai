@@ -26,7 +26,7 @@ The multiplier is conflicting observations of one key: the hook reports a held p
 
 `register_hotkeys_with_long_press()` computes the exact `Ctrl+Alt+M` suppression flag once and passes `m` as an unobservable physical trigger to the dispatcher. The long timer and stale-state scan do not cancel that active trigger based on asynchronous M state. If the chord's modifiers are subsequently absent, stale M state is cleared before a new chord. The change stays inside the platform adapter; no Voice Input, provider, Paste, clipboard, or UI owner moves.
 
-Completion requires deterministic tests, the non-integration suite, and an attended Minimal-refine fixed-WAV run with `stop_requested outcome=long`, `refine_requested`, one controlled-target Paste, and restored clipboard. The first two failed runs remain evidence. If physical M release is missed while modifiers remain held, the hook cannot distinguish that case from a continuing hold; a future independent HID observer should exercise it.
+The deterministic tests, 1770 non-integration tests, and 417-case Inline fast gate passed. After restarting ClipAI, `artifacts/inline-controlled-audio-refine-minimal-3/report.json` and its offline reassessment passed: `stop_requested outcome=long`, one completed refinement, one controlled-target Paste, restored clipboard, and fixed WAV playback wholly between Listening and Stop. The first two failed runs remain evidence. If physical M release is missed while modifiers remain held, the hook cannot distinguish that case from a continuing hold; a future independent HID observer should exercise it.
 
 ## Concise ADR and review trigger
 
