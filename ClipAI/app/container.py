@@ -283,6 +283,7 @@ def build_runtime(
             modifier_mode=bundle.app.modifier_mode,
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
             entry_panel_enabled=bundle.app.entry_panel_enabled,
+            inline_escape_owner=lambda: voice_controller.active_inline_interaction_id() is not None,
         )
 
     user_control = UserControlCoordinator()

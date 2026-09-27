@@ -60,6 +60,8 @@ def test_tray_inline_mode_stays_checked_on_saved_value_while_save_is_pending() -
     voice_menu = tray._build_voice_menu(Pystray)
     mode_menu = next(item for item in voice_menu.action.items if item.text == "Inline Dictation")
     choice, minimal = mode_menu.action.items
+    assert choice.text == "Full Choice"
+    assert minimal.text == "Minimal Input"
     assert choice.checked(None) and not minimal.checked(None)
     minimal.action(None, None)
     assert selected == ["minimal"]

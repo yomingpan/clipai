@@ -407,13 +407,13 @@ class TrayController:
                 "Inline Dictation",
                 pystray.Menu(
                     pystray.MenuItem(
-                        "完整選擇",
+                        "Full Choice",
                         lambda _icon, _item: self._on_set_inline_input_mode("choice"),
                         checked=lambda _item: self._inline_input_mode is not None and self._inline_input_mode.selected_mode == "choice",
                         enabled=lambda _item: self._inline_input_mode is not None and not self._inline_input_mode.update_pending,
                     ),
                     pystray.MenuItem(
-                        "極簡輸入",
+                        "Minimal Input",
                         lambda _icon, _item: self._on_set_inline_input_mode("minimal"),
                         checked=lambda _item: self._inline_input_mode is not None and self._inline_input_mode.selected_mode == "minimal",
                         enabled=lambda _item: self._inline_input_mode is not None and not self._inline_input_mode.update_pending,

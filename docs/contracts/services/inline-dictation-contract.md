@@ -7,6 +7,14 @@ terminal notice or explicit discard. `VoiceInputController` owns that semantic
 lifetime. Capture, provider invocation, Paste Operation, and view leases retain
 separate identities. Runtime routes typed effects and matching acknowledgements;
 it does not create another interaction registry.
+The Windows hotkey adapter prevents the physical `M` key event in a configured
+`Ctrl+Alt+M` chord from reaching the foreground application while preserving
+the ordered press and release events for ClipAI. Unmodified `M` typing remains
+available to the foreground application.
+While the same interaction is active, exact physical Esc is consumed by the
+hotkey adapter and still delivered to ClipAI's ordered interruption queue;
+the foreground application must not receive it. Outside Inline Dictation,
+ordinary Esc behavior in the foreground application remains available.
 Capture ID and Inline Interaction ID have distinct generated values. The existing
 diagnostics log records content-free, monotonic lifecycle stages keyed by these
 IDs and the provider/Paste operation IDs. A requested UI presentation is not
@@ -32,6 +40,10 @@ terminal dwell callback from an older interaction cannot change or close a
 newer one. A second shortcut during refinement or pending Paste is rejected
 with visible feedback. A new capture is admitted only after the preceding
 interaction reaches a settled, dismissible terminal phase.
+The visible Inline window is positioned inside the cursor monitor's work area
+after each content expansion, including choice and recovery. Its action buttons
+use the Popup action style; the Tray mode names are English, `Full Choice` and
+`Minimal Input`.
 View Confirm, Copy, and Esc callbacks carry the interaction ID captured when
 their window was created. The controller rejects a callback from an older
 window even if a newer Inline interaction is now in a compatible phase.

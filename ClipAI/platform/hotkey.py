@@ -54,20 +54,72 @@ def _allow_physical_windows_key(_message, data) -> bool:
 
 
 class _WindowsHotkeyEventFilter:
-    """Mask native menu activation before pynput queues semantic key release.
+    """Mask native menu activation and consumed dictation trigger keys.
 
     No second hold registry: the dispatcher owns whether this release belongs
     to a consumed Entry Panel hold. Injected mask keys pass to Windows, but are
     excluded from ClipAI intent processing by the existing injected-event gate.
     """
 
-    def __init__(self, dispatcher: _HotkeyDispatcher, mask_menu: Callable[[], None] = mask_alt_menu) -> None:
+    def __init__(
+        self,
+        dispatcher: _HotkeyDispatcher,
+        mask_menu: Callable[[], None] = mask_alt_menu,
+        *,
+        suppressible_m: bool = False,
+        key_is_pressed: Callable[[str], bool | None] = windows_key_is_pressed,
+        inline_escape_owner: Callable[[], bool] = lambda: False,
+    ) -> None:
         self._dispatcher = dispatcher
         self._mask_menu = mask_menu
+        self._suppressible_m = suppressible_m
+        self._key_is_pressed = key_is_pressed
+        self._inline_escape_owner = inline_escape_owner
+        self._listener = None
+        self._m_suppressed = False
+        self._esc_suppressed = False
+
+    def bind_listener(self, listener) -> None:
+        self._listener = listener
+
+    def _suppress_trigger_event(self, message: int, vk: int) -> None:
+        listener = self._listener
+        if listener is None:
+            return
+        # Keep pynput's ordered semantic queue intact before the hook prevents
+        # the physical trigger from reaching the foreground application.
+        listener._message_loop.post(listener._WM_PROCESS, message, vk)
+        listener.suppress_event()
 
     def __call__(self, message, data) -> bool:
         if not _allow_physical_windows_key(message, data):
             return False
+        vk = int(getattr(data, "vkCode", 0))
+        if vk == 0x1B:  # VK_ESCAPE
+            if message in (0x0100, 0x0104):
+                if self._esc_suppressed or (
+                    self._inline_escape_owner()
+                    and all(self._key_is_pressed(key) is False for key in MODIFIER_KEYS)
+                ):
+                    self._esc_suppressed = True
+                    self._suppress_trigger_event(message, vk)
+            elif message in (0x0101, 0x0105) and self._esc_suppressed:
+                self._esc_suppressed = False
+                self._suppress_trigger_event(message, vk)
+        if self._suppressible_m and vk == 0x4D:
+            if message in (0x0100, 0x0104):  # WM_KEYDOWN / WM_SYSKEYDOWN
+                if self._m_suppressed or (
+                    self._key_is_pressed("ctrl") is True
+                    and (
+                        self._key_is_pressed("alt") is True
+                        or bool(int(data.flags) & 0x20)  # LLKHF_ALTDOWN
+                    )
+                ):
+                    self._m_suppressed = True
+                    self._suppress_trigger_event(message, vk)
+            elif message in (0x0101, 0x0105) and self._m_suppressed:
+                self._m_suppressed = False
+                self._suppress_trigger_event(message, vk)
         if (
             message in (0x0101, 0x0105)  # WM_KEYUP / WM_SYSKEYUP
             and int(data.vkCode) in (0x12, 0xA4, 0xA5)
@@ -711,6 +763,7 @@ def register_hotkeys_with_long_press(
     long_press_sec: float = LONG_PRESS_SEC,
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
     entry_panel_enabled: bool = False,
+    inline_escape_owner: Callable[[], bool] = lambda: False,
 ):
     try:
         from pynput import keyboard
@@ -731,10 +784,16 @@ def register_hotkeys_with_long_press(
         key_is_pressed=windows_key_is_pressed,
         entry_panel_enabled=entry_panel_enabled,
     )
+    event_filter = _WindowsHotkeyEventFilter(
+        dispatcher,
+        suppressible_m=any(tokens == {"ctrl", "alt", "m"} for _, tokens in hotkeys),
+        inline_escape_owner=inline_escape_owner,
+    )
     listener = keyboard.Listener(
         on_press=dispatcher.on_press,
         on_release=dispatcher.on_release,
-        win32_event_filter=_WindowsHotkeyEventFilter(dispatcher),
+        win32_event_filter=event_filter,
     )
+    event_filter.bind_listener(listener)
     listener.start()
     return HotkeyListener(listener, dispatcher)

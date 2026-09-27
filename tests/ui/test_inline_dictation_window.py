@@ -4,11 +4,49 @@ import tkinter as tk
 import sys
 
 import pytest
+import customtkinter as ctk
 
-from ClipAI.core.models import PasteOutcome
+from ClipAI.core.models import DisplayMetrics, PasteOutcome
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCapturePhase, VoiceProjection
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
-from ClipAI.ui.inline_dictation import InlineDictationWindow
+from ClipAI.ui.inline_dictation import InlineDictationWindow, _clamp_inline_position
+
+
+def test_inline_position_keeps_expanded_window_inside_work_area() -> None:
+    metrics = DisplayMetrics(1.0, 0, 0, 1280, 720, 1270, 710)
+    assert _clamp_inline_position(metrics, 400, 260) == (872, 452)
+    assert _clamp_inline_position(DisplayMetrics(1.0, 0, 0, 1280, 720, 0, 0), 400, 260) == (14, 18)
+
+
+@pytest.mark.integration
+def test_inline_choice_and_recovery_reposition_after_expanding_near_screen_edge() -> None:
+    root = tk.Tk()
+    root.withdraw()
+    width, height = root.winfo_screenwidth(), root.winfo_screenheight()
+
+    class Reader:
+        def current(self) -> DisplayMetrics:
+            return DisplayMetrics(1.0, 0, 0, width, height, width - 2, height - 2)
+
+    window = InlineDictationWindow(
+        root, on_confirm=lambda _refine: None, on_cancel=lambda: None,
+        display_metrics=Reader(),
+    )
+    try:
+        window.show()
+        for expand in (
+            lambda: window.present_choice("recognized words " * 30),
+            lambda: window.show_recovery("recognized words " * 30, "Paste unavailable"),
+        ):
+            expand()
+            root.update()
+            assert window._window.winfo_rootx() >= 8
+            assert window._window.winfo_rooty() >= 8
+            assert window._window.winfo_rootx() + window._window.winfo_width() <= width - 8
+            assert window._window.winfo_rooty() + window._window.winfo_height() <= height - 8
+    finally:
+        window.close()
+        root.destroy()
 
 
 def _find_text_widget(parent: tk.Misc) -> tk.Text:
@@ -182,8 +220,8 @@ def test_refinement_failure_offers_raw_copy_and_discard_without_second_refinemen
         window.present_choice("recognized words", allow_refine=False, message="Refinement failed. Choose raw paste or discard.")
         root.update()
         labels = [child.cget("text") for child in window._choice.winfo_children() if isinstance(child, tk.Label)]
-        controls = next(child for child in window._choice.winfo_children() if isinstance(child, tk.Frame) and any(isinstance(item, tk.Button) for item in child.winfo_children()))
-        buttons = {child.cget("text") for child in controls.winfo_children() if isinstance(child, tk.Button)}
+        controls = next(child for child in window._choice.winfo_children() if isinstance(child, tk.Frame) and any(isinstance(item, ctk.CTkButton) for item in child.winfo_children()))
+        buttons = {child.cget("text") for child in controls.winfo_children() if isinstance(child, ctk.CTkButton)}
         assert "Refinement failed. Choose raw paste or discard." in labels
         assert {"貼上原文", "複製", "丟棄"} <= buttons
         assert "潤飾後貼上" not in buttons

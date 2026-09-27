@@ -415,6 +415,7 @@ class ResultDialogPresenter:
             on_cancel=lambda: self._command_sink(CancelInlineDictation(interaction_id)),
             on_copy=lambda: self._command_sink(CopyInlineDictation(interaction_id)),
             native_window_surface=self._native_window_surface,
+            display_metrics=getattr(self, "_display_metrics", None),
             interaction_id=interaction_id,
             mode=mode,
         )
