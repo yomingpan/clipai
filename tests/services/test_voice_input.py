@@ -488,6 +488,70 @@ def test_missing_microphone_returns_a_retriable_review_with_a_remedy() -> None:
     )
 
 
+def test_inline_network_failure_reports_recovery_without_paste() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-network")
+    inline = VoiceInlineTarget("inline-network", target().paste_target)
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineListening(capture))
+
+    transition = controller.observe_engine(VoiceEngineFailed(
+        capture, VoiceTransportFailure.UNAVAILABLE,
+        "Speech recognition could not reach its service. Check your connection and try again.",
+    ))
+
+    assert transition.effects == (
+        DiscardInlineDictation(
+            "inline-network",
+            "Speech recognition could not reach its service. Check your connection and try again.",
+        ),
+    )
+    assert not any(isinstance(effect, PasteInlineDictation) for effect in transition.effects)
+
+
+def test_inline_network_failure_with_partial_text_explains_recovery_without_paste() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-network-partial")
+    inline = VoiceInlineTarget("inline-network-partial", target().paste_target, mode="minimal")
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineListening(capture))
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "keep this"))
+
+    transition = controller.observe_engine(VoiceEngineFailed(
+        capture, VoiceTransportFailure.UNAVAILABLE,
+        "Speech recognition could not reach its service. Check your connection and try again.",
+    ))
+
+    assert transition.effects == (
+        PresentInlineChoice(
+            "inline-network-partial", "keep this",
+            message="Speech recognition could not reach its service. Check your connection and try again. Recognized content was preserved.",
+        ),
+    )
+    assert not any(isinstance(effect, PasteInlineDictation) for effect in transition.effects)
+
+
+def test_inline_network_failure_without_target_keeps_both_recovery_reasons() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-network-no-target")
+    inline = VoiceInlineTarget("inline-network-no-target", None, mode="minimal")
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineListening(capture))
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "keep this"))
+
+    transition = controller.observe_engine(VoiceEngineFailed(
+        capture, VoiceTransportFailure.UNAVAILABLE,
+        "Speech recognition could not reach its service. Check your connection and try again.",
+    ))
+
+    assert transition.effects == (
+        PresentInlineRecovery(
+            "inline-network-no-target", "keep this",
+            "Speech recognition could not reach its service. Check your connection and try again. Recognized content was preserved. No paste target is available. Copy the text and paste it manually.",
+        ),
+    )
+
+
 def test_transport_failure_preserves_contiguous_finalized_content() -> None:
     controller = ready_controller()
     capture = VoiceCaptureId("capture-1")

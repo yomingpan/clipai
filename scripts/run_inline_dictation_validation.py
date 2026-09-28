@@ -29,12 +29,14 @@ FAST_CASES = (
     "tests/app/test_runtime.py",
     "tests/platform/test_hotkey.py",
     "tests/platform/test_hotkey_edge_cases.py",
+    "tests/platform/test_voice_webview_host.py",
     "tests/scripts/test_inline_trace_report.py",
     "tests/scripts/test_inline_baseline_comparison.py",
     "tests/scripts/test_inline_controlled_target.py",
     "tests/scripts/test_inline_controlled_target_verifier.py",
     "tests/scripts/test_inline_controlled_desktop_runner.py",
     "tests/scripts/test_inline_validation_runner.py",
+    "tests/scripts/test_inline_voice_chain_probe.py",
     "tests/architecture",
 )
 TK_CASES = ("tests/ui/test_inline_dictation_window.py", "tests/scripts/test_inline_controlled_target.py")

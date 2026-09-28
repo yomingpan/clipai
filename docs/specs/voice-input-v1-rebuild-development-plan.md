@@ -221,6 +221,11 @@ without presenting new evidence that makes the plan unsafe or impossible.
   identities and has not received the typed release/abandon event from the
   Shortcut owner. The engine adapter never reads keyboard state or autonomously
   chooses to restart.
+- A Web Speech `network` error ends the current capture through the existing
+  typed `unavailable` failure with a connection remedy. It is not treated as
+  no-speech and cannot trigger the natural-end restart path, including when it
+  arrives after Stop. Cancel keeps its discard decision. Finalized content
+  already accepted by the controller is preserved for explicit recovery.
 - Release, Stop, Cancel, Popup close, Disable, listener shutdown, and application
   shutdown create an irreversible stop gate. No subsequent event can restart
   microphone use for that capture.

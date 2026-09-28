@@ -23,10 +23,10 @@ from ClipAI.platform.voice_webview_host import (
 from ClipAI.platform.voice_webview_profile import reset_voice_webview_profile
 
 
-def test_browser_speech_transient_errors_allow_the_capture_restart_path() -> None:
+def test_browser_speech_no_speech_allows_restart_but_network_reports_failure() -> None:
     source = Path("ClipAI/platform/voice_webview_host.html").read_text(encoding="utf-8")
 
-    assert 'if (event.error === "no-speech" || event.error === "network") return;' in source
+    assert 'if (event.error === "no-speech") return;' in source
 
 
 def test_browser_speech_stop_preserves_last_interim_and_cancel_discards_it() -> None:
@@ -45,13 +45,24 @@ def test_browser_speech_terminal_events_preserve_only_explicit_stop_interim() ->
         [node, "tests/platform/fixtures/voice_webview_finish_case.js"],
         check=True, capture_output=True, text=True, timeout=5,
     )
-    stopped, cancelled = json.loads(result.stdout)
+    stopped, cancelled, network, network_after_stop, network_after_cancel = json.loads(result.stdout)
 
     assert stopped == [
         {"kind": "final", "capture_id": "capture-1", "sequence": 0, "text": "unfinished phrase"},
         {"kind": "ended", "capture_id": "capture-1"},
     ]
     assert cancelled == [{"kind": "ended", "capture_id": "capture-1"}]
+    assert network == [
+        {"kind": "failed", "capture_id": "capture-network", "failure": "unavailable",
+         "detail": "Speech recognition could not reach its service. Check your connection and try again."},
+        {"kind": "ended", "capture_id": "capture-network"},
+    ]
+    assert network_after_stop == [
+        {"kind": "failed", "capture_id": "capture-late-network", "failure": "unavailable",
+         "detail": "Speech recognition could not reach its service. Check your connection and try again."},
+        {"kind": "ended", "capture_id": "capture-late-network"},
+    ]
+    assert network_after_cancel == [{"kind": "ended", "capture_id": "capture-late-network"}]
 
 
 class PermissionRequest:

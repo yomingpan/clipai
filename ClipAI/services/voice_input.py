@@ -810,12 +810,15 @@ class VoiceInputController:
     ) -> VoiceEffect:
         if isinstance(target, VoiceInlineTarget):
             if target.paste_target is None:
-                self._pending_inline = _PendingInline(text, target, recovery_message="No paste target is available. Copy the text and paste it manually.")
+                recovery_message = "No paste target is available. Copy the text and paste it manually."
+                if warning:
+                    recovery_message = f"{warning} {recovery_message}"
+                self._pending_inline = _PendingInline(text, target, recovery_message=recovery_message)
                 return PresentInlineRecovery(target.interaction_id, text, self._pending_inline.recovery_message)
             self._pending_inline = _PendingInline(text, target)
             if target.mode == "minimal" and inline_delivery is not None:
                 return self.confirm_inline_settlement(target.interaction_id, inline_delivery).effects[0]
-            return PresentInlineChoice(target.interaction_id, text)
+            return PresentInlineChoice(target.interaction_id, text, message=warning)
         return (
             FinalizeVoiceFollowUp(capture_id, target, text, warning)
             if isinstance(target, VoiceFollowUpTarget)
