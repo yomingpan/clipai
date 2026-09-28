@@ -58,6 +58,50 @@ def test_webview2_startup_error_is_distinct_from_bridge_timeout(tmp_path: Path, 
     assert layer["reason_code"] == "webview2_initialization_failed"
 
 
+def test_webview_profile_permission_denial_blocks_without_claiming_pass(tmp_path: Path, monkeypatch) -> None:
+    def fake_run(command, **_kwargs):
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="2" failures="0" errors="2" skipped="0">'
+            '<testcase name="first"><error message="PermissionError: [WinError 5] InlineValidationProfiles">'
+            'tests/platform/test_voice_webview_host_integration.py:36: in webview_profile_root'
+            '</error></testcase>'
+            '<testcase name="second"><error message="PermissionError: [WinError 5] InlineValidationProfiles">'
+            'tests/platform/test_voice_webview_host_integration.py:36: in webview_profile_root'
+            '</error></testcase></testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("webview", ("test_host.py",), tmp_path, integration=True, webview=True)
+
+    assert layer["status"] == "blocked"
+    assert layer["reason_code"] == "webview_profile_permission_denied"
+    assert layer["failed"] == 2
+    assert not requested_layers_pass({"fast": {"status": "pass"}, "webview": layer}, tk=False, webview=True)
+
+
+def test_webview_profile_permission_denial_with_test_failure_remains_failed(tmp_path: Path, monkeypatch) -> None:
+    def fake_run(command, **_kwargs):
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="2" failures="1" errors="1" skipped="0">'
+            '<testcase name="setup"><error message="PermissionError: [WinError 5] InlineValidationProfiles">'
+            'in webview_profile_root</error></testcase>'
+            '<testcase name="host"><failure message="bridge assertion failed" /></testcase>'
+            '</testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("webview", ("test_host.py",), tmp_path, integration=True, webview=True)
+
+    assert layer["status"] == "fail"
+    assert layer["reason_code"] == ""
+
+
 def test_skipped_required_desktop_case_blocks_the_layer(tmp_path: Path, monkeypatch) -> None:
     def fake_run(command, **_kwargs):
         report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))

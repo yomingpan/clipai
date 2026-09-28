@@ -78,6 +78,7 @@ def run_layer(name: str, cases: tuple[str, ...], output_dir: Path, *, integratio
     counts = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
     webview_initialization_timeout = False
     webview2_initialization_failed = False
+    webview_profile_permission_denied = False
     tcl_initialization_failed = False
     if report.exists():
         root = ElementTree.parse(report).getroot()
@@ -90,13 +91,19 @@ def run_layer(name: str, cases: tuple[str, ...], output_dir: Path, *, integratio
                 "WebView2 initialization failed" in (node.attrib.get("message", "") + (node.text or ""))
                 for node in failures
             )
+            webview_profile_permission_denied = webview and bool(failures) and all(
+                all(marker in (node.attrib.get("message", "") + (node.text or "")) for marker in (
+                    "PermissionError", "webview_profile_root", "InlineValidationProfiles",
+                ))
+                for node in failures
+            )
             tcl_initialization_failed = bool(failures) and all(
                 "_tkinter.TclError" in (node.attrib.get("message", "") + (node.text or ""))
                 for node in failures
             )
     passed = counts["tests"] - counts["failures"] - counts["errors"] - counts["skipped"]
     status = (
-        "blocked" if integration and tcl_initialization_failed
+        "blocked" if integration and (tcl_initialization_failed or webview_profile_permission_denied)
         else "blocked" if integration and completed.returncode == 0 and counts["skipped"] > 0
         else "pass" if completed.returncode == 0 and passed > 0
         else "fail"
@@ -105,6 +112,7 @@ def run_layer(name: str, cases: tuple[str, ...], output_dir: Path, *, integratio
         "status": status,
         "reason_code": (
             "tcl_initialization_failed" if tcl_initialization_failed and status == "blocked"
+            else "webview_profile_permission_denied" if webview_profile_permission_denied and status == "blocked"
             else "required_desktop_case_skipped" if status == "blocked"
             else "webview2_initialization_failed" if webview and webview2_initialization_failed
             else "webview_initialization_timeout" if webview and webview_initialization_timeout

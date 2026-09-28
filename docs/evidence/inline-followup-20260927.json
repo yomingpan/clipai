@@ -20,7 +20,22 @@
     },
     "tk_direct_after_ui_fix": {"status": "pass", "passed": 11, "skipped": 1},
     "unit_non_integration": {"status": "pass", "passed": 1763},
-    "architecture": {"status": "pass", "passed": 53}
+    "architecture": {"status": "pass", "passed": 53},
+    "full_components_20260928": {
+      "status": "pass",
+      "fast_passed": 420,
+      "tk_passed": 14,
+      "webview_passed": 4,
+      "artifact": "artifacts/inline-validation-full-components-escalated-20260928/manifest.json"
+    },
+    "profile_permission_classification_20260928": {
+      "status": "blocked",
+      "fast_passed": 422,
+      "tk_passed": 13,
+      "tk_skipped": 1,
+      "webview_profile_permission_errors": 4,
+      "artifact": "artifacts/inline-validation-profile-blocked-20260928/manifest.json"
+    }
   },
   "suppressed_trigger_hold_fix": {
     "first_failed_run": "artifacts/inline-controlled-audio-refine-minimal-1/report.json",
