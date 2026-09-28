@@ -44,6 +44,22 @@ def test_stage_report_separates_modes_and_delivery_paths_without_content() -> No
     assert "operation-secret" not in encoded
 
 
+def test_refinement_timeout_is_counted_without_inventing_paste_success() -> None:
+    report = summarize([
+        event(1_000_000, "capture_requested", "inline-timeout", mode="minimal"),
+        event(2_000_000, "stop_requested", "inline-timeout", outcome="long"),
+        event(3_000_000, "recognition_settled", "inline-timeout", outcome="content_available"),
+        event(4_000_000, "refine_requested", "inline-timeout"),
+        event(9_000_000, "refine_settled", "inline-timeout", outcome="timed_out"),
+        event(10_000_000, "recovery_visible_requested", "inline-timeout"),
+    ], cohort="controlled-test", evidence="simulation")
+    group = report["groups"][0]
+
+    assert group["interaction_events"]["refine_timed_out"] == 1
+    assert group["terminal_outcomes"] == {"not_observable": 1}
+    assert group["stage_latency"]["refine_to_result"]["median_ms"] == 5.0
+
+
 def test_incomplete_and_malformed_trace_do_not_invent_latency_or_success() -> None:
     report = summarize([
         event(10, "capture_requested", "inline-3", mode="minimal"),

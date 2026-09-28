@@ -36,6 +36,10 @@ def test_inline_choice_and_recovery_reposition_after_expanding_near_screen_edge(
         window.show()
         for expand in (
             lambda: window.present_choice("recognized words " * 30),
+            lambda: window.present_choice(
+                "recognized words " * 30, allow_refine=False,
+                message="Dictation refinement timed out. Original text is preserved. Choose raw paste, copy, or discard.",
+            ),
             lambda: window.show_recovery("recognized words " * 30, "Paste unavailable"),
         ):
             expand()

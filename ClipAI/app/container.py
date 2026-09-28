@@ -452,7 +452,7 @@ def build_runtime(
         refine_action=inline_refine_action,
         binding=lambda: provider_configuration.active_binding,
         paste=result_output_module.paste_inline,
-        on_refine_settled=lambda interaction_id, operation_id, text, error: enqueue(InlineDictationRefineSettled(interaction_id, text, error, operation_id)),
+        on_refine_settled=lambda interaction_id, operation_id, text, error, failure_reason: enqueue(InlineDictationRefineSettled(interaction_id, text, error, operation_id, failure_reason)),
     )
 
     voice_input_module = VoiceInputRuntimeModule(

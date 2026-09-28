@@ -34,6 +34,12 @@ Record monotonic timestamps at the boundary that actually observes each event. C
 
 The window now shows `準備潤飾` before provider task admission and `整理中` after admission. The trace records that gap separately. Provider settlement and Paste settlement have separate acknowledgements; the latter never asserts that a target consumed the text. The external observer must still measure when either visible state reaches the screen and whether the target actually changes.
 
+Refinement settlement records only a bounded outcome (`completed`, `failed`,
+`timed_out`, `unavailable`, or `cancelled`) for the matching operation. The
+baseline reporter counts these by frozen mode and delivery path. A timeout
+recovery request does not imply the recovery frame was observed and does not
+become a Paste terminal outcome.
+
 ## What counts as a good result
 
 **Speed:** for each stage and end-to-end journey, report count, median, p90, p95, p99 when sample size supports them, maximum, and timeout rate. Include a histogram or distribution, never only an average. Publish sample count and uncertainty beside every tail percentile. A few runs cannot establish p99. Keep startup, stop settlement, refinement, and Paste distributions separate; a quick STT stage cannot hide slow or failed Paste.

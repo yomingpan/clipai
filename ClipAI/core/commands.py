@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, TypeAlias
 
-from ClipAI.core.errors import ActionLanguagePackErrorCode
+from ClipAI.core.errors import ActionLanguagePackErrorCode, InlineRefinementFailureReason
 from ClipAI.core.models import EntryActionRef, EntryInputPreparationId, EntryPanelDensity, FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PreparedInput, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
 from ClipAI.core.models import ControlSurfaceRef, InlineInputMode, OutputOrigin
 from ClipAI.core.models import EntryInputPreparationPhase
@@ -626,6 +626,7 @@ class InlineDictationRefineSettled:
     text: str = ""
     error: bool = False
     operation_id: str = ""
+    failure_reason: InlineRefinementFailureReason | None = None
 
 
 @dataclass(frozen=True)

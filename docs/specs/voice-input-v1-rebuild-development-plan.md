@@ -232,7 +232,9 @@ without presenting new evidence that makes the plan unsafe or impossible.
   Inline Dictation retains the original text for an explicit raw-paste or
   discard decision. Settlement does not wait for a provider coroutine to
   cooperate with cancellation; any late result is quarantined. It must not
-  remain in the refining state indefinitely.
+  remain in the refining state indefinitely. The typed settlement distinguishes
+  `timed_out`, `unavailable`, `cancelled`, and other failures; timeout and
+  unavailable recovery name the cause without exposing provider response text.
 - Release, Stop, Cancel, Popup close, Disable, listener shutdown, and application
   shutdown create an irreversible stop gate. No subsequent event can restart
   microphone use for that capture.

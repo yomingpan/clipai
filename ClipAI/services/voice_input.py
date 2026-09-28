@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import uuid
 
+from ClipAI.core.errors import InlineRefinementFailureReason
 from ClipAI.core.voice import (
     VoiceCaptureId,
     VoiceCaptureDestination,
@@ -424,16 +425,21 @@ class VoiceInputController:
             self._pending_inline = replace(pending, paste_operation_id=operation_id)
         return self._transition(PasteInlineDictation(pending.text, pending.target.paste_target, refine, pending.target.interaction_id, operation_id))
 
-    def complete_inline_refinement(self, interaction_id: str, operation_id: str, text: str = "", *, error: bool = False) -> VoiceTransition:
+    def complete_inline_refinement(self, interaction_id: str, operation_id: str, text: str = "", *, error: bool = False, failure_reason: InlineRefinementFailureReason | None = None) -> VoiceTransition:
         pending = self._pending_inline
         if pending is None or not pending.refining or pending.target.interaction_id != interaction_id or pending.refine_operation_id != operation_id:
             return self._ignored()
         if pending.discard_requested:
             self._pending_inline = None
             return self._transition(DiscardInlineDictation(interaction_id))
-        if error or not text.strip():
+        if error or failure_reason is not None or not text.strip():
             self._pending_inline = replace(pending, refining=False, refine_operation_id=None, refine_failed=True)
-            self._message = "Dictation could not be refined. Choose raw paste or discard."
+            if failure_reason == "timed_out":
+                self._message = "Dictation refinement timed out. Original text is preserved. Choose raw paste, copy, or discard."
+            elif failure_reason == "unavailable":
+                self._message = "Dictation provider is unavailable. Original text is preserved. Choose raw paste, copy, or discard."
+            else:
+                self._message = "Dictation could not be refined. Choose raw paste or discard."
             return self._transition(PresentInlineChoice(interaction_id, pending.text, allow_refine=False, message=self._message))
         paste_operation_id = f"inline-paste-{uuid.uuid4().hex}"
         self._pending_inline = replace(pending, refining=False, refine_operation_id=None, paste_operation_id=paste_operation_id, delivery_text=text)

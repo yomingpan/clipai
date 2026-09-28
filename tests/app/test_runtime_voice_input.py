@@ -127,6 +127,7 @@ class InlinePresenter:
         self.modes = []
         self.interaction_ids = []
         self.choices = []
+        self.choice_messages = []
         self.closed = []
         self.projections = []
         self.paste_outcomes = []
@@ -140,7 +141,7 @@ class InlinePresenter:
 
     def open_inline_dictation(self, interaction_id="", mode="choice"): self.opened += 1; self.modes.append(mode); self.interaction_ids.append(interaction_id)
     def update_inline_dictation(self, projection): self.projections.append(projection)
-    def present_inline_choice(self, _interaction_id, text, allow_refine=True, message=""): self.choices.append(text)
+    def present_inline_choice(self, _interaction_id, text, allow_refine=True, message=""): self.choices.append(text); self.choice_messages.append(message)
     def present_inline_paste_outcome(self, interaction_id, outcome, text): self.paste_outcomes.append((interaction_id, outcome, text))
     def present_inline_paste_pending(self, interaction_id): self.paste_pending.append(interaction_id)
     def present_inline_paste_cancelling(self, interaction_id): self.paste_cancelling.append(interaction_id)
@@ -511,6 +512,35 @@ def test_refinement_failure_reopens_original_text_and_never_pastes_fallback():
     assert presenter.choices == ["spoken words", "spoken words"]
     assert len(requested) == 1
     assert not runtime.handle(ToggleInlineDictation())
+
+
+def test_refinement_timeout_reaches_recovery_and_content_safe_trace(caplog):
+    engine, presenter, requested = Engine(), InlinePresenter(), []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: PasteTarget("hwnd:1", 1, "Editor", "private", 1),
+        inline_presenter=presenter,
+        paste_inline=lambda *args: requested.append(args) or True,
+    )
+    caplog.set_level("INFO", logger="clipai.inline_trace")
+    runtime.handle(ToggleInlineDictation())
+    capture = engine.calls[-1][1]
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture, 0, "private spoken words")))
+    runtime.handle(ToggleInlineDictation())
+    runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture)))
+    interaction_id = presenter.interaction_ids[0]
+    runtime.handle(ConfirmInlineDictation(interaction_id, True))
+
+    assert runtime.handle(InlineDictationRefineSettled(
+        interaction_id, error=True, operation_id=requested[0][4], failure_reason="timed_out"
+    ))
+
+    assert presenter.choices[-1] == "private spoken words"
+    assert presenter.choice_messages[-1].startswith("Dictation refinement timed out.")
+    assert len(requested) == 1
+    assert "stage=refine_settled" in caplog.text
+    assert "outcome=timed_out" in caplog.text
+    assert "private spoken words" not in caplog.text
 
 
 def test_refining_state_waits_for_provider_task_admission():

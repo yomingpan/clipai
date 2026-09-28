@@ -105,6 +105,8 @@ def summarize(lines: list[str], *, cohort: str, evidence: str) -> dict[str, obje
                 outcome = observed_outcome
             if stage == "recovery_visible_requested":
                 interaction_events["recovery_requested"] += 1
+            elif stage == "refine_settled" and observed_outcome in {"completed", "failed", "timed_out", "unavailable", "cancelled"}:
+                interaction_events[f"refine_{observed_outcome}"] += 1
             elif stage == "copy_result":
                 interaction_events[f"copy_{observed_outcome}"] += 1
             elif stage == "discard_terminal":

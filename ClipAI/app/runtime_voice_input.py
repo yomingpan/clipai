@@ -268,12 +268,12 @@ class VoiceInputRuntimeModule:
             self._execute(transition)
             return True
         if isinstance(command, InlineDictationRefineSettled):
-            transition = self._controller.complete_inline_refinement(command.interaction_id, command.operation_id, command.text, error=command.error)
+            transition = self._controller.complete_inline_refinement(command.interaction_id, command.operation_id, command.text, error=command.error, failure_reason=command.failure_reason)
             if transition.ignored:
                 _trace_inline("late_refine_ignored", command.interaction_id, operation_id=command.operation_id)
                 return False
             _trace_inline("refine_settled", command.interaction_id, operation_id=command.operation_id,
-                          outcome="failed" if command.error or not command.text.strip() else "completed")
+                          outcome=command.failure_reason or ("failed" if command.error or not command.text.strip() else "completed"))
             self._execute(transition)
             return True
         if isinstance(command, InlineDictationRefineCancelAccepted):

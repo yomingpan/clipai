@@ -53,7 +53,7 @@ def test_unavailable_refinement_preserves_original_dictation_without_pasting():
     assert not coordinator.submit("spoken words", TARGET, refine=True, operation_id="refine-1")
 
     assert pasted == []
-    assert settled == [("", "refine-1", "", True)]
+    assert settled == [("", "refine-1", "", True, "unavailable")]
 
 
 def test_refinement_failure_requires_explicit_recovery_before_paste():
@@ -72,7 +72,7 @@ def test_refinement_failure_requires_explicit_recovery_before_paste():
     provider.failure(RuntimeError("offline"))
 
     assert pasted == []
-    assert settled == [("", "refine-1", "", True)]
+    assert settled == [("", "refine-1", "", True, "failed")]
 
 
 def test_refinement_success_returns_processed_text_without_direct_paste():
@@ -88,7 +88,7 @@ def test_refinement_success_returns_processed_text_without_direct_paste():
     provider.success("polished words")
 
     assert pasted == []
-    assert settled == [("", "refine-1", "polished words", False)]
+    assert settled == [("", "refine-1", "polished words", False, None)]
 
 
 def test_empty_refinement_result_never_uses_raw_text_as_automatic_fallback():
@@ -102,7 +102,7 @@ def test_empty_refinement_result_never_uses_raw_text_as_automatic_fallback():
     coordinator.submit("spoken words", TARGET, refine=True, interaction_id="inline-1", operation_id="refine-1")
     provider.success("   ")
     assert pasted == []
-    assert settled == [("inline-1", "refine-1", "   ", True)]
+    assert settled == [("inline-1", "refine-1", "   ", True, "failed")]
 
 
 def test_refinement_binding_failure_settles_without_claiming_provider_admission():
@@ -121,7 +121,7 @@ def test_refinement_binding_failure_settles_without_claiming_provider_admission(
 
     assert not coordinator.submit("spoken words", TARGET, refine=True, interaction_id="inline-1", operation_id="refine-1")
     assert provider.work is None
-    assert settled == [("inline-1", "refine-1", "", True)]
+    assert settled == [("inline-1", "refine-1", "", True, "unavailable")]
 
 
 def test_hung_inline_provider_returns_to_explicit_recovery(monkeypatch):
@@ -143,7 +143,7 @@ def test_hung_inline_provider_returns_to_explicit_recovery(monkeypatch):
     try:
         assert coordinator.submit("spoken words", TARGET, refine=True, interaction_id="inline-1", operation_id="refine-1")
         assert settled.wait(timeout=1), "the UI must not remain refining indefinitely"
-        assert outcomes == [("inline-1", "refine-1", "", True)]
+        assert outcomes == [("inline-1", "refine-1", "", True, "timed_out")]
     finally:
         provider.shutdown()
 

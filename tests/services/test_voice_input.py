@@ -96,6 +96,29 @@ def test_inline_choice_preserves_text_and_blocks_another_capture_until_confirmed
     assert not controller.request_capture(VoiceCaptureId("inline-2"), inline).ignored
 
 
+def test_inline_refinement_timeout_names_timeout_and_keeps_original_text() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("inline-timeout")
+    inline = VoiceInlineTarget("inline-timeout", target().paste_target, mode="minimal")
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineListening(capture))
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "original words"))
+    controller.request_stop(capture, inline_delivery=True)
+    refine = controller.observe_engine(VoiceEngineEnded(capture)).effects[0]
+
+    transition = controller.complete_inline_refinement(
+        "inline-timeout", refine.operation_id, error=True, failure_reason="timed_out"
+    )
+
+    assert transition.effects == (
+        PresentInlineChoice(
+            "inline-timeout", "original words", allow_refine=False,
+            message="Dictation refinement timed out. Original text is preserved. Choose raw paste, copy, or discard.",
+        ),
+    )
+    assert not any(isinstance(effect, PasteInlineDictation) for effect in transition.effects)
+
+
 def test_old_view_confirm_and_cancel_cannot_affect_a_new_inline_interaction() -> None:
     controller = ready_controller()
     first_capture = VoiceCaptureId("first-capture")
