@@ -29,7 +29,8 @@ class GeminiProvider:
             usage = LLMUsage()
             async with self._transport.stream_lines(
                 f"{self._settings.base_url.rstrip('/')}/v1beta/models/{request.model}:streamGenerateContent",
-                params={"key": api_key, "alt": "sse"},
+                headers={"x-goog-api-key": api_key},
+                params={"alt": "sse"},
                 json=self.to_payload(request),
                 timeout=self._settings.timeout_sec,
             ) as response:
@@ -52,7 +53,7 @@ class GeminiProvider:
             return
         response = await self._transport.post(
             f"{self._settings.base_url.rstrip('/')}/v1beta/models/{request.model}:generateContent",
-            params={"key": api_key},
+            headers={"x-goog-api-key": api_key},
             json=self.to_payload(request),
             timeout=self._settings.timeout_sec,
         )

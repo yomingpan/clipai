@@ -49,11 +49,12 @@ class ProviderModelCatalogClient:
         models: list[str] = []
         page_token = ""
         for _page in range(100):
-            params = {"key": api_key}
+            params: dict[str, str] = {}
             if page_token:
                 params["pageToken"] = page_token
             response = await self._transport.get(
                 f"{settings.base_url.rstrip('/')}/v1beta/models",
+                headers={"x-goog-api-key": api_key},
                 params=params,
                 timeout=settings.timeout_sec,
             )

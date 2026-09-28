@@ -36,6 +36,8 @@ def test_gemini_catalog_normalizes_model_names() -> None:
     transport = FakeTransport(HttpResponse(200, "", {"models": [{"name": "models/gemini-a"}]}))
     settings = GeminiSettings("KEY", "https://gemini.test", "gemini-a", 10)
     assert run(ProviderModelCatalogClient(transport).list_models("gemini", settings, "secret")) == ("gemini-a",)
+    assert transport.calls[0][1]["headers"] == {"x-goog-api-key": "secret"}
+    assert "key" not in transport.calls[0][1].get("params", {})
 
 
 def test_anthropic_catalog_sends_version_header() -> None:
