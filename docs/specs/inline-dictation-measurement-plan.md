@@ -79,7 +79,7 @@ The first attended acoustic replay passed controlled-target readback but lacks s
 
 Two attended fixed-WAV Minimal-refine attempts exposed a suppressed-M long-press regression: the listener produced `short` after a physical hold. After the platform adapter fix and app restart, `artifacts/inline-controlled-audio-refine-minimal-3/report.json` passed the same playback-timing, long-stop, provider-refinement, controlled-target Paste, and clipboard checks. Its single-run stage samples are recorded in the follow-up evidence; they do not establish p95 or a before/after performance comparison.
 
-The current selected-case manifest at `artifacts/inline-validation-current-matrix-20260927/manifest.json` rechecks seven saved successful journeys from raw target and App records: five original mode/path cases plus timed fixed-WAV Minimal raw and refine. The two failed Minimal-refine attempts are preserved separately and are not silently included in a success-rate denominator. No device latency baseline or release percentile is inferred from this selected matrix.
+The current selected-case manifest at `artifacts/inline-validation-current-matrix-20260928/manifest.json` rechecks seven saved successful journeys from raw target and App records: five original mode/path cases plus timed fixed-WAV Minimal raw and refine. The two failed Minimal-refine attempts are preserved separately and are not silently included in a success-rate denominator. Saved runs before the literal-quality probe are correctly marked `not_covered` for that new metric. No device latency baseline or release percentile is inferred from this selected matrix.
 
 ## Tooling sequence and status
 

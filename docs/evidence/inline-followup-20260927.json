@@ -90,7 +90,7 @@
   "baseline_status": "not_established",
   "baseline_reason": "one_device_and_one_exploratory_acoustic_replay_without_independent_microphone_input_or_first_frame_observer",
   "current_seven_run_matrix": {
-    "artifact": "artifacts/inline-validation-current-matrix-20260927/manifest.json",
+    "artifact": "artifacts/inline-validation-current-matrix-20260928/manifest.json",
     "scope": "selected_successful_regression_cases_not_all_attempts",
     "reassessed_from_raw_evidence": true,
     "attended_runs": 7,
