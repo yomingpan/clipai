@@ -13,6 +13,16 @@ import pytest
 from scripts import inline_dictation_controlled_target as target_module
 
 
+def test_literal_character_errors_are_bounded_and_keep_no_text() -> None:
+    score = target_module._literal_character_errors
+    assert score("你好，世界", "你好世界") == 1
+    assert score("abc", "axc") == 1
+    assert score("abc", "abc!") == 1
+    assert score("", "anything") is None
+    assert score("x" * 257, "x") is None
+    assert score("x", "x" * 1025) is None
+
+
 @pytest.mark.integration
 def test_controlled_target_reports_paste_readback_without_exporting_text(monkeypatch) -> None:
     monkeypatch.setattr(target_module, "clipboard_fingerprint", lambda: {"status": "observed", "formats": []})
@@ -34,6 +44,8 @@ def test_controlled_target_reports_paste_readback_without_exporting_text(monkeyp
         assert [record["kind"] for record in records] == ["ready", "paste_observed"]
         assert records[-1]["target"]["matches_expected"] is True
         assert records[-1]["target"]["paste_count"] == 1
+        assert records[-1]["target"]["literal_character_errors"] == 0
+        assert records[-1]["target"]["reference_codepoints"] == len("controlled private phrase")
         assert records[-1]["run_nonce"] == "test-run"
         assert "controlled private phrase" not in output.getvalue()
     finally:

@@ -56,6 +56,29 @@ def configured_inline_mode() -> str | None:
     return mode if mode in {"choice", "minimal"} else None
 
 
+def _matching_fixture_phrase(audio_file: Path) -> str:
+    """Use only a phrase tied to the exact WAV bytes by its local manifest."""
+    try:
+        manifest = json.loads((audio_file.parent / "manifest.json").read_text(encoding="utf-8-sig"))
+        digest = hashlib.sha256(audio_file.read_bytes()).hexdigest()
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("fixtures"), list):
+        return ""
+    for fixture in manifest["fixtures"]:
+        if not isinstance(fixture, dict):
+            continue
+        phrase = fixture.get("phrase")
+        if (
+            fixture.get("file") == audio_file.name
+            and fixture.get("sha256") == digest
+            and isinstance(phrase, str)
+            and 0 < len(phrase) <= 256
+        ):
+            return phrase
+    return ""
+
+
 def _write_blocked_report(
     path: Path, *, mode: str, scenario: str, run_nonce: str,
     reason_code: str, check_name: str = "app_instance",
@@ -238,6 +261,10 @@ def assess(
         },
         "physical_hotkey": "operator_attested_not_independently_observed",
         "microphone_audio_source": "operator_supplied_not_recorded",
+        "literal_character_comparison": (
+            target_result["literal_character_comparison"]
+            if scenario == "raw" else {"status": "not_applicable"}
+        ),
         "ui_first_frame": "not_observed",
         "device_baseline": "not_established_from_one_run",
     }
@@ -247,8 +274,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("choice", "minimal"), required=True)
     parser.add_argument("--scenario", choices=("raw", "refine", "cancel"), required=True)
-    parser.add_argument("--expected-text", default="", help="fixed test phrase expected in the target")
-    parser.add_argument("--freeform", action="store_true", help="check nonempty stable insertion without transcript comparison")
+    parser.add_argument("--expected-text", default="", help="fixed test phrase; with --freeform, report literal character error without gating delivery")
+    parser.add_argument("--freeform", action="store_true", help="check nonempty stable insertion; optional --expected-text measures literal character error")
     parser.add_argument("--audio-file", type=Path, help="fixed WAV to play through speakers after capture starts")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--late-wait", type=float, default=3.0)
@@ -264,6 +291,11 @@ def main() -> int:
         parser.error("--expected-text is required for raw and refine")
     if args.late_wait < 1:
         parser.error("--late-wait must be at least one second")
+    reference_text = args.expected_text
+    fixture_reference = False
+    if audio_file is not None and args.freeform and args.scenario == "raw" and not reference_text:
+        reference_text = _matching_fixture_phrase(audio_file)
+        fixture_reference = bool(reference_text)
     output_dir = args.output_dir.resolve()
     if output_dir.exists() and any(
         (output_dir / name).exists() for name in ("target.jsonl", "inline-trace.log", "report.json")
@@ -304,7 +336,7 @@ def main() -> int:
     log_offset = app_log.stat().st_size if app_log.exists() else 0
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "scripts" / "inline_dictation_controlled_target.py"),
-         "--output", str(events_path), "--expected-text", args.expected_text,
+         "--output", str(events_path), "--expected-text", reference_text,
          "--run-nonce", run_nonce],
         cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         text=True, encoding="utf-8", errors="replace",
@@ -411,6 +443,7 @@ def main() -> int:
             "sha256": hashlib.sha256(audio_file.read_bytes()).hexdigest(),
             "playback_returned": True,
             "trigger": "matching_inline_listening_trace",
+            "reference_source": "hash_matched_fixture_manifest" if fixture_reference else "operator_supplied_or_unavailable",
             "start_monotonic_ns": playback_interval_ns[0],
             "end_monotonic_ns": playback_interval_ns[1],
             "microphone_input_independently_confirmed": False,

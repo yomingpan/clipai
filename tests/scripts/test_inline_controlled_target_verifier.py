@@ -61,6 +61,35 @@ def test_freeform_delivery_checks_nonempty_stable_insertion_without_claiming_acc
     assert verify(records, scenario="delivery", text_policy="nonempty")["checks"]["target_text"] == "fail"
 
 
+def test_freeform_fixed_phrase_reports_content_safe_literal_error_without_gating_delivery() -> None:
+    records = delivered()
+    records[0]["target"]["utf8_bytes"] = 0
+    for record in records[1:]:
+        record["target"].update({
+            "matches_expected": False,
+            "reference_codepoints": 4,
+            "observed_codepoints": 5,
+            "literal_character_errors": 1,
+        })
+    report = verify(records, scenario="delivery", text_policy="nonempty")
+
+    assert report["status"] == "pass"
+    assert report["literal_character_comparison"] == {
+        "status": "measured",
+        "reference_codepoints": 4,
+        "observed_codepoints": 5,
+        "edit_distance": 1,
+        "literal_character_error_rate": 0.25,
+        "note": "Unicode codepoint comparison; punctuation and wording count, meaning is not assessed.",
+    }
+    assert "expected" not in str(report)
+
+    records[-1]["target"]["paste_count"] = 0
+    failed_delivery = verify(records, scenario="delivery", text_policy="nonempty")
+    assert failed_delivery["status"] == "fail"
+    assert failed_delivery["literal_character_comparison"] == {"status": "not_covered"}
+
+
 def test_cancel_succeeds_only_when_target_and_clipboard_stay_unchanged() -> None:
     report = verify([
         observation("ready", 1, text="original", pastes=0),

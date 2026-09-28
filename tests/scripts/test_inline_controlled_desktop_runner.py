@@ -1,4 +1,5 @@
 import json
+import hashlib
 import sys
 import threading
 import pytest
@@ -27,6 +28,20 @@ def test_attended_audio_replay_requires_existing_wav_and_delivery_scenario(monke
         run_inline_controlled_desktop.main()
     assert cancel.value.code == 2
     assert not (tmp_path / "run").exists()
+
+
+def test_known_fixture_phrase_requires_matching_wav_hash(tmp_path) -> None:
+    wav = tmp_path / "fixed.wav"
+    wav.write_bytes(b"RIFF-public-synthetic-test")
+    digest = hashlib.sha256(wav.read_bytes()).hexdigest()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"fixtures": [{
+        "file": wav.name, "sha256": digest, "phrase": "你好，測試。",
+    }]}), encoding="utf-8")
+
+    assert run_inline_controlled_desktop._matching_fixture_phrase(wav) == "你好，測試。"
+    wav.write_bytes(wav.read_bytes() + b"changed")
+    assert run_inline_controlled_desktop._matching_fixture_phrase(wav) == ""
 
 
 def test_audio_replay_waits_for_the_matching_new_inline_listening_trace(tmp_path) -> None:
@@ -126,6 +141,17 @@ def test_attended_delivery_requires_target_readback_and_matching_app_trace() -> 
     freeform = assess(freeform_records, trace, mode="minimal", scenario="raw", text_policy="nonempty")
     assert freeform["status"] == "pass"
     assert freeform["target"]["content_accuracy"] == "not_machine_verified"
+    assert freeform["literal_character_comparison"]["status"] == "not_covered"
+
+    freeform_records[-1]["target"].update({
+        "reference_codepoints": 4,
+        "observed_codepoints": 5,
+        "literal_character_errors": 1,
+    })
+    measured = assess(freeform_records, trace, mode="minimal", scenario="raw", text_policy="nonempty")
+    assert measured["literal_character_comparison"]["literal_character_error_rate"] == 0.25
+    refined = assess(freeform_records, trace, mode="minimal", scenario="refine", text_policy="nonempty")
+    assert refined["literal_character_comparison"] == {"status": "not_applicable"}
 
 
 def test_cancel_trace_with_late_paste_request_fails_even_if_target_is_unchanged() -> None:

@@ -176,6 +176,7 @@ def test_attended_manifest_rechecks_raw_evidence_instead_of_old_verdict(tmp_path
     reassessed = reassess_attended_report(report)
     assert reassessed["status"] == "pass"
     assert reassessed["checks"]["stop_gesture"] == "pass"
+    assert reassessed["literal_character_comparison"] == {"status": "not_covered"}
 
     old_report = json.loads(report.read_text(encoding="utf-8"))
     old_report["audio_replay"] = {

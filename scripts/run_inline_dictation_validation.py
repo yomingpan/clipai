@@ -198,6 +198,7 @@ def reassess_attended_report(report_path: Path) -> dict[str, object]:
         "audio_replay_sha256": audio_replay["sha256"] if replay_reported else None,
         "audio_replay_timing": replay_timing,
         "content_accuracy": result["target"]["content_accuracy"],
+        "literal_character_comparison": result["literal_character_comparison"],
     }
 
 

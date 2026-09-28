@@ -42,6 +42,8 @@ The window now shows `準備潤飾` before provider task admission and `整理�
 
 **Content:** on a fixed, explicitly consented test corpus, compare recognized text and final text separately. Include filler removal, self-correction, names/terms, dates, negation, uncertainty, language mixing, and punctuation. Character/word error can describe recognition, but human review of intent preservation and edit effort is needed for the final result. Do not optimize transcription accuracy as a proxy for usable writing. Track whether raw delivery was the intended path or an explicit recovery choice after provider failure.
 
+For a fixed-WAV raw attended run, the controlled target may load the public reference phrase from a manifest whose file name and SHA-256 match the WAV. It reports only bounded Unicode codepoint counts, literal edit distance, and character error rate; it never exports the recognized sentence. `--freeform` still gates only stable nonempty insertion, so a punctuation or wording difference is measured rather than relabeled as a Paste failure. Refinement output is not scored against the source phrase. This metric does not assess meaning or independently confirm which acoustic signal reached the microphone.
+
 Report Choice-based raw/refine choice rate, Minimal input short/long stop rate,
 provider-failure recovery choice rate, and corpus outcomes split
 into `no_manual_change`, `cosmetic_manual_change`, `meaning_changed`, and

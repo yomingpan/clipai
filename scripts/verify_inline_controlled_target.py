@@ -25,6 +25,26 @@ def _clipboard_formats(record: dict) -> tuple[tuple[int, int, str], ...] | None:
         return None
 
 
+def _literal_character_comparison(target: dict) -> dict[str, object]:
+    reference = target.get("reference_codepoints")
+    observed = target.get("observed_codepoints")
+    errors = target.get("literal_character_errors")
+    if not (
+        type(reference) is int and 0 < reference <= 256
+        and type(observed) is int and 0 <= observed <= 1024
+        and type(errors) is int and 0 <= errors <= max(reference, observed)
+    ):
+        return {"status": "not_covered"}
+    return {
+        "status": "measured",
+        "reference_codepoints": reference,
+        "observed_codepoints": observed,
+        "edit_distance": errors,
+        "literal_character_error_rate": round(errors / reference, 3),
+        "note": "Unicode codepoint comparison; punctuation and wording count, meaning is not assessed.",
+    }
+
+
 def verify(records: list[dict], *, scenario: str, text_policy: str = "exact") -> dict[str, object]:
     if scenario not in {"delivery", "cancel"}:
         raise ValueError("scenario must be delivery or cancel")
@@ -102,10 +122,20 @@ def verify(records: list[dict], *, scenario: str, text_policy: str = "exact") ->
             "pass" if end_target.get("sha256") == start_target.get("sha256")
             and end_target.get("utf8_bytes") == start_target.get("utf8_bytes") else "fail"
         )
-    return _result(checks, scenario, next(iter(run_nonces)) if len(run_nonces) == 1 else None, text_policy)
+    comparison = (
+        _literal_character_comparison(end_target)
+        if scenario == "delivery" and checks.get("target_text") == "pass"
+        and checks.get("paste_count") == "pass"
+        else {"status": "not_applicable"} if scenario == "cancel"
+        else {"status": "not_covered"}
+    )
+    return _result(checks, scenario, next(iter(run_nonces)) if len(run_nonces) == 1 else None, text_policy, comparison)
 
 
-def _result(checks: dict[str, str], scenario: str, run_nonce: object, text_policy: str) -> dict[str, object]:
+def _result(
+    checks: dict[str, str], scenario: str, run_nonce: object, text_policy: str,
+    comparison: dict[str, object] | None = None,
+) -> dict[str, object]:
     status = "fail" if "fail" in checks.values() else "blocked" if "blocked" in checks.values() else "pass"
     return {
         "schema_version": 1,
@@ -113,6 +143,7 @@ def _result(checks: dict[str, str], scenario: str, run_nonce: object, text_polic
         "scenario": scenario,
         "text_policy": text_policy,
         "content_accuracy": "not_machine_verified" if text_policy == "nonempty" else "fixed_phrase_comparison",
+        "literal_character_comparison": comparison or {"status": "not_covered"},
         "run_nonce": run_nonce,
         "status": status,
         "checks": checks,

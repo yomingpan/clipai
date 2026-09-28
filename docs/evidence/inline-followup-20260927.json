@@ -98,6 +98,19 @@
     "fixed_wav_runs_with_playback_timing": 2,
     "representative_baseline": false
   },
+  "literal_quality_probe": {
+    "scope": "future_fixed_wav_raw_attended_runs_only",
+    "reference": "sha256_matched_public_fixture_manifest",
+    "metric": "bounded_unicode_codepoint_edit_distance_and_character_error_rate",
+    "raw_transcript_exported": false,
+    "target_tk_integration": {"status": "pass", "passed": 2},
+    "inline_fast": {
+      "status": "pass",
+      "passed": 420,
+      "artifact": "artifacts/inline-validation-literal-quality-final-20260928/manifest.json"
+    },
+    "attended_result": "not_covered"
+  },
   "prior_attended_evidence": "docs/evidence/inline-attended-20260927.json",
   "notes": [
     "Operator confirmation of the LINE hotkey behavior is physical desktop evidence but has no independent HID trace.",

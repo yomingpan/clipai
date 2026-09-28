@@ -26,6 +26,23 @@ def _digest(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def _literal_character_errors(reference: str, observed: str) -> int | None:
+    """Bounded Unicode-codepoint edit distance for a consented test phrase."""
+    if not reference or len(reference) > 256 or len(observed) > 1024:
+        return None
+    previous = list(range(len(reference) + 1))
+    for row, actual in enumerate(observed, 1):
+        current = [row]
+        for column, expected in enumerate(reference, 1):
+            current.append(min(
+                current[column - 1] + 1,
+                previous[column] + 1,
+                previous[column - 1] + (actual != expected),
+            ))
+        previous = current
+    return previous[-1]
+
+
 def clipboard_fingerprint() -> dict[str, object]:
     """Read only; format hashes can prove preservation without exporting data."""
     sampled_at_ns = time.monotonic_ns()
@@ -48,6 +65,7 @@ class ControlledTarget:
         self.root = root
         self.output = output
         self.expected_digest = _digest(expected_text.encode("utf-8"))
+        self.reference_text = expected_text
         self.run_nonce = run_nonce
         self.paste_count = 0
         self.commands: queue.Queue[dict[str, object]] = queue.Queue()
@@ -78,6 +96,7 @@ class ControlledTarget:
         text = self.editor.get("1.0", "end-1c")
         text_bytes = text.encode("utf-8")
         text_digest = _digest(text_bytes)
+        character_errors = _literal_character_errors(self.reference_text, text)
         selection = self.editor.tag_ranges("sel")
         try:
             import ctypes
@@ -106,6 +125,9 @@ class ControlledTarget:
                 "insert_index": self.editor.index("insert"),
                 "selection": [str(index) for index in selection],
                 "paste_count": self.paste_count,
+                "reference_codepoints": len(self.reference_text) if self.reference_text else None,
+                "observed_codepoints": len(text) if character_errors is not None else None,
+                "literal_character_errors": character_errors,
                 **focus,
             },
         }
