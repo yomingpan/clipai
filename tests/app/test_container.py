@@ -17,9 +17,15 @@ from ClipAI.providers.openai import OpenAIProvider
 from ClipAI.platform.browser_speech import WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT
 
 
+@pytest.fixture
+def stub_desktop_view(monkeypatch) -> None:
+    monkeypatch.setattr(container, "ResultDialogPresenter", lambda **_kwargs: object())
+
+
 def test_runtime_composition_injects_voice_profile_from_application_paths(
     tmp_path: Path,
     monkeypatch,
+    stub_desktop_view,
 ) -> None:
     class CompositionReachedVoiceProfile(Exception):
         pass
@@ -46,6 +52,7 @@ def test_runtime_composition_injects_voice_profile_from_application_paths(
 def test_runtime_composition_appends_webview2_speech_fallback_once(
     tmp_path: Path,
     monkeypatch,
+    stub_desktop_view,
 ) -> None:
     class CompositionReachedVoiceEngine(Exception):
         pass
