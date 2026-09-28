@@ -351,6 +351,7 @@ def test_attended_run_stops_before_opening_target_when_app_is_absent(
     monkeypatch.setattr(
         sys, "argv", ["controlled", "--mode", "minimal", "--scenario", "cancel", "--output-dir", str(output_dir)]
     )
+    monkeypatch.setattr(run_inline_controlled_desktop, "harness_is_elevated", lambda: False)
     monkeypatch.setattr(run_inline_controlled_desktop, "app_instance_is_running", lambda: False)
     monkeypatch.setattr(
         run_inline_controlled_desktop.subprocess,

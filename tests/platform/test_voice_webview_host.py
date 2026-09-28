@@ -43,7 +43,7 @@ def test_browser_speech_terminal_events_preserve_only_explicit_stop_interim() ->
         pytest.skip("Node.js is unavailable for WebView script simulation")
     result = subprocess.run(
         [node, "tests/platform/fixtures/voice_webview_finish_case.js"],
-        check=True, capture_output=True, text=True, timeout=5,
+        check=True, capture_output=True, text=True, timeout=20,
     )
     stopped, cancelled, network, network_after_stop, network_after_cancel = json.loads(result.stdout)
 

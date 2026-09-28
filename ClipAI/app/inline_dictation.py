@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 
@@ -67,7 +68,7 @@ class InlineDictationCoordinator:
             if error is not None:
                 logger.warning("Dictation refinement failed: %s", type(error).__name__)
             reason: InlineRefinementFailureReason
-            if isinstance(error, (TimeoutError, ProviderTimeoutError)):
+            if isinstance(error, (asyncio.TimeoutError, TimeoutError, ProviderTimeoutError)):
                 reason = "timed_out"
             elif isinstance(error, ProviderUnavailableError):
                 reason = "unavailable"
