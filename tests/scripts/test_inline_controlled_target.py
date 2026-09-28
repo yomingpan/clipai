@@ -76,6 +76,7 @@ def test_controlled_target_process_accepts_observe_and_shutdown(tmp_path: Path) 
             "--run-nonce", "process-test",
         ],
         stdin=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         cwd=Path(__file__).resolve().parents[2],
     )
     try:
@@ -87,6 +88,8 @@ def test_controlled_target_process_accepts_observe_and_shutdown(tmp_path: Path) 
         process.stdin.write(b'{"command":"observe"}\n{"command":"shutdown"}\n')
         process.stdin.flush()
         assert process.wait(timeout=8) == 0
+        assert process.stderr is not None
+        assert process.stderr.read() == b""
         records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
         assert [record["kind"] for record in records] == ["ready", "observation", "shutdown"]
         assert all(record["run_nonce"] == "process-test" for record in records)

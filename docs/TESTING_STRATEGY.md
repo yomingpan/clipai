@@ -310,7 +310,7 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 
 ### Inline Dictation 端到端量測（規劃中）
 
-固定驗證可執行 `python scripts/run_inline_dictation_validation.py --output-dir artifacts/inline-validation-<run>`；互動式 Windows 桌面另加 `--tk --webview`。腳本輸出 JUnit XML 與不含口述內容的 `manifest.json`，將快速模擬、Tk 視窗與 WebView2 分層。桌面層的 pytest 暫存放在 `%LOCALAPPDATA%/ClipAI/InlineValidation`；WebView2 profile 與測試頁面另外建立在 `%LOCALAPPDATA%/ClipAI/InlineValidationProfiles`，繼承目錄 ACL，避免 pytest 的受限 `tmp_path` 權限阻止瀏覽器子行程使用 profile。必要桌面案例若因無法取得 foreground 而 skip，該層標為 `blocked`，不能由其餘 Tk 通過案例推論焦點已驗證。自動化多目標矩陣、獨立實體快捷鍵／音源觀察及裝置基線維持 `not_covered` 或 `blocked`。模擬與 pytest 時間不可當成裝置延遲。
+固定驗證可執行 `python scripts/run_inline_dictation_validation.py --output-dir artifacts/inline-validation-<run>`；互動式 Windows 桌面另加 `--tk --webview`。腳本輸出 JUnit XML 與不含口述內容的 `manifest.json`，將快速模擬、Tk 視窗與 WebView2 分層。Tk 層使用 pytest 的 `sys` capture，避免 Windows 上 Tcl 讀取 `init.tcl` 受 FD capture 影響；manifest 記錄各層的 capture 模式。桌面層的 pytest 暫存放在 `%LOCALAPPDATA%/ClipAI/InlineValidation`；WebView2 profile 與測試頁面另外建立在 `%LOCALAPPDATA%/ClipAI/InlineValidationProfiles`，繼承目錄 ACL，避免 pytest 的受限 `tmp_path` 權限阻止瀏覽器子行程使用 profile。必要桌面案例若因無法取得 foreground 而 skip，該層標為 `blocked`，不能由其餘 Tk 通過案例推論焦點已驗證。自動化多目標矩陣、獨立實體快捷鍵／音源觀察及裝置基線維持 `not_covered` 或 `blocked`。模擬與 pytest 時間不可當成裝置延遲。
 
 已保存的單輪受控桌面案例可重複指定 --attended-report <path> 交給固定 runner；它會由 target.jsonl 和 inline-trace.log 重新判定後列入 manifest 的 attended_smoke。未覆蓋的自動化多目標矩陣仍獨立標示。單輪探索性結果見 docs/evidence/inline-attended-20260927.json，不能當正式裝置基線。
 

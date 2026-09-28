@@ -50,6 +50,10 @@ def test_inline_choice_and_recovery_reposition_after_expanding_near_screen_edge(
             assert window._window.winfo_rooty() + window._window.winfo_height() <= height - 8
     finally:
         window.close()
+        # CustomTkinter's interpreter-wide timers outlive this first root and
+        # otherwise fire as invalid Tcl commands in the following test.
+        for callback in root.tk.call("after", "info"):
+            root.after_cancel(callback)
         root.destroy()
 
 

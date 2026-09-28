@@ -40,6 +40,8 @@ FAST_CASES = (
     "tests/scripts/test_inline_validation_runner.py",
     "tests/scripts/test_inline_voice_chain_probe.py",
     "tests/scripts/test_inline_microphone_path_probe.py",
+    "tests/scripts/test_inline_pixel_presence_probe.py",
+    "tests/scripts/test_popup_first_frame_benchmark.py",
     "tests/architecture",
 )
 TK_CASES = ("tests/ui/test_inline_dictation_window.py", "tests/scripts/test_inline_controlled_target.py")
@@ -70,6 +72,10 @@ def run_layer(name: str, cases: tuple[str, ...], output_dir: Path, *, integratio
         basetemp = output_dir / (name + "-tmp")
     command = [
         sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+        # Tk/Tcl file reads fail intermittently under pytest's Windows FD
+        # capture after a prior Tk root is destroyed. Python-level capture
+        # preserves test output while leaving Tcl's native handles alone.
+        *(["--capture=sys"] if name == "tk" else []),
         "-m", "integration" if integration else "not integration",
         *cases,
         f"--basetemp={basetemp}",
@@ -129,6 +135,7 @@ def run_layer(name: str, cases: tuple[str, ...], output_dir: Path, *, integratio
         "failed": counts["failures"] + counts["errors"],
         "skipped": counts["skipped"],
         "exit_code": completed.returncode,
+        "pytest_capture": "sys" if name == "tk" else "fd",
         "junit": report.name,
     }
 

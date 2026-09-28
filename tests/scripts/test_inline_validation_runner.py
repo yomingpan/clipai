@@ -161,6 +161,8 @@ def test_desktop_layer_uses_local_app_data_for_webview_profile(tmp_path: Path, m
     assert layer["status"] == "pass"
     assert basetemp.is_relative_to(tmp_path / "local-app-data" / "ClipAI" / "InlineValidation")
     assert not basetemp.is_relative_to(tmp_path / "evidence")
+    assert "--capture=sys" not in commands[0]
+    assert layer["pytest_capture"] == "fd"
 
 
 def test_tk_layer_keeps_temporary_files_with_its_evidence(tmp_path: Path, monkeypatch) -> None:
@@ -181,6 +183,8 @@ def test_tk_layer_keeps_temporary_files_with_its_evidence(tmp_path: Path, monkey
     basetemp = Path(next(item.removeprefix("--basetemp=") for item in commands[0] if item.startswith("--basetemp=")))
     assert layer["status"] == "pass"
     assert basetemp == tmp_path / "tk-tmp"
+    assert "--capture=sys" in commands[0]
+    assert layer["pytest_capture"] == "sys"
 
 
 def test_attended_manifest_rechecks_raw_evidence_instead_of_old_verdict(tmp_path: Path) -> None:

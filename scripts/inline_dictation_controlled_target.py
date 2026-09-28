@@ -176,6 +176,8 @@ class ControlledTarget:
                 break
             try:
                 self.handle(command)
+                if command.get("command") == "shutdown":
+                    return
             except (tk.TclError, ValueError) as exc:
                 self._records.put({
                     "schema_version": 1, "kind": "command_error", "run_nonce": self.run_nonce,
