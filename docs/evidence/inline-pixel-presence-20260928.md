@@ -44,3 +44,10 @@ desktop. It does not observe the first exact pixel time, state-label changes,
 focus preservation, physical shortcut response, microphone, Provider, Paste,
 or target insertion. Representative-device and end-to-end baselines remain
 open.
+
+A separate native Windows integration check ran with desktop foreground
+permission:
+`tests/ui/test_inline_dictation_window.py::test_minimal_status_preserves_the_native_foreground_window`
+passed (1 case). It verified that a controlled Tk input target retained the
+Windows foreground when Minimal status was shown. The pixel probe did not make
+this claim, and the test does not cover third-party editors.
