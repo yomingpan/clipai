@@ -140,13 +140,25 @@ def requested_layers_pass(layers: dict[str, dict[str, object]], *, tk: bool, web
 def reassess_attended_report(report_path: Path) -> dict[str, object]:
     """Recheck a saved desktop run from raw observations, not its old verdict."""
     artifact = report_path.parent.name
+    source_report = report_path.name
+    recorded_status = "unknown"
     try:
         original = json.loads(report_path.read_text(encoding="utf-8"))
+        if not isinstance(original, dict):
+            raise ValueError("attended report must be an object")
+        recorded_status = original["status"] if original.get("status") in {"pass", "fail", "blocked"} else "unknown"
         mode = original["mode_requested"]
         scenario = original["scenario_requested"]
-        text_policy = original["target"]["text_policy"]
+        target = original["target"]
+        text_policy = target.get("text_policy") if isinstance(target, dict) else None
         if mode not in {"choice", "minimal"} or scenario not in {"raw", "refine", "cancel"}:
             raise ValueError("unsupported attended scenario")
+        if text_policy is None:
+            return {
+                "artifact": artifact, "source_report": source_report,
+                "recorded_status": recorded_status,
+                "status": "blocked", "reason_code": "legacy_text_policy_unavailable",
+            }
         if text_policy not in {"exact", "nonempty"}:
             raise ValueError("unsupported text policy")
         records = [
@@ -155,7 +167,11 @@ def reassess_attended_report(report_path: Path) -> dict[str, object]:
         ]
         trace_lines = (report_path.parent / "inline-trace.log").read_text(encoding="utf-8").splitlines()
     except (OSError, ValueError, KeyError, TypeError):
-        return {"artifact": artifact, "status": "blocked", "reason_code": "attended_evidence_unavailable"}
+        return {
+            "artifact": artifact, "source_report": source_report,
+            "recorded_status": recorded_status,
+            "status": "blocked", "reason_code": "attended_evidence_unavailable",
+        }
 
     if __package__:
         from .run_inline_controlled_desktop import assess
@@ -193,9 +209,12 @@ def reassess_attended_report(report_path: Path) -> dict[str, object]:
         replay_timing = "fail"
     return {
         "artifact": artifact,
+        "source_report": source_report,
+        "recorded_status": recorded_status,
         "status": status,
         "mode": mode,
         "scenario": scenario,
+        "text_policy": text_policy,
         "checks": result["checks"],
         "evidence": "attended_controlled_target_and_app_trace",
         "physical_hotkey": result["physical_hotkey"],

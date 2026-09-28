@@ -270,3 +270,63 @@ def test_attended_manifest_rechecks_raw_evidence_instead_of_old_verdict(tmp_path
 
     (run / "inline-trace.log").unlink()
     assert reassess_attended_report(report)["status"] == "blocked"
+
+
+def test_attended_manifest_distinguishes_original_from_amended_assessment(tmp_path: Path) -> None:
+    run = tmp_path / "choice-raw"
+    run.mkdir()
+    original = run / "report.json"
+    amended = run / "freeform-assessment.json"
+    common = {"mode_requested": "choice", "scenario_requested": "raw", "run_nonce": "run-1"}
+    original.write_text(json.dumps({**common, "status": "fail", "target": {"text_policy": "exact"}}), encoding="utf-8")
+    amended.write_text(json.dumps({**common, "status": "pass", "target": {"text_policy": "nonempty"}}), encoding="utf-8")
+    events = [
+        {"kind": kind, "run_nonce": "run-1", "monotonic_ns": ns,
+         "target": {"sha256": digest, "utf8_bytes": size, "matches_expected": False,
+                    "paste_count": pastes, "target_is_foreground": True},
+         "clipboard": {"status": "observed", "formats": [{"id": 13, "bytes": 4, "sha256": "saved"}]}}
+        for kind, ns, digest, size, pastes in (
+            ("ready", 1, "empty", 0, 0),
+            ("paste_observed", 2, "spoken", 12, 1),
+            ("observation", 3, "spoken", 12, 1),
+        )
+    ]
+    (run / "target.jsonl").write_text("\n".join(map(json.dumps, events)) + "\n", encoding="utf-8")
+    stages = ("capture_requested", "listening", "stop_requested", "recognition_settled",
+              "choice_ready", "paste_requested", "paste_terminal")
+    (run / "inline-trace.log").write_text("\n".join(
+        f"Inline trace monotonic_ns={index} stage={stage} interaction_id=inline-1 "
+        "capture_id= operation_id= mode=choice "
+        f"outcome={'dispatched_unconfirmed' if stage == 'paste_terminal' else ''}"
+        for index, stage in enumerate(stages, 10)
+    ) + "\n", encoding="utf-8")
+
+    original_result = reassess_attended_report(original)
+    amended_result = reassess_attended_report(amended)
+
+    assert original_result["status"] == "fail"
+    assert amended_result["status"] == "pass"
+    assert original_result["source_report"] == "report.json"
+    assert amended_result["source_report"] == "freeform-assessment.json"
+    assert original_result["text_policy"] == "exact"
+    assert amended_result["text_policy"] == "nonempty"
+    assert original_result["recorded_status"] == "fail"
+    assert amended_result["recorded_status"] == "pass"
+
+
+def test_legacy_attended_report_requires_explicit_text_policy(tmp_path: Path) -> None:
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({
+        "status": "fail", "mode_requested": "choice", "scenario_requested": "raw",
+        "target": {},
+    }), encoding="utf-8")
+
+    result = reassess_attended_report(report)
+
+    assert result == {
+        "artifact": tmp_path.name,
+        "source_report": "report.json",
+        "recorded_status": "fail",
+        "status": "blocked",
+        "reason_code": "legacy_text_policy_unavailable",
+    }
