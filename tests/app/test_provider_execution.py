@@ -183,6 +183,43 @@ def test_provider_operation_deadline_settles_a_hung_request_as_error() -> None:
         module.shutdown()
 
 
+def test_provider_deadline_settles_even_when_work_suppresses_cancellation() -> None:
+    module = ProviderExecutionModule()
+    started = threading.Event()
+    release = threading.Event()
+    late_finished = threading.Event()
+    settled = threading.Event()
+    outcomes: list[str] = []
+
+    async def work():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            while not release.is_set():
+                await asyncio.sleep(0.01)
+            late_finished.set()
+            return "late result"
+
+    try:
+        module.start(
+            "inline-refine-suppressed", work,
+            lambda _result: outcomes.append("late result delivered"),
+            lambda error: (outcomes.append(type(error).__name__), settled.set()),
+            lambda: outcomes.append("cancelled"),
+            timeout_seconds=0.05,
+        )
+        assert started.wait(timeout=1)
+        assert settled.wait(timeout=0.3), "deadline must settle without waiting for cancellation cooperation"
+        release.set()
+        assert late_finished.wait(timeout=1)
+        threading.Event().wait(0.05)
+        assert outcomes == ["TimeoutError"]
+    finally:
+        release.set()
+        module.shutdown()
+
+
 def test_provider_deadline_during_shared_start_does_not_cancel_later_requests() -> None:
     allow_start = threading.Event()
     first_settled = threading.Event()
