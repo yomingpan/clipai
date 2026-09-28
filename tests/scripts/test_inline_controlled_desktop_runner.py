@@ -170,18 +170,20 @@ def test_cancel_trace_with_late_paste_request_fails_even_if_target_is_unchanged(
     assert report["target"]["status"] == "pass"
     assert report["status"] == "fail"
     assert report["checks"]["app_terminal"] == "fail"
-    assert report["escape_observation"] == {"target_keypress_count": 1, "modifier_states": [0]}
+    assert report["escape_observation"] == {
+        "app_hotkey_count": 0, "target_keypress_count": 1, "modifier_states": [0],
+    }
 
 
-def test_cancel_requires_observed_escape_and_matching_discard_terminal() -> None:
+def test_cancel_requires_app_escape_without_propagation_and_matching_discard_terminal() -> None:
     records = [
         _target("ready", 1, digest="empty", pastes=0),
-        {**_target("escape_observed", 2, digest="empty", pastes=0), "key_modifier_state": 8},
         _target("observation", 3, digest="empty", pastes=0),
     ]
     trace = [
         _trace(10, "capture_requested", mode="minimal"),
         _trace(11, "listening"),
+        "INFO clipai.hotkey [clipai] Escape interruption requested: current",
         _trace(12, "discard_requested"),
         _trace(13, "recognition_settled", outcome="empty_or_cancelled"),
         _trace(14, "discard_terminal", outcome="discarded"),
@@ -190,20 +192,67 @@ def test_cancel_requires_observed_escape_and_matching_discard_terminal() -> None
     report = assess(records, trace, mode="minimal", scenario="cancel")
     assert report["status"] == "pass"
     assert report["checks"]["escape_input"] == "pass"
+    assert report["checks"]["escape_not_propagated"] == "pass"
     assert report["checks"]["app_terminal"] == "pass"
 
-    missing_escape = assess([records[0], records[2]], trace, mode="minimal", scenario="cancel")
+    missing_escape = assess(records, trace[:2] + trace[3:], mode="minimal", scenario="cancel")
     assert missing_escape["status"] == "blocked"
     assert missing_escape["checks"]["escape_input"] == "blocked"
+
+    early_escape = assess(records, [trace[2], *trace[:2], *trace[3:]], mode="minimal", scenario="cancel")
+    assert early_escape["checks"]["escape_input"] == "fail"
+
+    duplicate_escape = assess(records, [*trace[:3], trace[2], *trace[3:]], mode="minimal", scenario="cancel")
+    assert duplicate_escape["checks"]["escape_input"] == "fail"
+
+    propagated_escape = assess(
+        records[:1] + [_target("escape_observed", 2, digest="empty", pastes=0)] + records[1:],
+        trace, mode="minimal", scenario="cancel",
+    )
+    assert propagated_escape["status"] == "fail"
+    assert propagated_escape["checks"]["escape_not_propagated"] == "fail"
 
     failed_terminal = assess(records, trace[:-1] + [_trace(14, "discard_terminal", outcome="failed")],
                              mode="minimal", scenario="cancel")
     assert failed_terminal["status"] == "fail"
     assert failed_terminal["checks"]["app_terminal"] == "fail"
 
-    missing_request = assess(records, trace[:2] + trace[3:], mode="minimal", scenario="cancel")
+    missing_request = assess(records, trace[:3] + trace[4:], mode="minimal", scenario="cancel")
     assert missing_request["status"] == "fail"
     assert missing_request["checks"]["app_terminal"] == "fail"
+
+
+def test_attended_evidence_keeps_only_inline_stages_and_escape_hotkey_receipt() -> None:
+    marker = "INFO clipai.hotkey [clipai] Escape interruption requested: current"
+    assert run_inline_controlled_desktop._content_free_app_evidence([
+        "INFO unrelated private content",
+        _trace(1, "capture_requested"),
+        marker,
+    ]) == [_trace(1, "capture_requested"), marker]
+
+
+def test_refine_failure_followed_by_explicit_raw_paste_does_not_pass_refine_acceptance() -> None:
+    records = [
+        _target("ready", 1, digest="empty", pastes=0),
+        _target("paste_observed", 2, digest="expected", pastes=1),
+        _target("observation", 3, digest="expected", pastes=1),
+    ]
+    trace = [
+        _trace(10, "capture_requested", mode="minimal"),
+        _trace(11, "listening"),
+        _trace(12, "stop_requested", outcome="long"),
+        _trace(13, "recognition_settled", outcome="content_available"),
+        _trace(14, "refine_requested"),
+        _trace(15, "refine_settled", outcome="failed"),
+        _trace(16, "choice_ready", outcome="raw_only"),
+        _trace(17, "paste_requested"),
+        _trace(18, "paste_terminal", outcome="dispatched_unconfirmed"),
+    ]
+
+    report = assess(records, trace, mode="minimal", scenario="refine")
+    assert report["target"]["status"] == "pass"
+    assert report["checks"]["refinement_outcome"] == "fail"
+    assert report["status"] == "fail"
 
 
 def test_attended_run_rejects_invalid_app_trace_even_with_target_insertion() -> None:
@@ -251,6 +300,7 @@ def test_minimal_refine_requires_long_stop_gesture() -> None:
     report = assess(records, trace, mode="minimal", scenario="refine")
     assert report["target"]["status"] == "pass"
     assert report["checks"]["delivery_path"] == "pass"
+    assert report["checks"]["refinement_outcome"] == "pass"
     assert report["checks"]["stop_gesture"] == "fail"
     assert report["status"] == "fail"
 

@@ -314,6 +314,8 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 
 已保存的單輪受控桌面案例可重複指定 --attended-report <path> 交給固定 runner；它會由 target.jsonl 和 inline-trace.log 重新判定後列入 manifest 的 attended_smoke。未覆蓋的自動化多目標矩陣仍獨立標示。單輪探索性結果見 docs/evidence/inline-attended-20260927.json，不能當正式裝置基線。
 
+新建的取消案例在 `inline-trace.log` 同時保存內容安全的 App Esc 接收記錄；驗收要求該記錄介於聆聽與取消請求之間，且外部目標沒有收到 Esc。潤稿成功案例必須有 `refine_settled=completed`；Provider 失敗後明確選擇貼原文屬恢復路徑，不能計為潤稿成功。舊案例缺少 App Esc 記錄時仍標為 blocked，除非能從同一輪原始 App log 重新取得。判定依據見 `docs/evidence/inline-attended-oracle-20260928.md`。
+
 若 WebView2 host 在 `test_loaded` 前逾時，先於同一桌面執行 `python scripts/probe_pywebview_bridge.py --visible --timeout 20`。探針只載入固定的純 HTML，檢查 JavaScript `ping` 能否到 Python，並求值固定的 JSON 算式；不使用麥克風、快捷鍵或剪貼簿。輸出 `page_loaded`、`bridge_ready`、`script_eval` 與例外類型。探針失敗可縮小基礎 pywebview／WebView2 鏈路的調查範圍，但不得將產品整合案例改判為通過。
 
 已有受控桌面的內容安全日誌後，可執行 `python scripts/report_inline_dictation_baseline.py <log> --device-cohort <cohort> --evidence controlled_desktop --output <report.json>` 彙整單調時鐘的階段間隔。報表按模式、原文／潤稿與終態分組，缺少終態時記為 `not_observable`；應由外部 observer 補上實際畫面與受控目標讀回，不能由 ClipAI 日誌推論文字已插入。

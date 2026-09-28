@@ -30,6 +30,11 @@ else:
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ESCAPE_HOTKEY_MARKER = "Escape interruption requested: current"
+
+
+def _content_free_app_evidence(lines: list[str]) -> list[str]:
+    return [line for line in lines if "Inline trace " in line or ESCAPE_HOTKEY_MARKER in line]
 
 
 def app_instance_is_running() -> bool:
@@ -181,9 +186,28 @@ def assess(
             else "fail"
         )
     if scenario == "cancel":
+        checks["escape_not_propagated"] = (
+            "fail" if any(record.get("kind") == "escape_observed" for record in records)
+            else "pass"
+        )
+        escape_positions = [
+            index for index, line in enumerate(trace_lines) if ESCAPE_HOTKEY_MARKER in line
+        ]
+        listening_positions = [
+            index for index, line in enumerate(trace_lines)
+            if (match := TRACE.search(line)) is not None
+            and match["interaction"] in interactions and match["stage"] == "listening"
+        ]
+        discard_positions = [
+            index for index, line in enumerate(trace_lines)
+            if (match := TRACE.search(line)) is not None
+            and match["interaction"] in interactions and match["stage"] == "discard_requested"
+        ]
         checks["escape_input"] = (
-            "pass" if any(record.get("kind") == "escape_observed" for record in records)
-            else "blocked"
+            "blocked" if not escape_positions
+            else "pass" if len(escape_positions) == len(listening_positions) == len(discard_positions) == 1
+            and listening_positions[0] < escape_positions[0] < discard_positions[0]
+            else "fail"
         )
     checks["app_trace_validity"] = (
         "fail" if app_trace["malformed_inline_records"]
@@ -224,6 +248,21 @@ def assess(
             checks["delivery_path"] = (
                 "pass" if ("refine_requested" in stages) == (scenario == "refine") else "fail"
             )
+            if scenario == "refine":
+                settlements = [
+                    (index, match) for index, match in enumerate(events)
+                    if match["stage"] == "refine_settled"
+                ]
+                requests = [index for index, stage in enumerate(stages) if stage == "refine_requested"]
+                pastes = [index for index, stage in enumerate(stages) if stage == "paste_requested"]
+                checks["refinement_outcome"] = (
+                    "blocked" if not settlements
+                    else "pass" if len(requests) == len(settlements) == 1
+                    and settlements[0][1]["outcome"] == "completed"
+                    and requests[0] < settlements[0][0]
+                    and (not pastes or settlements[0][0] < min(pastes))
+                    else "fail"
+                )
             if mode == "choice":
                 recognition = [index for index, stage in enumerate(stages) if stage == "recognition_settled"]
                 choices = [index for index, stage in enumerate(stages) if stage == "choice_ready"]
@@ -252,6 +291,7 @@ def assess(
         "target": target_result,
         "app_trace": app_trace,
         "escape_observation": {
+            "app_hotkey_count": sum(ESCAPE_HOTKEY_MARKER in line for line in trace_lines),
             "target_keypress_count": sum(record.get("kind") == "escape_observed" for record in records),
             "modifier_states": sorted({
                 record["key_modifier_state"] for record in records
@@ -432,7 +472,7 @@ def main() -> int:
             lines = source.read().decode("utf-8", errors="replace").splitlines()
     else:
         lines = []
-    trace_lines = [line for line in lines if "Inline trace " in line]
+    trace_lines = _content_free_app_evidence(lines)
     trace_path.write_text("\n".join(trace_lines) + ("\n" if trace_lines else ""), encoding="utf-8")
     report = assess(_records(events_path), trace_lines, mode=args.mode, scenario=args.scenario,
                     text_policy="nonempty" if args.freeform else "exact",
