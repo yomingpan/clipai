@@ -13,6 +13,7 @@ from ClipAI.services.provider_binding import ProviderExecutionBinding
 
 
 logger = logging.getLogger("clipai.inline_dictation")
+INLINE_REFINEMENT_TIMEOUT_SECONDS = 75.0
 
 
 class InlineDictationCoordinator:
@@ -72,6 +73,7 @@ class InlineDictationCoordinator:
                 refine_settled,
                 fallback,
                 lambda: fallback(),
+                timeout_seconds=INLINE_REFINEMENT_TIMEOUT_SECONDS,
             )
         except BaseException as error:
             fallback(error)

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+
 from ClipAI.app.inline_dictation import InlineDictationCoordinator
+from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.core.models import PasteTarget
 
 
@@ -13,9 +17,11 @@ class ProviderExecution:
         self.success = None
         self.failure = None
         self.cancelled = None
+        self.timeout_seconds = None
 
-    def start(self, _operation_id, work, success, failure, cancelled):
+    def start(self, _operation_id, work, success, failure, cancelled, *, timeout_seconds=None):
         self.work, self.success, self.failure, self.cancelled = work, success, failure, cancelled
+        self.timeout_seconds = timeout_seconds
 
     def cancel(self, _operation_id):
         return True
@@ -60,6 +66,7 @@ def test_refinement_failure_requires_explicit_recovery_before_paste():
     )
 
     assert coordinator.submit("spoken words", TARGET, refine=True, operation_id="refine-1")
+    assert provider.timeout_seconds == 75.0
     assert pasted == []
     assert settled == []
     provider.failure(RuntimeError("offline"))
@@ -115,6 +122,30 @@ def test_refinement_binding_failure_settles_without_claiming_provider_admission(
     assert not coordinator.submit("spoken words", TARGET, refine=True, interaction_id="inline-1", operation_id="refine-1")
     assert provider.work is None
     assert settled == [("inline-1", "refine-1", "", True)]
+
+
+def test_hung_inline_provider_returns_to_explicit_recovery(monkeypatch):
+    monkeypatch.setattr("ClipAI.app.inline_dictation.INLINE_REFINEMENT_TIMEOUT_SECONDS", 0.05)
+    provider = ProviderExecutionModule()
+    settled = threading.Event()
+    outcomes = []
+
+    class HungExecutor:
+        async def refine_text(self, *_args, **_kwargs):
+            await asyncio.Event().wait()
+
+    coordinator = InlineDictationCoordinator(
+        provider_execution=provider, executor=HungExecutor(), refine_action=object(),
+        binding=lambda: object(),
+        paste=lambda *_args: raise_unexpected_paste(),
+        on_refine_settled=lambda *args: (outcomes.append(args), settled.set()),
+    )
+    try:
+        assert coordinator.submit("spoken words", TARGET, refine=True, interaction_id="inline-1", operation_id="refine-1")
+        assert settled.wait(timeout=1), "the UI must not remain refining indefinitely"
+        assert outcomes == [("inline-1", "refine-1", "", True)]
+    finally:
+        provider.shutdown()
 
 
 def raise_unexpected_paste() -> None:

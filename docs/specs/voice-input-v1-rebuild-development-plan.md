@@ -226,6 +226,11 @@ without presenting new evidence that makes the plan unsafe or impossible.
   no-speech and cannot trigger the natural-end restart path, including when it
   arrives after Stop. Cancel keeps its discard decision. Finalized content
   already accepted by the controller is preserved for explicit recovery.
+- Inline refinement has a 75-second operation deadline covering provider
+  transport startup and response. If it expires, the Provider Execution owner
+  cancels that operation and reports failure through the typed settlement;
+  Inline Dictation retains the original text for an explicit raw-paste or
+  discard decision. It must not remain in the refining state indefinitely.
 - Release, Stop, Cancel, Popup close, Disable, listener shutdown, and application
   shutdown create an irreversible stop gate. No subsequent event can restart
   microphone use for that capture.

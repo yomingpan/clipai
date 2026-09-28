@@ -42,6 +42,8 @@ class ProviderExecutionModule:
         on_result: Callable[[T], None],
         on_error: Callable[[BaseException], None],
         on_cancelled: Callable[[], None],
+        *,
+        timeout_seconds: float | None = None,
     ) -> None:
         with self._lock:
             if self._closed:
@@ -56,8 +58,11 @@ class ProviderExecutionModule:
                         self._loop_tasks[operation_id] = task
                 try:
                     try:
-                        await self._await_lifecycle_start()
-                        result = await work()
+                        async def execute() -> T:
+                            await self._await_lifecycle_start()
+                            return await work()
+
+                        result = await asyncio.wait_for(execute(), timeout=timeout_seconds)
                     except asyncio.CancelledError:
                         if not self._is_closed():
                             on_cancelled()
