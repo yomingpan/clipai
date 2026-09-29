@@ -248,6 +248,7 @@ class VoiceProjection:
     silence_detected: bool = False
     capture_destination: VoiceCaptureDestination | None = None
     remaining_seconds: int | None = None
+    pending_language: VoiceLanguage | None = None
 
 
 @dataclass(frozen=True)

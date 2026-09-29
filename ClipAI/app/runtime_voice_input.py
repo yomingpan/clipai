@@ -370,6 +370,8 @@ class VoiceInputRuntimeModule:
         elif isinstance(command, VoiceLanguagePreferenceSaved):
             self._complete_voice_preference(command.operation_id, command.error)
             transition = self._controller.complete_language_save(command.operation_id, command.error)
+            if not transition.ignored and command.error and self._notifier is not None:
+                self._notifier.notify("Voice Input", command.error)
         elif isinstance(command, UpdateVoiceDraft):
             controller = self._workflows.controller_for(command.workflow_id)
             return controller is not None and controller.edit_voice_draft(command.expected_revision, command.text) is not None

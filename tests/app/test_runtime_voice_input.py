@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureAdmission
-from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceSilenceWatchdogExpired
+from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, InlineOrigin, PasteOutcome, PasteTarget, ShortcutPressId
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCapturePhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceSetupId
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCapturePhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
 from ClipAI.services.voice_input import CancelInlinePaste, DiscardInlineDictation, PresentInlineCopyState, VoiceInputController
 from ClipAI.core.commands import CancelInlineDictation, CopyInlineDictation, DismissInlineDictationTerminal, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationCopyCompleted, InlineDictationRefineSettled, InlineDictationRefineCancelAccepted, PasteOperationCompleted
 
@@ -920,6 +920,30 @@ def test_setup_permission_blocked_stays_visible_with_authoritative_projection() 
     assert runtime.handle(VoiceEngineEventReceived(VoiceEngineSetupBlocked(operation))) is True
 
     assert setup.projections[-1].capability is VoiceCapabilityPhase.PERMISSION_BLOCKED
+
+
+def test_voice_language_save_failure_notifies_and_keeps_previous_language() -> None:
+    notifier = Notifier()
+    projections = []
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True),
+        engine=Engine(),
+        workflows=Workflows(),
+        paste_target_reader=lambda: None,
+        persist_language=lambda _operation_id, _language: None,
+        projection_sink=projections.append,
+        notifier=notifier,
+    )
+    change = VoiceLanguageChangeId("language-1")
+
+    assert runtime.handle(SetVoiceLanguage(VoiceLanguage("en-US"), change)) is True
+    assert projections[-1].pending_language == "en-US"
+    assert runtime.handle(VoiceLanguagePreferenceSaved(change, "Could not save Voice Input language.")) is True
+    assert projections[-1].language == "zh-TW"
+    assert projections[-1].pending_language is None
+    assert notifier.messages == [("Voice Input", "Could not save Voice Input language.")]
+    assert runtime.handle(VoiceLanguagePreferenceSaved(change, "stale error")) is False
+    assert len(notifier.messages) == 1
 
 
 def test_permission_repair_resets_only_the_voice_profile_before_retrying_setup() -> None:

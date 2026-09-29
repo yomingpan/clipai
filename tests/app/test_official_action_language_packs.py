@@ -56,7 +56,7 @@ def test_japanese_candidate_compiles_as_one_complete_pack() -> None:
 
     assert pack.descriptor.identity.pack_id == "ja-JP"
     assert pack.descriptor.identity.locale == "ja-JP"
-    assert pack.descriptor.display_name == "日本語"
+    assert pack.descriptor.display_name == "Japanese"
     assert len(pack.action_definitions) == 29
     assert len(pack.output_profiles) == 10
     assert len(pack.entry_panel_candidates) == 29
@@ -71,8 +71,8 @@ def test_official_registry_releases_both_complete_packs_in_product_order() -> No
         "ja-JP",
     )
     assert tuple(pack.descriptor.display_name for pack in packs) == (
-        "繁體中文",
-        "日本語",
+        "Traditional Chinese",
+        "Japanese",
     )
 
 

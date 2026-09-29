@@ -57,9 +57,9 @@ def test_tray_inline_mode_stays_checked_on_saved_value_while_save_is_pending() -
         inline_input_mode=InlineInputModeState(),
         on_set_inline_input_mode=selected.append,
     )
-    voice_menu = tray._build_voice_menu(Pystray)
-    mode_menu = next(item for item in voice_menu.action.items if item.text == "Inline Dictation")
+    mode_menu = tray._build_inline_dictation_menu(Pystray)
     choice, minimal = mode_menu.action.items
+    assert mode_menu.text(None) == "Inline Dictation: Full Choice"
     assert choice.text == "Full Choice"
     assert minimal.text == "Minimal Input"
     assert choice.checked(None) and not minimal.checked(None)
@@ -67,10 +67,12 @@ def test_tray_inline_mode_stays_checked_on_saved_value_while_save_is_pending() -
     assert selected == ["minimal"]
 
     tray.set_inline_input_mode(InlineInputModeState("choice", "minimal", True))
+    assert mode_menu.text(None) == "Inline Dictation: Full Choice (Saving...)"
     assert choice.checked(None) and not minimal.checked(None)
     assert not minimal.enabled(None)
     tray.set_inline_input_mode(InlineInputModeState("minimal"))
     assert minimal.checked(None)
+    assert mode_menu.text(None) == "Inline Dictation: Minimal Input"
 
 
 def test_tray_inline_placement_radio_reflects_saved_and_pending_state() -> None:
@@ -85,7 +87,7 @@ def test_tray_inline_placement_radio_reflects_saved_and_pending_state() -> None:
         inline_dictation_placement=InlineDictationPlacementState(),
         on_set_inline_dictation_placement=selected.append,
     )
-    menu = next(item for item in tray._build_voice_menu(Pystray).action.items if item.text == "Inline Dictation")
+    menu = tray._build_inline_dictation_menu(Pystray)
     assert menu.action.items[2] is Menu.SEPARATOR
     follow_cursor, bottom_center = menu.action.items[3:]
     assert follow_cursor.checked(None) and not bottom_center.checked(None)
@@ -248,8 +250,8 @@ def _action_language_state(
     ja = ActionLanguagePackIdentity("ja-JP", "1.0.0", "ja-JP")
     return ActionLanguagePackSelectionState(
         (
-            ActionLanguagePackDescriptor(zh, "繁體中文"),
-            ActionLanguagePackDescriptor(ja, "日本語"),
+            ActionLanguagePackDescriptor(zh, "Traditional Chinese"),
+            ActionLanguagePackDescriptor(ja, "Japanese"),
         ),
         zh,
         selected,
@@ -271,7 +273,7 @@ def test_action_language_menu_checks_saved_selection_without_optimism() -> None:
     zh, ja = menu.action.items
     ja.action(None, None)
 
-    assert menu.text(None) == "Action Language (current: 繁體中文)"
+    assert menu.text(None) == "Action Language (current: Traditional Chinese)"
     assert [item.checked(None) for item in (zh, ja)] == [True, False]
     assert events == ["ja-JP"]
     assert [item.checked(None) for item in (zh, ja)] == [True, False]
@@ -286,7 +288,7 @@ def test_action_language_pending_disables_all_options_and_preserves_check() -> N
 
     menu = tray._build_action_language_menu(Pystray)
 
-    assert menu.text(None) == "Action Language (saving...; current: 繁體中文)"
+    assert menu.text(None) == "Action Language (saving...; current: Traditional Chinese)"
     assert [item.checked(None) for item in menu.action.items] == [True, False]
     assert all(item.enabled(None) is False for item in menu.action.items)
 
@@ -304,7 +306,7 @@ def test_action_language_restart_label_distinguishes_active_and_selected() -> No
     menu = tray._build_action_language_menu(Pystray)
 
     assert menu.text(None) == (
-        "Action Language (current: 繁體中文; after restart: 日本語)"
+        "Action Language (current: Traditional Chinese; after restart: Japanese)"
     )
     assert [item.checked(None) for item in menu.action.items] == [False, True]
 
@@ -332,7 +334,7 @@ def test_action_language_recovery_keeps_unavailable_requested_id_checked() -> No
     unavailable = menu.action.items[-1]
 
     assert menu.text(None) == (
-        "Action Language (selection unavailable; current: 繁體中文)"
+        "Action Language (selection unavailable; current: Traditional Chinese)"
     )
     assert unavailable.text == "missing (unavailable)"
     assert unavailable.checked is True
@@ -430,7 +432,7 @@ def test_speech_speed_menu_lists_four_presets_and_emits_without_optimistic_selec
     menu = tray._build_speech_speed_menu(Pystray)
     items = menu.action.items
 
-    assert menu.text(None) == "Speech Speed"
+    assert menu.text(None) == "Speech Speed: Normal"
     assert [item.text for item in items] == ["Slow", "Normal", "Fast", "Super Fast"]
     assert [item.checked(None) for item in items] == [False, True, False, False]
     assert all(item.radio is True for item in items)
@@ -450,7 +452,7 @@ def test_speech_speed_menu_projects_saving_without_changing_authoritative_check(
 
     menu = tray._build_speech_speed_menu(Pystray)
 
-    assert menu.text(None) == "Speech Speed (saving...)"
+    assert menu.text(None) == "Speech Speed: Normal (Saving...)"
     assert [item.checked(None) for item in menu.action.items] == [False, True, False, False]
     assert all(item.enabled(None) is False for item in menu.action.items)
 
@@ -461,11 +463,11 @@ def test_speech_speed_menu_distinguishes_custom_and_unavailable_states() -> None
         speech_speed=SpeechSpeedState(None),
         on_set_speech_speed=lambda _speed: None,
     )
-    assert tray._build_speech_speed_menu(Pystray).text(None) == "Speech Speed (Custom)"
+    assert tray._build_speech_speed_menu(Pystray).text(None) == "Speech Speed: Custom"
 
     tray.set_speech_speed(SpeechSpeedState("normal", available=False))
     menu = tray._build_speech_speed_menu(Pystray)
-    assert menu.text(None) == "Speech Speed (unavailable)"
+    assert menu.text(None) == "Speech Speed: Normal (Unavailable)"
     assert all(item.enabled(None) is False for item in menu.action.items)
 
 
@@ -482,6 +484,8 @@ def test_tray_groups_settings_voice_and_support_items(monkeypatch) -> None:
         voice=VoiceProjection(VoiceCapabilityPhase.DISABLED, "zh-TW"),
         on_enable_voice=lambda: None,
         on_disable_voice=lambda: None,
+        inline_input_mode=InlineInputModeState("minimal"),
+        on_set_inline_input_mode=lambda _mode: None,
         on_open_about=lambda: None,
     )
 
@@ -491,8 +495,9 @@ def test_tray_groups_settings_voice_and_support_items(monkeypatch) -> None:
     items = tray._icon.menu.items
     settings_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "Settings & Models...")
     shortcut_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "Keyboard Shortcuts...")
-    speech_index = next(index for index, item in enumerate(items) if callable(getattr(item, "text", None)) and item.text(None) == "Speech Speed")
+    speech_index = next(index for index, item in enumerate(items) if callable(getattr(item, "text", None)) and item.text(None) == "Speech Speed: Normal")
     voice_index = next(index for index, item in enumerate(items) if callable(getattr(item, "text", None)) and item.text(None).startswith("Voice Input"))
+    inline_index = next(index for index, item in enumerate(items) if callable(getattr(item, "text", None)) and item.text(None) == "Inline Dictation: Minimal Input")
     support_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "Support and Diagnostics")
     about_index = next(index for index, item in enumerate(items) if getattr(item, "text", None) == "About...")
 
@@ -501,8 +506,9 @@ def test_tray_groups_settings_voice_and_support_items(monkeypatch) -> None:
     assert items[shortcut_index + 2] is Menu.SEPARATOR
     assert speech_index == shortcut_index + 3
     assert voice_index == speech_index + 1
-    assert items[voice_index + 1] is Menu.SEPARATOR
-    assert support_index == voice_index + 2
+    assert inline_index == voice_index + 1
+    assert items[inline_index + 1] is Menu.SEPARATOR
+    assert support_index == inline_index + 2
     assert about_index == support_index + 1
 
 
@@ -516,12 +522,13 @@ def test_voice_menu_projects_authoritative_state_without_optimistic_toggle() -> 
         on_manage_voice_permission=lambda: events.append("manage"),
     )
     menu = tray._build_voice_menu(Pystray)
-    assert menu.text(None) == "Voice Input (setup required)"
-    enable, disable, manage = menu.action.items
-    assert enable.enabled(None) is True
-    assert disable.enabled(None) is False
+    assert menu.text(None) == "Voice Input: Setup Required · Traditional Chinese"
+    toggle, separator, manage = menu.action.items
+    assert toggle.text(None) == "Enable Voice Input"
+    assert toggle.enabled(None) is True
+    assert separator is Menu.SEPARATOR
     assert manage.enabled(None) is False
-    enable.action(None, None)
+    toggle.action(None, None)
     assert events == ["enable"]
 
 
@@ -541,23 +548,23 @@ def test_existing_voice_menu_reprojects_enable_and_disable_after_authoritative_u
         for item in tray._icon.menu.items
         if callable(getattr(item, "text", None)) and item.text(None).startswith("Voice Input")
     )
-    enable, disable = menu.action.items
+    toggle = menu.action.items[0]
 
     tray.set_voice_projection(VoiceProjection(VoiceCapabilityPhase.READY, "zh-TW"))
 
     assert tray._icon.menu_updates == 1
-    assert menu.text(None) == "Voice Input (ready)"
-    assert enable.enabled(None) is False
-    assert disable.enabled(None) is True
-    disable.action(None, None)
+    assert menu.text(None) == "Voice Input: Ready · Traditional Chinese"
+    assert toggle.text(None) == "Disable Voice Input"
+    assert toggle.enabled(None) is True
+    toggle.action(None, None)
 
     tray.set_voice_projection(VoiceProjection(VoiceCapabilityPhase.DISABLED, "zh-TW"))
 
     assert tray._icon.menu_updates == 2
-    assert menu.text(None) == "Voice Input (disabled)"
-    assert enable.enabled(None) is True
-    assert disable.enabled(None) is False
-    enable.action(None, None)
+    assert menu.text(None) == "Voice Input: Disabled · Traditional Chinese"
+    assert toggle.text(None) == "Enable Voice Input"
+    assert toggle.enabled(None) is True
+    toggle.action(None, None)
     assert events == ["disable", "enable"]
 
 
@@ -577,3 +584,57 @@ def test_voice_menu_exposes_permission_repair_when_microphone_is_blocked() -> No
     assert manage.enabled(None) is True
     manage.action(None, None)
     assert events == ["manage"]
+
+
+def test_voice_language_is_one_level_deep_and_pending_keeps_saved_choice() -> None:
+    events = []
+    tray = TrayController(
+        lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.READY, "zh-TW"),
+        on_enable_voice=lambda: None,
+        on_disable_voice=lambda: None,
+        on_set_voice_language=events.append,
+    )
+    menu = tray._build_voice_menu(Pystray)
+    toggle, separator, chinese, english = menu.action.items
+    assert toggle.text(None) == "Disable Voice Input"
+    assert separator is Menu.SEPARATOR
+    assert [item.text for item in (chinese, english)] == ["Traditional Chinese", "English"]
+    assert [item.checked(None) for item in (chinese, english)] == [True, False]
+    assert chinese.radio and english.radio
+    english.action(None, None)
+    assert events == ["en-US"]
+
+    tray.set_voice_projection(VoiceProjection(VoiceCapabilityPhase.READY, "zh-TW", pending_language="en-US"))
+    assert menu.text(None) == "Voice Input: Ready · Traditional Chinese (Saving...)"
+    assert [item.checked(None) for item in (chinese, english)] == [True, False]
+    assert not english.enabled(None)
+    english.action(None, None)
+    assert events == ["en-US"]
+
+    tray.set_voice_projection(VoiceProjection(VoiceCapabilityPhase.READY, "en-US"))
+    assert menu.text(None) == "Voice Input: Ready · English"
+    assert [item.checked(None) for item in (chinese, english)] == [False, True]
+
+
+def test_voice_toggle_names_pending_and_cleanup_retry_states() -> None:
+    events = []
+    tray = TrayController(
+        lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.REQUESTING_PERMISSION, "zh-TW"),
+        on_enable_voice=lambda: events.append("enable"),
+        on_disable_voice=lambda: events.append("disable"),
+    )
+    toggle = tray._build_voice_menu(Pystray).action.items[0]
+    assert toggle.text(None) == "Enabling Voice Input..."
+    assert toggle.enabled(None) is False
+
+    tray.set_voice_projection(VoiceProjection(VoiceCapabilityPhase.DISABLING, "zh-TW"))
+    assert toggle.text(None) == "Disabling Voice Input..."
+    assert toggle.enabled(None) is False
+
+    tray.set_voice_projection(VoiceProjection(VoiceCapabilityPhase.CLEANUP_UNCONFIRMED, "zh-TW"))
+    assert toggle.text(None) == "Retry Disabling Voice Input"
+    assert toggle.enabled(None) is True
+    toggle.action(None, None)
+    assert events == ["disable"]

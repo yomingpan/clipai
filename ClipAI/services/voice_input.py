@@ -276,6 +276,7 @@ class VoiceInputController:
                 else VoiceCaptureDestination.VOICE_DRAFT if capture is not None else None
             ),
             capture.remaining_seconds if capture is not None else None,
+            self._pending_language[1] if self._pending_language is not None else None,
         )
 
     def request_setup(self, setup_id: VoiceSetupId) -> VoiceTransition:

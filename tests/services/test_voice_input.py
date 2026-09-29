@@ -773,7 +773,10 @@ def test_language_changes_apply_only_between_captures() -> None:
     change = VoiceLanguageChangeId("language-1")
     transition = controller.set_language(VoiceLanguage("en-US"), change)
     assert transition.effects == (PersistVoiceLanguage(change, "en-US"),)
+    assert transition.projection.language == "zh-TW"
+    assert transition.projection.pending_language == "en-US"
     assert controller.complete_language_save(change).projection.language == "en-US"
+    assert controller.projection.pending_language is None
     capture = VoiceCaptureId("capture-1")
     controller.request_capture(capture, target())
     assert controller.set_language(VoiceLanguage("zh-TW"), VoiceLanguageChangeId("language-2")).ignored is True

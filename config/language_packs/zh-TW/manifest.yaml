@@ -1,7 +1,7 @@
 schema_version: 1
 pack_id: zh-TW
 locale: zh-TW
-display_name: 繁體中文
+display_name: Traditional Chinese
 pack_version: 1.1.0
 feature_contract_hash: sha256:b57fb7c13e7b890dae52a0f9daf4d66d69b683642086a72a5a8e9dd2c642eee3
 resources:
