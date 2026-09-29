@@ -9,6 +9,7 @@ from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, Feedba
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.ui.base_dialog import BaseResultSurface, _VoiceWaveIndicator
+from ClipAI.ui.inline_dictation_owner import InlineDictationInterfaceOwner
 from ClipAI.ui.popup_control import PopupControlRegistered, PopupControlShown, PopupOwnedDialogOpened, ToolkitFocusEntered
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, _voice_status_word, workflow_render_patch
 
@@ -23,18 +24,18 @@ def test_late_inline_refinement_cannot_close_a_newer_window() -> None:
         def close(self, **_kwargs) -> None:
             self.closed = True
 
-    presenter = object.__new__(ResultDialogPresenter)
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None)
     window = Window()
-    presenter._inline_dictation_window = window
+    presenter._window = window
 
     presenter.close_inline_dictation(interaction_id="inline-old")
 
     assert not window.closed
-    assert presenter._inline_dictation_window is window
+    assert presenter._window is window
 
 
 def test_new_inline_interaction_retires_the_old_failure_notice(monkeypatch) -> None:
-    import ClipAI.ui.result_dialog as result_dialog
+    import ClipAI.ui.inline_dictation_owner as result_dialog
 
     windows = []
 
@@ -51,20 +52,16 @@ def test_new_inline_interaction_retires_the_old_failure_notice(monkeypatch) -> N
             self.close_calls.append(kwargs)
 
     monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
-    presenter = object.__new__(ResultDialogPresenter)
-    presenter._root = object()
-    presenter._inline_dictation_window = None
-    presenter._native_window_surface = object()
-    presenter._command_sink = lambda _command: None
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None, native_window_surface=object())
 
     presenter.open_inline_dictation("old")
     presenter.close_inline_dictation(flash_failure=True, message="timed out", interaction_id="old")
-    assert presenter._inline_dictation_window is windows[0]
+    assert presenter._window is windows[0]
     assert windows[0].close_calls == [{"flash_failure": True, "message": "timed out"}]
 
     presenter.open_inline_dictation("new")
     assert windows[0].close_calls[-1] == {}
-    assert presenter._inline_dictation_window is windows[1]
+    assert presenter._window is windows[1]
     presenter.close_inline_dictation(interaction_id="old")
     assert windows[1].close_calls == []
 
@@ -79,9 +76,9 @@ def test_inline_result_only_updates_the_matching_interaction_window() -> None:
         def show_paste_outcome(self, outcome, text) -> None:
             self.results.append((outcome, text))
 
-    presenter = object.__new__(ResultDialogPresenter)
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None)
     window = Window()
-    presenter._inline_dictation_window = window
+    presenter._window = window
     outcome = PasteOutcome("failed", "not_dispatched", "not_required")
 
     presenter.present_inline_paste_outcome("inline-old", outcome, "old text")
@@ -100,9 +97,9 @@ def test_inline_choice_only_updates_the_matching_interaction_window() -> None:
         def present_choice(self, text, allow_refine, message) -> None:
             self.choices.append((text, allow_refine, message))
 
-    presenter = object.__new__(ResultDialogPresenter)
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None)
     window = Window()
-    presenter._inline_dictation_window = window
+    presenter._window = window
 
     presenter.present_inline_choice("inline-old", "old text")
     presenter.present_inline_choice("inline-new", "new text", False, "recover")
@@ -111,7 +108,7 @@ def test_inline_choice_only_updates_the_matching_interaction_window() -> None:
 
 
 def test_inline_dictation_receives_the_presenters_native_window_surface(monkeypatch) -> None:
-    import ClipAI.ui.result_dialog as result_dialog
+    import ClipAI.ui.inline_dictation_owner as result_dialog
 
     created: list[tuple[object, str]] = []
 
@@ -123,11 +120,7 @@ def test_inline_dictation_receives_the_presenters_native_window_surface(monkeypa
             pass
 
     monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
-    presenter = object.__new__(ResultDialogPresenter)
-    presenter._root = object()
-    presenter._inline_dictation_window = None
-    presenter._native_window_surface = object()
-    presenter._command_sink = lambda _command: None
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None, native_window_surface=object())
 
     presenter.open_inline_dictation("inline-1")
 
@@ -135,7 +128,7 @@ def test_inline_dictation_receives_the_presenters_native_window_surface(monkeypa
 
 
 def test_inline_view_callbacks_keep_the_interaction_that_created_them(monkeypatch) -> None:
-    import ClipAI.ui.result_dialog as result_dialog
+    import ClipAI.ui.inline_dictation_owner as result_dialog
 
     callbacks = {}
 
@@ -147,15 +140,11 @@ def test_inline_view_callbacks_keep_the_interaction_that_created_them(monkeypatc
             pass
 
     monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
-    presenter = object.__new__(ResultDialogPresenter)
-    presenter._root = object()
-    presenter._inline_dictation_window = None
-    presenter._native_window_surface = object()
     commands = []
-    presenter._command_sink = commands.append
+    presenter = InlineDictationInterfaceOwner(object(), commands.append, native_window_surface=object())
 
     presenter.open_inline_dictation("old")
-    presenter._inline_dictation_window = None
+    presenter._window = None
     presenter.open_inline_dictation("new")
     callbacks["old"]["on_confirm"](True)
     callbacks["old"]["on_cancel"]()
@@ -2266,10 +2255,10 @@ def test_native_close_request_immediately_excludes_popup_content_and_emits_close
 
 def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
     class Guide:
-        def show(self, _snapshot) -> None:
+        def show_shortcut_guide(self, _snapshot) -> None:
             events.append("guide:show")
 
-        def close(self) -> None:
+        def close_shortcut_guide(self) -> None:
             events.append("guide:close")
 
     class Lifecycle:
@@ -2283,7 +2272,7 @@ def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
     view.dialog.lifecycle = Lifecycle()
-    presenter._shortcut_guide_dialog = Guide()
+    presenter._modals = Guide()
     presenter._shortcut_guide_focus_return = None
 
     presenter.show_shortcut_guide(object())
@@ -2301,15 +2290,15 @@ def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
 
 def test_shortcut_guide_does_not_restore_a_popup_that_started_closing() -> None:
     class Guide:
-        def show(self, _snapshot) -> None:
+        def show_shortcut_guide(self, _snapshot) -> None:
             pass
 
-        def close(self) -> None:
+        def close_shortcut_guide(self) -> None:
             events.append("guide:close")
 
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
-    presenter._shortcut_guide_dialog = Guide()
+    presenter._modals = Guide()
     presenter._shortcut_guide_focus_return = None
 
     presenter.show_shortcut_guide(object())
@@ -2324,15 +2313,15 @@ def test_shortcut_guide_without_an_original_popup_does_not_force_focus() -> None
     events = []
 
     class Guide:
-        def show(self, _snapshot) -> None:
+        def show_shortcut_guide(self, _snapshot) -> None:
             events.append("guide:show")
 
-        def close(self) -> None:
+        def close_shortcut_guide(self) -> None:
             events.append("guide:close")
 
     presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
     presenter._views = {}
-    presenter._shortcut_guide_dialog = Guide()
+    presenter._modals = Guide()
     presenter._shortcut_guide_focus_hold_active = False
     presenter._shortcut_guide_focus_return = None
 

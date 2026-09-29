@@ -13,8 +13,13 @@ the ordered press and release events for ClipAI. Unmodified `M` typing remains
 available to the foreground application.
 While the same interaction is active, exact physical Esc is consumed by the
 hotkey adapter and still delivered to ClipAI's ordered interruption queue;
-the foreground application must not receive it. Outside Inline Dictation,
-ordinary Esc behavior in the foreground application remains available.
+the foreground application must not receive it. An unpinned foreground Popup
+also owns unmodified Esc when ClipAI lacks focus. The first Esc cancels the
+latest interruptible operation; an idle second Esc closes that Popup. A pinned
+Popup and modified Esc leave the physical key to the foreground application.
+The modifier check includes Ctrl, Alt, Shift, and either Windows key; a
+modified repeat is also passed through. A consumed key-up remains consumed
+even if the owning window closes before physical release.
 Capture ID and Inline Interaction ID have distinct generated values. The existing
 diagnostics log records content-free, monotonic lifecycle stages keyed by these
 IDs and the provider/Paste operation IDs. A requested UI presentation is not
@@ -40,10 +45,16 @@ terminal dwell callback from an older interaction cannot change or close a
 newer one. A second shortcut during refinement or pending Paste is rejected
 with visible feedback. A new capture is admitted only after the preceding
 interaction reaches a settled, dismissible terminal phase.
-The visible Inline window is positioned inside the cursor monitor's work area
-after each content expansion, including choice and recovery. Its action buttons
-use the Popup action style; the Tray mode names are English, `Full Choice` and
-`Minimal Input`.
+The Inline window freezes its placement at interaction start. `cursor` uses
+the starting pointer position; `bottom_center` uses the work area's bottom
+center. Content expansion and Copy state may re-clamp the frozen position to
+keep the resized window inside the work area, but never read the live pointer
+again. Placement is saved atomically through the shared preference gate; invalid
+or unchanged values do not write. The Tray offers the two modes and both
+placement choices with pending state. The window moves to the target screen
+before sampling its DPI and updating fonts, wrap widths, padding, and waveform.
+`InlineDictationInterfaceOwner` alone owns its window and interaction ID;
+`OwnedModalRegistry` alone owns the five root-owned dialogs.
 View Confirm, Copy, and Esc callbacks carry the interaction ID captured when
 their window was created. The controller rejects a callback from an older
 window even if a newer Inline interaction is now in a compatible phase.

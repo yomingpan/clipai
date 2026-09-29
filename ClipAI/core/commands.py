@@ -5,7 +5,7 @@ from typing import Literal, TypeAlias
 
 from ClipAI.core.errors import ActionLanguagePackErrorCode, InlineRefinementFailureReason
 from ClipAI.core.models import EntryActionRef, EntryInputPreparationId, EntryPanelDensity, FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PreparedInput, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
-from ClipAI.core.models import ControlSurfaceRef, InlineInputMode, OutputOrigin
+from ClipAI.core.models import ControlSurfaceRef, InlineDictationPlacement, InlineInputMode, OutputOrigin
 from ClipAI.core.models import EntryInputPreparationPhase
 from ClipAI.core.managed_update import FailureCode
 from ClipAI.core.voice import VoiceCaptureId, VoiceDisableId, VoiceEngineEvent, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
@@ -490,6 +490,18 @@ class InlineInputModePreferencesCompleted:
 
 
 @dataclass(frozen=True)
+class SetInlineDictationPlacement:
+    placement: InlineDictationPlacement
+    operation_id: str = ""
+
+
+@dataclass(frozen=True)
+class InlineDictationPlacementPreferencesCompleted:
+    operation_id: str
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class SetEntryPanelDensity:
     density: EntryPanelDensity
     operation_id: str = ""
@@ -686,4 +698,4 @@ class RefineVoiceDraftInPlace:
     selection_end: int
 
 
-AppCommand: TypeAlias = ToggleInlineDictation | ConfirmInlineDictation | CancelInlineDictation | InlineDictationRefineSettled | InlineDictationRefineCancelAccepted | InlineDictationRefineCancelTimedOut | DismissInlineDictationTerminal | CopyInlineDictation | InlineDictationCopyCompleted | VoiceFinalizeWatchdogExpired | VoiceCaptureCountdownTickForCapture | VoiceCaptureTimeout | EntryPanelInputPreparationProgress | ExpireInputRecovery | UseWorkflowClipboard | ShortcutInputEvent | EntryPanelInputPreparationCompleted | EntryPanelInputPreparationFailed | RetryEntryPanelInput | UseEntryPanelClipboard | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelBack | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CheckForManagedUpdate | ManagedUpdateCheckCompleted | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | RegenerateResult | RefineVoiceDraftInPlace | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | SetInlineInputMode | InlineInputModePreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureHoldElapsed | VoiceCaptureCountdownTick | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft
+AppCommand: TypeAlias = ToggleInlineDictation | ConfirmInlineDictation | CancelInlineDictation | InlineDictationRefineSettled | InlineDictationRefineCancelAccepted | InlineDictationRefineCancelTimedOut | DismissInlineDictationTerminal | CopyInlineDictation | InlineDictationCopyCompleted | VoiceFinalizeWatchdogExpired | VoiceCaptureCountdownTickForCapture | VoiceCaptureTimeout | EntryPanelInputPreparationProgress | ExpireInputRecovery | UseWorkflowClipboard | ShortcutInputEvent | EntryPanelInputPreparationCompleted | EntryPanelInputPreparationFailed | RetryEntryPanelInput | UseEntryPanelClipboard | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelBack | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CheckForManagedUpdate | ManagedUpdateCheckCompleted | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | RegenerateResult | RefineVoiceDraftInPlace | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | SetInlineInputMode | InlineInputModePreferencesCompleted | SetInlineDictationPlacement | InlineDictationPlacementPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureHoldElapsed | VoiceCaptureCountdownTick | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

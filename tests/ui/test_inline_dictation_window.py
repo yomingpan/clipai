@@ -5,17 +5,77 @@ import sys
 
 import pytest
 import customtkinter as ctk
+from customtkinter.windows.widgets.scaling import ScalingTracker
 
 from ClipAI.core.models import DisplayMetrics, PasteOutcome
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCapturePhase, VoiceProjection
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
-from ClipAI.ui.inline_dictation import InlineDictationWindow, _clamp_inline_position
+from ClipAI.ui.inline_dictation import InlineDictationWindow, _clamp_inline_position, _resolve_inline_position
 
 
 def test_inline_position_keeps_expanded_window_inside_work_area() -> None:
     metrics = DisplayMetrics(1.0, 0, 0, 1280, 720, 1270, 710)
     assert _clamp_inline_position(metrics, 400, 260) == (872, 452)
     assert _clamp_inline_position(DisplayMetrics(1.0, 0, 0, 1280, 720, 0, 0), 400, 260) == (14, 18)
+
+
+def test_bottom_center_position_uses_work_area_instead_of_pointer() -> None:
+    left = DisplayMetrics(1.0, 100, 50, 1000, 700, 130, 70)
+    right = DisplayMetrics(1.0, 100, 50, 1000, 700, 1000, 700)
+    assert _resolve_inline_position(left, 400, 100, "bottom_center", (130, 70)) == (400, 642)
+    assert _resolve_inline_position(right, 400, 100, "bottom_center", (130, 70)) == (400, 642)
+
+
+@pytest.mark.integration
+def test_inline_copy_state_keeps_start_anchor_when_pointer_moves() -> None:
+    root = tk.Tk()
+    root.withdraw()
+    pointer = [100, 100]
+
+    class Reader:
+        def current(self) -> DisplayMetrics:
+            return DisplayMetrics(1.0, 0, 0, 1200, 800, *pointer)
+
+    window = InlineDictationWindow(root, on_confirm=lambda _refine: None, on_cancel=lambda: None, display_metrics=Reader())
+    try:
+        window.show()
+        window.present_choice("recognized words")
+        root.update()
+        before = (window._window.winfo_rootx(), window._window.winfo_rooty())
+        pointer[:] = [900, 600]
+        window.show_copy_state("pending")
+        root.update()
+        assert (window._window.winfo_rootx(), window._window.winfo_rooty()) == before
+    finally:
+        window.close()
+        for callback in root.tk.call("after", "info"):
+            root.after_cancel(callback)
+        root.destroy()
+
+
+@pytest.mark.integration
+def test_inline_scaling_updates_padding_wrap_and_wave_without_tcl_error() -> None:
+    root = tk.Tk()
+    root.withdraw()
+    window = InlineDictationWindow(root, on_confirm=lambda _refine: None, on_cancel=lambda: None)
+    try:
+        window.show()
+        window.present_choice("recognized words", message="Review the text")
+        label = next(label for label, wrap in window._labels if wrap == 340)
+        original_wrap = int(label.cget("wraplength"))
+        original_pad = int(window._window.cget("padx"))
+        original_wave = int(window._wave.cget("width"))
+        ScalingTracker.window_dpi_scaling_dict[window._window] = 1.5
+        window._set_scaling(1.5, 1.5)
+        root.update_idletasks()
+        assert int(label.cget("wraplength")) > original_wrap
+        assert int(window._window.cget("padx")) > original_pad
+        assert int(window._wave.cget("width")) > original_wave
+    finally:
+        window.close()
+        for callback in root.tk.call("after", "info"):
+            root.after_cancel(callback)
+        root.destroy()
 
 
 @pytest.mark.integration

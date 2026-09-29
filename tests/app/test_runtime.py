@@ -1762,6 +1762,37 @@ def test_short_escape_uses_latest_operation_without_stopping_older_workflow() ->
     assert workflow(view, workflow_id).snapshot.active_invocation_id == invocation_id
 
 
+def test_unfocused_unpinned_popup_escape_cancels_then_closes() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    assert runtime._workflow_module.unpinned_foreground_popup_id() == workflow_id
+
+    runtime.enqueue(InterruptCurrent())
+    runtime.drain_commands()
+    assert runtime._workflow_module.controller_for(workflow_id) is not None
+
+    runtime.enqueue(InterruptCurrent())
+    runtime.drain_commands()
+    assert runtime._workflow_module.controller_for(workflow_id) is None
+
+
+def test_unfocused_pinned_popup_escape_never_closes() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    runtime.enqueue(TogglePin(workflow_id))
+    runtime.drain_commands()
+    assert runtime._workflow_module.unpinned_foreground_popup_id() is None
+
+    runtime.enqueue(InterruptCurrent())
+    runtime.enqueue(InterruptCurrent())
+    runtime.drain_commands()
+    assert runtime._workflow_module.controller_for(workflow_id) is not None
+
+
 def test_short_escape_closes_focused_popup_without_stopping_unowned_speech() -> None:
     speech = GlobalSpeech()
     runtime, view, _supervisor, _outputs, _listener = make_runtime(speech_coordinator=speech)

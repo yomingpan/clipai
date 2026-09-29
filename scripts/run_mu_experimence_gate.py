@@ -12,6 +12,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STEPS: dict[str, tuple[str, ...]] = {
+    "platform-stabilization": (
+        "tests/platform/test_hotkey.py", "tests/platform/test_hotkey_edge_cases.py",
+        "tests/platform/test_native_window.py",
+        "tests/platform/test_keyboard_state.py",
+    ),
+    "core-contracts": ("tests/core/test_inline_dictation_placement_contract.py",),
+    "services-placement": (
+        "tests/services/test_user_preferences.py",
+        "tests/platform/test_json_guidance_preferences.py",
+    ),
+    "app-coordination": (
+        "tests/app/test_runtime.py", "tests/app/test_runtime_voice_input.py",
+        "tests/app/test_runtime_user_preferences_voice.py",
+        "tests/app/test_voice_capture_admission_policy.py",
+        "tests/app/test_container.py",
+    ),
+    "ui-stabilization": (
+        "tests/ui/test_result_dialog.py", "tests/ui/test_tray.py",
+        "tests/ui/test_inline_dictation_window.py",
+        "tests/ui/test_inline_dictation_owner.py", "tests/ui/test_owned_modals.py",
+    ),
+    "architecture-stabilization": ("tests/architecture",),
     "stt-webview": ("tests/platform/test_voice_webview_host.py",),
     "refine-service": ("tests/services/test_session_and_action.py",),
     "voice-controller-inline": ("tests/services/test_voice_input.py", "tests/services/test_voice_workflow_origin.py"),

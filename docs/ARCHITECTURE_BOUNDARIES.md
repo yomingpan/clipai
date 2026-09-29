@@ -172,7 +172,8 @@ task-switcher 隱藏、activation、no-activate show、foreground ownership 與
 window icon handle。UI 只傳 toolkit child id；top-level native handle 的解析
 留在 Windows adapter。Headless adapter 回傳保守結果，兩者都不得向 contract
 外拋出 native failure。Pointer press 同樣由 platform adapter 透過
-`PointerPressReader` 注入。
+`PointerPressReader` 注入。程序工作列身分同樣由此介面宣告；容器在建立 Tk root
+前呼叫一次 `set_process_taskbar_identity("ClipAI.Desktop")`，adapter 建構本身沒有副作用。
 
 Windows top-level foreground activation 的 thread-input attachment、bring-to-top、
 activation 與 ownership verification 由 `platform.window_activation` 單一 primitive

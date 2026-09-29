@@ -5,7 +5,7 @@ import logging
 import threading
 from typing import Literal
 
-from ClipAI.core.models import EntryPanelDensity, GuidancePreferences, InlineInputMode, InlineInputModeState, SpeechSpeed, SpeechSpeedState, UserPreferences, VoiceLanguagePreference, VoicePreferencesState
+from ClipAI.core.models import EntryPanelDensity, GuidancePreferences, InlineDictationPlacement, InlineDictationPlacementState, InlineInputMode, InlineInputModeState, SpeechSpeed, SpeechSpeedState, UserPreferences, VoiceLanguagePreference, VoicePreferencesState
 from ClipAI.core.ports import UserPreferencesStore
 
 logger = logging.getLogger("clipai.user_preferences")
@@ -17,7 +17,7 @@ SPEECH_SPEED_RATES: dict[SpeechSpeed, str] = {
     "super_fast": "+50%",
 }
 _SPEECH_SPEED_BY_RATE = {rate: speed for speed, rate in SPEECH_SPEED_RATES.items()}
-PreferenceOperationKind = Literal["set_guidance_enabled", "reset_guidance", "set_speech_speed", "set_voice_enabled", "set_voice_language", "set_entry_panel_density", "set_inline_input_mode"]
+PreferenceOperationKind = Literal["set_guidance_enabled", "reset_guidance", "set_speech_speed", "set_voice_enabled", "set_voice_language", "set_entry_panel_density", "set_inline_input_mode", "set_inline_dictation_placement"]
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,7 @@ class UserPreferencesWork:
     voice_language: VoiceLanguagePreference | None = None
     density: EntryPanelDensity | None = None
     inline_input_mode: InlineInputMode | None = None
+    inline_dictation_placement: InlineDictationPlacement | None = None
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class UserPreferencesUpdate:
     speech_speed: SpeechSpeedState
     voice: VoicePreferencesState
     inline_input_mode: InlineInputModeState
+    inline_dictation_placement: InlineDictationPlacementState
     work: UserPreferencesWork | None = None
     ignored: bool = False
     error: str = ""
@@ -88,6 +90,16 @@ class UserPreferencesCoordinator:
     def inline_input_mode_state(self) -> InlineInputModeState:
         with self._lock:
             return self._inline_input_mode_projection()
+
+    @property
+    def inline_dictation_placement(self) -> InlineDictationPlacement:
+        with self._lock:
+            return self._preferences.inline_dictation_placement
+
+    @property
+    def inline_dictation_placement_state(self) -> InlineDictationPlacementState:
+        with self._lock:
+            return self._inline_dictation_placement_projection()
 
     def current_speech_rate(self) -> str:
         with self._lock:
@@ -142,6 +154,12 @@ class UserPreferencesCoordinator:
                 return self._update(ignored=True)
         return self._begin(UserPreferencesWork(operation_id, "set_inline_input_mode", inline_input_mode=mode))
 
+    def begin_set_inline_dictation_placement(self, placement: InlineDictationPlacement, operation_id: str) -> UserPreferencesUpdate:
+        with self._lock:
+            if placement not in {"cursor", "bottom_center"} or placement == self._preferences.inline_dictation_placement:
+                return self._update(ignored=True)
+            return self._begin(UserPreferencesWork(operation_id, "set_inline_dictation_placement", inline_dictation_placement=placement))
+
     def _begin(self, work: UserPreferencesWork) -> UserPreferencesUpdate:
         with self._lock:
             if self._pending is not None:
@@ -169,6 +187,8 @@ class UserPreferencesCoordinator:
                     desired = replace(current, entry_panel_density=work.density)
                 elif work.kind == "set_inline_input_mode" and work.inline_input_mode is not None:
                     desired = replace(current, inline_input_mode=work.inline_input_mode)
+                elif work.kind == "set_inline_dictation_placement" and work.inline_dictation_placement is not None:
+                    desired = replace(current, inline_dictation_placement=work.inline_dictation_placement)
                 else:
                     raise ValueError(f"unsupported user preference operation: {work.kind}")
                 self._store.save(desired)
@@ -179,6 +199,8 @@ class UserPreferencesCoordinator:
                 return "Could not save speech speed. The previous speed remains active."
             if work.kind == "set_inline_input_mode":
                 return "Could not save Inline Dictation mode. The previous mode remains active."
+            if work.kind == "set_inline_dictation_placement":
+                return "Could not save Inline Dictation placement. The previous placement remains active."
             return "無法儲存使用引導設定，請再試一次。"
         return ""
 
@@ -238,6 +260,14 @@ class UserPreferencesCoordinator:
             pending is not None and pending.kind == "set_inline_input_mode",
         )
 
+    def _inline_dictation_placement_projection(self) -> InlineDictationPlacementState:
+        pending = self._pending
+        return InlineDictationPlacementState(
+            self._preferences.inline_dictation_placement,
+            pending.inline_dictation_placement if pending is not None and pending.kind == "set_inline_dictation_placement" else None,
+            pending is not None and pending.kind == "set_inline_dictation_placement",
+        )
+
     def _update(
         self,
         *,
@@ -250,6 +280,7 @@ class UserPreferencesCoordinator:
             self._speech_projection(),
             self._voice_projection(),
             self._inline_input_mode_projection(),
+            self._inline_dictation_placement_projection(),
             work=work,
             ignored=ignored,
             error=error,

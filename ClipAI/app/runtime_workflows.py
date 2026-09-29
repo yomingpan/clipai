@@ -6,13 +6,14 @@ from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
+from ClipAI.services.voice_capture_admission import VoiceCaptureAdmissionPolicy
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, RefineVoiceDraftInPlace, RegenerateResult, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted, WorkflowStepAccepted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActionAdmissionOrigin, ActionInvocation, ActionStartAdmission, ControlSurfaceRef, EntryActionRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, PressType, ResultRoute, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceCaptureContextReader, WorkflowAttentionPresenter, WorkflowContextReader
 from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
+from ClipAI.core.voice import VoiceCaptureAdmission, VoiceCaptureIntent, VoiceCaptureSurfaceContext, VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.follow_up_continuation import CONTEXTUAL_QUESTION_ACTION_ID, FollowUpContinuation, VOICE_DRAFT_FOLLOW_UP_ACTION_ID
@@ -87,26 +88,6 @@ class _WorkflowRecord:
         compare=False,
         repr=False,
     )
-
-
-@dataclass(frozen=True)
-class VoiceCaptureIntent:
-    """One explicit request for runtime-owned Voice destination admission."""
-
-    trigger: Literal["shortcut", "popup"]
-    workflow_id: str | None = None
-    focused_surface: ControlSurfaceRef | None = None
-    active_voice_workflow_id: str | None = None
-
-
-@dataclass(frozen=True)
-class VoiceCaptureAdmission:
-    """The sole runtime decision about where a Voice capture may operate."""
-
-    kind: Literal["create", "voice_review", "follow_up", "continue", "rejected"]
-    workflow_id: str | None = None
-    target: VoiceDraftTarget | VoiceFollowUpTarget | None = None
-    message: str = ""
 
 
 class _RuntimeWorkflowPresenter:
@@ -224,104 +205,33 @@ class WorkflowRuntimeModule:
 
     def admit_voice_capture(self, intent: VoiceCaptureIntent) -> VoiceCaptureAdmission:
         """Choose one semantic destination without leaking the policy to either trigger."""
-        if intent.trigger == "popup":
-            workflow_id = intent.workflow_id
-            if workflow_id is None:
-                return VoiceCaptureAdmission("rejected")
-            record = self._records.get(workflow_id)
-            if record is None or record.presentation != "visible":
-                return VoiceCaptureAdmission("rejected", workflow_id=workflow_id)
-            return self._voice_capture_admission_for_visible(intent, workflow_id, record)
+        return VoiceCaptureAdmissionPolicy(self).decide(intent)
+
+    def voice_capture_presentation(self, workflow_id: str) -> WorkflowPresentation | None:
+        record = self._records.get(workflow_id)
+        return record.presentation if record is not None else None
+
+    def voice_capture_visible_workflow(self) -> tuple[str, SessionSnapshot] | None:
         visible = self._visible_record()
-        if visible is not None and self._foreground_id == visible[0]:
-            workflow_id, record = visible
-            return self._voice_capture_admission_for_visible(intent, workflow_id, record)
-        if intent.focused_surface is not None:
-            if intent.focused_surface.kind != "workflow":
-                return VoiceCaptureAdmission(
-                    "rejected",
-                    message="Close the active ClipAI window, then try again.",
-                )
-            target = self._voice_review_target(intent.focused_surface.surface_id)
-            if target is not None:
-                return VoiceCaptureAdmission(
-                    "voice_review",
-                    workflow_id=intent.focused_surface.surface_id,
-                    target=target,
-                )
-        return VoiceCaptureAdmission("create")
+        return (visible[0], visible[1].controller.snapshot) if visible is not None else None
 
-    def _voice_capture_admission_for_visible(
-        self,
-        intent: VoiceCaptureIntent,
-        workflow_id: str,
-        record: _WorkflowRecord,
-    ) -> VoiceCaptureAdmission:
-        shortcut = intent.trigger == "shortcut"
-        if shortcut and intent.active_voice_workflow_id == workflow_id:
-            self._request_attention(
-                workflow_id,
-                "語音輸入進行中",
-                duration_ms=1500,
-                warning=False,
-            )
-            return VoiceCaptureAdmission("continue", workflow_id=workflow_id)
-        focused_surface = intent.focused_surface
-        if shortcut and focused_surface is None:
-            return VoiceCaptureAdmission(
-                "rejected",
-                workflow_id=workflow_id,
-                message="請先點選目前的 ClipAI 視窗再使用語音輸入，或關閉視窗後開始新的語音輸入。",
-            )
-        if shortcut:
-            assert focused_surface is not None
-            if focused_surface.kind != "workflow" or focused_surface.surface_id != workflow_id:
-                return VoiceCaptureAdmission(
-                    "rejected",
-                    workflow_id=workflow_id,
-                    message="請先點選目前的 ClipAI 視窗再使用語音輸入。",
-                )
+    def voice_capture_foreground_id(self) -> str | None:
+        return self._foreground_id
 
-        snapshot = record.controller.snapshot
-        provider_active = snapshot.active_invocation_id is not None or snapshot.status in {
-            SessionStatus.READING_INPUT,
-            SessionStatus.PREPARING_REQUEST,
-            SessionStatus.REQUESTING_PROVIDER,
-            SessionStatus.PROCESSING_RESULT,
-        }
-        if provider_active:
-            return VoiceCaptureAdmission(
-                "rejected",
-                workflow_id=workflow_id,
-                message="AI 正在回答，完成後再追問。" if shortcut else "",
-            )
-        context = self._voice_capture_surface_context(workflow_id)
-        if shortcut and context is not None and context.follow_up_requested:
-            return VoiceCaptureAdmission(
-                "follow_up",
-                workflow_id=workflow_id,
-                target=VoiceFollowUpTarget(workflow_id),
-            )
-        if snapshot.status is SessionStatus.VOICE_REVIEW:
-            target = self._voice_review_target(workflow_id, context)
-            if target is not None:
-                return VoiceCaptureAdmission("voice_review", workflow_id=workflow_id, target=target)
-            return VoiceCaptureAdmission("rejected", workflow_id=workflow_id)
-        if (
-            snapshot.status in {SessionStatus.CONTEXT_QUESTION, SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
-            and (snapshot.status is SessionStatus.CONTEXT_QUESTION or snapshot.displayed_step_index >= 0)
-            and "follow_up" in snapshot.available_actions
-        ):
-            return VoiceCaptureAdmission(
-                "follow_up",
-                workflow_id=workflow_id,
-                target=VoiceFollowUpTarget(workflow_id),
-            )
-        return VoiceCaptureAdmission(
-            "rejected",
-            workflow_id=workflow_id,
-            message="這份內容目前無法使用 Follow-up。" if shortcut else "",
-        )
+    def voice_capture_snapshot(self, workflow_id: str) -> SessionSnapshot | None:
+        record = self._records.get(workflow_id)
+        return record.controller.snapshot if record is not None else None
+
+    def voice_capture_surface_context(self, workflow_id: str) -> VoiceCaptureSurfaceContext | None:
+        return self._voice_capture_surface_context(workflow_id)
+
+    def voice_capture_review_target(
+        self, workflow_id: str, context: VoiceCaptureSurfaceContext | None = None,
+    ) -> VoiceDraftTarget | None:
+        return self._voice_review_target(workflow_id, context)
+
+    def request_voice_capture_attention(self, workflow_id: str) -> None:
+        self._request_attention(workflow_id, "語音輸入進行中", duration_ms=1500, warning=False)
 
     def _voice_review_target(
         self,
@@ -349,6 +259,13 @@ class WorkflowRuntimeModule:
 
     def has_foreground_workflow(self) -> bool:
         return self._foreground_id in self._records
+
+    def unpinned_foreground_popup_id(self) -> str | None:
+        workflow_id = self._foreground_id
+        record = self._records.get(workflow_id) if workflow_id is not None else None
+        if record is None or record.presentation != "visible" or record.controller.snapshot.pinned:
+            return None
+        return workflow_id
 
     @property
     def foreground_workflow_id(self) -> str | None:

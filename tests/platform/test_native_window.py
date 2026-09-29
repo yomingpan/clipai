@@ -155,10 +155,11 @@ def test_windows_surface_owns_icon_handles_until_explicit_destroy() -> None:
 
 
 def test_native_surface_adapters_never_raise_when_os_facts_are_unavailable() -> None:
-    broken = WindowsNativeWindowSurface(user32=object(), kernel32=object())
+    broken = WindowsNativeWindowSurface(user32=object(), kernel32=object(), shell32=object())
     headless = HeadlessNativeWindowSurface()
 
     for surface in (broken, headless):
+        assert surface.set_process_taskbar_identity("ClipAI.Desktop") is False
         assert surface.hide_from_task_switcher(10) is False
         assert surface.activate(10) is False
         assert surface.show_without_activation(10) is False
@@ -166,6 +167,26 @@ def test_native_surface_adapters_never_raise_when_os_facts_are_unavailable() -> 
         assert surface.install_icon(10, Path("missing.ico")) == ()
         assert surface.set_ime_composition_font(10, family="Test", height=-16, weight=400, italic=False) is False
         surface.destroy_icons((1, 2))
+
+
+def test_windows_surface_sets_process_taskbar_identity_only_when_requested() -> None:
+    class Shell32:
+        def __init__(self, result: int) -> None:
+            self.result = result
+            self.calls: list[str] = []
+
+        def SetCurrentProcessExplicitAppUserModelID(self, app_id: str) -> int:
+            self.calls.append(app_id)
+            return self.result
+
+    shell = Shell32(0)
+    surface = WindowsNativeWindowSurface(user32=User32(), kernel32=Kernel32(), shell32=shell)
+    assert shell.calls == []
+    assert surface.set_process_taskbar_identity("ClipAI.Desktop") is True
+    assert shell.calls == ["ClipAI.Desktop"]
+
+    failure = WindowsNativeWindowSurface(user32=User32(), kernel32=Kernel32(), shell32=Shell32(1))
+    assert failure.set_process_taskbar_identity("ClipAI.Desktop") is False
 
 
 def test_windows_surface_sets_ime_font_and_releases_context() -> None:

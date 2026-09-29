@@ -35,6 +35,7 @@ _VK_ALPHA_MAP = {code: chr(code).lower() for code in range(65, 91)}
 _VK_OEM_3 = 192
 _ENTRY_PANEL_CONFLICT_KEYS = frozenset({"altgr", "cmd", "tab", "f4", "space"})
 _LLKHF_INJECTED = 0x10
+_ESCAPE_MODIFIER_KEYS = (*MODIFIER_KEYS, "cmd")
 
 
 def _describe_key(key) -> str:
@@ -69,12 +70,14 @@ class _WindowsHotkeyEventFilter:
         suppressible_m: bool = False,
         key_is_pressed: Callable[[str], bool | None] = windows_key_is_pressed,
         inline_escape_owner: Callable[[], bool] = lambda: False,
+        popup_escape_owner: Callable[[], bool] = lambda: False,
     ) -> None:
         self._dispatcher = dispatcher
         self._mask_menu = mask_menu
         self._suppressible_m = suppressible_m
         self._key_is_pressed = key_is_pressed
         self._inline_escape_owner = inline_escape_owner
+        self._popup_escape_owner = popup_escape_owner
         self._listener = None
         self._m_suppressed = False
         self._esc_suppressed = False
@@ -97,9 +100,9 @@ class _WindowsHotkeyEventFilter:
         vk = int(getattr(data, "vkCode", 0))
         if vk == 0x1B:  # VK_ESCAPE
             if message in (0x0100, 0x0104):
-                if self._esc_suppressed or (
-                    self._inline_escape_owner()
-                    and all(self._key_is_pressed(key) is False for key in MODIFIER_KEYS)
+                if (
+                    all(self._key_is_pressed(key) is False for key in _ESCAPE_MODIFIER_KEYS)
+                    and (self._esc_suppressed or self._inline_escape_owner() or self._popup_escape_owner())
                 ):
                     self._esc_suppressed = True
                     self._suppress_trigger_event(message, vk)
@@ -781,6 +784,7 @@ def register_hotkeys_with_long_press(
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
     entry_panel_enabled: bool = False,
     inline_escape_owner: Callable[[], bool] = lambda: False,
+    popup_escape_owner: Callable[[], bool] = lambda: False,
 ):
     try:
         from pynput import keyboard
@@ -807,6 +811,7 @@ def register_hotkeys_with_long_press(
         dispatcher,
         suppressible_m=suppressible_m,
         inline_escape_owner=inline_escape_owner,
+        popup_escape_owner=popup_escape_owner,
     )
     listener = keyboard.Listener(
         on_press=dispatcher.on_press,

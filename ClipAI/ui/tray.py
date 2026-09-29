@@ -7,7 +7,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from ClipAI.core.models import ActionLanguagePackSelectionState, ApplicationStatus, GuidancePreferences, InlineInputMode, InlineInputModeState, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
+from ClipAI.core.models import ActionLanguagePackSelectionState, ApplicationStatus, GuidancePreferences, InlineDictationPlacement, InlineDictationPlacementState, InlineInputMode, InlineInputModeState, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceLanguage, VoiceProjection
 
 logger = logging.getLogger("clipai.tray")
@@ -103,6 +103,8 @@ class TrayController:
         on_set_voice_language: Callable[[VoiceLanguage], None] | None = None,
         inline_input_mode: InlineInputModeState | None = None,
         on_set_inline_input_mode: Callable[[InlineInputMode], None] | None = None,
+        inline_dictation_placement: InlineDictationPlacementState | None = None,
+        on_set_inline_dictation_placement: Callable[[InlineDictationPlacement], None] | None = None,
         on_manage_voice_permission: Callable[[], None] | None = None,
         on_open_about: Callable[[], None] | None = None,
         application_version: str = "development",
@@ -133,6 +135,8 @@ class TrayController:
         self._on_set_voice_language = on_set_voice_language
         self._inline_input_mode = inline_input_mode
         self._on_set_inline_input_mode = on_set_inline_input_mode
+        self._inline_dictation_placement = inline_dictation_placement
+        self._on_set_inline_dictation_placement = on_set_inline_dictation_placement
         self._on_manage_voice_permission = on_manage_voice_permission
         self._on_open_about = on_open_about
         self._icon = None
@@ -402,24 +406,9 @@ class TrayController:
         ]
         if language_items:
             menu_items.append(pystray.MenuItem("Language", pystray.Menu(*language_items)))
-        if self._inline_input_mode is not None and self._on_set_inline_input_mode is not None:
-            menu_items.append(pystray.MenuItem(
-                "Inline Dictation",
-                pystray.Menu(
-                    pystray.MenuItem(
-                        "Full Choice",
-                        lambda _icon, _item: self._on_set_inline_input_mode("choice"),
-                        checked=lambda _item: self._inline_input_mode is not None and self._inline_input_mode.selected_mode == "choice",
-                        enabled=lambda _item: self._inline_input_mode is not None and not self._inline_input_mode.update_pending,
-                    ),
-                    pystray.MenuItem(
-                        "Minimal Input",
-                        lambda _icon, _item: self._on_set_inline_input_mode("minimal"),
-                        checked=lambda _item: self._inline_input_mode is not None and self._inline_input_mode.selected_mode == "minimal",
-                        enabled=lambda _item: self._inline_input_mode is not None and not self._inline_input_mode.update_pending,
-                    ),
-                ),
-            ))
+        inline_menu = self._build_inline_dictation_menu(pystray)
+        if inline_menu is not None:
+            menu_items.append(inline_menu)
         if self._on_manage_voice_permission is not None:
             menu_items.append(
                 pystray.MenuItem(
@@ -434,6 +423,41 @@ class TrayController:
             lambda _item: self._voice_menu_label(),
             pystray.Menu(*menu_items),
         )
+
+    def _build_inline_dictation_menu(self, pystray):
+        items = []
+        if self._inline_input_mode is not None and self._on_set_inline_input_mode is not None:
+            for mode, label in (("choice", "Full Choice"), ("minimal", "Minimal Input")):
+                items.append(pystray.MenuItem(
+                    label,
+                    self._inline_mode_action(mode),
+                    checked=lambda _item, chosen=mode: self._inline_input_mode is not None and self._inline_input_mode.selected_mode == chosen,
+                    enabled=lambda _item: self._inline_input_mode is not None and not self._inline_input_mode.update_pending,
+                ))
+        if self._inline_dictation_placement is not None and self._on_set_inline_dictation_placement is not None:
+            if items:
+                items.append(pystray.Menu.SEPARATOR)
+            for placement, label in (("cursor", "Follow Cursor"), ("bottom_center", "Bottom Center")):
+                items.append(pystray.MenuItem(
+                    label,
+                    self._inline_placement_action(placement),
+                    checked=lambda _item, chosen=placement: self._inline_dictation_placement is not None and self._inline_dictation_placement.selected_placement == chosen,
+                    enabled=lambda _item: self._inline_dictation_placement is not None and not self._inline_dictation_placement.update_pending,
+                    radio=True,
+                ))
+        return pystray.MenuItem("Inline Dictation", pystray.Menu(*items)) if items else None
+
+    def _inline_mode_action(self, mode: InlineInputMode):
+        def select(_icon, _item) -> None:
+            if self._on_set_inline_input_mode is not None:
+                self._on_set_inline_input_mode(mode)
+        return select
+
+    def _inline_placement_action(self, placement: InlineDictationPlacement):
+        def select(_icon, _item) -> None:
+            if self._on_set_inline_dictation_placement is not None:
+                self._on_set_inline_dictation_placement(placement)
+        return select
 
     def _voice_menu_label(self) -> str:
         voice = self._voice
@@ -466,6 +490,10 @@ class TrayController:
 
     def set_inline_input_mode(self, state: InlineInputModeState) -> None:
         self._inline_input_mode = state
+        self._refresh_menu()
+
+    def set_inline_dictation_placement(self, state: InlineDictationPlacementState) -> None:
+        self._inline_dictation_placement = state
         self._refresh_menu()
 
     def set_action_language_selection(

@@ -49,6 +49,29 @@ def test_runtime_composition_injects_voice_profile_from_application_paths(
         container.build_runtime(load_config_bundle(), paths=paths)
 
 
+def test_process_taskbar_identity_is_set_before_root_creation(tmp_path: Path, monkeypatch) -> None:
+    class ReachedRoot(Exception):
+        pass
+
+    calls = []
+
+    class Native:
+        def set_process_taskbar_identity(self, app_id: str) -> bool:
+            calls.append(("identity", app_id))
+            return True
+
+    def create_view(**_kwargs):
+        calls.append(("root", None))
+        raise ReachedRoot
+
+    monkeypatch.setattr(container, "WindowsNativeWindowSurface", Native)
+    monkeypatch.setattr(container, "ResultDialogPresenter", create_view)
+    paths = build_application_paths(Path.cwd(), {"LOCALAPPDATA": str(tmp_path / "local-app-data")})
+    with pytest.raises(ReachedRoot):
+        container.build_runtime(load_config_bundle(), paths=paths)
+    assert calls == [("identity", "ClipAI.Desktop"), ("root", None)]
+
+
 def test_runtime_composition_appends_webview2_speech_fallback_once(
     tmp_path: Path,
     monkeypatch,

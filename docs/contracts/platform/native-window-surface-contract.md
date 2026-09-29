@@ -5,7 +5,12 @@ toolkit-owned window's native OS state.
 
 - Callers pass a toolkit child id; the adapter resolves the top-level handle.
 - The port covers task-switcher hiding, activation, no-activate show,
-  foreground ownership, and window icon handle ownership.
+  foreground ownership, window icon handle ownership, and process taskbar
+  identity declaration.
+- `set_process_taskbar_identity(app_id)` calls Windows
+  `SetCurrentProcessExplicitAppUserModelID`; only a zero result confirms
+  success. Composition calls it once with `ClipAI.Desktop` before creating the
+  root window. Adapter construction does not call it.
 - UI retains toolkit lifecycle (`deiconify`, `withdraw`, `winfo_id`,
   `focus_get`) and packaged icon resource discovery.
 - The Windows adapter verifies foreground truth after activation and restores

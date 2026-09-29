@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ExternalWindowWaitPolicy, InlineInputMode, InlineInputModeState, PasteOutcome
+from ClipAI.core.models import ExternalWindowWaitPolicy, InlineDictationPlacement, InlineDictationPlacementState, InlineInputMode, InlineInputModeState, PasteOutcome
 from ClipAI.core.models import ActionFeedbackRecord, ActionLanguagePackSelectionRead, ActionLanguagePackSelectionState, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EntryPanelSnapshot, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ManagedUpdatePresentation, ModelSelectionState, ModifierHoldId, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest, SelectionSource
@@ -229,6 +229,10 @@ class InlineInputModePresenter(Protocol):
     def set_inline_input_mode(self, state: InlineInputModeState) -> None: ...
 
 
+class InlineDictationPlacementPresenter(Protocol):
+    def set_inline_dictation_placement(self, state: InlineDictationPlacementState) -> None: ...
+
+
 class ShortcutGuidePresenter(Protocol):
     def show_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None: ...
 
@@ -284,6 +288,8 @@ class PointerPressReader(Protocol):
 
 class NativeWindowSurface(Protocol):
     """Native facts and operations for one toolkit-owned top-level window."""
+
+    def set_process_taskbar_identity(self, app_id: str) -> bool: ...
 
     def hide_from_task_switcher(self, toolkit_child_id: int) -> bool: ...
 
@@ -366,7 +372,7 @@ class VoiceSetupPresenter(Protocol):
 
 
 class InlineDictationPresenter(Protocol):
-    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice") -> None: ...
+    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice", placement: InlineDictationPlacement = "cursor") -> None: ...
 
     def update_inline_dictation(self, projection: VoiceProjection) -> None: ...
 

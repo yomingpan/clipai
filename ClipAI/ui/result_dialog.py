@@ -12,7 +12,6 @@ import webbrowser
 import customtkinter as ctk
 
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
-from ClipAI.core.commands import CancelInlineDictation, ConfirmInlineDictation, CopyInlineDictation, DismissInlineDictationTerminal
 from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, InlineInputMode, ManagedUpdatePresentation, OutputOperationResult, PasteOutcome, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.popup_presentation import project_popup_presentation
@@ -23,13 +22,9 @@ from ClipAI.ui.ime_composition import install_ime_composition_font
 from ClipAI.ui.popup_control import PopupControl, PopupControlRegistered, PopupControlShown, PopupForegroundPolled, PopupInsidePointerPressed, PopupOutsideFocusRequested, PopupOutsidePointerPressed, PopupOwnedDialogClosed, PopupOwnedDialogOpened, PopupProjectionContext, ToolkitFocusEntered
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease, PrimarySurfaceSpec
-from ClipAI.ui.provider_settings import ProviderSettingsDialog
-from ClipAI.ui.personal_styles import PersonalStylesDialog
-from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
 from ClipAI.ui.unified_entry_panel import UnifiedEntryPanelDialog
-from ClipAI.ui.voice_setup import VoiceSetupDialog
-from ClipAI.ui.inline_dictation import InlineDictationWindow
-from ClipAI.ui.about import AboutDialog
+from ClipAI.ui.inline_dictation_owner import InlineDictationInterfaceOwner
+from ClipAI.ui.owned_modals import OwnedModalRegistry
 
 _LOGGER = logging.getLogger("clipai.ui.result_dialog")
 
@@ -146,25 +141,27 @@ class ResultDialogPresenter:
         self._pointer_press_reader = pointer_press_reader
         self._native_window_surface = native_window_surface
         self._focus_transition_diagnostics = focus_transition_diagnostics
-        self._provider_settings_dialog: ProviderSettingsDialog | None = None
-        self._personal_styles_dialog: PersonalStylesDialog | None = None
-        self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
+        self._modals = OwnedModalRegistry(
+            self._root, lambda command: self._command_sink(command), native_window_surface,
+            version=application_version, github_url=github_url,
+        )
         self._entry_panel_dialog: UnifiedEntryPanelDialog | None = None
         self._primary_entry_surface: _PrimaryEntrySurface | None = None
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
-        self._voice_setup_dialog: VoiceSetupDialog | None = None
-        self._inline_dictation_window: InlineDictationWindow | None = None
-        self._voice_projection = voice_projection
-        self._application_version = application_version
-        self._github_url = github_url
-        self._managed_update = ManagedUpdatePresentation(
-            "unavailable", "僅 managed 安裝支援自動更新。", False
+        self._inline_presenter = InlineDictationInterfaceOwner(
+            self._root, lambda command: self._command_sink(command),
+            native_window_surface=native_window_surface,
+            display_metrics=display_metrics,
         )
-        self._about_dialog: AboutDialog | None = None
+        self._voice_projection = voice_projection
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
+
+    @property
+    def inline_presenter(self) -> InlineDictationInterfaceOwner:
+        return self._inline_presenter
 
     def workflow_context(self, workflow_id: str) -> ActiveWorkflowContext | None:
         view = self._interactive_view(workflow_id)
@@ -301,189 +298,58 @@ class ResultDialogPresenter:
             primary_entry.workflow_id = workflow_id
 
     def show_provider_settings(self, state: ProviderSettingsState) -> None:
-        if self._provider_settings_dialog is None:
-            if self._native_window_surface is None:
-                return
-            self._provider_settings_dialog = ProviderSettingsDialog(
-                self._root,
-                self._command_sink,
-                self._native_window_surface,
-            )
-        self._provider_settings_dialog.apply(state)
+        self._modals.show_provider_settings(state)
 
     def set_provider_settings(self, state: ProviderSettingsState) -> None:
-        if self._provider_settings_dialog is not None:
-            self._provider_settings_dialog.apply(state)
+        self._modals.set_provider_settings(state)
 
     def close_provider_settings(self) -> None:
-        if self._provider_settings_dialog is not None:
-            self._provider_settings_dialog.close()
+        self._modals.close_provider_settings()
 
     def show_personal_styles(self, state: PersonalStyleState) -> None:
-        if self._personal_styles_dialog is None:
-            if self._native_window_surface is None:
-                return
-            self._personal_styles_dialog = PersonalStylesDialog(
-                self._root,
-                self._command_sink,
-                self._native_window_surface,
-            )
-        self._personal_styles_dialog.apply(state)
+        self._modals.show_personal_styles(state)
 
     def set_personal_styles(self, state: PersonalStyleState) -> None:
-        if self._personal_styles_dialog is not None:
-            self._personal_styles_dialog.apply(state)
+        self._modals.set_personal_styles(state)
 
     def close_personal_styles(self) -> None:
-        if self._personal_styles_dialog is not None:
-            self._personal_styles_dialog.close()
+        self._modals.close_personal_styles()
 
     def show_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
         self._hold_focus_for_shortcut_guide()
-        if self._shortcut_guide_dialog is None:
-            if self._native_window_surface is None:
-                return
-            self._shortcut_guide_dialog = ShortcutGuideDialog(
-                self._root,
-                self._command_sink,
-                self._native_window_surface,
-            )
-        self._shortcut_guide_dialog.show(snapshot)
+        self._modals.show_shortcut_guide(snapshot)
 
     def set_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
-        if self._shortcut_guide_dialog is not None:
-            self._shortcut_guide_dialog.apply(snapshot)
+        self._modals.set_shortcut_guide(snapshot)
 
     def close_shortcut_guide(self) -> None:
-        if self._shortcut_guide_dialog is not None:
-            self._shortcut_guide_dialog.close()
+        self._modals.close_shortcut_guide()
         self._restore_focus_after_shortcut_guide()
 
     def show_voice_setup(self) -> None:
-        if self._voice_setup_dialog is None:
-            self._voice_setup_dialog = VoiceSetupDialog(self._root, self._command_sink)
-        self._voice_setup_dialog.show()
+        self._modals.show_voice_setup()
 
     def close_voice_setup(self) -> None:
-        if self._voice_setup_dialog is not None:
-            self._voice_setup_dialog.close()
+        self._modals.close_voice_setup()
 
     def show_about(self) -> None:
-        if self._native_window_surface is None:
-            return
-        if self._about_dialog is None:
-            self._about_dialog = AboutDialog(
-                self._root,
-                self._command_sink,
-                self._native_window_surface,
-                version=self._application_version,
-                github_url=self._github_url,
-                managed_update=self._managed_update,
-            )
+        self._modals.show_about()
 
     def set_managed_update(self, state: ManagedUpdatePresentation) -> None:
-        self._managed_update = state
-        if self._about_dialog is not None:
-            self._about_dialog.set_managed_update(state)
+        self._modals.set_managed_update(state)
 
     def close_about(self) -> None:
-        if self._about_dialog is not None:
-            self._about_dialog.close()
-            self._about_dialog = None
+        self._modals.close_about()
 
     def open_github(self, url: str) -> None:
         webbrowser.open(url)
 
     def set_voice_projection(self, projection: VoiceProjection) -> None:
         self._voice_projection = projection
-        if self._voice_setup_dialog is not None:
-            self._voice_setup_dialog.set_voice_projection(projection)
+        self._modals.set_voice_projection(projection)
         for view in self._views.values():
             if view.last_snapshot is not None:
                 self._configure_voice_control(view.last_snapshot, view)
-
-    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice") -> None:
-        previous = self._inline_dictation_window
-        if previous is not None:
-            if previous.interaction_id == interaction_id:
-                return
-            previous.close()
-            self._inline_dictation_window = None
-        window = InlineDictationWindow(
-            self._root,
-            on_confirm=lambda refine: self._command_sink(ConfirmInlineDictation(interaction_id, refine)),
-            on_cancel=lambda: self._command_sink(CancelInlineDictation(interaction_id)),
-            on_copy=lambda: self._command_sink(CopyInlineDictation(interaction_id)),
-            native_window_surface=self._native_window_surface,
-            display_metrics=getattr(self, "_display_metrics", None),
-            interaction_id=interaction_id,
-            mode=mode,
-        )
-        self._inline_dictation_window = window
-        window.show()
-
-    def update_inline_dictation(self, projection: VoiceProjection) -> None:
-        if self._inline_dictation_window is not None:
-            self._inline_dictation_window.update(projection)
-
-    def present_inline_paste_outcome(self, interaction_id: str, outcome: PasteOutcome, text: str) -> None:
-        window = self._inline_dictation_window
-        if window is not None and window.interaction_id == interaction_id:
-            window.show_paste_outcome(outcome, text)
-            if outcome.state in {"dispatched_unconfirmed", "cancelled"}:
-                self._root.after(
-                    3000,
-                    lambda: self._command_sink(DismissInlineDictationTerminal(interaction_id)),
-                )
-
-    def present_inline_paste_pending(self, interaction_id: str) -> None:
-        window = self._inline_dictation_window
-        if window is not None and window.interaction_id == interaction_id:
-            window.show_paste_pending()
-
-    def present_inline_paste_cancelling(self, interaction_id: str) -> None:
-        window = self._inline_dictation_window
-        if window is not None and window.interaction_id == interaction_id:
-            window.show_paste_cancelling()
-
-    def present_inline_choice(self, interaction_id: str, text: str, allow_refine: bool = True, message: str = "") -> None:
-        window = self._inline_dictation_window
-        if window is not None and window.interaction_id == interaction_id:
-            window.present_choice(text, allow_refine, message)
-
-    def present_inline_refining(self, interaction_id: str) -> None:
-        window = self._inline_dictation_window
-        if window is not None and window.interaction_id == interaction_id:
-            window.show_refining()
-
-    def present_inline_refinement_pending(self, interaction_id: str) -> None:
-        window = self._inline_dictation_window
-        if window is not None and window.interaction_id == interaction_id:
-            window.show_refinement_pending()
-
-    def present_inline_cancel_unconfirmed(self, interaction_id: str, text: str) -> None:
-        window = self._inline_dictation_window
-        if window is not None and window.interaction_id == interaction_id:
-            window.show_cancel_unconfirmed(text)
-
-    def present_inline_recovery(self, interaction_id: str, text: str, message: str) -> None:
-        window = self._inline_dictation_window
-        if window is not None and window.interaction_id == interaction_id:
-            window.show_recovery(text, message)
-
-    def present_inline_copy_state(self, interaction_id: str, state: str) -> None:
-        window = self._inline_dictation_window
-        if window is not None and window.interaction_id == interaction_id:
-            window.show_copy_state(state)
-
-    def close_inline_dictation(self, *, flash_failure: bool = False, message: str = "", interaction_id: str = "") -> None:
-        if interaction_id and self._inline_dictation_window is not None and self._inline_dictation_window.interaction_id != interaction_id:
-            return
-        window = self._inline_dictation_window
-        if window is not None:
-            window.close(flash_failure=flash_failure, message=message)
-            if not flash_failure:
-                self._inline_dictation_window = None
 
     def _hold_focus_for_shortcut_guide(self) -> None:
         self._hold_focus_for_owned_surface()
@@ -585,15 +451,7 @@ class ResultDialogPresenter:
                 view.popup_control.dispose()
             view.dialog.close()
         self._views.clear()
-        if self._provider_settings_dialog is not None:
-            self._provider_settings_dialog.destroy()
-            self._provider_settings_dialog = None
-        if self._personal_styles_dialog is not None:
-            self._personal_styles_dialog.destroy()
-            self._personal_styles_dialog = None
-        if self._shortcut_guide_dialog is not None:
-            self._shortcut_guide_dialog.destroy()
-            self._shortcut_guide_dialog = None
+        self._modals.destroy()
         if self._entry_panel_dialog is not None:
             primary_entry = self._primary_entry_surface
             if primary_entry is not None:

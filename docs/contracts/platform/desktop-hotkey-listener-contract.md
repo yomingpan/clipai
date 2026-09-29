@@ -62,6 +62,9 @@ Press type.
   Shortcut Presses with different identities.
 - Escape emits `current` immediately and `all` at the long threshold. It never
   emits Shortcut Press lifecycle facts.
+- An active Inline interaction or unpinned foreground Popup may claim physical
+  Escape. The native filter suppresses only an unmodified key-down and its
+  matching key-up; Ctrl, Alt, Shift, and Windows key chords pass through.
 
 ## Observation lease
 

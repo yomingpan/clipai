@@ -51,11 +51,19 @@ class WindowsNativeWindowSurface:
         user32: Any | None = None,
         kernel32: Any | None = None,
         imm32: Any | None = None,
+        shell32: Any | None = None,
     ) -> None:
         self._user32 = user32 or ctypes.windll.user32
         self._kernel32 = kernel32 or ctypes.windll.kernel32
         self._imm32 = imm32 or ctypes.windll.imm32
+        self._shell32 = shell32 or ctypes.windll.shell32
         configure_win32_api(self._user32, self._kernel32)
+
+    def set_process_taskbar_identity(self, app_id: str) -> bool:
+        try:
+            return int(self._shell32.SetCurrentProcessExplicitAppUserModelID(app_id)) == 0
+        except (AttributeError, OSError, TypeError, ValueError):
+            return False
 
     def hide_from_task_switcher(self, toolkit_child_id: int) -> bool:
         try:
@@ -188,6 +196,9 @@ class WindowsNativeWindowSurface:
 
 class HeadlessNativeWindowSurface:
     """Conservative adapter for environments with no native window system."""
+
+    def set_process_taskbar_identity(self, app_id: str) -> bool:
+        return False
 
     def hide_from_task_switcher(self, toolkit_child_id: int) -> bool:
         return False

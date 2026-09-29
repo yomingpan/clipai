@@ -32,7 +32,7 @@ from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
 from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenAbout, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SelectActionLanguagePack, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.commands import InlineDictationRefineSettled
-from ClipAI.core.commands import SetInlineInputMode
+from ClipAI.core.commands import SetInlineDictationPlacement, SetInlineInputMode
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -171,12 +171,15 @@ def build_runtime(
         on_set_voice_language=lambda language: runtime_holder[0].enqueue(SetVoiceLanguage(language)),
         inline_input_mode=user_preferences.inline_input_mode_state,
         on_set_inline_input_mode=lambda mode: runtime_holder[0].enqueue(SetInlineInputMode(mode, uuid.uuid4().hex)),
+        inline_dictation_placement=user_preferences.inline_dictation_placement_state,
+        on_set_inline_dictation_placement=lambda placement: runtime_holder[0].enqueue(SetInlineDictationPlacement(placement, uuid.uuid4().hex)),
         on_manage_voice_permission=lambda: runtime_holder[0].enqueue(OpenVoicePermissionSettings()),
         on_open_about=lambda: runtime_holder[0].enqueue(OpenAbout()),
         application_version=application_version,
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     native_window_surface = WindowsNativeWindowSurface()
+    native_window_surface.set_process_taskbar_identity("ClipAI.Desktop")
     view = ResultDialogPresenter(
         display_metrics=WindowsDisplayMetricsReader(),
         pointer_press_reader=WindowsPointerPressReader(),
@@ -284,6 +287,7 @@ def build_runtime(
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
             entry_panel_enabled=bundle.app.entry_panel_enabled,
             inline_escape_owner=lambda: voice_controller.active_inline_interaction_id() is not None,
+            popup_escape_owner=lambda: workflow_module.unpinned_foreground_popup_id() is not None,
         )
 
     user_control = UserControlCoordinator()
@@ -362,6 +366,7 @@ def build_runtime(
         guidance_preferences_presenter=tray,
         speech_speed_presenter=tray,
         inline_input_mode_presenter=tray,
+        inline_dictation_placement_presenter=tray,
         operation_tracker=operation_tracker,
         notifier=tray,
     )
@@ -461,6 +466,7 @@ def build_runtime(
         workflows=workflow_module,
         paste_target_reader=lambda: result_output_module.current_paste_target,
         inline_input_mode_reader=lambda: user_preferences.inline_input_mode,
+        inline_dictation_placement_reader=lambda: user_preferences.inline_dictation_placement,
         capture_external_target=foreground_monitor.capture_foreground_target,
         persist_enabled=lambda setup_id: user_preferences_module.begin_voice_enabled(
             True,
@@ -482,7 +488,7 @@ def build_runtime(
         projection_sink=project_voice,
         notifier=tray,
         setup_presenter=view,
-        inline_presenter=view,
+        inline_presenter=view.inline_presenter,
         paste_inline=lambda text, target, refine, interaction_id, operation_id: inline_dictation.submit(text, target, refine=refine, interaction_id=interaction_id, operation_id=operation_id),
         cancel_inline_paste=lambda operation_id: result_output_module.cancel_operation(operation_id),
         cancel_inline_refinement=inline_dictation.cancel,

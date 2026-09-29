@@ -15,9 +15,11 @@ from ClipAI.core.commands import (
     SpeechSpeedPreferencesCompleted,
     SetInlineInputMode,
     InlineInputModePreferencesCompleted,
+    SetInlineDictationPlacement,
+    InlineDictationPlacementPreferencesCompleted,
 )
-from ClipAI.core.models import EntryPanelDensity, InlineInputMode, SpeechSpeed, VoiceLanguagePreference
-from ClipAI.core.ports import GuidancePreferencesPresenter, InlineInputModePresenter, OperationTracker, SpeechSpeedPresenter, UserNotifier
+from ClipAI.core.models import EntryPanelDensity, InlineDictationPlacement, InlineInputMode, SpeechSpeed, VoiceLanguagePreference
+from ClipAI.core.ports import GuidancePreferencesPresenter, InlineDictationPlacementPresenter, InlineInputModePresenter, OperationTracker, SpeechSpeedPresenter, UserNotifier
 from ClipAI.services.user_preferences import UserPreferencesCoordinator, UserPreferencesUpdate
 
 
@@ -31,6 +33,8 @@ UserPreferencesRuntimeCommand: TypeAlias = (
     | EntryPanelDensityPreferencesCompleted
     | SetInlineInputMode
     | InlineInputModePreferencesCompleted
+    | SetInlineDictationPlacement
+    | InlineDictationPlacementPreferencesCompleted
 )
 
 
@@ -46,6 +50,7 @@ class UserPreferencesRuntimeModule:
         guidance_preferences_presenter: GuidancePreferencesPresenter | None = None,
         speech_speed_presenter: SpeechSpeedPresenter | None = None,
         inline_input_mode_presenter: InlineInputModePresenter | None = None,
+        inline_dictation_placement_presenter: InlineDictationPlacementPresenter | None = None,
         operation_tracker: OperationTracker | None = None,
         notifier: UserNotifier | None = None,
     ) -> None:
@@ -55,6 +60,7 @@ class UserPreferencesRuntimeModule:
         self._guidance_preferences_presenter = guidance_preferences_presenter
         self._speech_speed_presenter = speech_speed_presenter
         self._inline_input_mode_presenter = inline_input_mode_presenter
+        self._inline_dictation_placement_presenter = inline_dictation_placement_presenter
         self._operation_tracker = operation_tracker
         self._notifier = notifier
 
@@ -69,7 +75,9 @@ class UserPreferencesRuntimeModule:
             self._begin_preference("entry_panel_density", command.operation_id or uuid.uuid4().hex, density=command.density)
         elif isinstance(command, SetInlineInputMode):
             self._begin_preference("inline_input_mode", command.operation_id or uuid.uuid4().hex, inline_input_mode=command.mode)
-        elif isinstance(command, (GuidancePreferencesCompleted, SpeechSpeedPreferencesCompleted, EntryPanelDensityPreferencesCompleted, InlineInputModePreferencesCompleted)):
+        elif isinstance(command, SetInlineDictationPlacement):
+            self._begin_preference("inline_dictation_placement", command.operation_id or uuid.uuid4().hex, inline_dictation_placement=command.placement)
+        elif isinstance(command, (GuidancePreferencesCompleted, SpeechSpeedPreferencesCompleted, EntryPanelDensityPreferencesCompleted, InlineInputModePreferencesCompleted, InlineDictationPlacementPreferencesCompleted)):
             if self._user_preferences is not None:
                 self._project_preferences(self._user_preferences.complete(command.operation_id, command.error))
 
@@ -132,6 +140,7 @@ class UserPreferencesRuntimeModule:
         speed: SpeechSpeed | None = None,
         density: EntryPanelDensity | None = None,
         inline_input_mode: InlineInputMode | None = None,
+        inline_dictation_placement: InlineDictationPlacement | None = None,
     ) -> None:
         if self._user_preferences is None:
             return
@@ -145,6 +154,8 @@ class UserPreferencesRuntimeModule:
             update = self._user_preferences.begin_set_entry_panel_density(density, operation_id)
         elif inline_input_mode is not None:
             update = self._user_preferences.begin_set_inline_input_mode(inline_input_mode, operation_id)
+        elif inline_dictation_placement is not None:
+            update = self._user_preferences.begin_set_inline_dictation_placement(inline_dictation_placement, operation_id)
         else:
             return
         self._project_preferences(update)
@@ -159,6 +170,8 @@ class UserPreferencesRuntimeModule:
             if kind == "entry_panel_density"
             else InlineInputModePreferencesCompleted
             if kind == "inline_input_mode"
+            else InlineDictationPlacementPreferencesCompleted
+            if kind == "inline_dictation_placement"
             else GuidancePreferencesCompleted
         )
         unexpected_error = (
@@ -168,6 +181,8 @@ class UserPreferencesRuntimeModule:
             if kind == "entry_panel_density"
             else "Could not save Inline Dictation mode. The previous mode remains active."
             if kind == "inline_input_mode"
+            else "Could not save Inline Dictation placement. The previous placement remains active."
+            if kind == "inline_dictation_placement"
             else "無法儲存使用引導設定，請再試一次。"
         )
 
@@ -191,6 +206,8 @@ class UserPreferencesRuntimeModule:
             self._speech_speed_presenter.set_speech_speed(update.speech_speed)
         if self._inline_input_mode_presenter is not None:
             self._inline_input_mode_presenter.set_inline_input_mode(update.inline_input_mode)
+        if self._inline_dictation_placement_presenter is not None:
+            self._inline_dictation_placement_presenter.set_inline_dictation_placement(update.inline_dictation_placement)
         if update.error and self._notifier is not None:
             self._notifier.notify("ClipAI", update.error)
         if update.error and self._operation_tracker is not None:

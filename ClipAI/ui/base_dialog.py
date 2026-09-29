@@ -537,6 +537,12 @@ class _VoiceWaveIndicator(tk.Canvas):
             splinesteps=8,
         )
 
+    def redraw(self) -> None:
+        try:
+            self._render()
+        except tk.TclError:
+            pass
+
     def _draw_rounded_pill(
         self,
         left: float,

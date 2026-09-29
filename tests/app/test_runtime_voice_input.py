@@ -125,6 +125,7 @@ class InlinePresenter:
     def __init__(self):
         self.opened = 0
         self.modes = []
+        self.placements = []
         self.interaction_ids = []
         self.choices = []
         self.choice_messages = []
@@ -139,7 +140,7 @@ class InlinePresenter:
         self.recoveries = []
         self.copy_states = []
 
-    def open_inline_dictation(self, interaction_id="", mode="choice"): self.opened += 1; self.modes.append(mode); self.interaction_ids.append(interaction_id)
+    def open_inline_dictation(self, interaction_id="", mode="choice", placement="cursor"): self.opened += 1; self.modes.append(mode); self.placements.append(placement); self.interaction_ids.append(interaction_id)
     def update_inline_dictation(self, projection): self.projections.append(projection)
     def present_inline_choice(self, _interaction_id, text, allow_refine=True, message=""): self.choices.append(text); self.choice_messages.append(message)
     def present_inline_paste_outcome(self, interaction_id, outcome, text): self.paste_outcomes.append((interaction_id, outcome, text))
@@ -248,6 +249,18 @@ def test_minimal_mode_is_frozen_at_start_and_second_press_selects_raw_or_refine(
         assert presenter.choices == []
         assert len(requests) == 1
         assert requests[0][2] is expected_refine
+
+
+def test_inline_placement_is_read_when_interaction_opens() -> None:
+    presenter = InlinePresenter()
+    runtime = VoiceInputRuntimeModule(
+        controller=VoiceInputController(enabled=True), engine=Engine(), workflows=Workflows(),
+        paste_target_reader=lambda: None,
+        inline_dictation_placement_reader=lambda: "bottom_center",
+        inline_presenter=presenter,
+    )
+    assert runtime.handle(ToggleInlineDictation("short"))
+    assert presenter.placements == ["bottom_center"]
 
 
 def test_inline_without_target_preserves_text_without_offering_paste_choice():

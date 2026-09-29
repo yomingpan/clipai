@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActionFeedbackCompleted, ActionLanguagePackSelectionCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, CloseAbout, CloseEntryPanel, ClosePersonalStyles, CloseProviderSettings, CloseSession, CloseShortcutGuide, ContextualSourceCaptured, ContextualSourceCaptureFailed, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, DisableVoiceInput, EnableVoiceInput, EntryPanelActionSelected, EntryPanelBack, EntryPanelDensityPreferencesCompleted, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelInputPreparationProgress, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, ImportPersonalStyle, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenAbout, OpenContextualQuestion, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenUnifiedEntryPanel, OpenVoicePermissionSettings, OpenVoiceSetup, PasteOperationCompleted, PasteResult, PersonalStyleOperationCompleted, RefineVoiceDraftInPlace, RefreshProviderModels, RegenerateResult, ReloadConfiguration, ResetFirstUseHints, RetryEntryPanelInput, UseEntryPanelClipboard, RetryVoiceInputSetup, SelectActionLanguagePack, SelectPersonalStyle, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetEntryPanelDensity, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, ValidateAndSaveProviderSettings, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired, WorkflowAttentionCompleted, WorkflowStepAccepted
 from ClipAI.core.commands import CancelInlineDictation, DismissInlineDictationTerminal, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, InlineDictationRefineCancelAccepted, InlineDictationRefineCancelTimedOut, VoiceFinalizeWatchdogExpired
-from ClipAI.core.commands import SetInlineInputMode, InlineInputModePreferencesCompleted
+from ClipAI.core.commands import SetInlineInputMode, InlineInputModePreferencesCompleted, SetInlineDictationPlacement, InlineDictationPlacementPreferencesCompleted
 from ClipAI.core.commands import CopyInlineDictation, InlineDictationCopyCompleted
 from ClipAI.core.models import InlineOrigin
 from collections.abc import Callable
@@ -38,7 +38,7 @@ _WORKFLOW_COMMANDS = (StartAction, ExpireInputRecovery, UseWorkflowClipboard, Op
 _OUTPUT_COMMANDS = (CopyResult, PasteResult, ArchiveResult, ToggleSpeech, SpeakSelectionOrClipboard, ExportDiagnostics)
 _PROVIDER_COMMANDS = (SelectProviderModel, SelectProvider, ReloadConfiguration, OpenProviderSettings, CloseProviderSettings, ValidateAndSaveProviderSettings, RefreshProviderModels, ProviderConfigurationResult)
 _ACTION_FEEDBACK_COMMANDS = (SubmitActionFeedback, ActionFeedbackCompleted)
-_USER_PREFERENCES_COMMANDS = (SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted, SetSpeechSpeed, SpeechSpeedPreferencesCompleted, SetEntryPanelDensity, EntryPanelDensityPreferencesCompleted, SetInlineInputMode, InlineInputModePreferencesCompleted)
+_USER_PREFERENCES_COMMANDS = (SetFirstUseHintsEnabled, ResetFirstUseHints, GuidancePreferencesCompleted, SetSpeechSpeed, SpeechSpeedPreferencesCompleted, SetEntryPanelDensity, EntryPanelDensityPreferencesCompleted, SetInlineInputMode, InlineInputModePreferencesCompleted, SetInlineDictationPlacement, InlineDictationPlacementPreferencesCompleted)
 _ACTION_LANGUAGE_COMMANDS = (SelectActionLanguagePack, ActionLanguagePackSelectionCompleted)
 _SHORTCUT_GUIDE_COMMANDS = (OpenShortcutGuide, CloseShortcutGuide, SelectShortcutGuideItem)
 _PERSONAL_STYLE_COMMANDS = (OpenPersonalStyles, ClosePersonalStyles, ImportPersonalStyle, SelectPersonalStyle, PersonalStyleOperationCompleted)
@@ -276,7 +276,13 @@ class AppRuntime:
             ):
                 self._workflow_module.cancel_shortcut_sequence()
                 return
-            self._execute_interruption(self._user_control.interrupt_current())
+            plan = self._user_control.interrupt_current()
+            if plan.surface is None and not plan.operations:
+                popup_id = self._workflow_module.unpinned_foreground_popup_id()
+                if popup_id is not None:
+                    self._route(CloseSession(popup_id))
+                    return
+            self._execute_interruption(plan)
         elif isinstance(command, InterruptAll):
             if self._voice_input_module is not None:
                 self._voice_input_module.cancel_inline_dictation()

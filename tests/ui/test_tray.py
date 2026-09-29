@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from ClipAI.core.models import ActionLanguagePackDescriptor, ActionLanguagePackIdentity, ActionLanguagePackRecovery, ActionLanguagePackSelectionState, GuidancePreferences, InlineInputModeState, ModelSelectionState, ProviderOption, ProviderSelectionState, SpeechSpeedState
+from ClipAI.core.models import ActionLanguagePackDescriptor, ActionLanguagePackIdentity, ActionLanguagePackRecovery, ActionLanguagePackSelectionState, GuidancePreferences, InlineDictationPlacementState, InlineInputModeState, ModelSelectionState, ProviderOption, ProviderSelectionState, SpeechSpeedState
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceProjection
 from ClipAI.ui.tray import SHORTCUT_GUIDE_MENU_LABEL, STATUS_COLORS, TrayController, create_tray_image
 
@@ -71,6 +71,31 @@ def test_tray_inline_mode_stays_checked_on_saved_value_while_save_is_pending() -
     assert not minimal.enabled(None)
     tray.set_inline_input_mode(InlineInputModeState("minimal"))
     assert minimal.checked(None)
+
+
+def test_tray_inline_placement_radio_reflects_saved_and_pending_state() -> None:
+    selected = []
+    tray = TrayController(
+        lambda: None,
+        voice=VoiceProjection(VoiceCapabilityPhase.READY, "zh-TW"),
+        on_enable_voice=lambda: None,
+        on_disable_voice=lambda: None,
+        inline_input_mode=InlineInputModeState(),
+        on_set_inline_input_mode=lambda _mode: None,
+        inline_dictation_placement=InlineDictationPlacementState(),
+        on_set_inline_dictation_placement=selected.append,
+    )
+    menu = next(item for item in tray._build_voice_menu(Pystray).action.items if item.text == "Inline Dictation")
+    assert menu.action.items[2] is Menu.SEPARATOR
+    follow_cursor, bottom_center = menu.action.items[3:]
+    assert follow_cursor.checked(None) and not bottom_center.checked(None)
+    assert follow_cursor.radio and bottom_center.radio
+    bottom_center.action(None, None)
+    assert selected == ["bottom_center"]
+    tray.set_inline_dictation_placement(InlineDictationPlacementState("cursor", "bottom_center", True))
+    assert follow_cursor.checked(None) and not bottom_center.enabled(None)
+    tray.set_inline_dictation_placement(InlineDictationPlacementState("bottom_center"))
+    assert bottom_center.checked(None)
 
 class NotificationIcon:
     def __init__(self) -> None:

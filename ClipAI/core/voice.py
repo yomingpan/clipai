@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
+
+from ClipAI.core.models import ControlSurfaceRef
 
 if TYPE_CHECKING:
     from ClipAI.core.models import InlineInputMode, PasteTarget
@@ -246,3 +248,23 @@ class VoiceProjection:
     silence_detected: bool = False
     capture_destination: VoiceCaptureDestination | None = None
     remaining_seconds: int | None = None
+
+
+@dataclass(frozen=True)
+class VoiceCaptureIntent:
+    """Explicit request for a Voice capture destination."""
+
+    trigger: Literal["shortcut", "popup"]
+    workflow_id: str | None = None
+    focused_surface: ControlSurfaceRef | None = None
+    active_voice_workflow_id: str | None = None
+
+
+@dataclass(frozen=True)
+class VoiceCaptureAdmission:
+    """Immutable destination decision shared by both Voice triggers."""
+
+    kind: Literal["create", "voice_review", "follow_up", "continue", "rejected"]
+    workflow_id: str | None = None
+    target: VoiceDraftTarget | VoiceFollowUpTarget | None = None
+    message: str = ""
