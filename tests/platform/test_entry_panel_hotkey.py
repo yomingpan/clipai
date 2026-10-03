@@ -18,6 +18,93 @@ from ClipAI.platform import keyboard_state
 from ClipAI.platform.hotkey import create_hotkey_dispatcher
 
 
+def test_claimed_alt_release_masks_menu_before_native_delivery() -> None:
+    from ClipAI.platform.hotkey import _WindowsHotkeyEventFilter
+
+    events = []
+    dispatcher = _dispatcher(events)
+    native_events = []
+    hook = _WindowsHotkeyEventFilter(dispatcher, lambda: native_events.append("mask"))
+    dispatcher.on_press(Key("alt"))
+    Timer.timers[0].fire()
+    # pynput's on_release is queued; the hook must mask before Windows sees up.
+    assert hook(0x105, SimpleNamespace(vkCode=0xA4, flags=0)) is True
+    native_events.append("alt_up")
+    dispatcher.on_release(Key("alt"))
+    assert native_events == ["mask", "alt_up"]
+    assert len([e for e in events if isinstance(e, OpenUnifiedEntryPanel)]) == 1
+
+
+@pytest.mark.parametrize("ending", ["short", "chord", "stopped", "settled", "injected"])
+def test_unclaimed_or_injected_alt_release_does_not_mask(ending) -> None:
+    from ClipAI.platform.hotkey import _WindowsHotkeyEventFilter
+
+    dispatcher = _dispatcher([])
+    masks = []
+    hook = _WindowsHotkeyEventFilter(dispatcher, lambda: masks.append(True))
+    dispatcher.on_press(Key("alt"))
+    if ending == "chord":
+        dispatcher.on_press(Key("tab"))
+    if ending not in {"short", "chord"}:
+        Timer.timers[0].fire()
+    if ending == "stopped":
+        dispatcher.stop()
+    if ending == "settled":
+        dispatcher.settle_entry_panel_hold(ModifierHoldId(1))
+    injected = ending == "injected"
+    assert hook(0x105, SimpleNamespace(vkCode=0xA4, flags=0x10 if injected else 0)) is (not injected)
+    assert masks == []
+
+
+@pytest.mark.parametrize("virtual_key", [0x12, 0xA4, 0xA5])
+def test_native_mask_is_once_per_hold_and_ignores_repeat_and_other_releases(virtual_key) -> None:
+    from ClipAI.platform.hotkey import _WindowsHotkeyEventFilter
+
+    dispatcher = _dispatcher([])
+    masks = []
+    hook = _WindowsHotkeyEventFilter(dispatcher, lambda: masks.append(True))
+    for _ in range(2):
+        dispatcher.on_press(Key("alt"))
+        Timer.timers[-1].fire()
+        for message, vk in ((0x104, virtual_key), (0x101, 0x30)):
+            assert hook(message, SimpleNamespace(vkCode=vk, flags=0)) is True
+        before = len(masks)
+        for _ in range(2):
+            assert hook(0x101, SimpleNamespace(vkCode=virtual_key, flags=0)) is True
+        assert len(masks) == before + 1
+        dispatcher.on_release(Key("alt"))
+
+
+def test_menu_mask_failure_does_not_drop_physical_alt_release(caplog) -> None:
+    from ClipAI.platform.hotkey import _WindowsHotkeyEventFilter
+
+    dispatcher = _dispatcher([])
+    def fail():
+        raise OSError("injection rejected")
+    hook = _WindowsHotkeyEventFilter(dispatcher, fail)
+    dispatcher.on_press(Key("alt"))
+    Timer.timers[0].fire()
+    assert hook(0x105, SimpleNamespace(vkCode=0xA4, flags=0)) is True
+    dispatcher.on_release(Key("alt"))
+    assert "menu mask" in caplog.text
+
+
+def test_native_alt_release_before_deadline_blocks_late_open_before_semantic_release() -> None:
+    from ClipAI.platform.hotkey import _WindowsHotkeyEventFilter
+
+    events = []
+    dispatcher = _dispatcher(events)
+    masks = []
+    hook = _WindowsHotkeyEventFilter(dispatcher, lambda: masks.append(True))
+    dispatcher.on_press(Key("alt"))
+    hook(0x105, SimpleNamespace(vkCode=0xA4, flags=0))
+    # The timer thread may run before pynput drains its queued on_release.
+    Timer.timers[0].callback()
+    assert events == []
+    assert masks == []
+    dispatcher.on_release(Key("alt"))
+
+
 class Key:
     def __init__(
         self,

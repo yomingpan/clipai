@@ -5,7 +5,8 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import CloseAbout, OpenGitHub
+from ClipAI.core.commands import CheckForManagedUpdate, CloseAbout, OpenGitHub
+from ClipAI.core.models import ManagedUpdatePresentation
 from ClipAI.ui.tray import create_tray_image
 from ClipAI.ui.window_icons import CUSTOMTKINTER_ICON_DELAY_MS, install_clipai_window_icons
 
@@ -13,7 +14,7 @@ from ClipAI.ui.window_icons import CUSTOMTKINTER_ICON_DELAY_MS, install_clipai_w
 class AboutDialog:
     """Static application information surface."""
 
-    def __init__(self, master, command_sink: Callable[[object], None], native_window_surface, *, version: str, github_url: str) -> None:
+    def __init__(self, master, command_sink: Callable[[object], None], native_window_surface, *, version: str, github_url: str, managed_update: ManagedUpdatePresentation) -> None:
         self._command_sink = command_sink
         self._native_window_surface = native_window_surface
         self._window_icon_handles: tuple[int, ...] = ()
@@ -115,10 +116,38 @@ class AboutDialog:
         ).grid(row=9, column=1, padx=(0, 28), pady=(4, 0), sticky="new")
         buttons = ctk.CTkFrame(self._window, fg_color="transparent")
         buttons.grid(row=10, column=1, padx=(0, 28), pady=(22, 26), sticky="se")
-        self._update_button = ctk.CTkButton(buttons, text="檢查更新（尚未提供）", state="disabled", width=170)
+        self._update_button = ctk.CTkButton(
+            buttons,
+            command=lambda: self._command_sink(CheckForManagedUpdate()),
+            width=170,
+        )
         self._update_button.grid(row=0, column=0, padx=(0, 10))
         ctk.CTkButton(buttons, text="關閉", command=self._request_close, width=100).grid(row=0, column=1)
+        self._update_status = ctk.CTkLabel(
+            buttons,
+            text="",
+            anchor="e",
+            font=body_font,
+            wraplength=360,
+        )
+        self._update_status.grid(row=1, column=0, columnspan=2, pady=(8, 0), sticky="e")
+        self.set_managed_update(managed_update)
         self._window.after(CUSTOMTKINTER_ICON_DELAY_MS, self._apply_window_icons)
+
+    def set_managed_update(self, state: ManagedUpdatePresentation) -> None:
+        labels = {
+            "unavailable": "無法自動更新",
+            "idle": "檢查更新",
+            "checking": "正在檢查更新…",
+            "up_to_date": "再次檢查",
+            "restarting": "正在重新啟動…",
+            "failed": "重試更新",
+        }
+        self._update_button.configure(
+            text=labels[state.phase],
+            state="normal" if state.enabled else "disabled",
+        )
+        self._update_status.configure(text=state.message)
 
     def _request_close(self) -> None:
         self._command_sink(CloseAbout())

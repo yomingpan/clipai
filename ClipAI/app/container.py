@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
+from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
-import os
 from pathlib import Path
+import os
 import uuid
 
 from ClipAI.app.config_schema import ConfigBundle
+from ClipAI.app.application_paths import resolve_runtime_file
 from ClipAI.app.language_pack_bootstrap import ActionLanguageBootstrapResult
 from ClipAI.core.errors import ConfigError
+from ClipAI.core.application_paths import ApplicationPaths
 from ClipAI.app.provider_configuration import AppProviderConfigurationBackend, build_provider_snapshot
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.app.readiness import assess_provider_readiness
@@ -22,11 +25,15 @@ from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_action_language import ActionLanguageRuntimeModule
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
+from ClipAI.app.inline_dictation import InlineDictationCoordinator
+from ClipAI.app.managed_update_composition import ManagedUpdateRuntimeConfiguration, build_managed_update_runtime
 from ClipAI.app.owned_processes import AppOwnedProcessRegistry
 from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
 from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenAbout, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SelectActionLanguagePack, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
-from ClipAI.core.models import ModelSelectionState, ProviderSelectionState, ReadinessIssue
+from ClipAI.core.commands import InlineDictationRefineSettled
+from ClipAI.core.commands import SetInlineDictationPlacement, SetInlineInputMode
+from ClipAI.core.models import ModelSelectionState, ProviderSelectionState
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
 from ClipAI.platform.clipboard import SystemClipboard
@@ -45,7 +52,7 @@ from ClipAI.platform.recent_actions import JsonRecentActionStore
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
 from ClipAI.platform.pointer_input import WindowsPointerPressReader
 from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
-from ClipAI.platform.browser_speech import BrowserSpeechWebView2Engine
+from ClipAI.platform.browser_speech import WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT, BrowserSpeechWebView2Engine, find_webview2_runtime_for_major
 from ClipAI.platform.voice_permissions import open_microphone_privacy_settings
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider
@@ -87,12 +94,11 @@ from ClipAI.support.diagnostics import IncidentReporter
 from ClipAI.core.voice import VoiceDisableId, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
 
 
-def _needs_provider_setup(bundle_issues: Sequence[ReadinessIssue]) -> bool:
-    return any(issue.feature == "llm" for issue in bundle_issues)
-
-
 def build_runtime(
     configuration: ConfigBundle | ActionLanguageBootstrapResult,
+    *,
+    paths: ApplicationPaths,
+    managed_update: ManagedUpdateRuntimeConfiguration | None = None,
 ) -> AppRuntime:
     bootstrap = (
         configuration
@@ -100,9 +106,10 @@ def build_runtime(
         else None
     )
     bundle = bootstrap.bundle if bootstrap is not None else configuration
-    configure_logging(bundle.logging)
+    log_path = resolve_runtime_file(bundle.logging.file_path, paths.logs_root, "logs")
+    configure_logging(replace(bundle.logging, file_path=str(log_path)))
     application_version = _application_version()
-    settings_store = DotenvModelPreferenceStore()
+    settings_store = DotenvModelPreferenceStore(paths.secrets_file)
     provider_transport = HttpxAsyncTransport()
     provider_execution = ProviderExecutionModule(provider_transport)
     snapshot = build_provider_snapshot(bundle, os.environ, provider_transport)
@@ -122,12 +129,12 @@ def build_runtime(
     clipboard = SystemClipboard()
     speech_available = bundle.tts.enabled and bool(bundle.tts.voice)
     user_preferences = UserPreferencesCoordinator(
-        JsonUserPreferencesStore(),
+        JsonUserPreferencesStore(paths.state_file("user_preferences.json")),
         base_speech_rate=bundle.tts.rate,
         speech_available=speech_available,
     )
     personal_styles = PersonalStyleCoordinator(
-        JsonPersonalStyleStore(),
+        JsonPersonalStyleStore(paths.state_file("personal_styles.json")),
         Utf8PersonalStyleFileReader(),
     )
     runtime_holder: list[AppRuntime] = []
@@ -162,12 +169,17 @@ def build_runtime(
         on_enable_voice=lambda: runtime_holder[0].enqueue(OpenVoiceSetup()),
         on_disable_voice=lambda: runtime_holder[0].enqueue(DisableVoiceInput(VoiceDisableId(uuid.uuid4().hex))),
         on_set_voice_language=lambda language: runtime_holder[0].enqueue(SetVoiceLanguage(language)),
+        inline_input_mode=user_preferences.inline_input_mode_state,
+        on_set_inline_input_mode=lambda mode: runtime_holder[0].enqueue(SetInlineInputMode(mode, uuid.uuid4().hex)),
+        inline_dictation_placement=user_preferences.inline_dictation_placement_state,
+        on_set_inline_dictation_placement=lambda placement: runtime_holder[0].enqueue(SetInlineDictationPlacement(placement, uuid.uuid4().hex)),
         on_manage_voice_permission=lambda: runtime_holder[0].enqueue(OpenVoicePermissionSettings()),
         on_open_about=lambda: runtime_holder[0].enqueue(OpenAbout()),
         application_version=application_version,
     )
     operation_tracker = OperationLifecycleCoordinator(tray, ready=not readiness_issues)
     native_window_surface = WindowsNativeWindowSurface()
+    native_window_surface.set_process_taskbar_identity("ClipAI.Desktop")
     view = ResultDialogPresenter(
         display_metrics=WindowsDisplayMetricsReader(),
         pointer_press_reader=WindowsPointerPressReader(),
@@ -191,6 +203,7 @@ def build_runtime(
             "readiness_codes": [issue.code for issue in readiness_issues],
             "tts_enabled": bundle.tts.enabled,
             "voice_input_backend": bundle.voice_input.backend,
+            "voice_input_webview2_runtime_major": bundle.voice_input.webview2_runtime_major,
             "logging_enabled": bundle.logging.enabled,
             "action_language_pack": bundle.action_language.identity.pack_id,
             "action_language_pack_version": bundle.action_language.identity.pack_version,
@@ -199,7 +212,8 @@ def build_runtime(
                 list(bootstrap.diagnostic_codes) if bootstrap is not None else []
             ),
         },
-        log_path=bundle.logging.file_path,
+        log_path=log_path,
+        output_dir=paths.diagnostics_root,
         sensitive_values=((credential.value,) if credential and credential.value else ()),
     )
     speech = (
@@ -208,10 +222,11 @@ def build_runtime(
         else None
     )
     clipboard_transactions = ClipboardTransactionCoordinator(clipboard)
+    selection_probe = WindowsSelectionProbe()
     selection_reader = SelectionCaptureCoordinator(
         clipboard_transactions,
         SystemSelectionCaptureAdapter(),
-        WindowsSelectionProbe(),
+        selection_probe,
     )
     voice_selector = SpeechVoiceSelector(
         bundle.tts.english_voice,
@@ -231,7 +246,7 @@ def build_runtime(
     )
     output_actions = OutputActions(
         clipboard=clipboard_transactions,
-        archive=JsonlArchiveStore(),
+        archive=JsonlArchiveStore(paths.state_file("archive.jsonl")),
     )
     paste_operations = PasteOperationCoordinator(
         clipboard_transactions=clipboard_transactions,
@@ -271,12 +286,13 @@ def build_runtime(
             modifier_mode=bundle.app.modifier_mode,
             diagnostics_enabled=bundle.logging.diagnostics.enabled,
             entry_panel_enabled=bundle.app.entry_panel_enabled,
+            inline_escape_owner=lambda: voice_controller.active_inline_interaction_id() is not None,
+            popup_escape_owner=lambda: workflow_module.unpinned_foreground_popup_id() is not None,
         )
 
     user_control = UserControlCoordinator()
     incident_reporter = IncidentReporter()
-    local_app_data = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-    recent_store = JsonRecentActionStore(local_app_data / "ClipAI" / "recent_actions.json")
+    recent_store = JsonRecentActionStore(paths.recent_actions_file)
     valid_recent = []
     for ref in recent_store.load():
         if bundle.entry_panel.recent_candidate_for_action(ref) is not None:
@@ -322,6 +338,8 @@ def build_runtime(
         speech_coordinator=speech_coordinator,
         paste_targets=paste_targets,
         user_control=user_control,
+        inline_copy_completion_sink=enqueue,
+        inline_paste_completion_sink=enqueue,
     )
     provider_configuration_module = ProviderConfigurationRuntimeModule(
         coordinator=provider_configuration,
@@ -337,7 +355,9 @@ def build_runtime(
         supervisor=supervisor,
         workflow_controller=workflow_module.controller_for,
         enqueue=enqueue,
-        action_feedback=ActionFeedbackService(JsonlActionFeedbackStore()),
+        action_feedback=ActionFeedbackService(
+            JsonlActionFeedbackStore(paths.state_file("action_feedback.jsonl"))
+        ),
     )
     user_preferences_module = UserPreferencesRuntimeModule(
         supervisor=supervisor,
@@ -345,6 +365,8 @@ def build_runtime(
         user_preferences=user_preferences,
         guidance_preferences_presenter=tray,
         speech_speed_presenter=tray,
+        inline_input_mode_presenter=tray,
+        inline_dictation_placement_presenter=tray,
         operation_tracker=operation_tracker,
         notifier=tray,
     )
@@ -367,9 +389,27 @@ def build_runtime(
         operation_tracker=operation_tracker,
     )
     owned_processes = AppOwnedProcessRegistry()
+    webview2_application_roots = tuple(
+        Path(base) / "Microsoft" / "EdgeWebView" / "Application"
+        for name in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")
+        if (base := os.environ.get(name))
+    )
+    browser_arguments = os.environ.get(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, "")
+    if WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT not in browser_arguments:
+        os.environ[WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS] = " ".join(
+            part
+            for part in (browser_arguments.strip(), WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT)
+            if part
+        )
     voice_engine = BrowserSpeechWebView2Engine(
         lambda event: enqueue(VoiceEngineEventReceived(event)),
-        profile_root=local_app_data,
+        profile_root=paths.voice_profile_root,
+        webview2_runtime_major=bundle.voice_input.webview2_runtime_major,
+        runtime_resolver=lambda major: find_webview2_runtime_for_major(
+            major,
+            application_roots=webview2_application_roots,
+        ),
+        process_environment=dict(os.environ),
         on_process_started=owned_processes.register,
         on_process_stopped=owned_processes.unregister,
     )
@@ -407,11 +447,26 @@ def build_runtime(
         tray.set_voice_projection(projection)
         view.set_voice_projection(projection)
 
+    try:
+        inline_refine_action = bundle.actions.resolve("intent_preserving_dictation_editor", "short")
+    except (KeyError, ValueError):
+        inline_refine_action = None
+    inline_dictation = InlineDictationCoordinator(
+        provider_execution=provider_execution,
+        executor=execute_action,
+        refine_action=inline_refine_action,
+        binding=lambda: provider_configuration.active_binding,
+        paste=result_output_module.paste_inline,
+        on_refine_settled=lambda interaction_id, operation_id, text, error, failure_reason: enqueue(InlineDictationRefineSettled(interaction_id, text, error, operation_id, failure_reason)),
+    )
+
     voice_input_module = VoiceInputRuntimeModule(
         controller=voice_controller,
         engine=voice_engine,
         workflows=workflow_module,
         paste_target_reader=lambda: result_output_module.current_paste_target,
+        inline_input_mode_reader=lambda: user_preferences.inline_input_mode,
+        inline_dictation_placement_reader=lambda: user_preferences.inline_dictation_placement,
         capture_external_target=foreground_monitor.capture_foreground_target,
         persist_enabled=lambda setup_id: user_preferences_module.begin_voice_enabled(
             True,
@@ -433,6 +488,11 @@ def build_runtime(
         projection_sink=project_voice,
         notifier=tray,
         setup_presenter=view,
+        inline_presenter=view.inline_presenter,
+        paste_inline=lambda text, target, refine, interaction_id, operation_id: inline_dictation.submit(text, target, refine=refine, interaction_id=interaction_id, operation_id=operation_id),
+        cancel_inline_paste=lambda operation_id: result_output_module.cancel_operation(operation_id),
+        cancel_inline_refinement=inline_dictation.cancel,
+        copy_inline=result_output_module.copy_inline,
         focused_surface_reader=lambda: user_control.focused_surface,
         open_permission_settings=open_microphone_privacy_settings,
     )
@@ -444,6 +504,13 @@ def build_runtime(
         ),
         coordinator=ShortcutGuideCoordinator(),
         presenter=view,
+    )
+    managed_update_module = build_managed_update_runtime(
+        managed_update,
+        supervisor=supervisor,
+        enqueue=enqueue,
+        presenter=view,
+        request_shutdown=lambda: enqueue(ShutdownApplication()),
     )
     runtime = AppRuntime(
         shortcuts=bundle.shortcuts,
@@ -465,10 +532,10 @@ def build_runtime(
         personal_styles=personal_styles_module,
         entry_panel=entry_panel_module,
         action_language=action_language_module,
+        managed_update=managed_update_module,
+        background_components=(selection_probe,),
     )
     runtime_holder.append(runtime)
-    if _needs_provider_setup(readiness_issues):
-        runtime.enqueue(OpenProviderSettings(snapshot.active_provider))
     return runtime
 
 

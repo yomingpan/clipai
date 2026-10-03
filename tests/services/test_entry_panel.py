@@ -10,6 +10,39 @@ def coordinator() -> EntryPanelCoordinator:
     return EntryPanelCoordinator(load_config_bundle().entry_panel)
 
 
+def test_catalog_projects_a_validated_long_candidate() -> None:
+    bundle = load_config_bundle()
+    candidate = EntryPanelCandidate(
+        EntryActionRef("name_idea", "short"),
+        "Name",
+        "Describe",
+        EntryActionRef("critical_thinking", "long"),
+        "Critique deeply",
+    )
+    catalog = EntryPanelCatalog(
+        (EntryPanelCategory("test", 3, "Test", "Test", (candidate,), ()),),
+        actions=bundle.actions,
+    )
+
+    scene = EntryPanelCoordinator(catalog)
+    scene.open("panel")
+    option = scene.select_digit("3").snapshot.options[0]
+    assert option.long_action == EntryActionRef("critical_thinking", "long")
+    assert option.long_label == "Critique deeply"
+
+
+def test_catalog_rejects_duplicate_long_candidate_reference() -> None:
+    bundle = load_config_bundle()
+    duplicated = EntryActionRef("name_idea", "short")
+    candidate = EntryPanelCandidate(duplicated, "Name", "Describe", duplicated, "Again")
+
+    with pytest.raises(ValueError, match="duplicate entry action"):
+        EntryPanelCatalog(
+            (EntryPanelCategory("test", 3, "Test", "Test", (candidate,), ()),),
+            actions=bundle.actions,
+        )
+
+
 def test_root_digit_opens_configured_scene_with_flagship_slots() -> None:
     panel = coordinator()
     root = panel.open("panel-1")

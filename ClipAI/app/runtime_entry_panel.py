@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 import logging
+import time
 import uuid
 from typing import Protocol, TypeAlias
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import UseEntryPanelClipboard
+from ClipAI.core.commands import UseEntryPanelClipboard, EntryPanelInputPreparationProgress
 from ClipAI.core.commands import CloseEntryPanel, EntryPanelActionSelected, EntryPanelBack, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, OpenUnifiedEntryPanel, RetryEntryPanelInput, SetEntryPanelDensity
 from ClipAI.core.errors import CancelledError, InputError
 from ClipAI.core.models import (
@@ -20,6 +21,8 @@ from ClipAI.core.models import (
     EntryPanelSnapshot,
     EntryPanelSource,
     ExternalWindowRef,
+    ExternalWindowWaitPolicy,
+    ExternalWindowActivationOutcome,
     InputTarget,
     ModifierHoldId,
     PreparedInput,
@@ -62,6 +65,7 @@ EntryPanelRuntimeCommand: TypeAlias = (
     | EntryPanelDigitPressed
     | EntryPanelInputPreparationCompleted
     | EntryPanelInputPreparationFailed
+    | EntryPanelInputPreparationProgress
     | RetryEntryPanelInput
     | UseEntryPanelClipboard
     | CloseEntryPanel
@@ -190,6 +194,17 @@ class EntryPanelRuntimeModule:
             self._complete_preparation(command)
         elif isinstance(command, EntryPanelInputPreparationFailed):
             self._fail_preparation(command)
+        elif isinstance(command, EntryPanelInputPreparationProgress):
+            current = self._coordinator.snapshot
+            if (
+                current is not None
+                and current.panel_id == command.panel_id
+                and command.preparation_id == self._preparation_id
+                and current.status == "preparing"
+            ):
+                self._presenter.present_entry_panel(
+                    self._coordinator.show_input_progress(command.phase)
+                )
         elif self._matches_panel(command.panel_id):
             if isinstance(command, CloseEntryPanel):
                 self.close(command.panel_id)
@@ -319,15 +334,25 @@ class EntryPanelRuntimeModule:
         ):
             return
         self._task_id = None
-        self._prepared_input = command.prepared_input
+        prepared = command.prepared_input
+        if (
+            prepared.selection_outcome is not None
+            and prepared.selection_outcome.status == "unknown"
+            and (
+                prepared.clipboard_text_document is not None
+                or prepared.clipboard_image is not None
+            )
+        ):
+            prepared = prepared.use_clipboard()
+        self._prepared_input = prepared
         self._coordinator.complete_input_preparation(
             build_entry_input_preview(
-                command.prepared_input,
+                prepared,
                 workflow_selection=self._workflow_selection,
             )
         )
         snapshot = self._coordinator.set_disabled(
-            self._disabled_actions(prepared=command.prepared_input)
+            self._disabled_actions(prepared=prepared)
         )
         assert snapshot is not None
         self._presenter.present_entry_panel(snapshot)
@@ -429,58 +454,84 @@ class EntryPanelRuntimeModule:
         )
 
         def work() -> None:
+            notice_sent = False
+
+            def on_waiting() -> None:
+                nonlocal notice_sent
+                if not notice_sent and not cancellation.is_cancelled:
+                    notice_sent = True
+                    self._enqueue(EntryPanelInputPreparationProgress(panel_id, preparation_id, "waiting_for_window"))
+
             try:
+                wait_policy = ExternalWindowWaitPolicy()
+                activation_started_at = time.monotonic()
                 activation = self._external_window_activator.activate(
                     target,
                     cancellation,
+                    wait_policy=wait_policy,
+                    on_waiting=on_waiting,
                 )
+                activation_elapsed = time.monotonic() - activation_started_at
                 log = logger.info if activation.activated else logger.warning
                 log(
                     "Entry input trace stage=activation panel_id=%s "
                     "preparation_id=%s target_window=%s target_process_id=%s "
-                    "state=%s",
+                    "state=%s elapsed_ms=%s",
                     panel_id,
                     preparation_id,
                     target.window_token,
                     target.process_id,
                     activation.state,
+                    round(activation_elapsed * 1000),
                 )
                 if not activation.activated:
                     self._enqueue(EntryPanelInputPreparationFailed(
                         panel_id,
                         preparation_id,
-                        activation.message or "The original window could not be activated.",
+                        self._window_failure_message(activation),
                     ))
                     return
                 request = source.selection_request
+                if notice_sent:
+                    self._enqueue(EntryPanelInputPreparationProgress(panel_id, preparation_id, "reading"))
+                    notice_sent = False
                 if request is not None:
                     request = replace(request, operation_id=f"selection:{preparation_id}")
+                capture_started_at = time.monotonic()
                 prepared = self._input_resolver.prepare_input(cancellation, target=target, request=request)
                 logger.info(
                     "Entry input trace stage=capture panel_id=%s preparation_id=%s "
                     "target_window=%s selection_available=%s "
-                    "clipboard_text_available=%s clipboard_image_available=%s",
+                    "clipboard_text_available=%s clipboard_image_available=%s elapsed_ms=%s",
                     panel_id,
                     preparation_id,
                     target.window_token,
                     prepared.selection_document is not None,
                     prepared.clipboard_text_document is not None,
                     prepared.clipboard_image is not None,
+                    round((time.monotonic() - capture_started_at) * 1000),
                 )
+                confirmation_started_at = time.monotonic()
                 confirmation = self._external_window_activator.confirm(
                     target,
                     cancellation,
+                    wait_policy=ExternalWindowWaitPolicy(
+                        timeout_sec=max(0.0, wait_policy.timeout_sec - activation_elapsed),
+                        notice_after_sec=max(0.0, wait_policy.notice_after_sec - activation_elapsed),
+                    ),
+                    on_waiting=on_waiting,
                 )
                 log = logger.info if confirmation.activated else logger.warning
                 log(
                     "Entry input trace stage=confirmation panel_id=%s "
                     "preparation_id=%s target_window=%s target_process_id=%s "
-                    "state=%s",
+                    "state=%s elapsed_ms=%s",
                     panel_id,
                     preparation_id,
                     target.window_token,
                     target.process_id,
                     confirmation.state,
+                    round((time.monotonic() - confirmation_started_at) * 1000),
                 )
                 if confirmation.activated:
                     self._enqueue(EntryPanelInputPreparationCompleted(
@@ -492,7 +543,7 @@ class EntryPanelRuntimeModule:
                 self._enqueue(EntryPanelInputPreparationFailed(
                     panel_id,
                     preparation_id,
-                    confirmation.message or "The original window changed during input capture.",
+                    self._window_failure_message(confirmation),
                 ))
             except CancelledError:
                 logger.info(
@@ -555,6 +606,14 @@ class EntryPanelRuntimeModule:
                 preparation_id,
                 "Input preparation could not start.",
             ))
+
+    @staticmethod
+    def _window_failure_message(outcome: ExternalWindowActivationOutcome) -> str:
+        if outcome.state in {"target_focus_timeout", "target_refused_focus"}:
+            return "等待原視窗就緒逾時，請重試。"
+        if outcome.state in {"target_gone", "target_changed"}:
+            return "原視窗已無法使用，請回到來源視窗重新開啟面板。"
+        return outcome.message or "無法確認原視窗，請重試。"
 
     def _cancel_preparation(self) -> None:
         if self._task_id is not None:

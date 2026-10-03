@@ -21,13 +21,15 @@ def test_preferences_round_trip_with_schema_and_no_temporary_file(tmp_path) -> N
     assert store.load() == expected
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload == {
-        "schema_version": 5,
+        "schema_version": 7,
         "first_use_hints_enabled": False,
         "seen_action_ids": ["shorten", "translate"],
         "speech_speed": "fast",
         "voice_input_enabled": False,
         "voice_language": "zh-TW",
         "entry_panel_density": "detailed",
+        "inline_input_mode": "choice",
+        "inline_dictation_placement": "cursor",
     }
     assert list(path.parent.glob("*.tmp")) == []
 
@@ -38,6 +40,31 @@ def test_preferences_round_trip_entry_panel_density(tmp_path) -> None:
     store.save(UserPreferences(entry_panel_density="compact"))
 
     assert store.load().entry_panel_density == "compact"
+
+
+def test_inline_mode_round_trip_and_schema_five_defaults_to_choice(tmp_path) -> None:
+    path = tmp_path / "preferences.json"
+    store = JsonUserPreferencesStore(path)
+    store.save(UserPreferences(inline_input_mode="minimal"))
+    assert store.load().inline_input_mode == "minimal"
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["schema_version"] = 5
+    payload.pop("inline_input_mode")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert store.load().inline_input_mode == "choice"
+
+
+def test_inline_placement_round_trip_and_legacy_default(tmp_path) -> None:
+    path = tmp_path / "preferences.json"
+    store = JsonUserPreferencesStore(path)
+    store.save(UserPreferences(inline_dictation_placement="bottom_center"))
+    assert store.load().inline_dictation_placement == "bottom_center"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["schema_version"] = 6
+    payload.pop("inline_dictation_placement")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert store.load().inline_dictation_placement == "cursor"
 
 
 def test_invalid_or_future_preferences_fall_back_safely(tmp_path) -> None:

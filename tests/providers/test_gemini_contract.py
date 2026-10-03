@@ -45,6 +45,8 @@ def test_gemini_maps_payload_and_response() -> None:
     assert result.text == "Gemini result"
     assert result.usage and result.usage.output_tokens == 4
     assert transport.calls[0][0].endswith("/v1beta/models/gemini:generateContent")
+    assert transport.calls[0][1]["headers"] == {"x-goog-api-key": "secret"}
+    assert "key" not in transport.calls[0][1].get("params", {})
 
 
 def test_gemini_missing_key_is_auth_error() -> None:

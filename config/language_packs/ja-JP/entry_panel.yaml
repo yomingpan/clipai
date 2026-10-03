@@ -96,6 +96,14 @@ candidates:
     press_type: short
     label: SCOREで要件を整理
     description: SCOREの構造で要件と背景を明確にします。
+  - action_id: advisory_board
+    press_type: short
+    label: アドバイザリーボード
+    description: 多様な顧問の視点で助言とトレードオフを示します。
+  - action_id: insight_engine
+    press_type: short
+    label: インサイトエンジン
+    description: 非自明で根拠のある洞察を掘り起こします。
   - action_id: extract_screenshot_text
     press_type: short
     label: スクリーンショットから文字を抽出

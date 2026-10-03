@@ -1,10 +1,46 @@
 from __future__ import annotations
 
+from pathlib import Path
 import pytest
 from types import SimpleNamespace
 
 from ClipAI.core.errors import ConfigError
+from ClipAI.core.managed_update import FailureCode, transaction_id
+from ClipAI.core.managed_update_commands import HostManagedCommand
+from ClipAI.core.update_artifacts import UpdateResultArtifact
+from ClipAI.core.update_ports import CandidateEnvironment
+from ClipAI.core.managed_install import ManagedUpdateClientIdentity
+from ClipAI.platform.managed_install import ManagedUpdateClientProof
+from ClipAI.platform.managed_release_builder import ManagedReleaseBuilder
+from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
+from ClipAI.platform.managed_update_fs import read_json
 import main
+
+
+def test_setup_manifest_verifier_uses_private_tool_without_path_lookup(monkeypatch, tmp_path):
+    root = tmp_path / "install"
+    tool = root / "tools/ssh-keygen.exe"
+    tool.parent.mkdir(parents=True)
+    tool.write_bytes(b"fixture")
+    monkeypatch.setattr(main, "read_stable_launcher_marker", lambda _root: SimpleNamespace(install_root=root))
+    monkeypatch.setattr(main, "load_trusted_release_keyring", lambda _path: SimpleNamespace(verification_keys=lambda: {"release": "key"}))
+    monkeypatch.setattr(main, "Ed25519ManifestVerifier", lambda **kwargs: kwargs)
+    def unexpected_path_lookup(*_args, **_kwargs):
+        raise AssertionError("PATH lookup bypassed private verifier")
+    monkeypatch.setattr(main.shutil, "which", unexpected_path_lookup)
+    result = main._build_manifest_verifier(root / "launcher", tmp_path / "shared", {})
+    assert result["ssh_keygen"] == str(tool)
+    assert result["trusted_keys"] == {"release": "key"}
+
+
+def test_setup_missing_private_verifier_does_not_fall_back_to_user_path(monkeypatch, tmp_path):
+    root = tmp_path / "install"
+    root.mkdir()
+    (root / "first-install-owner.json").write_text("{}")
+    monkeypatch.setattr(main, "read_stable_launcher_marker", lambda _root: SimpleNamespace(install_root=root))
+    monkeypatch.setattr(main.shutil, "which", lambda *_args, **_kwargs: "unrelated-tool")
+    with pytest.raises(ValueError, match="OpenSSH"):
+        main._build_manifest_verifier(root / "launcher", tmp_path / "shared", {})
 
 
 class Lease:
@@ -15,6 +51,56 @@ class Lease:
         self.closed = True
 
 
+def test_managed_launch_composition_enables_update_only_from_proven_runtime_identity(monkeypatch, tmp_path) -> None:
+    install_root = (tmp_path / "install").resolve()
+    shared_root = (tmp_path / "shared").resolve()
+    current_root = install_root / "versions" / "2.0"
+    executable = current_root / ".venv" / "Scripts" / "python.exe"
+    entrypoint = current_root / "payload" / "main.py"
+    launcher_python = install_root / "launcher" / ".venv" / "Scripts" / "python.exe"
+    launcher_entrypoint = install_root / "launcher" / "payload" / "main.py"
+    base_python = tmp_path / "base-python.exe"
+    for path in (launcher_python, launcher_entrypoint, base_python):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"")
+    identity = ManagedUpdateClientIdentity(
+        "2.0", "1.0", executable, 4321, install_root, shared_root, "managed-1"
+    )
+    proof = ManagedUpdateClientProof(
+        identity,
+        CandidateEnvironment(current_root, executable, entrypoint, "2.0"),
+    )
+
+    class Layout:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def prove_update_client(self, **_kwargs):
+            return proof
+
+    monkeypatch.setattr(main, "ManagedInstallLayout", Layout)
+    monkeypatch.setattr(main, "_build_manifest_verifier", lambda *_args: object())
+    monkeypatch.setattr(main.os, "getpid", lambda: 4321)
+    monkeypatch.setattr(main.sys, "_base_executable", str(base_python), raising=False)
+    command = SimpleNamespace(
+        install_root=install_root,
+        shared_root=shared_root,
+        expected_version="2.0",
+    )
+
+    configuration = main._managed_update_configuration(
+        command,
+        executable_path=executable,
+        environment={"PATH": "C:\\Windows\\System32"},
+    )
+
+    assert configuration is not None
+    assert configuration.identity == identity
+    assert configuration.launcher_python == launcher_python
+    assert configuration.launcher_entrypoint == launcher_entrypoint
+    assert configuration.base_python == base_python
+
+
 class InstanceGate:
     def __init__(self, lease: Lease | None) -> None:
         self.lease = lease
@@ -23,10 +109,33 @@ class InstanceGate:
         return self.lease
 
 
+class ManifestSigner:
+    def sign(self, manifest: bytes) -> bytes:
+        return b"synthetic:" + manifest[:16]
+
+
+class ManifestVerifier:
+    def verify(self, manifest_path, signature_path, *, key_id):
+        return None
+
+
+class CandidateBuilder:
+    def build(self, request):
+        python = request.candidate_root / ".venv" / "Scripts" / "python.exe"
+        python.parent.mkdir(parents=True)
+        python.write_bytes(b"")
+        return CandidateEnvironment(
+            request.candidate_root,
+            python,
+            request.candidate_root / request.entrypoint,
+            request.expected_version,
+        )
+
+
 def test_config_error_uses_startup_error_surface(monkeypatch) -> None:
     messages: list[str] = []
     monkeypatch.setattr(main, "load_dotenv", None)
-    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store: (_ for _ in ()).throw(ConfigError("bad config")))
+    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store, **_paths: (_ for _ in ()).throw(ConfigError("bad config")))
     monkeypatch.setattr(main, "show_startup_error", messages.append)
 
     with pytest.raises(SystemExit) as caught:
@@ -37,15 +146,17 @@ def test_config_error_uses_startup_error_surface(monkeypatch) -> None:
 
 
 def test_main_loads_dotenv_with_file_precedence(monkeypatch) -> None:
-    calls: list[dict[str, bool]] = []
+    calls: list[tuple[object, bool]] = []
     runtime = type("Runtime", (), {"run_forever": lambda self: None})()
-    monkeypatch.setattr(main, "load_dotenv", lambda **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store: SimpleNamespace(bundle=object()))
-    monkeypatch.setattr(main, "build_runtime", lambda _bundle: runtime)
+    monkeypatch.setattr(main, "load_dotenv", lambda path, *, override: calls.append((path, override)))
+    monkeypatch.setattr(main, "bootstrap_action_language_config", lambda _store, **_paths: SimpleNamespace(bundle=object()))
+    monkeypatch.setattr(main, "build_runtime", lambda _bundle, *, paths: runtime)
 
     main.main(instance_gate=InstanceGate(Lease()))
 
-    assert calls == [{"override": True}]
+    assert len(calls) == 1
+    assert calls[0][0].name == ".env"
+    assert calls[0][1] is True
 
 
 def test_second_instance_stops_before_loading_configuration(monkeypatch) -> None:
@@ -77,3 +188,238 @@ def test_main_uses_composed_instance_gate_before_loading_configuration(monkeypat
     main.main()
 
     assert configuration_loads == []
+
+
+def test_managed_launch_cli_uses_explicit_paths_and_reports_runtime_readiness(monkeypatch, tmp_path) -> None:
+    application_root = (tmp_path / "install" / "versions" / "2.0" / "payload").resolve()
+    install_root = (tmp_path / "install").resolve()
+    shared_root = (tmp_path / "shared" / "instances" / "sandbox").resolve()
+    executable = (install_root / "versions" / "2.0" / ".venv" / "Scripts" / "python.exe").resolve()
+    observed_paths = []
+
+    class Runtime:
+        def run_forever(self, *, on_started):
+            assert not ManagedUpdateArtifactStore(
+                shared_root=shared_root,
+                transaction_id="tx-1",
+            ).path("startup_health").exists()
+            on_started()
+
+    monkeypatch.setattr(main, "load_dotenv", None)
+    monkeypatch.setattr(
+        main,
+        "bootstrap_action_language_config",
+        lambda _store, **_paths: SimpleNamespace(bundle=object()),
+    )
+    monkeypatch.setattr(
+        main,
+        "build_runtime",
+        lambda _bootstrap, *, paths: observed_paths.append(paths) or Runtime(),
+    )
+
+    exit_code = main.managed_main(
+        [
+            "launch",
+            "--shared-root", str(shared_root),
+            "--transaction-id", "tx-1",
+            "--install-root", str(install_root),
+            "--launch-attempt-id", "attempt-1",
+            "--expected-version", "2.0",
+        ],
+        application_root=application_root,
+        environment={"CLIPAI_INSTANCE_NAME": "sandbox"},
+        actual_version="2.0",
+        executable_path=executable,
+        instance_gate=InstanceGate(Lease()),
+    )
+
+    assert exit_code == 0
+    assert observed_paths[0].application_root == application_root
+    assert observed_paths[0].state_root == shared_root / "state"
+    health = ManagedUpdateArtifactStore(shared_root=shared_root, transaction_id="tx-1").read("startup_health")
+    assert health.healthy is True
+    assert health.executable_path == executable
+
+
+def _install_managed_version(tmp_path: Path) -> tuple[int, Path, Path, Path]:
+    launcher_root = (tmp_path / "stable-launcher").resolve()
+    launcher_root.mkdir()
+    (launcher_root / "managed-update-trusted-keys.json").write_text(
+        '{"bootstrap":"trusted"}\n', encoding="utf-8"
+    )
+    install_root = (tmp_path / "install").resolve()
+    shared_root = (tmp_path / "shared").resolve()
+    payload = tmp_path / "payload"
+    wheelhouse = tmp_path / "wheelhouse"
+    payload.mkdir()
+    wheelhouse.mkdir()
+    (payload / "main.py").write_text("print('installed')\n", encoding="utf-8")
+    (wheelhouse / "clipai.whl").write_bytes(b"wheel")
+    lock = tmp_path / "requirements.lock"
+    lock.write_text("clipai==2.0\n", encoding="utf-8")
+    bundle = ManagedReleaseBuilder(ManifestSigner()).build(
+        payload_root=payload,
+        wheelhouse_root=wheelhouse,
+        requirements_lock=lock,
+        output_path=tmp_path / "release.zip",
+        app_version="2.0",
+        entrypoint="payload/main.py",
+        python_requires=">=3.11",
+        key_id="release-key",
+    )
+    base_python = (tmp_path / "base-python.exe").resolve()
+    base_python.write_bytes(b"")
+
+    exit_code = main.managed_main(
+        [
+            "install",
+            "--shared-root", str(shared_root),
+            "--transaction-id", str(transaction_id("tx-install")),
+            "--install-root", str(install_root),
+            "--expected-version", "2.0",
+            "--bundle-path", str(bundle.bundle_path),
+            "--bundle-size", str(bundle.bundle_size),
+            "--bundle-sha256", bundle.bundle_sha256,
+            "--manifest-sha256", bundle.manifest_sha256,
+            "--key-id", "release-key",
+            "--managed-install-id", "managed-1",
+            "--launcher-version", "1.0",
+            "--base-python", str(base_python),
+        ],
+        application_root=launcher_root,
+        environment={},
+        manifest_verifier=ManifestVerifier(),
+        candidate_builder=CandidateBuilder(),
+    )
+    return exit_code, launcher_root, install_root, shared_root
+
+
+def _write_installed_distribution_metadata(install_root: Path) -> None:
+    distribution = (
+        install_root
+        / "versions"
+        / "2.0"
+        / ".venv"
+        / "Lib"
+        / "site-packages"
+        / "clipai-2.0.dist-info"
+    )
+    distribution.mkdir(parents=True)
+    (distribution / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: ClipAI\nVersion: 2.0\n",
+        encoding="utf-8",
+    )
+
+
+def test_managed_install_cli_publishes_verified_initial_install_without_launching(tmp_path) -> None:
+    exit_code, _launcher_root, install_root, _shared_root = _install_managed_version(tmp_path)
+
+    assert exit_code == 0
+    assert read_json(install_root / "install-state.json")["current_version"] == "2.0"
+    assert read_json(install_root / "managed-install.json")["managed_install_id"] == "managed-1"
+    assert (install_root / "launcher" / "managed-update-trusted-keys.json").is_file()
+
+
+def test_stable_launcher_entrypoint_resolves_fixed_root_and_delegates_current_launch(monkeypatch, tmp_path) -> None:
+    launcher_root = (tmp_path / "install" / "launcher").resolve()
+    entrypoint = launcher_root / "payload" / "main.py"
+    versioned_entrypoint = tmp_path / "install" / "versions" / "2.0" / "payload" / "main.py"
+    assert main._entry_application_root(entrypoint) == launcher_root
+    assert main._entry_application_root(versioned_entrypoint) == versioned_entrypoint.parent
+
+    marker = SimpleNamespace(shared_root=(tmp_path / "shared").resolve())
+    calls = []
+    monkeypatch.setattr(main, "_entry_application_root", lambda _entrypoint: launcher_root)
+    monkeypatch.setattr(main, "read_stable_launcher_marker", lambda root: marker if root == launcher_root else None)
+    monkeypatch.setattr(main, "_launch_managed_current", lambda root, identity, environment: calls.append((root, identity, environment)))
+    monkeypatch.setattr(main, "build_application_paths", lambda *_args: (_ for _ in ()).throw(AssertionError("must not enter source runtime")))
+
+    main.main()
+
+    assert calls and calls[0][0:2] == (launcher_root, marker)
+
+
+def test_stable_launcher_recovers_incomplete_transaction_without_double_launch(monkeypatch, tmp_path) -> None:
+    install_root = (tmp_path / "install").resolve()
+    shared_root = (tmp_path / "shared").resolve()
+    marker = SimpleNamespace(install_root=install_root, shared_root=shared_root)
+    recovered = transaction_id("tx-recover")
+    commands = []
+
+    class Host:
+        def __init__(self, **_dependencies):
+            pass
+
+        def execute(self, command):
+            commands.append(command)
+            ManagedUpdateArtifactStore(
+                shared_root=shared_root, transaction_id=str(recovered)
+            ).write(UpdateResultArtifact(
+                recovered,
+                "2026-09-13T00:00:00+00:00",
+                "rolled_back",
+                "1.0",
+                FailureCode.UPDATE_INTERRUPTED,
+            ))
+            return 1
+
+    monkeypatch.setattr(main, "_build_manifest_verifier", lambda *_args: ManifestVerifier())
+    monkeypatch.setattr(main, "find_incomplete_update", lambda _shared_root: recovered)
+    monkeypatch.setattr(main, "ManagedUpdateHostExecutor", Host)
+    monkeypatch.setattr(
+        main,
+        "ManagedCurrentLaunchCoordinator",
+        lambda **_dependencies: (_ for _ in ()).throw(AssertionError("recovery already launched old version")),
+    )
+
+    main._launch_managed_current((install_root / "launcher").resolve(), marker, {})
+
+    assert commands == [HostManagedCommand(
+        shared_root,
+        install_root,
+        recovered,
+        Path(getattr(main.sys, "_base_executable", main.sys.executable)).resolve(),
+    )]
+
+
+def test_managed_selfcheck_cli_proves_current_version_without_mutating_state(tmp_path) -> None:
+    _exit_code, launcher_root, install_root, shared_root = _install_managed_version(tmp_path)
+    _write_installed_distribution_metadata(install_root)
+    state_before = read_json(install_root / "install-state.json")
+
+    exit_code = main.managed_main(
+        [
+            "selfcheck",
+            "--shared-root", str(shared_root),
+            "--transaction-id", "tx-selfcheck",
+            "--install-root", str(install_root),
+        ],
+        application_root=launcher_root,
+        environment={},
+        manifest_verifier=ManifestVerifier(),
+    )
+
+    assert exit_code == 0
+    assert read_json(install_root / "install-state.json") == state_before
+
+
+def test_managed_selfcheck_cli_fails_closed_without_repairing_missing_entrypoint(tmp_path) -> None:
+    _exit_code, launcher_root, install_root, shared_root = _install_managed_version(tmp_path)
+    _write_installed_distribution_metadata(install_root)
+    state_before = read_json(install_root / "install-state.json")
+    (install_root / "versions" / "2.0" / "payload" / "main.py").unlink()
+
+    exit_code = main.managed_main(
+        [
+            "selfcheck",
+            "--shared-root", str(shared_root),
+            "--transaction-id", "tx-selfcheck-failed",
+            "--install-root", str(install_root),
+        ],
+        application_root=launcher_root,
+        environment={},
+        manifest_verifier=ManifestVerifier(),
+    )
+
+    assert exit_code == 1
+    assert read_json(install_root / "install-state.json") == state_before

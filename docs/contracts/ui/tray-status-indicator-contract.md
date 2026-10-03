@@ -22,7 +22,14 @@ Concurrent, timer-reset, late-event, icon retry, menu callback, and stop cleanup
 
 ## Speech Speed menu
 
-- `Speech Speed` follows `Keyboard Shortcuts...`; a separator divides it from `Usage Guidance`.
+- `Speech Speed: <saved preset>` remains a first-level menu with one-level radio choices. Its parent shows the saved value without opening the submenu.
 - The mutually exclusive choices are Slow, Normal, Fast, and Super Fast, mapped to `-25%`, `+0%`, `+25%`, and `+50%`.
-- The selected item cannot submit a duplicate update. While saving, all choices are disabled and the parent reads `Speech Speed (saving...)`; failure restores the previous authoritative selection.
-- Unavailable speech disables all choices and projects `Speech Speed (unavailable)`. An unmatched legacy rate projects `Speech Speed (Custom)` until a preset is selected.
+- The selected item cannot submit a duplicate update. While saving, all choices are disabled and the parent shows the saved preset with `(Saving...)`; failure restores the previous authoritative selection.
+- Unavailable speech disables all choices and shows the saved preset with `(Unavailable)`. An unmatched legacy rate shows `Speech Speed: Custom` until a preset is selected.
+
+## Quick-control menu depth
+
+- Tray labels use English. The official Action Language Pack display names are `Traditional Chinese` and `Japanese`; Action content still follows its selected pack.
+- Voice Input stays a first-level category. Its submenu contains one state-aware Enable/Disable command and direct language radio choices, without a nested Language menu. Pending setup/disable is disabled and named explicitly; failed cleanup offers a retry of Disable. The parent shows the authoritative capability and saved language. A language save projects `(Saving...)` while the prior language stays checked; save failure retains that choice and notifies the user.
+- Inline Dictation is a first-level category beside Voice Input. Its submenu directly offers input-mode and placement radio choices; the parent shows the saved input mode and any pending save.
+- Quick controls may have one submenu level. Provider credentials and personal-style editing keep their dedicated dialogs.

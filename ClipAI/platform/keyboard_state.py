@@ -6,6 +6,7 @@ import sys
 MODIFIER_KEYS = ("ctrl", "alt", "shift")
 
 _TOKEN_VIRTUAL_KEYS = {
+    "cmd": (0x5B, 0x5C),  # VK_LWIN / VK_RWIN
     # VK_MENU is not reliably asserted for side-specific Alt events while a
     # low-level hook is processing them. Query the generic and both side keys.
     "alt": (0x12, 0xA4, 0xA5),  # VK_MENU, VK_LMENU, VK_RMENU

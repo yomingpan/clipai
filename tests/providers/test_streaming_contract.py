@@ -73,6 +73,8 @@ def test_gemini_stream_maps_sse_candidates() -> None:
     ])
     provider = GeminiProvider(GeminiSettings("KEY", "https://gemini.test", "gemini", 10), ProviderCredential("KEY", "secret"), transport)
     assert_stream(collect(provider, "gemini"), "Gemini")
+    assert transport.calls[0][1]["headers"] == {"x-goog-api-key": "secret"}
+    assert transport.calls[0][1]["params"] == {"alt": "sse"}
 
 
 def test_anthropic_stream_maps_content_deltas() -> None:

@@ -21,13 +21,17 @@ it even though the architecture document prohibited those dependencies.
 
 `core.ports.NativeWindowSurface` is the injected contract for application
 window native operations: task-switcher hiding, activation, no-activate show,
-foreground ownership, icon installation, and icon destruction. It receives a
-toolkit child id; the adapter alone resolves the top-level native handle.
+foreground ownership, icon installation, and icon destruction. It also declares
+the process taskbar identity through `set_process_taskbar_identity(app_id)`.
+Window operations receive a toolkit child id; the adapter alone resolves the
+top-level native handle. Process identity has no window id.
 
 `WindowsNativeWindowSurface` implements the contract with Win32.
 `HeadlessNativeWindowSurface` returns conservative answers. Both contain OS
 failure and never raise through the port. `app/container.py` constructs and
-injects the Windows adapter into the presenter and its dialogs.
+injects the Windows adapter into the presenter and its dialogs. It calls
+`set_process_taskbar_identity("ClipAI.Desktop")` once before constructing the
+Tk root. Construction of the adapter itself has no taskbar side effect.
 
 Toolkit lifecycle remains in UI: `deiconify`, `withdraw`, `update_idletasks`,
 `winfo_id`, and `focus_get`. UI also locates the packaged `clipai.ico` resource;

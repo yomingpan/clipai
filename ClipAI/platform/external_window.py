@@ -12,6 +12,7 @@ from ClipAI.core.models import (
     ExternalWindowActivationOutcome,
     ExternalWindowActivationState,
     ExternalWindowRef,
+    ExternalWindowWaitPolicy,
     PasteTarget,
 )
 from ClipAI.core.state import CancellationToken
@@ -32,6 +33,30 @@ _MESSAGES = {
 }
 
 ExternalWindowTarget: TypeAlias = ExternalWindowRef | PasteTarget
+
+
+class _WindowWait:
+    """Local to one call; activation and its confirmation share this deadline."""
+
+    def __init__(
+        self,
+        policy: ExternalWindowWaitPolicy,
+        on_waiting: Callable[[], None] | None,
+    ) -> None:
+        self.started_at = time.monotonic()
+        self.deadline = self.started_at + max(0.0, policy.timeout_sec)
+        self.notice_at = self.started_at + max(0.0, policy.notice_after_sec)
+        self._on_waiting = on_waiting
+
+    @property
+    def expired(self) -> bool:
+        return time.monotonic() >= self.deadline
+
+    def pause(self, wait: Callable[[float], None], poll_sec: float) -> None:
+        if time.monotonic() >= self.notice_at and self._on_waiting is not None:
+            callback, self._on_waiting = self._on_waiting, None
+            callback()
+        wait(max(0.0, min(poll_sec, self.deadline - time.monotonic())))
 
 
 class SystemExternalWindowActivator:
@@ -66,46 +91,75 @@ class SystemExternalWindowActivator:
         self,
         target: ExternalWindowTarget,
         cancellation: CancellationToken,
+        *,
+        wait_policy: ExternalWindowWaitPolicy | None = None,
+        on_waiting: Callable[[], None] | None = None,
+    ) -> ExternalWindowActivationOutcome:
+        started_at = time.monotonic()
+        outcome = self._activate(target, cancellation, wait_policy, on_waiting)
+        return _trace_outcome("activation", target, outcome, started_at)
+
+    def _activate(
+        self,
+        target: ExternalWindowTarget,
+        cancellation: CancellationToken,
+        wait_policy: ExternalWindowWaitPolicy | None,
+        on_waiting: Callable[[], None] | None,
     ) -> ExternalWindowActivationOutcome:
         _raise_if_cancelled(cancellation)
+        budget = _WindowWait(wait_policy, on_waiting) if wait_policy is not None else None
         # A read-only UIA capture can proceed while Alt is held. Do not disturb
         # an already foreground source just to activate it again.
         if isinstance(target, ExternalWindowRef) and self._target_is_valid(target) and self._target_is_foreground(target):
+            if budget is not None:
+                return self._confirm(target, cancellation, budget)
             return self.confirm(target, cancellation)
         modifier_deadline = time.monotonic() + self._modifier_release_timeout_sec
         while any(self._modifier_is_pressed(modifier) is True for modifier in MODIFIER_KEYS):
             _raise_if_cancelled(cancellation)
+            if not self._target_is_valid(target):
+                return _outcome("target_gone")
+            if budget is not None and budget.expired:
+                return _outcome("target_focus_timeout")
             if time.monotonic() >= modifier_deadline:
                 return _outcome("modifiers_held")
-            self._wait(self._poll_sec)
+            if budget is not None:
+                budget.pause(self._wait, self._poll_sec)
+            else:
+                self._wait(self._poll_sec)
         _raise_if_cancelled(cancellation)
         if not self._target_is_valid(target):
             return _outcome("target_gone")
-        activation_deadline = time.monotonic() + self._target_activation_timeout_sec
+        budget = budget or _WindowWait(
+            ExternalWindowWaitPolicy(self._target_activation_timeout_sec), on_waiting,
+        )
         request_was_accepted = False
         while True:
             _raise_if_cancelled(cancellation)
             request_was_accepted = self._activate_target(target) or request_was_accepted
             if self._target_is_foreground(target):
                 break
-            if time.monotonic() >= activation_deadline:
+            if budget.expired:
                 return _outcome(
                     "target_focus_timeout"
                     if request_was_accepted
                     else "target_refused_focus"
                 )
-            self._wait(self._poll_sec)
+            budget.pause(self._wait, self._poll_sec)
             _raise_if_cancelled(cancellation)
-            if time.monotonic() >= activation_deadline:
-                return _outcome(
-                    "target_focus_timeout"
-                    if request_was_accepted
-                    else "target_refused_focus"
-                )
             if not self._target_is_valid(target):
                 return _outcome("target_changed")
+            if budget.expired:
+                return _outcome(
+                    "target_focus_timeout"
+                    if request_was_accepted
+                    else "target_refused_focus"
+                )
         _raise_if_cancelled(cancellation)
-        confirmation = self.confirm(target, cancellation)
+        confirmation = (
+            self._confirm(target, cancellation, budget)
+            if wait_policy is not None else self.confirm(target, cancellation)
+        )
         _raise_if_cancelled(cancellation)
         return confirmation
 
@@ -113,9 +167,22 @@ class SystemExternalWindowActivator:
         self,
         target: ExternalWindowTarget,
         cancellation: CancellationToken | None = None,
+        *,
+        wait_policy: ExternalWindowWaitPolicy | None = None,
+        on_waiting: Callable[[], None] | None = None,
+    ) -> ExternalWindowActivationOutcome:
+        return self._confirm(
+            target, cancellation,
+            _WindowWait(wait_policy or ExternalWindowWaitPolicy(self._target_confirmation_timeout_sec), on_waiting),
+        )
+
+    def _confirm(
+        self,
+        target: ExternalWindowTarget,
+        cancellation: CancellationToken | None,
+        budget: _WindowWait,
     ) -> ExternalWindowActivationOutcome:
         started_at = time.monotonic()
-        deadline = time.monotonic() + self._target_confirmation_timeout_sec
         checks = 0
         while True:
             _raise_if_cancelled(cancellation)
@@ -136,15 +203,15 @@ class SystemExternalWindowActivator:
                     started_at,
                     checks=checks,
                 )
-            if time.monotonic() >= deadline:
+            if budget.expired:
                 return _trace_outcome(
                     "confirmation",
                     target,
-                    _outcome("target_changed"),
+                    _outcome("target_focus_timeout"),
                     started_at,
                     checks=checks,
                 )
-            self._wait(self._poll_sec)
+            budget.pause(self._wait, self._poll_sec)
 
 
 def windows_target_is_valid(target: ExternalWindowTarget) -> bool:

@@ -8,7 +8,7 @@ from ClipAI.core.models import InlineSpan, PresentationBlock, PresentationDocume
 _HEADING = re.compile(r"^(#{1,6})\s+(.+)$")
 _UNORDERED = re.compile(r"^([-+*])\s+(.+)$")
 _ORDERED = re.compile(r"^(\d+)[.)]\s+(.+)$")
-_INLINE = re.compile(r"(\*\*[^*\n]+\*\*|__[^_\n]+__|(?<!\*)\*[^*\n]+\*(?!\*)|(?<!_)_[^_\n]+_(?!_))")
+_INLINE = re.compile(r"(\*\*[^*\n]+\*\*|(?<!\w)__[^_\n]+__(?!\w)|(?<!\*)\*[^*\n]+\*(?!\*)|(?<!\w)_[^_\n]+_(?!\w))")
 _SCROLL_FOR_ANSWER = "[[SCROLL_FOR_ANSWER]]"
 _SCROLL_BREAK = "[[SCROLL_BREAK]]"
 _SCROLL_MARKERS = frozenset({_SCROLL_FOR_ANSWER, _SCROLL_BREAK})

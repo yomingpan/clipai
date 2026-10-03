@@ -11,6 +11,7 @@ from ClipAI.services.clipboard_transaction import ClipboardTransactionCoordinato
 
 
 logger = logging.getLogger("clipai.selection")
+_MODIFIER_KEYS = ("ctrl", "alt", "shift")
 
 
 class SelectionCaptureCoordinator:
@@ -48,6 +49,7 @@ class SelectionCaptureCoordinator:
         started = time.monotonic()
         source = None
         outcome = SelectionCaptureOutcome(reason="source_unavailable")
+        focus_restored = False
         try:
             if cancellation is not None and cancellation.is_cancelled:
                 outcome = SelectionCaptureOutcome(status="cancelled")
@@ -55,13 +57,27 @@ class SelectionCaptureCoordinator:
             source = bound.source
             if source is None:
                 return outcome
+            outcome = self._wait_for_modifier_release(cancellation)
+            if outcome is not None:
+                return outcome
             if not self._probe.source_is_current(source):
                 outcome = SelectionCaptureOutcome(reason="source_changed")
                 return outcome
             outcome = self._probe.probe(source, cancellation)
+            focus_restored = outcome.focus_restored
             if cancellation is not None and cancellation.is_cancelled:
                 outcome = SelectionCaptureOutcome(status="cancelled")
-            elif not self._probe.source_is_current(source):
+            elif outcome.focus_restored:
+                rebased = self._probe.capture_source(source.window)
+                if (
+                    rebased is None
+                    or rebased.window.window_token != source.window.window_token
+                    or rebased.window.process_id != source.window.process_id
+                ):
+                    outcome = SelectionCaptureOutcome(reason="source_changed", strategy="uia")
+                else:
+                    source = rebased
+            if outcome.status != "cancelled" and outcome.reason != "source_changed" and not self._probe.source_is_current(source):
                 outcome = SelectionCaptureOutcome(reason="source_changed", strategy="uia")
             elif outcome.status == "unknown" and (
                 outcome.selection_detected or outcome.copy_selection_only
@@ -71,7 +87,6 @@ class SelectionCaptureCoordinator:
                 # Copy command cannot substitute unselected document/line text.
                 outcome = self._transactions.capture_selection(
                     operation_id, self._adapter, cancellation=cancellation,
-                    modifier_release_timeout_sec=self._modifier_release_timeout_sec,
                     timeout_sec=self._timeout_sec, poll_sec=self._poll_sec,
                     source_is_current=lambda: self._probe.source_is_current(source),
                 )
@@ -82,8 +97,26 @@ class SelectionCaptureCoordinator:
         finally:
             logger.info(
                 "Selection capture operation_id=%s target=%s status=%s reason=%s "
-                "strategy=%s elapsed_ms=%d", operation_id,
+                "strategy=%s focus_restored=%s elapsed_ms=%d", operation_id,
                 source.window.window_token if source is not None else "unavailable",
-                outcome.status, outcome.reason, outcome.strategy,
+                outcome.status, outcome.reason, outcome.strategy, focus_restored,
                 int((time.monotonic() - started) * 1000),
             )
+
+    def _wait_for_modifier_release(
+        self,
+        cancellation: CancellationToken | None,
+    ) -> SelectionCaptureOutcome | None:
+        deadline = time.monotonic() + self._modifier_release_timeout_sec
+        while True:
+            pressed = tuple(
+                self._adapter.modifier_is_pressed(key) is True
+                for key in _MODIFIER_KEYS
+            )
+            if not any(pressed):
+                return None
+            if cancellation is not None and cancellation.is_cancelled:
+                return SelectionCaptureOutcome(status="cancelled")
+            if time.monotonic() >= deadline:
+                return SelectionCaptureOutcome(reason="modifier_timeout")
+            time.sleep(self._poll_sec)

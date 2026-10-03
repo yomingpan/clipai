@@ -4,7 +4,8 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ActionFeedbackRecord, ActionLanguagePackSelectionRead, ActionLanguagePackSelectionState, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EntryPanelSnapshot, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ModelSelectionState, ModifierHoldId, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
+from ClipAI.core.models import ExternalWindowWaitPolicy, InlineDictationPlacement, InlineDictationPlacementState, InlineInputMode, InlineInputModeState, PasteOutcome
+from ClipAI.core.models import ActionFeedbackRecord, ActionLanguagePackSelectionRead, ActionLanguagePackSelectionState, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EntryPanelSnapshot, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ManagedUpdatePresentation, ModelSelectionState, ModifierHoldId, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest, SelectionSource
 from ClipAI.core.voice import VoiceCaptureId, VoiceCaptureSurfaceContext, VoiceEngineEvent, VoiceLanguage, VoiceProjection, VoiceSetupId
@@ -92,6 +93,8 @@ class ApplicationView(ResultPresenter, Protocol):
 
     def close_about(self) -> None: ...
 
+    def set_managed_update(self, state: ManagedUpdatePresentation) -> None: ...
+
     def open_github(self, url: str) -> None: ...
 
 
@@ -165,12 +168,18 @@ class ExternalWindowActivator(Protocol):
         self,
         target: ExternalWindowRef,
         cancellation: CancellationToken,
+        *,
+        wait_policy: ExternalWindowWaitPolicy | None = None,
+        on_waiting: Callable[[], None] | None = None,
     ) -> ExternalWindowActivationOutcome: ...
 
     def confirm(
         self,
         target: ExternalWindowRef,
         cancellation: CancellationToken | None = None,
+        *,
+        wait_policy: ExternalWindowWaitPolicy | None = None,
+        on_waiting: Callable[[], None] | None = None,
     ) -> ExternalWindowActivationOutcome: ...
 
 
@@ -214,6 +223,14 @@ class GuidancePreferencesPresenter(Protocol):
 
 class SpeechSpeedPresenter(Protocol):
     def set_speech_speed(self, state: SpeechSpeedState) -> None: ...
+
+
+class InlineInputModePresenter(Protocol):
+    def set_inline_input_mode(self, state: InlineInputModeState) -> None: ...
+
+
+class InlineDictationPlacementPresenter(Protocol):
+    def set_inline_dictation_placement(self, state: InlineDictationPlacementState) -> None: ...
 
 
 class ShortcutGuidePresenter(Protocol):
@@ -272,6 +289,8 @@ class PointerPressReader(Protocol):
 class NativeWindowSurface(Protocol):
     """Native facts and operations for one toolkit-owned top-level window."""
 
+    def set_process_taskbar_identity(self, app_id: str) -> bool: ...
+
     def hide_from_task_switcher(self, toolkit_child_id: int) -> bool: ...
 
     def activate(self, toolkit_child_id: int) -> bool: ...
@@ -279,6 +298,16 @@ class NativeWindowSurface(Protocol):
     def show_without_activation(self, toolkit_child_id: int) -> bool: ...
 
     def owns_foreground(self, toolkit_child_id: int) -> bool: ...
+
+    def set_ime_composition_font(
+        self,
+        toolkit_child_id: int,
+        *,
+        family: str,
+        height: int,
+        weight: int,
+        italic: bool,
+    ) -> bool: ...
 
     def install_icon(self, toolkit_child_id: int, icon_path: Path) -> tuple[int, ...]: ...
 
@@ -340,3 +369,29 @@ class VoiceSetupPresenter(Protocol):
     def close_voice_setup(self) -> None: ...
 
     def set_voice_projection(self, projection: VoiceProjection) -> None: ...
+
+
+class InlineDictationPresenter(Protocol):
+    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice", placement: InlineDictationPlacement = "cursor") -> None: ...
+
+    def update_inline_dictation(self, projection: VoiceProjection) -> None: ...
+
+    def present_inline_paste_outcome(self, interaction_id: str, outcome: PasteOutcome, text: str) -> None: ...
+
+    def present_inline_paste_pending(self, interaction_id: str) -> None: ...
+
+    def present_inline_paste_cancelling(self, interaction_id: str) -> None: ...
+
+    def present_inline_refining(self, interaction_id: str) -> None: ...
+
+    def present_inline_refinement_pending(self, interaction_id: str) -> None: ...
+
+    def present_inline_cancel_unconfirmed(self, interaction_id: str, text: str) -> None: ...
+
+    def present_inline_recovery(self, interaction_id: str, text: str, message: str) -> None: ...
+
+    def present_inline_copy_state(self, interaction_id: str, state: str) -> None: ...
+
+    def present_inline_choice(self, interaction_id: str, text: str, allow_refine: bool = True, message: str = "") -> None: ...
+
+    def close_inline_dictation(self, *, flash_failure: bool = False, message: str = "", interaction_id: str = "") -> None: ...

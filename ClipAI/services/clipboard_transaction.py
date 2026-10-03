@@ -17,7 +17,6 @@ from ClipAI.core.state import CancellationToken
 
 SnapshotT = TypeVar("SnapshotT")
 ResultT = TypeVar("ResultT")
-_MODIFIER_KEYS = ("ctrl", "alt", "shift")
 logger = logging.getLogger("clipai.clipboard_transaction")
 
 
@@ -155,7 +154,6 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
         adapter: SelectionCaptureAdapter,
         *,
         cancellation: CancellationToken | None = None,
-        modifier_release_timeout_sec: float = 1.0,
         timeout_sec: float = 0.35,
         poll_sec: float = 0.02,
         monotonic: Callable[[], float] = time.monotonic,
@@ -167,14 +165,6 @@ class ClipboardTransactionCoordinator(Generic[SnapshotT]):
                 return SelectionCaptureOutcome(status="cancelled", strategy="copy")
             if not source_is_current():
                 return SelectionCaptureOutcome(reason="source_changed", strategy="copy")
-            modifier_deadline = monotonic() + modifier_release_timeout_sec
-            while any(adapter.modifier_is_pressed(key) is True for key in _MODIFIER_KEYS):
-                if self._cancelled(cancellation):
-                    return SelectionCaptureOutcome(status="cancelled")
-                if monotonic() >= modifier_deadline:
-                    return SelectionCaptureOutcome(reason="modifier_timeout", strategy="copy")
-                wait(poll_sec)
-
             try:
                 original = self._clipboard.snapshot()
             except Exception:
