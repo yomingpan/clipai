@@ -30,7 +30,10 @@ StartProcess = Callable[[Sequence[str], Mapping[str, str], Path], SpawnedProcess
 
 
 def start_detached_process(command: Sequence[str], environment: Mapping[str, str], cwd: Path) -> SpawnedProcess:
-    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    # DETACHED_PROCESS lets a venv console redirector create a new console for
+    # its base Python. NO_WINDOW applies across that launch without changing
+    # the executable identity used by startup-health validation.
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return subprocess.Popen(
         command,
         cwd=native_path(cwd),
@@ -93,7 +96,7 @@ class SubprocessManagedApplicationLifecycle:
             if not native_path(python).is_file() or not native_path(entrypoint).is_file():
                 raise ValueError("launch executable or entrypoint is missing")
             command = [
-                str(native_path(python)), "-I", str(native_path(entrypoint)), "launch",
+                str(canonical_path(python)), "-I", str(canonical_path(entrypoint)), "launch",
                 "--shared-root", str(self._layout.shared_root),
                 "--transaction-id", str(transaction_id),
                 "--install-root", str(self._layout.install_root),

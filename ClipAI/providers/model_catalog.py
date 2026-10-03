@@ -5,6 +5,7 @@ from typing import Any
 from ClipAI.core.errors import ProviderAuthError, ProviderResponseError
 from ClipAI.providers.http_transport import HttpResponse, HttpTransport
 from ClipAI.providers.gateway import OpenAICompatibleGatewayProvider, gateway_headers, normalize_gateway_base_url
+from ClipAI.providers.gemini_errors import raise_for_gemini_error
 from ClipAI.providers.settings import AnthropicSettings, GatewaySettings, GeminiSettings, OpenAISettings, ProviderCredential, ProviderSettings
 
 
@@ -58,7 +59,9 @@ class ProviderModelCatalogClient:
                 params=params,
                 timeout=settings.timeout_sec,
             )
-            self._raise_for_status("Gemini", response)
+            raise_for_gemini_error(response)
+            if not isinstance(response.payload, dict):
+                raise ProviderResponseError("Gemini returned invalid model metadata")
             models.extend(_gemini_models(response.payload))
             page_token = str(response.payload.get("nextPageToken") or "")
             if not page_token:

@@ -71,6 +71,9 @@ def test_offline_builder_uses_clean_isolated_commands_and_returns_proven_identit
     assert environment["PIP_CONFIG_FILE"] == os.devnull
     assert environment["PIP_NO_INPUT"] == "1"
     assert all(call[0][1] == "-I" for call in runner.calls)
+    # Extended filesystem spellings must not become sys.prefix: wheels such as
+    # bottle contain ../Scripts RECORD entries, which Win32 rejects under \\?\.
+    assert all(not call[0][0].startswith("\\\\?\\") for call in runner.calls)
 
 
 def test_builder_rejects_version_or_executable_mismatch(tmp_path: Path):

@@ -67,7 +67,7 @@ class OfflineCandidateEnvironmentBuilder:
             raise CandidateBuildError("venv creation did not produce candidate Python")
         self._checked(
             [
-                str(native_path(python)),
+                str(canonical_path(python)),
                 "-I",
                 "-m",
                 "ensurepip",
@@ -78,7 +78,7 @@ class OfflineCandidateEnvironmentBuilder:
         )
         self._checked(
             [
-                str(native_path(python)),
+                str(canonical_path(python)),
                 "-I",
                 "-m",
                 "pip",
@@ -95,7 +95,7 @@ class OfflineCandidateEnvironmentBuilder:
             "offline installation",
         )
         probe = self._checked(
-            [str(native_path(python)), "-I", "-c", "import importlib.metadata,json,sys; print(json.dumps({'version':importlib.metadata.version('clipai'),'executable':sys.executable}))"],
+            [str(canonical_path(python)), "-I", "-c", "import importlib.metadata,json,sys; print(json.dumps({'version':importlib.metadata.version('clipai'),'executable':sys.executable}))"],
             "candidate identity probe",
         )
         try:

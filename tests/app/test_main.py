@@ -17,6 +17,32 @@ from ClipAI.platform.managed_update_fs import read_json
 import main
 
 
+def test_setup_manifest_verifier_uses_private_tool_without_path_lookup(monkeypatch, tmp_path):
+    root = tmp_path / "install"
+    tool = root / "tools/ssh-keygen.exe"
+    tool.parent.mkdir(parents=True)
+    tool.write_bytes(b"fixture")
+    monkeypatch.setattr(main, "read_stable_launcher_marker", lambda _root: SimpleNamespace(install_root=root))
+    monkeypatch.setattr(main, "load_trusted_release_keyring", lambda _path: SimpleNamespace(verification_keys=lambda: {"release": "key"}))
+    monkeypatch.setattr(main, "Ed25519ManifestVerifier", lambda **kwargs: kwargs)
+    def unexpected_path_lookup(*_args, **_kwargs):
+        raise AssertionError("PATH lookup bypassed private verifier")
+    monkeypatch.setattr(main.shutil, "which", unexpected_path_lookup)
+    result = main._build_manifest_verifier(root / "launcher", tmp_path / "shared", {})
+    assert result["ssh_keygen"] == str(tool)
+    assert result["trusted_keys"] == {"release": "key"}
+
+
+def test_setup_missing_private_verifier_does_not_fall_back_to_user_path(monkeypatch, tmp_path):
+    root = tmp_path / "install"
+    root.mkdir()
+    (root / "first-install-owner.json").write_text("{}")
+    monkeypatch.setattr(main, "read_stable_launcher_marker", lambda _root: SimpleNamespace(install_root=root))
+    monkeypatch.setattr(main.shutil, "which", lambda *_args, **_kwargs: "unrelated-tool")
+    with pytest.raises(ValueError, match="OpenSSH"):
+        main._build_manifest_verifier(root / "launcher", tmp_path / "shared", {})
+
+
 class Lease:
     def __init__(self) -> None:
         self.closed = False

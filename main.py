@@ -215,7 +215,13 @@ def _build_manifest_verifier(
     shared_root: Path,
     environment: Mapping[str, str],
 ) -> DocumentVerifier:
-    ssh_keygen = shutil.which("ssh-keygen", path=environment.get("PATH", ""))
+    marker = read_stable_launcher_marker(app_root)
+    private_tool = marker.install_root / "tools" / "ssh-keygen.exe" if marker is not None else None
+    ssh_keygen = str(private_tool) if private_tool is not None and private_tool.is_file() else None
+    if marker is None or (ssh_keygen is None and not (marker.install_root / "first-install-owner.json").exists()):
+        # Source/legacy managed installs have no embedded-tools ownership.
+        # New Setup installs fail closed when their admitted private tool is missing.
+        ssh_keygen = shutil.which("ssh-keygen", path=environment.get("PATH", ""))
     if ssh_keygen is None:
         raise ValueError("Windows OpenSSH ssh-keygen is required")
     keyring = load_trusted_release_keyring(app_root / "managed-update-trusted-keys.json")

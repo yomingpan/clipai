@@ -1,0 +1,156 @@
+{
+  "scope": "developer_host_only",
+  "validation_dates_local": [
+    "2026-09-30",
+    "2026-10-01"
+  ],
+  "clean_vm_gate": "not_covered",
+  "inputs": {
+    "status": "experimental_inputs_not_approved_for_distribution",
+    "metadata_checked_at": "2026-09-30",
+    "runtime": {
+      "release": "https://github.com/astral-sh/python-build-standalone/releases/tag/20260901",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+      "size": 21980728,
+      "sha256": "7c45c9622400d578709a9b2cddbe8124cc21d382409d9f13406d706d28e31b14",
+      "format": "tar.gz",
+      "runtime_version": "3.12.14",
+      "flavor": "x86_64-pc-windows-msvc-install_only_stripped"
+    },
+    "verifier": {
+      "release": "https://github.com/PowerShell/Win32-OpenSSH/releases/tag/10.0.0.0p2-Preview",
+      "url": "https://github.com/PowerShell/Win32-OpenSSH/releases/download/10.0.0.0p2-Preview/OpenSSH-Win64.zip",
+      "size": 5704583,
+      "sha256": "23f50f3458c4c5d0b12217c6a5ddfde0137210a30fa870e98b29827f7b43aba5",
+      "format": "zip",
+      "release_status": "preview_only_not_a_production_selection"
+    }
+  },
+  "runtime": {
+    "clean_vm_gate": "not_covered",
+    "content_recorded": false,
+    "created_at": "2026-09-30T16:03:03.211857+00:00",
+    "elapsed_sec": 19.144,
+    "empty_child_path": true,
+    "full_app_dependencies": "not_covered",
+    "managed_install_update_uninstall": "not_covered",
+    "os_network_isolation": "not_covered",
+    "phase": "complete",
+    "pip_network_policy": "no_index",
+    "probe_kind": "first-install-local-runtime",
+    "reboot": "not_covered",
+    "run_id": "runtime-d679cc9a8fa245898bf2a36b0940962b",
+    "runtime_bytes": 48629446,
+    "runtime_executable_sha256": "1a967738a234a3bd90e8fa8b925e20a994326e1eb8b74913026a9449a933e6db",
+    "runtime_identity": {
+      "bits": 64,
+      "openssl": "OpenSSL 3.5.8 25 Aug 2026",
+      "platform": "win-amd64",
+      "tcl": "8.6.12",
+      "version": "3.12.14"
+    },
+    "schema_version": 1,
+    "signature_and_license_admission": "not_covered",
+    "source_kind": "caller_supplied_development_runtime",
+    "status": "passed",
+    "steps": [
+      {
+        "elapsed_sec": 3.135,
+        "exit_code": 0,
+        "index": 0,
+        "status": "passed"
+      },
+      {
+        "elapsed_sec": 0.474,
+        "exit_code": 0,
+        "index": 1,
+        "status": "passed"
+      },
+      {
+        "elapsed_sec": 6.947,
+        "exit_code": 0,
+        "index": 2,
+        "status": "passed"
+      },
+      {
+        "elapsed_sec": 5.469,
+        "exit_code": 0,
+        "index": 3,
+        "status": "passed"
+      },
+      {
+        "elapsed_sec": 0.18,
+        "exit_code": 0,
+        "index": 4,
+        "status": "passed"
+      },
+      {
+        "elapsed_sec": 0.218,
+        "exit_code": 0,
+        "index": 5,
+        "status": "passed"
+      }
+    ],
+    "synthetic_payload": true,
+    "tk_window": "not_covered",
+    "trusted_bootstrap": "not_covered"
+  },
+  "verifier": {
+    "clean_vm_gate": "not_covered",
+    "content_recorded": false,
+    "created_at": "2026-09-30T16:03:03.699101+00:00",
+    "distribution_admission": "not_covered",
+    "empty_child_path": true,
+    "fixture_private_key_removed": true,
+    "key_generation_exit_code": 0,
+    "namespace": "clipai.managed-update.manifest.v1",
+    "phase": "complete",
+    "probe_kind": "first-install-local-verifier",
+    "schema_version": 1,
+    "status": "passed",
+    "tamper_rejected": "passed",
+    "test_key_only": true,
+    "test_key_rejected_by_production": "passed",
+    "tool_sha256": "b51fdd26be0f7c83398d18e5354a0acb0406a9de25516791758fe63bbe3ae870",
+    "valid_signature": "passed"
+  },
+  "bootstrap": {
+    "schema_version": 1,
+    "probe_kind": "first-install-local-bootstrap",
+    "created_at": "2026-09-30T23:59:40.115768+00:00",
+    "status": "passed",
+    "synthetic_payload": true,
+    "test_key_only": true,
+    "empty_child_path": true,
+    "bootstrap_source": "development_snapshot",
+    "packaging_source": "development_snapshot",
+    "clean_vm_gate": "not_covered",
+    "trusted_release_bootstrap": "not_covered",
+    "full_app_dependencies": "not_covered",
+    "update_uninstall": "not_covered",
+    "signature_and_license_admission": "not_covered",
+    "without_packaging": {
+      "status": "failed",
+      "phase": "imports",
+      "error_type": "ModuleNotFoundError",
+      "missing_module": "packaging",
+      "fixture_private_key_removed": true
+    },
+    "source_snapshot_sha256": "a81c7c4fc1dfb7c3314d2b1968b4ecbf6093e66f77dbeacc73f8d972491f9efd",
+    "packaging_version": "26.2",
+    "existing_main_missing_module": "yaml",
+    "existing_main_import_exit_code": 0,
+    "engine": {
+      "status": "passed",
+      "phase": "complete",
+      "version_and_launcher_built": true,
+      "marker_and_state_verified": true,
+      "external_python_imports": [
+        "packaging"
+      ],
+      "fixture_private_key_removed": true
+    },
+    "fixture_private_key_removed": true,
+    "elapsed_sec": 35.579
+  }
+}

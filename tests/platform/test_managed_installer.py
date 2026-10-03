@@ -8,6 +8,7 @@ from ClipAI.core.update_ports import CandidateEnvironment
 from ClipAI.platform.managed_installer import FilesystemManagedInstaller
 from ClipAI.platform.managed_release_builder import ManagedReleaseBuilder
 from ClipAI.platform.managed_update_fs import read_json
+from ClipAI.platform.managed_update_mutex import ManagedInstallationAdmission
 
 
 class _Signer:
@@ -205,3 +206,51 @@ def test_initial_installer_fails_busy_before_admitting_the_bundle(tmp_path: Path
         / "install-bundle.zip"
     ).exists()
     assert not command.install_root.exists()
+
+
+def test_existing_target_is_rechecked_after_admission_and_preserved(tmp_path: Path):
+    command = _command(tmp_path)
+    lease = _Lease()
+    builder = _Builder(command.install_root)
+    class RacingGate:
+        def acquire(self):
+            command.install_root.mkdir()
+            (command.install_root / "managed-install.json").write_text("other operation", encoding="utf-8")
+            return lease
+    installer = FilesystemManagedInstaller(manifest_verifier=_Verifier(), candidate_builder=builder,
+        trusted_keyring_path=_keyring(tmp_path), update_gate_factory=lambda _root: RacingGate())
+    with pytest.raises(ManagedUpdateFailure):
+        installer.install(command)
+    assert builder.requests == []
+    assert (command.install_root / "managed-install.json").read_text() == "other operation"
+    assert lease.closed
+
+
+def test_closed_admission_cannot_start_writes(tmp_path: Path):
+    command = _command(tmp_path)
+    admission = ManagedInstallationAdmission(command.install_root, _Lease())
+    installer = FilesystemManagedInstaller(manifest_verifier=_Verifier(), candidate_builder=_Builder(command.install_root),
+                                          trusted_keyring_path=_keyring(tmp_path))
+    work = installer.open_install(command, admission)
+    admission.close()
+    with pytest.raises(ManagedUpdateFailure):
+        work.prepare()
+    assert not command.install_root.exists()
+    assert not command.shared_root.exists()
+
+
+def test_failed_launcher_preparation_cannot_be_committed(tmp_path: Path):
+    command = _command(tmp_path)
+    admission = ManagedInstallationAdmission(command.install_root, _Lease())
+    installer = FilesystemManagedInstaller(manifest_verifier=_Verifier(),
+        candidate_builder=_FailingLauncherBuilder(command.install_root), trusted_keyring_path=_keyring(tmp_path))
+    work = installer.open_install(command, admission)
+    try:
+        with pytest.raises(RuntimeError, match="launcher"):
+            work.prepare()
+        with pytest.raises(RuntimeError, match="not prepared"):
+            work.commit()
+        assert not (command.install_root / "managed-install.json").exists()
+        work.cleanup()
+    finally:
+        admission.close()

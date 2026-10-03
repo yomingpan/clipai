@@ -23,6 +23,52 @@ class FakeTransport:
         return self.response
 
 
+def test_gemini_permission_denial_is_not_reported_as_invalid_key():
+    payload = {"error": {"status": "PERMISSION_DENIED", "message": "secret echoed",
+                         "details": [{"reason": "API_KEY_SERVICE_BLOCKED"}]}}
+    settings = GeminiSettings("KEY", "https://gemini.test", "gemini-a", 10)
+    client = ProviderModelCatalogClient(FakeTransport(HttpResponse(403, "secret echoed", payload)))
+    with pytest.raises(ProviderResponseError, match="API_KEY_SERVICE_BLOCKED") as raised:
+        run(client.list_models("gemini", settings, "secret"))
+    assert "secret" not in str(raised.value)
+
+
+def test_gemini_unknown_permission_denial_does_not_echo_response_or_untrusted_reason():
+    settings = GeminiSettings("KEY", "https://gemini.test", "gemini-a", 10)
+    client = ProviderModelCatalogClient(FakeTransport(HttpResponse(403, "secret echoed", {
+        "error": {"details": [{"reason": "secret echoed"}]}})))
+    with pytest.raises(ProviderResponseError, match="HTTP 403") as raised:
+        run(client.list_models("gemini", settings, "secret"))
+    assert "secret" not in str(raised.value)
+
+
+@pytest.mark.parametrize("reason", ["API_KEY_INVALID", "API_KEY_EXPIRED"])
+def test_gemini_invalid_key_on_http_400_remains_authentication_failure(reason):
+    client = ProviderModelCatalogClient(FakeTransport(HttpResponse(400, "secret echoed", {
+        "error": {"details": [{"reason": reason}]}})))
+    with pytest.raises(ProviderAuthError):
+        run(client.list_models("gemini", GeminiSettings("KEY", "https://gemini.test", "gemini-a", 10), "secret"))
+
+
+def test_gemini_generation_shares_permission_classification():
+    from ClipAI.providers.gemini import _raise_for_status
+    with pytest.raises(ProviderResponseError, match="API_KEY_SERVICE_BLOCKED"):
+        _raise_for_status("Gemini", HttpResponse(403, "secret echoed", {
+            "error": {"details": [{"reason": "API_KEY_SERVICE_BLOCKED"}]}}))
+
+
+def test_gemini_leaked_key_denial_guides_replacement_without_echoing_server_text():
+    message = "Your API key was reported as leaked. Please use another API key. secret echoed"
+    response = HttpResponse(403, message, {
+        "error": {"status": "PERMISSION_DENIED", "message": message}})
+    settings = GeminiSettings("KEY", "https://gemini.test", "gemini-a", 10)
+    client = ProviderModelCatalogClient(FakeTransport(response))
+    with pytest.raises(ProviderResponseError, match="blocked this key as leaked") as raised:
+        run(client.list_models("gemini", settings, "secret"))
+    assert "Google AI Studio" in str(raised.value)
+    assert "secret" not in str(raised.value)
+
+
 def test_openai_catalog_validates_with_bearer_header() -> None:
     transport = FakeTransport(HttpResponse(200, "", {"data": [{"id": "gpt-a"}]}))
     client = ProviderModelCatalogClient(transport)

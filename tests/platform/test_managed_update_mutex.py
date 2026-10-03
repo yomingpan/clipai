@@ -39,5 +39,5 @@ def test_managed_update_gate_uses_one_stable_mutex_identity_per_canonical_instal
     assert other.acquire() is factory.lease
     assert factory.names[0] == factory.names[1]
     assert factory.names[0] != factory.names[2]
-    assert factory.names[0].startswith("Local\\ClipAI.ManagedUpdate.v1.")
+    assert factory.names[0].startswith("Global\\ClipAI.ManagedUpdate.v1.")
     assert len(factory.names[0].rsplit(".", 1)[1]) == 64

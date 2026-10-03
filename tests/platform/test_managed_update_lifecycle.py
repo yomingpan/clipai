@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -10,9 +11,26 @@ from ClipAI.core.update_artifacts import StartupHealthArtifact
 from ClipAI.platform.managed_update_fs import atomic_write_json, native_path
 from ClipAI.platform.managed_update_lifecycle import StartupHealthReporter, SubprocessManagedApplicationLifecycle
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
+from ClipAI.platform.managed_update_lifecycle import start_detached_process
 
 
 NOW = "2026-09-13T00:00:00+00:00"
+
+
+def test_desktop_launch_uses_no_window_without_detached_console(monkeypatch, tmp_path: Path):
+    captured = {}
+    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200, raising=False)
+    monkeypatch.setattr(subprocess, "DETACHED_PROCESS", 8, raising=False)
+
+    def popen(command, **kwargs):
+        captured.update(kwargs)
+        return Process()
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    start_detached_process(["private-python.exe", "-I", "main.py"], {}, tmp_path)
+    assert captured["creationflags"] & subprocess.CREATE_NO_WINDOW
+    assert not captured["creationflags"] & subprocess.DETACHED_PROCESS
 
 
 class Layout:
@@ -106,7 +124,7 @@ def test_launch_uses_exact_managed_executable_contract_and_isolated_environment(
         expected_version="2.0",
     )
     command, environment, cwd = calls[0]
-    assert command[:4] == [str(native_path(python)), "-I", str(native_path(entrypoint)), "launch"]
+    assert command[:4] == [str(python.resolve()), "-I", str(entrypoint.resolve()), "launch"]
     assert command[4:] == [
         "--shared-root", str(layout.shared_root),
         "--transaction-id", "tx-1",
