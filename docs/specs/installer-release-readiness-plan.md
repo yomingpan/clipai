@@ -1,6 +1,6 @@
 # Preview 後續：一致的安裝／更新發行流程
 
-日期：2026-10-04。狀態：已執行 P0 盤點、P1 技術候選與 P3 CI 改造；公開發行 NO-GO。基準 commit：`a0502d3`。
+日期：2026-10-04。狀態：A／B 技術候選及 GitHub 測試交付包已完成；Windows source／完整候選 CI 通過；正式公開發行 NO-GO。歷史基準 commit：`a0502d3`。
 本文件接續 `first-install-installer-plan.md` 的 D／E 與尚未完成的 A gates，
 不重做已完成的本機 Preview。啟動提示詞見 [執行 prompt](installer-release-readiness-prompt.md)。
 
@@ -41,10 +41,21 @@ keyring 不同，不承諾 Preview 可直接升級成正式版。正式切換先
 最新續作：Tray／完整移除已提交 `01bfb04`，使用者回報新版人工測試正常。
 使用者要求接續四步後，明確表示沒有 VM／第二台電腦，先跳過乾淨機驗收；
 此 gate 記為 deferred，不是 passed。已建立真實較高版本 3.7.9（`7bcccb1`），
-加入 `release-validation/**` 隔離分支以執行同一 CI builder，已觸發遠端候選與
-Windows CI。首輪找到舊 tag-expression 測試未同步，修正後需重跑確認。
-正準備共用一次性信任金鑰的 3.7.8／3.7.9 Setup＋bundle 配對；正式 signer、
-實際 About 點擊更新與最終簽署檔／新手觀察仍須各自取得真實證據。
+加入 `release-validation/**` 隔離分支以執行同一 CI builder。修正首輪過時的
+tag-expression 測試後，遠端封裝 smoke 找到真實的 sdist／built-wheel hash 差異；
+已保留來源驗證並改以完成 wheelhouse 的實際 bytes 封存離線 lock（`3e262a0`）。
+本機 unit 1,949 passed；`cb78123` 的 Windows Python 3.10–3.13 CI 已通過。
+完整候選 CI 亦已通過 managed transaction、packaged import、compiled extraction、
+asset validation／upload／key cleanup；精確 hash 與 run 另記於下方連結。
+
+共用一次性信任金鑰的 3.7.8／3.7.9 Setup＋bundle 配對已完成，兩版都通過
+signed admission、installed-wheel import、compiled extraction 與 asset checks。
+使用者選擇 GitHub 作下載來源，已備妥 `acceptance-20261004` prerelease 提案與
+20 個 upload-ready 檔案；目前尚無 tag／公開測試 release，不修改正式 latest。
+正式 signer、native/license admission、實際 About 點擊與最終簽署檔／新手
+觀察仍須各自取得真實證據。精確 source／hash、remote runs、四步狀態見
+[本輪續作 evidence](../evidence/installer-acceptance-followup-20261004.md)；
+測試發布內容見 [GitHub 提案](github-acceptance-release.md)。
 
 後續進度：首輪變更已依使用者要求提交為 `64b61c9`。使用者回報舊 Candidate
 七步人工安裝／啟動／重開機／卸載／保留資料重裝均正常，另指出第一次 provider
@@ -52,7 +63,7 @@ Windows CI。首輪找到舊 tag-expression 測試未同步，修正後需重跑
 選擇的完整移除（含設定、API key、資料）及 maintenance helper 清理。
 本輪實作與 1,930 unit／native helper／compiled wizard 證據見
 [後續驗收](../evidence/tray-readiness-full-removal-20261004.md)。新候選仍為本機
-3.7.8，需人工驗證新增選項；未宣稱是 About B 或乾淨 VM／正式簽章通過。
+3.7.8，新增選項已由使用者回報人工測試正常；未宣稱是 About B 或乾淨 VM／正式簽章通過。
 以下基線與首輪 matrix 保留為歷史執行紀錄。
 
 HEAD 仍為 `a0502d34cfa2b1ab554c480d39b8b8813d1ef201`，未 reset、commit、push
