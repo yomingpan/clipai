@@ -1,9 +1,27 @@
 # GitHub acceptance release: 3.7.8 → 3.7.9
 
-Prepared for review, not published. GitHub Release assets provide both anonymous
+Authorized by the user, draft created, not published. GitHub Release assets provide both anonymous
 Setup downloads and the existing HTTPS About catalog/bundle transport. The user
 requested GitHub as the distribution location. No additional hosting service is
 required. Public final/stable publication remains a separate authorized action.
+
+## Execution status
+
+The user approved this exact acceptance tag/prerelease proposal. The annotated
+`acceptance-20261004` tag was pushed at the B commit listed below. GitHub draft
+release ID `403066673` was created with `prerelease=true`, title/body reviewed,
+and Latest unselected. Its
+[edit page](https://github.com/yomingpan/clipai/releases/edit/untagged-2a88e5b7ffef0686eca4)
+is retained for continuation. The draft has **zero assets** and remains private.
+
+All 19 files listed in the local SHA256 manifest were verified immediately
+before upload. Browser upload was blocked because the Edge ChatGPT extension
+does not have Allow access to file URLs enabled. The operator was asked to
+enable it in `edge://extensions` → ChatGPT → Details. No extension/security
+setting was changed automatically. Complete upload and inspect the draft before
+publishing; anonymous download/signature checks and actual About remain pending.
+The acceptance prerelease publication is already authorized; do not ask again merely
+because the task resumes. Stable latest remains `v3.7.8`.
 
 ## Exact proposed release
 

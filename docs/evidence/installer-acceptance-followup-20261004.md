@@ -4,14 +4,15 @@ This supplements the original readiness matrix. The user reported the tray and
 full-removal candidate passed manual testing, asked to continue the four next
 steps, deferred clean Windows 11 VM testing because no VM/second device exists,
 and selected GitHub as the proposed download location. Stable publication is
-still NO-GO; no release tag or GitHub Release was created by this work.
+still NO-GO. The acceptance tag/draft follow-up is recorded below.
 
 ## Tested source and validation boundary
 
 Source changes are committed through
-`cb7812387b4062813b0a1aacabd9ff09be0153a3`. Only the new remote branch
-`release-validation/installer-20261004` was pushed. Remote `develop`, `main`,
-published tags/assets and production `latest` were not changed.
+`cb7812387b4062813b0a1aacabd9ff09be0153a3`. Source validation was pushed to the
+new remote branch `release-validation/installer-20261004`; the subsequently
+authorized acceptance tag is recorded below. Remote `develop`, `main`,
+existing published tags/assets and production `latest` were not changed.
 
 - `7bcccb1`: real app version 3.7.9; branch-triggered shared candidate CI.
 - `e1718da`: actual paired A/B preparation and corrected tag/authority tests.
@@ -99,8 +100,17 @@ Build log: `artifacts/acceptance-pair-build-20261004.log`.
 `artifacts/github-acceptance-20261004/` contains 20 upload-ready files. Its SHA256
 manifest was checked against every other file. The copied B test catalog changes
 only the download URL to the proposed `acceptance-20261004` release; bundle hash,
-size/version identity are checked against actual B bytes. The URL does not yet
-exist. Proposed release, tag/commit, assets and post-publication checks are in
+size/version identity are checked against actual B bytes. The public download
+URL does not yet exist. The user then approved creating and publishing this
+experimental prerelease. The annotated acceptance tag was pushed at B source
+`7bcccb1`, and GitHub draft `403066673` was created. Its Pre-release setting is
+selected and Latest is unselected. There are zero uploaded assets: Edge extension
+file-URL access blocked the upload. User action is needed to enable that
+extension permission; no permission/security setting was changed automatically.
+The draft remains unpublished and production latest is `v3.7.8`.
+An anonymous-download/hash/signature-admission verifier is prepared at
+`artifacts/verify-github-acceptance-20261004.py` but has not run, since the assets
+are not public. Proposed release, assets and post-publication checks are in
 [GitHub acceptance proposal](../specs/github-acceptance-release.md).
 
 | Requested next step | Current result | Remaining evidence |

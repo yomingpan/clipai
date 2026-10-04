@@ -51,7 +51,10 @@ asset validation／upload／key cleanup；精確 hash 與 run 另記於下方連
 共用一次性信任金鑰的 3.7.8／3.7.9 Setup＋bundle 配對已完成，兩版都通過
 signed admission、installed-wheel import、compiled extraction 與 asset checks。
 使用者選擇 GitHub 作下載來源，已備妥 `acceptance-20261004` prerelease 提案與
-20 個 upload-ready 檔案；目前尚無 tag／公開測試 release，不修改正式 latest。
+20 個 upload-ready 檔案。使用者已核准發布此測試 prerelease；已推送精確的
+`acceptance-20261004` tag 並建立未公開草稿，目前 Edge 上傳權限尚缺，assets
+仍為零；待使用者開啟 extension file-URL access 後繼續上傳／驗證／公開。
+此測試發布無須再次取得授權，正式 latest 仍為 `v3.7.8`。
 正式 signer、native/license admission、實際 About 點擊與最終簽署檔／新手
 觀察仍須各自取得真實證據。精確 source／hash、remote runs、四步狀態見
 [本輪續作 evidence](../evidence/installer-acceptance-followup-20261004.md)；
