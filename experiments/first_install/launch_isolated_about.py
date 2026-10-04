@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import importlib.metadata
 import os
 from pathlib import Path
+import re
 import sys
 import threading
 from urllib.parse import urlparse
@@ -18,9 +19,15 @@ import uuid
 def require_isolated_url(url: str) -> str:
     parsed = urlparse(url)
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
-            or parsed.hostname.lower() in {"github.com", "api.github.com", "raw.githubusercontent.com"}
             or parsed.fragment):
         raise ValueError("an isolated, credential-free HTTPS catalog is required")
+    host = parsed.hostname.lower()
+    if host == "github.com":
+        if (parsed.netloc != "github.com" or parsed.query or re.fullmatch(
+                r"/yomingpan/clipai/releases/download/acceptance-[a-z0-9-]+/catalog\.json", parsed.path) is None):
+            raise ValueError("only a named acceptance release may supply the GitHub test catalog")
+    elif host in {"api.github.com", "raw.githubusercontent.com"}:
+        raise ValueError("production GitHub catalog sources are not isolated acceptance releases")
     return url
 
 

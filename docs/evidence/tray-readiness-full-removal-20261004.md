@@ -2,6 +2,11 @@
 
 Date: 2026-10-04, Asia/Taipei. Local technical candidate, not public release.
 
+Follow-up: committed as `01bfb04`. After that commit the user reports the new
+fix candidate passed manual testing with no issues. This closes the reported
+local manual follow-up, while clean VM and actual About A→B remain independent.
+The user subsequently deferred VM/second-PC testing because neither is available.
+
 The user reports all seven manual installation/startup/reboot/removal/reinstall
 steps passed on the earlier `delivery-20261004` candidate. This is user-reported
 developer-device evidence, not clean-VM, signed-publisher or About A→B acceptance.

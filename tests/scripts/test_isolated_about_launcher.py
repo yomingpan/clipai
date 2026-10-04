@@ -12,3 +12,20 @@ def test_isolated_about_rejects_production_or_credential_sources(url):
 
 def test_isolated_about_accepts_operator_owned_https_source():
     assert require_isolated_url("https://updates.invalid/acceptance/catalog.json") == "https://updates.invalid/acceptance/catalog.json"
+
+
+def test_isolated_about_accepts_named_github_acceptance_release():
+    url = "https://github.com/yomingpan/clipai/releases/download/acceptance-20261004/catalog.json"
+    assert require_isolated_url(url) == url
+
+
+@pytest.mark.parametrize("suffix", ["v3.7.9/catalog.json", "acceptance-20261004/catalog.json?token=value",
+    "acceptance-20261004/not-catalog.json", "acceptance-20261004/catalog.json/extra"])
+def test_isolated_github_entry_refuses_official_or_ambiguous_asset_paths(suffix):
+    with pytest.raises(ValueError):
+        require_isolated_url("https://github.com/yomingpan/clipai/releases/download/" + suffix)
+
+
+def test_isolated_github_entry_refuses_other_repositories():
+    with pytest.raises(ValueError):
+        require_isolated_url("https://github.com/another/clipai/releases/download/acceptance-20261004/catalog.json")

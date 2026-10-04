@@ -3,6 +3,94 @@
 Date: 2026-10-04. Owner: release maintainer. Scope: Windows 11 x64, standard user.
 Local evidence is in [the matrix](../evidence/installer-release-readiness-20261004.md).
 
+## Current paired candidates (3.7.8 → 3.7.9)
+
+The user passed the Tray/full-removal candidate manually, then explicitly
+deferred clean VM testing because no VM/second PC is available. A developer-host
+About update remains useful evidence but must not be labelled clean-VM evidence.
+
+`artifacts/installer-acceptance-pair-20261004/` contains fresh A and B, with the
+same public keyring. A reuses the admitted 3.7.8 wheel; B is an actual 3.7.9 wheel
+built once offline from `7bcccb1ea792a8e725d174872f43de5defcc87b4`, using the
+unchanged dependency wheels. Both use the shared formal bundle/Setup builders
+and pass installed-wheel, signature admission, compiled extraction and asset
+checks. The disposable pair private key has been removed. `pair.json` identifies
+all bytes. Neither an earlier fix Setup nor a separate CI candidate is A in this
+pair: their authorities differ. Do not edit the installed keyring to work around
+that incompatibility.
+
+Reproduce with a new output directory:
+
+```powershell
+.venv/Scripts/python.exe -m experiments.first_install.prepare_acceptance_pair `
+  --a-assets artifacts/installer-removal-fix-20261004/delivery-final2/output `
+  --b-source-commit 7bcccb1ea792a8e725d174872f43de5defcc87b4 `
+  --build-python <Python-with-setuptools-and-wheel> `
+  --ssh-keygen artifacts/installer-removal-fix-20261004/delivery-final2/stage/tools/ssh-keygen.exe `
+  --runtime-archive artifacts/first-install-candidates/runtime-readable/download.archive `
+  --verifier-archive artifacts/first-install-candidates/verifier-readable/download.archive `
+  --compiler artifacts/first-install-build/tools/inno-6.7.3/ISCC.exe `
+  --inputs packaging/windows/setup-inputs.json --output-root <new-pair-directory>
+```
+
+Actual About acceptance needs an authorized isolated HTTPS host with an ordinary
+trusted TLS certificate. GitHub Releases can provide this: use an explicit
+`acceptance-*` prerelease in `yomingpan/clipai`, with `make_latest=false`, and
+`https://github.com/yomingpan/clipai/releases/download/acceptance-20261004/catalog.json`.
+The test launcher admits only that repository/named acceptance catalog path;
+official `v*`, `latest`, raw/API sources and credentials remain rejected. See
+[the concrete GitHub acceptance release](../specs/github-acceptance-release.md).
+Preserve B bundle bytes; copy B's catalog to a separate
+test distribution folder and change only `releases[0].bundle_url` to the actual
+isolated HTTPS asset URL. Keep formal asset catalogs unchanged. Validate with
+`parse_catalog` and download/hash the served bytes before launching. Do not use
+the intended GitHub tag URL: no release has been published there. Do not disable
+TLS validation or install a test certificate into the user's Windows trust store.
+
+An operator may remove/reinstall their Candidate with retained data to install
+the paired A, then exit it and use `launch_isolated_about.py` with A's installed
+Python and actual isolated catalog URL. Automated tools refuse an existing user
+Candidate; this task has not removed it. Follow the actual device steps below,
+record A/B hashes, checking/restart/result, data comparison, reboot and the
+rollback cases separately. `B/output/acceptance-template.json` is pending and
+belongs to this unsigned technical hash; it cannot authorize publication.
+
+## Remote validation without a release tag
+
+Push a reviewed commit only to `release-validation/**` to run the existing
+candidate builder on GitHub Windows. Official secrets are used only for tag
+runs; branch builds generate and remove a per-run `local-validation-*` key.
+No release is created. The uploaded complete candidate has its own keyring and
+hashes and must not be substituted for either member of the local pair.
+Inspect actual run/jobs/logs/artifacts; source tests alone do not pass this gate.
+
+## Publisher signing and final observation handoff
+
+No code-signing certificate was found in CurrentUser/My or LocalMachine/My and
+no available SignTool was found in PATH/the checked Windows SDK location.
+External signing services remain unconfirmed; do not infer they are absent.
+The operator supplies only signer/service identity and exact publisher subject,
+not keys or tokens. Microsoft describes timestamping in its
+[Authenticode guide](https://learn.microsoft.com/en-us/windows/win32/seccrypto/time-stamping-authenticode-signatures).
+Its managed [Artifact Signing service](https://learn.microsoft.com/en-us/azure/artifact-signing/faq)
+requires an eligible paid subscription and identity validation; no subscription
+purchase or account setup is part of this task.
+
+After native/runtime/verifier/license admission, build an official candidate
+with a reviewed tag and official managed authority. Sign/timestamp the final
+Setup using the chosen signer, verify the actual publisher, reseal provenance
+and rerun extraction/import checks against its changed hash. Technical Candidate
+bytes cannot be promoted by setting gate labels to passed. The pinned verifier
+is explicitly [non-production ready upstream](https://github.com/PowerShell/Win32-OpenSSH/releases/tag/10.0.0.0p2-Preview);
+its admission remains unresolved, as does the compiler's applicable
+[commercial-use licensing](https://jrsoftware.org/isdl.php).
+
+Then download that exact final hash in a browser with protections enabled and
+record Windows prompts. Have a first-time user install, set a provider and
+explicitly run their first Action; record completion, assistance and blockers
+without saving their key/input/output. Actual humans and devices provide these
+observations. A script or the maintainer's previous success cannot fill them in.
+
 ## Reproduce the local technical candidate
 
 These commands consume the existing r4 signed bundle; no wheel/dependency rebuild,
