@@ -5,13 +5,13 @@ import re
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_tag_workflow_builds_and_publishes_complete_managed_release() -> None:
+def test_tag_workflow_builds_complete_candidate_without_publication() -> None:
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
         encoding="utf-8"
     )
 
     required = (
-        "contents: write",
+        "contents: read",
         'python-version: "3.12"',
         "piptools compile",
         "--generate-hashes",
@@ -32,10 +32,11 @@ def test_tag_workflow_builds_and_publishes_complete_managed_release() -> None:
         "clipai-managed-$version.zip",
         "releases/download/$tag/clipai-managed-$version.zip",
         "scripts\\verify_managed_update.py --stage managed-bundle",
-        "gh release create",
-        "--draft",
-        "gh release edit",
-        "--draft=false",
+        "scripts.build_setup_release",
+        "scripts.verify_packaged_app",
+        "scripts.verify_setup_extraction",
+        "scripts.verify_release_assets",
+        "--technical-candidate",
         "if: always()",
     )
     for marker in required:
@@ -45,10 +46,15 @@ def test_tag_workflow_builds_and_publishes_complete_managed_release() -> None:
     assert "python -m pip download" not in workflow
     assert "--only-binary=:all:" not in workflow
 
-    create = workflow.index("gh release create")
-    publish = workflow.index("gh release edit")
-    gate = workflow.index("scripts\\verify_managed_update.py --stage managed-bundle")
-    assert gate < create < publish
+    assert "gh release create" not in workflow
+    assert "gh release edit" not in workflow
+    assert "--draft=false" not in workflow
+    gate = workflow.index("scripts.verify_release_assets")
+    upload = workflow.index("actions/upload-artifact")
+    assert gate < upload
+    assert workflow.count("python -m build") == 1
+    assert "release/setup/output/**" in workflow
+
 
 
 def test_tag_workflow_pins_every_action_to_an_immutable_commit() -> None:

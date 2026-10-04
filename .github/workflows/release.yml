@@ -1,4 +1,4 @@
-name: Build and publish release artifacts
+name: Build verified release candidates
 
 on:
   push:
@@ -6,10 +6,14 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-candidate-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build-verify-publish:
+  build-verify-candidate:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -35,13 +39,6 @@ jobs:
 
       - name: Build wheel and source distribution
         run: python -m build
-
-      - name: Smoke install wheel in a fresh environment
-        shell: pwsh
-        run: |
-          python -m venv release-smoke
-          release-smoke\Scripts\python.exe -m pip install -c constraints\windows.txt (Get-ChildItem dist\*.whl).FullName
-          release-smoke\Scripts\python.exe -c "import ClipAI; import main"
 
       - name: Compile hashed Python 3.12 Windows dependency lock
         shell: pwsh
@@ -120,32 +117,45 @@ jobs:
           $python = (Get-Command python).Source
           python scripts\verify_managed_update.py --stage managed-bundle --python $python
 
+      - name: Fetch pinned Setup inputs and compiler
+        run: python -m scripts.fetch_setup_inputs --inputs packaging/windows/setup-inputs.json --output release/bootstrap --install-compiler
+
+      - name: Package the same managed bundle into isolated technical Setup
+        shell: pwsh
+        run: |
+          $commit = git rev-parse HEAD
+          python -m scripts.build_setup_release `
+            --bundle "release/assets/clipai-managed-$env:CLIPAI_VERSION.zip" `
+            --catalog release/assets/catalog.json `
+            --keyring release/assets/managed-update-trusted-keys.json `
+            --inputs packaging/windows/setup-inputs.json `
+            --runtime-archive release/bootstrap/runtime.archive `
+            --verifier-archive release/bootstrap/verifier.archive `
+            --compiler release/bootstrap/compiler/ISCC.exe `
+            --output-root release/setup `
+            --tag $env:CLIPAI_TAG --source-commit $commit --technical-candidate
+
+      - name: Prove installed-wheel imports and compiled Setup payload
+        shell: pwsh
+        run: |
+          python -m scripts.verify_packaged_app --stage release/setup/stage --output release/setup/output/packaged-smoke.json
+          if ($LASTEXITCODE -ne 0) { throw "Packaged app smoke failed" }
+          python -m scripts.verify_setup_extraction --assets release/setup/output
+          if ($LASTEXITCODE -ne 0) { throw "Compiled Setup extraction failed" }
+          python -m scripts.verify_release_assets --assets release/setup/output
+          if ($LASTEXITCODE -ne 0) { throw "Candidate asset validation failed" }
+
       - name: Upload auditable workflow artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: clipai-${{ github.ref_name }}
           path: |
             dist/*
-            release/assets/*
+            release/setup/output/**
             release/requirements.lock
 
-      - name: Create complete draft GitHub Release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $tag = $env:CLIPAI_TAG
-          $assets = @(
-            (Get-ChildItem dist -File).FullName
-            (Get-ChildItem release\assets -File).FullName
-          )
-          gh release create $tag $assets --draft --verify-tag --generate-notes --title "ClipAI $tag"
-
-      - name: Publish verified GitHub Release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit $env:CLIPAI_TAG --draft=false
+      # Publication is intentionally outside this candidate workflow. See the
+      # exact-hash acceptance + Authenticode gate in docs/RELEASE_CHECKLIST.md.
 
       - name: Remove private signing material
         if: always()

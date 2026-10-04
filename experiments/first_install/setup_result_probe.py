@@ -26,7 +26,7 @@ def main() -> None:
     engine.mkdir()
     shutil.copy2(args.stage / "setup-engine/clipai.ico", engine / "clipai.ico")
     script = work / "probe.iss"
-    script.write_text(args.script.read_text(encoding="utf-8") + r'''
+    script.write_text('#include "' + str(args.script.resolve()) + '"\n' + r'''
 
 <event('DeinitializeSetup')>
 procedure CaptureFinalCaption;

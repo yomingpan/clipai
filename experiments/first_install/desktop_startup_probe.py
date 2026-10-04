@@ -27,6 +27,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--install-root", required=True, type=Path)
     parser.add_argument("--shared-root", required=True, type=Path)
+    parser.add_argument("--version", default="3.7.8")
     args = parser.parse_args()
     lease = build_application_instance_gate().acquire()
     if lease is None:
@@ -46,7 +47,7 @@ def main() -> int:
 
     application.build_runtime = build
     try:
-        paths = build_managed_application_paths(args.install_root / "versions/3.7.8/payload",
+        paths = build_managed_application_paths(args.install_root / "versions" / args.version / "payload",
                                                args.shared_root, instance_name="default")
         application._run_application(paths, instance_gate=AdmittedGate(lease), on_started=started)
     finally:

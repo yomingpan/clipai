@@ -1,4 +1,4 @@
-"""Bounded local candidate acceptance. Mutates only the named Preview product.
+"""Bounded local acceptance. Mutates only the explicitly selected candidate.
 
 Run on a Windows developer host, never claim clean-VM or public-release proof.
 Existing Preview roots/registration are rejected before starting.
@@ -20,11 +20,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--setup", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--product", choices=("ClipAI Preview", "ClipAI Candidate"), default="ClipAI Preview")
+    parser.add_argument("--version", default="3.7.8")
     args = parser.parse_args()
     setup = args.setup.resolve(strict=True)
-    root = (Path(os.environ["LOCALAPPDATA"]) / "Programs/ClipAI Preview").resolve()
-    shared = (Path(os.environ["LOCALAPPDATA"]) / "ClipAI Preview").resolve()
-    registry = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\ClipAI.LocalAcceptance.Preview"
+    root = (Path(os.environ["LOCALAPPDATA"]) / "Programs" / args.product).resolve()
+    shared = (Path(os.environ["LOCALAPPDATA"]) / args.product).resolve()
+    registry = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ClipAI.LocalAcceptance." + ("Candidate" if args.product == "ClipAI Candidate" else "Preview")
+    if args.product == "ClipAI Candidate" and shared.exists():
+        raise RuntimeError("Existing Candidate data must not be modified by acceptance")
     if root.exists():
         raise RuntimeError("Existing Preview installation must not be modified by acceptance")
     try:
@@ -61,14 +65,14 @@ def main() -> int:
         result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60)
         if result.returncode:
             raise RuntimeError("Installed identity selfcheck failed")
-        python = root / "versions/3.7.8/.venv/Scripts/python.exe"
+        python = root / "versions" / args.version / ".venv/Scripts/python.exe"
         result = subprocess.run([str(python), "-I", "-c",
             "import main, tkinter, clr; r=tkinter.Tk(); r.withdraw(); r.update(); r.destroy(); print('FULL_APP_IMPORTS_AND_TK_PASSED')"],
             env=env, capture_output=True, text=True, timeout=60)
         if result.returncode:
             raise RuntimeError("Full desktop dependency loading failed")
         result = subprocess.run([str(python), "-I", str(Path(__file__).with_name("desktop_startup_probe.py").resolve()),
-            "--install-root", str(root), "--shared-root", str(shared)],
+            "--install-root", str(root), "--shared-root", str(shared), "--version", args.version],
             env=env, capture_output=True, text=True, timeout=60)
         (args.output / "desktop-startup.txt").write_text(result.stdout + result.stderr, encoding="utf-8")
         if result.returncode not in (0, 2):
@@ -77,8 +81,8 @@ def main() -> int:
                skipped_user_app_running=result.returncode == 2)
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry) as key:
             assert winreg.QueryValueEx(key, "InstallLocation")[0] == str(root)
-        group = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/ClipAI Preview"
-        assert (group / "ClipAI Preview.lnk").is_file() and (group / "Uninstall.lnk").is_file()
+        group = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs" / args.product
+        assert (group / (args.product + ".lnk")).is_file() and (group / "Uninstall.lnk").is_file()
         record("installed_selfcheck_and_native_integration", passed=True,
                installed_logical_bytes=sum(p.stat().st_size for p in root.rglob("*") if p.is_file()))
         return python

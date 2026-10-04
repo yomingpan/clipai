@@ -56,7 +56,17 @@ def test_bundle_admission_has_one_platform_owner():
         if path.name != "managed_update_fs.py"
         and "extract_prefixed_zip(" in path.read_text(encoding="utf-8")
     ]
-    assert callers == ["verified_managed_bundle.py"]
+    assert sorted(callers) == ["setup_release_builder.py", "verified_managed_bundle.py"]
+    # Setup may unpack pinned upstream ZIPs and already-admitted wheels. Only
+    # the stager may extract the signed managed-bundle namespace.
+    import ast
+    setup = (platform_root / "setup_release_builder.py").read_text(encoding="utf-8")
+    extraction = [node for node in ast.walk(ast.parse(setup)) if isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Name) and node.func.id == "extract_prefixed_zip"]
+    assert len(extraction) == 2
+    assert {next(kw.value.value for kw in node.keywords if kw.arg == "prefix")
+            for node in extraction} == {"OpenSSH-Win64/", ""}
+    assert "VerifiedManagedBundleStager(" in setup
     backend = (platform_root / "managed_update_backend.py").read_text(encoding="utf-8")
     installer = (platform_root / "managed_installer.py").read_text(encoding="utf-8")
     assert "VerifiedManagedBundleStager" in backend

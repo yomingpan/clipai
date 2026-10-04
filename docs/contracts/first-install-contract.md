@@ -183,3 +183,43 @@ operations; marker/integration partial settlement; cancellation around commit;
 updating-versus-uninstall; broken-venv maintenance; retained-data reinstall.
 Unit/fault tests are policy evidence. Clean-VM setup/reboot/update/uninstall,
 browser download trust and real first-use results are separate device gates.
+
+## Release packaging seam (2026-10-04)
+
+`scripts/build_setup_release.py` composes `SetupReleaseBuilder` with an injected
+environment. It consumes one existing bundle, one fixed catalog/public keyring,
+and the reviewed `packaging/windows/setup-inputs.json` archive/compiler inventory.
+It does not resolve dependencies, build an app wheel, sign a manifest or generate
+a trust key. The existing `VerifiedManagedBundleStager` alone admits the managed
+bundle against catalog size/hash, manifest signature/version/key and inventory.
+Generic archive extraction is limited to pinned upstream bootstrap archives and
+wheels from that admitted tree; it is not another managed-bundle admission path.
+
+The bootstrap package and `packaging` dependency come from those exact wheels,
+not the checkout. The CLI compares all first-party wheel code/resources and
+shipped payload to the declared Git commit, allowing only Git text newline
+conversion. Official packaging also checks the actual tag points to that commit.
+Technical candidates label their tag as unverified and use `ClipAI Candidate`
+roots/native identity, independent of both Preview and ordinary installations.
+
+The shared thin wizard is `packaging/windows/setup.iss`; the Preview path is a
+compatibility include with unchanged product/location defaults. Fixed bundle and
+keyring hashes are compiled into candidate Setup and checked on actual extraction
+before installation. `/VERIFYONLY=1` requests payload proof only and cannot launch,
+install or remove an app; its visible completion says verification completed.
+
+Provenance records source/tag, distinct app/launcher/runtime/verifier/compiler
+identities, wheel/lock/bundle/Setup hashes, wizard/packaging adapter hashes and
+the entire staged inventory. Unsigned provenance is build evidence, not a new
+trust authority. `verify_packaged_app` uses the existing materializer/builder with
+the exact admitted lock and proves imports stay in installed site-packages under
+isolated Python. `verify_setup_extraction` proves the compiled EXE's bundle bytes;
+neither is clean-VM or reboot evidence.
+
+`distribution_admission=pending` blocks official packaging. The explicit
+technical-candidate mode preserves production signature/keyring validation but
+does not authorize public distribution. Native/license admission, publisher
+signature/timestamp, clean VM, first-use observation and direct publication
+authorization remain independent gates. The current OpenSSH Preview input is
+not a production selection. Do not change the admission label without the
+component/license/security review described in the release runbook.

@@ -324,8 +324,8 @@ evidence exists; shared `ApplicationPaths` are outside the immutable version
 tree; and the update mutex is held. Unknown identity is check-only and fails
 closed for apply.
 
-One Windows session named mutex serializes mutation per canonical install root.
-Its name is `Local\\ClipAI.ManagedUpdate.v1.{sha256}`, where the digest is over
+One cross-logon Windows named mutex serializes mutation per canonical install root.
+Its name is `Global\\ClipAI.ManagedUpdate.v1.{sha256}`, where the digest is over
 the case-folded canonical install-root path. Initial install holds the lease
 from before bundle admission until marker publication or cleanup. Host reads
 and matches the request first, then holds the lease from before process-handle
@@ -385,30 +385,42 @@ remain inadmissible under production composition.
 
 ## Production release publication
 
-The tag workflow is the only production publisher and
+The tag workflow builds candidates and has `contents: read`; it never creates or
+publishes a GitHub Release. Public promotion is a separate, directly authorized
+maintainer operation after the release checklist gates. Candidate artifact
+upload is not publication and cannot serve the ordinary About latest endpoint.
 `scripts/build_managed_release.py` remains the only managed-release build CLI.
-It derives the first-party `clipai=={version}` lock entry and wheel hash from the
-wheel built for that exact tag, combines it with pip-compile's fully hashed
-Python 3.12 Windows dependency lock, and rejects an unhashed or duplicate
-ClipAI requirement. The resulting lock is then used with `pip download
---require-hashes --only-binary :all:` to create the wheelhouse.
+It derives the first-party `clipai=={version}` lock entry/hash from the wheel built
+once for that tag and combines it with pip-compile's hashed Windows/Python 3.12
+dependency lock. The wheelhouse is built with `pip wheel --require-hashes`, then
+sealed once into a signed managed bundle. No Setup-specific dependency resolution.
 
-The same CLI creates the signed bundle and atomically writes the one-release
-stable `catalog.json` plus an exact copy of the validated production trusted
-keyring. The catalog bundle URL is the immutable tag asset URL. Before emitting
-publication metadata, the CLI verifies the new manifest signature against the
-supplied keyring, proving that the private signing key corresponds to the
-catalog `key_id`; reserved test keys are forbidden.
+Before emitting the catalog/public keyring, the existing CLI verifies the new
+manifest against the supplied production keyring. Reserved test keys remain
+forbidden. The catalog references the immutable tag bundle URL. The Setup CLI
+consumes those exact bytes using the existing stager; its wheel-derived bootstrap
+and installed-wheel smoke use the same release wheels/lock. See the
+[first-install packaging contract](first-install-contract.md#release-packaging-seam-2026-10-04).
 
 GitHub Actions receives the private key only through
-`CLIPAI_MANAGED_UPDATE_PRIVATE_KEY`, writes it below the runner temporary root,
-and removes it in an `always()` cleanup step. Public release identity comes from
-`CLIPAI_MANAGED_UPDATE_KEY_ID` and
-`CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING`. The workflow creates a draft Release
-with wheel, sdist, managed ZIP, catalog, and public keyring assets, then publishes
-the draft only after local catalog/keyring validation and the complete
-managed-update gate succeed. Missing identity, non-official repository context,
-asset mismatch, or any failed gate leaves no newly published Release.
-Every external GitHub Action reference in this production publisher is pinned to
-a complete commit SHA; a readable major-version comment does not confer trust and
-exists only to make deliberate upgrades reviewable.
+`CLIPAI_MANAGED_UPDATE_PRIVATE_KEY`, stores it below the runner temporary root,
+and removes it in an `always()` cleanup step. Public identity comes from
+`CLIPAI_MANAGED_UPDATE_KEY_ID` and `CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING`.
+No Setup builder may generate a replacement trust key. The local r4-consumption
+proof uses r4's existing isolated authority and is not an official release.
+
+Candidate assets contain Setup, managed ZIP, catalog, public keyring, component
+notices, provenance and packaged/extraction evidence; CI additionally retains
+wheel, sdist and the lock. `verify_release_assets` rejects missing assets,
+substitutions and evidence bound to another Setup/bundle. Public promotion uses
+`--require-release-ready` with exact candidate acceptance and publisher identity:
+it rejects technical/unadmitted candidates and missing device gates, then checks
+the final Setup's actual Authenticode status, publisher and timestamp. Signing
+changes bytes: reseal final hashes and repeat affected gates; unsigned candidate
+evidence cannot be relabeled as signed-file acceptance.
+
+Every external GitHub Action reference remains pinned to a full commit SHA.
+The current workflow intentionally builds isolated technical Setup until
+runtime/verifier/compiler distribution admission and signing are available.
+Moving to official packaging requires reviewed inputs, removal of technical mode
+and a fresh version/tag/commit, without changing the one-bundle/install ownership.
