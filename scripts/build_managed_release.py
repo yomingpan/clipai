@@ -13,6 +13,7 @@ from ClipAI.platform.managed_release_builder import (
     ManagedReleaseBuilder,
     OpenSshManifestSigner,
     write_managed_requirements_lock,
+    write_offline_wheelhouse_lock,
     write_release_publication,
 )
 from ClipAI.platform.managed_update_fs import extract_prefixed_zip, file_sha256, remove_tree
@@ -23,6 +24,7 @@ from ClipAI.platform.update_signature import Ed25519ManifestVerifier
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prepare-lock", action="store_true")
+    parser.add_argument("--seal-wheelhouse-lock", action="store_true")
     parser.add_argument("--dependency-lock", type=Path)
     parser.add_argument("--clipai-wheel", type=Path)
     parser.add_argument("--payload-root", type=Path)
@@ -42,6 +44,17 @@ def main() -> int:
     parser.add_argument("--trusted-keyring-output", type=Path)
     parser.add_argument("--generated-at")
     args = parser.parse_args()
+    if args.prepare_lock and args.seal_wheelhouse_lock:
+        parser.error("choose one lock preparation stage")
+    if args.seal_wheelhouse_lock:
+        output = write_offline_wheelhouse_lock(
+            dependency_lock=_required(parser, args.dependency_lock, "--dependency-lock"),
+            wheelhouse=_required(parser, args.wheelhouse, "--wheelhouse"),
+            output_path=_required(parser, args.requirements_lock, "--requirements-lock"),
+            app_version=_required(parser, args.app_version, "--app-version"),
+        )
+        print(f"requirements_lock={output}")
+        return 0
     if args.prepare_lock:
         dependency_lock = _required(parser, args.dependency_lock, "--dependency-lock")
         clipai_wheel = _required(parser, args.clipai_wheel, "--clipai-wheel")

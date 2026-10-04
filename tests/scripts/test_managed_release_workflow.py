@@ -42,7 +42,9 @@ def test_tag_workflow_builds_complete_candidate_without_publication() -> None:
     for marker in required:
         assert marker in workflow
 
-    assert workflow.count("python -m scripts.build_managed_release") == 2
+    assert workflow.count("python -m scripts.build_managed_release") == 3
+    assert "--seal-wheelhouse-lock" in workflow
+    assert "-r release\\build-requirements.lock" in workflow
     assert "python -m pip download" not in workflow
     assert "--only-binary=:all:" not in workflow
 

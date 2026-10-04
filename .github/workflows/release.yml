@@ -56,7 +56,7 @@ jobs:
           python -m scripts.build_managed_release --prepare-lock `
             --dependency-lock release\dependencies.lock `
             --clipai-wheel $wheel.FullName `
-            --requirements-lock release\requirements.lock `
+            --requirements-lock release\build-requirements.lock `
             --app-version $env:CLIPAI_VERSION
 
       - name: Build complete offline wheelhouse
@@ -65,7 +65,15 @@ jobs:
           --require-hashes
           --find-links dist
           --wheel-dir release\wheelhouse
-          -r release\requirements.lock
+          -r release\build-requirements.lock
+
+      - name: Seal the exact offline wheel bytes
+        run: >-
+          python -m scripts.build_managed_release --seal-wheelhouse-lock
+          --dependency-lock release/dependencies.lock
+          --wheelhouse release/wheelhouse
+          --requirements-lock release/requirements.lock
+          --app-version ${{ env.CLIPAI_VERSION }}
 
       - name: Assemble immutable managed payload
         shell: pwsh
@@ -184,6 +192,8 @@ jobs:
             dist/*
             release/setup/output/**
             release/requirements.lock
+            release/dependencies.lock
+            release/build-requirements.lock
 
       # Publication is intentionally outside this candidate workflow. See the
       # exact-hash acceptance + Authenticode gate in docs/RELEASE_CHECKLIST.md.

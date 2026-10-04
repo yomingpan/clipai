@@ -1,5 +1,13 @@
 # Managed update contract (schema version 1)
 
+Release tooling verifies source-distribution/download hashes before building
+wheels, then seals the actual offline wheel hashes in the final requirements
+lock. Sealing must preserve the resolved Python 3.12 Windows package name/version
+set, reject missing/extra/duplicate wheels, and perform no dependency resolution.
+Source/build locks remain provenance; Setup and About consume the same sealed
+install lock inside the same signed bundle. A source archive hash must never be
+substituted for its built wheel hash, and offline hash checks remain mandatory.
+
 This is the executable interface baseline for ADR-0017. JSON objects reject
 unknown fields. IDs are non-empty opaque ASCII strings (maximum 128 chars),
 versions are normalized PEP 440 strings, paths are absolute, and timestamps are

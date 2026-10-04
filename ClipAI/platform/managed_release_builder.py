@@ -8,6 +8,7 @@ import uuid
 from typing import Protocol
 
 from packaging.utils import InvalidWheelFilename, canonicalize_name, parse_wheel_filename
+from packaging.requirements import Requirement
 from packaging.version import InvalidVersion, Version
 
 from ClipAI.core.update_signing import TEST_KEY_ID
@@ -216,7 +217,51 @@ def write_release_publication(
     return ManagedReleasePublication(Path(catalog_path).resolve(), published_keyring)
 
 
-def _validate_dependency_lock(content: str) -> None:
+def write_offline_wheelhouse_lock(*, dependency_lock: Path, wheelhouse: Path,
+                                output_path: Path, app_version: str) -> Path:
+    """Seal built bytes after hash-checked resolution/build, without resolving again.
+
+    PyPI source archive hashes cannot verify a wheel built from that archive.
+    Enforce the resolved name/version set before pinning actual wheel bytes.
+    """
+    content = read_bytes(dependency_lock, maximum_size=4 * 1024 * 1024).decode("utf-8")
+    requirements = _dependency_requirements(content)
+    target = {"python_version": "3.12", "python_full_version": "3.12.14",
+              "sys_platform": "win32", "os_name": "nt", "platform_system": "Windows",
+              "platform_machine": "AMD64", "implementation_name": "cpython",
+              "platform_python_implementation": "CPython", "implementation_version": "3.12.14", "extra": ""}
+    if str(Version(app_version)) != app_version:
+        raise ValueError("managed release version is not normalized")
+    expected = {"clipai": app_version}
+    for row in requirements:
+        requirement = Requirement(row.split("--hash=", 1)[0].strip())
+        if requirement.marker is not None and not requirement.marker.evaluate(target):
+            continue
+        specs = tuple(requirement.specifier)
+        if requirement.url or requirement.extras or len(specs) != 1 or specs[0].operator != "==" or "*" in specs[0].version:
+            raise ValueError("resolved requirements must have exact versions")
+        name = canonicalize_name(requirement.name)
+        if name in expected:
+            raise ValueError("duplicate resolved package")
+        expected[name] = str(Version(specs[0].version))
+    actual = {}
+    for relative in regular_file_inventory(wheelhouse):
+        if "/" in relative or not relative.endswith(".whl"):
+            raise ValueError("offline wheelhouse must contain only flat wheel files")
+        name, version, _, _ = parse_wheel_filename(relative)
+        if name in actual:
+            raise ValueError("ambiguous built wheel")
+        actual[name] = (str(version), wheelhouse / relative)
+    if {name: version for name, (version, _) in actual.items()} != expected:
+        raise ValueError("built wheelhouse differs from resolved package versions")
+    rows = [f"{name}=={version} --hash=sha256:{file_sha256(wheel)}"
+            for name, (version, wheel) in sorted(actual.items())]
+    output = Path(output_path).resolve()
+    atomic_write_bytes(output, ("\n".join(rows) + "\n").encode("utf-8"))
+    return output
+
+
+def _dependency_requirements(content: str) -> list[str]:
     logical: list[str] = []
     current = ""
     for raw_line in content.splitlines():
@@ -239,6 +284,11 @@ def _validate_dependency_lock(content: str) -> None:
             raise ValueError("dependency lock must not contain ClipAI")
         if "==" not in requirement or "--hash=sha256:" not in requirement:
             raise ValueError("dependency lock requirements must be pinned with hashes")
+    return logical
+
+
+def _validate_dependency_lock(content: str) -> None:
+    _dependency_requirements(content)
 
 
 def _file_record(path: str, content: bytes, role: str) -> dict[str, object]:
