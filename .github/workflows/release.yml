@@ -81,7 +81,7 @@ jobs:
           $privateKey = Join-Path $env:RUNNER_TEMP "clipai-managed-update-signing-key"
           python -c "import os, subprocess; subprocess.run(['ssh-keygen.exe', '-q', '-t', 'ed25519', '-N', '', '-f', os.path.join(os.environ['RUNNER_TEMP'], 'clipai-managed-update-signing-key')], check=True)"
           if ($LASTEXITCODE -ne 0) { throw "Could not generate validation authority" }
-          $keyId = "validation-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $keyId = "local-validation-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           $publicKey = (Get-Content -LiteralPath "$privateKey.pub" -Raw).Trim()
           $keyring = @{schema_version=1; keyring_kind="clipai-managed-update-trusted-keys-v1"; keys=@(
             @{key_id=$keyId; algorithm="ssh-ed25519"; public_key=$publicKey; key_kind="production"}

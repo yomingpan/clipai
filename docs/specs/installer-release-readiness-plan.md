@@ -38,6 +38,14 @@ keyring 不同，不承諾 Preview 可直接升級成正式版。正式切換先
 
 ## 2026-10-04 執行狀態
 
+最新續作：Tray／完整移除已提交 `01bfb04`，使用者回報新版人工測試正常。
+使用者要求接續四步後，明確表示沒有 VM／第二台電腦，先跳過乾淨機驗收；
+此 gate 記為 deferred，不是 passed。已建立真實較高版本 3.7.9（`7bcccb1`），
+加入 `release-validation/**` 隔離分支以執行同一 CI builder，已觸發遠端候選與
+Windows CI。首輪找到舊 tag-expression 測試未同步，修正後需重跑確認。
+正準備共用一次性信任金鑰的 3.7.8／3.7.9 Setup＋bundle 配對；正式 signer、
+實際 About 點擊更新與最終簽署檔／新手觀察仍須各自取得真實證據。
+
 後續進度：首輪變更已依使用者要求提交為 `64b61c9`。使用者回報舊 Candidate
 七步人工安裝／啟動／重開機／卸載／保留資料重裝均正常，另指出第一次 provider
 設定完成後 Tray 仍黃。已修正 readiness projection，並依追加需求提供明確

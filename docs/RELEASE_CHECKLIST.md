@@ -31,6 +31,11 @@ See [readiness plan](specs/installer-release-readiness-plan.md),
    complete managed-update gate and runs packaged import/native extraction and
    asset checks. It has read-only repository permissions and uploads candidates;
    it does not create or publish a GitHub Release.
+   Before that, `release-validation/**` branches run the same technical build
+   using a disposable `local-validation-*` authority without official secrets.
+   Those per-run keys cannot authorize an update to an older candidate. Use an
+   explicitly paired A/B local authority for isolated update acceptance; never
+   promote branch artifacts or treat their intended tag URLs as published.
 6. Current CI uses `--technical-candidate`, isolated ClipAI Candidate identity,
    unsigned Setup and pending bootstrap admission. These artifacts cannot be
    promoted. After reviewed admission, use official mode and a fresh version,
