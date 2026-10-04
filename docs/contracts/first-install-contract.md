@@ -94,7 +94,9 @@ in that interval deliberately leaves unknown ownership and fails closed; it
 must not authorize automatic removal. Reject nonempty unknown targets rather
 than adopting them. Persist intent before each mutation and reconcile actual
 marker/integration evidence after a crash. Keep ownership proof until cleanup
-or integration completes. Never delete the shared root or unknown user files.
+or integration completes. Default removal never deletes the shared root or
+unknown user files. The separately selected full-removal intent below grants
+deletion authority only over the proven dedicated ClipAI shared data root.
 
 All existing-target checks repeat under the lease. A cleanup first proves the
 old writer and its children stopped, then removes only that record's artifacts.
@@ -138,8 +140,32 @@ Native integration ownership is checked before program files are removed.
 Failed removal preserves ownership. The same Setup's temporary trusted engine
 is the retry entry even if installed maintenance files have already been
 removed. Control Panel copies the maintenance runtime outside the install
-root before removal; the helper copy remains in the user's temporary folder.
-Automatic helper garbage collection and clean-VM self-removal remain pending.
+root before removal. A bounded OS supervisor waits for the helper process to
+exit and removes only that exact, generated helper directory before showing
+success. Cleanup failure is visible; it never terminates a user process or
+sweeps other temporary directories. Clean-VM self-removal remains pending.
+
+Both Setup and Windows/Start Menu removal offer keep-data (default) and
+full-removal choices. Full removal explicitly warns that settings, API keys,
+history, logs, caches and custom ClipAI content are permanently deleted and
+requires confirmation. `UninstallIntent.delete_user_data` is carried unchanged
+through the existing coordinator/backend/helper; merely opening the screen
+does not authorize deletion. Quiet automation requires explicit
+`--delete-user-data` (Setup: `/REMOVE=1 /DELETEUSERDATA=1`).
+
+Full removal re-proves native identity and the existing installation gate,
+requires the dedicated `%LOCALAPPDATA%/Programs/<product>` and
+`%LOCALAPPDATA%/<product>` pair, rejects redirected roots/descendants, unknown
+program files and records belonging to another installation. Native writes
+settle before shared-root deletion, so no final retained-data record recreates
+the directory. A cleanup failure reports failure and retains owner proof for
+retry with the same Setup. Deletion is not transactional: already-deleted data
+cannot be restored after a later failure. Do not claim retained data in that
+failure screen. Windows-owned Prefetch/event/Defender records, user-downloaded
+Setup files, manually exported files and shared prerequisites are outside this
+owned scope; the UI must not promise to erase every trace on the computer.
+Setup does not generate an anonymous persistent log by default. Explicit
+`/LOG` diagnostics are caller-owned, like manually exported diagnostics.
 
 V1 maintenance is a trusted retained-data uninstall followed by a compatible
 new Setup. It must work when the app/version venv is broken and cannot depend

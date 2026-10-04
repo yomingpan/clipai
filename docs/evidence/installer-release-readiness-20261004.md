@@ -6,6 +6,13 @@ changes are an uncommitted working-tree diff. No tag push, release publication,
 hypervisor/security change, credential transmission or purchase occurred.
 Original `.tmp/` and user documents/installations/data were preserved.
 
+Follow-up: the changes recorded below were subsequently committed as `64b61c9`.
+The user reports all seven manual candidate steps passed, including reboot and
+first Action. This does not establish clean-VM, signed-publisher or About A→B
+evidence. A reported first-save yellow tray and the requested opt-in full
+removal are handled in [follow-up evidence](tray-readiness-full-removal-20261004.md);
+the exact original asset identities below remain historical.
+
 ## Exact technical candidate
 
 - App: 3.7.8; source content verified against baseline Git commit. `v3.7.8`

@@ -38,6 +38,15 @@ keyring 不同，不承諾 Preview 可直接升級成正式版。正式切換先
 
 ## 2026-10-04 執行狀態
 
+後續進度：首輪變更已依使用者要求提交為 `64b61c9`。使用者回報舊 Candidate
+七步人工安裝／啟動／重開機／卸載／保留資料重裝均正常，另指出第一次 provider
+設定完成後 Tray 仍黃。已修正 readiness projection，並依追加需求提供明確
+選擇的完整移除（含設定、API key、資料）及 maintenance helper 清理。
+本輪實作與 1,930 unit／native helper／compiled wizard 證據見
+[後續驗收](../evidence/tray-readiness-full-removal-20261004.md)。新候選仍為本機
+3.7.8，需人工驗證新增選項；未宣稱是 About B 或乾淨 VM／正式簽章通過。
+以下基線與首輪 matrix 保留為歷史執行紀錄。
+
 HEAD 仍為 `a0502d34cfa2b1ab554c480d39b8b8813d1ef201`，未 reset、commit、push
 或發布。開始時只有本 plan 與 prompt 未追蹤；使用者既有 `.tmp/`、安裝、key
 及資料均保留。實作為目前 working-tree diff；不是另一個已驗證 tag。

@@ -41,7 +41,9 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 MinVersion=10.0.22000
-SetupLogging=yes
+// Explicit /LOG diagnostics belong to the caller. Do not leave an automatic
+// anonymous Setup log outside the app's removable data root.
+SetupLogging=no
 CloseApplications=no
 RestartApplications=no
 DisableWelcomePage=no
@@ -82,6 +84,18 @@ begin
   Result := ActionPage.SelectedValueIndex = 0;
 end;
 
+function DeletesUserData: Boolean;
+begin
+  Result := ActionPage.SelectedValueIndex = 2;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if (CurPageID = wpReady) and DeletesUserData and (not WizardSilent) then
+    Result := MsgBox('Permanently delete settings, API keys and all ClipAI data, including history, caches and custom content? This cannot be undone.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+end;
+
 function CanLaunch: Boolean;
 begin
   Result := IsInstallAction and (OperationExitCode = 0) and
@@ -109,19 +123,23 @@ begin
     if Pos('InstallationBusyError', LastPhase) > 0 then
       Detail := 'ClipAI is still running. Choose Exit from the Tray, close ClipAI windows, then retry Remove.'
     else if IsInstallAction then
-      Detail := 'Installation failed. Remove an existing installation first, then retry. See the Setup log for details.'
+      Detail := 'Installation failed. Remove an existing installation first, then retry.'
     else
-      Detail := 'Removal failed. Close ClipAI and retry Remove. See the Setup log for details.';
+      Detail := 'Removal failed. Close ClipAI and retry Remove.';
+    if not DeletesUserData then Detail := Detail + ' Your settings and data have been retained.';
     WizardForm.FinishedLabel.Caption := Detail + #13#10 + #13#10 +
-      'Your settings and data have been retained. Finish closes this Setup; it does not mean the operation succeeded.';
+      'Finish closes this Setup; it does not mean the operation succeeded.';
     WizardForm.RunList.Visible := False;
   end else if IsInstallAction then begin
     WizardForm.FinishedHeadingLabel.Caption := '{#ProductName} installed';
     WizardForm.FinishedLabel.Caption := 'Open {#ProductName} from the desktop or Start Menu, or use Launch below. Configure your AI provider to obtain your first result.';
   end else begin
     WizardForm.FinishedHeadingLabel.Caption := '{#ProductName} removed';
-    WizardForm.FinishedLabel.Caption := 'Program files, owned shortcuts and the uninstall entry have been removed.' + #13#10 + #13#10 +
-      'Your API key, settings and data have been retained. You can reinstall using the same Setup.';
+    if DeletesUserData then
+      WizardForm.FinishedLabel.Caption := 'Program files, owned shortcuts, the uninstall entry, settings, API keys and ClipAI data have been removed.'
+    else
+      WizardForm.FinishedLabel.Caption := 'Program files, owned shortcuts and the uninstall entry have been removed.' + #13#10 + #13#10 +
+        'Your API key, settings and data have been retained. You can reinstall using the same Setup.';
     WizardForm.RunList.Visible := False;
   end;
 end;
@@ -134,6 +152,11 @@ begin
       WizardForm.PageDescriptionLabel.Caption := 'Program files and owned shortcuts will be removed; settings and data will be retained.';
       WizardForm.ReadyMemo.Text := 'Close ClipAI from the Tray before continuing.' + #13#10 + #13#10 +
         'Remove {#ProductName} and retain data.';
+      if DeletesUserData then begin
+        WizardForm.PageDescriptionLabel.Caption := 'Permanently remove program files, settings, API keys and ClipAI data.';
+        WizardForm.ReadyMemo.Text := 'Close ClipAI from the Tray before continuing.' + #13#10 + #13#10 +
+          'Permanently delete settings, API keys, history, caches and custom ClipAI content. This cannot be undone.';
+      end;
       WizardForm.NextButton.Caption := '&Remove';
     end;
   end else if CurPageID = wpFinished then
@@ -149,12 +172,15 @@ begin
     'Provider credentials and internet are required only when you configure and use AI.';
   ActionPage := CreateInputOptionPage(wpWelcome, 'Choose operation',
     'Install or remove {#ProductName}',
-    'Close ClipAI before removing it. API keys, preferences and data are retained.', True, False);
+    'Close ClipAI before removing it. Choose whether to keep or permanently delete your data.', True, False);
   ActionPage.Add('Install {#ProductName}');
   ActionPage.Add('Remove {#ProductName} and retain data');
+  ActionPage.Add('Fully remove {#ProductName}, including settings, API keys and all ClipAI data');
   ActionPage.SelectedValueIndex := 0;
-  if ExpandConstant('{param:REMOVE|0}') = '1' then
+  if ExpandConstant('{param:REMOVE|0}') = '1' then begin
     ActionPage.SelectedValueIndex := 1;
+    if ExpandConstant('{param:DELETEUSERDATA|0}') = '1' then ActionPage.SelectedValueIndex := 2;
+  end;
 end;
 
 procedure EngineOutput(const S: String; const Error, FirstLine: Boolean);
@@ -168,10 +194,16 @@ begin
     else if Pos('integrating', S) > 0 then WizardForm.StatusLabel.Caption := 'Creating Start Menu and uninstall entries...'
     else if Pos('installed_integration_incomplete', S) > 0 then
       WizardForm.StatusLabel.Caption := 'Program files installed; Windows integration did not complete.'
-    else if Pos('uninstalled', S) > 0 then WizardForm.StatusLabel.Caption := 'Removal completed. Data retained.'
+    else if Pos('uninstalled', S) > 0 then begin
+      if DeletesUserData then WizardForm.StatusLabel.Caption := 'Program and ClipAI data removal completed.'
+      else WizardForm.StatusLabel.Caption := 'Removal completed. Data retained.';
+    end
     else if Pos('installed', S) > 0 then WizardForm.StatusLabel.Caption := 'Installation completed.'
     else if Pos('cancelled', S) > 0 then WizardForm.StatusLabel.Caption := 'Cancelled. Owned work has settled.'
-    else if Pos('removing', S) > 0 then WizardForm.StatusLabel.Caption := 'Removing program files; retaining settings and data...'
+    else if Pos('removing', S) > 0 then begin
+      if DeletesUserData then WizardForm.StatusLabel.Caption := 'Removing program files, settings, API keys and ClipAI data...'
+      else WizardForm.StatusLabel.Caption := 'Removing program files; retaining settings and data...';
+    end
     else WizardForm.StatusLabel.Caption := 'Operation did not complete. See the Setup log for details.';
     if (Pos('committing', S) > 0) or (Pos('integrating', S) > 0) then
       WizardForm.CancelButton.Enabled := False;
@@ -217,6 +249,7 @@ begin
       ' --quiet --install-root "' + ExpandConstant('{localappdata}\Programs\{#ProductName}') +
       '" --shared-root "' + ExpandConstant('{localappdata}\{#ProductName}') +
       '" --cancel-intent "' + ExpandConstant('{tmp}\clipai-preview\cancel.request') + '"';
+    if DeletesUserData then Params := Params + ' --delete-user-data';
     ExitCode := 100;
     if not ExecAndLogOutput(Engine, Params, '', SW_SHOWNORMAL, ewWaitUntilTerminated, ExitCode, @EngineOutput) then
       ExitCode := 100;

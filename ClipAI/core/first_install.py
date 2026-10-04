@@ -64,10 +64,11 @@ class UninstallPhase(str, Enum):
 
 
 @dataclass(frozen=True)
-class RetainedDataUninstallIntent:
+class UninstallIntent:
     transaction_id: str
     install_root: Path
     shared_root: Path
+    delete_user_data: bool = False
 
 
 @dataclass(frozen=True)
@@ -77,5 +78,5 @@ class UninstallSnapshot:
     error_code: str | None = None
 
 
-class RetainedDataUninstallBackend(Protocol):
-    def remove(self, intent: RetainedDataUninstallIntent) -> None: ...
+class UninstallBackend(Protocol):
+    def remove(self, intent: UninstallIntent) -> None: ...

@@ -17,6 +17,11 @@ Tray is a dumb, injected UI adapter. It renders `ApplicationStatus`, memory stat
 - Failure: error red for three seconds; if work remains, return to processing.
 - Cancellation: no success flash.
 - Ready baseline: idle blue. Not-ready baseline: warning yellow.
+- Every accepted provider configuration projection synchronizes the baseline
+  from the coordinator's active binding, including successful save, selection
+  and reload. Pending/failed/stale completion does not invent readiness.
+  Readiness changes do not replace active processing, a success flash or a
+  sticky error; the lifecycle owner applies the new baseline on settlement.
 
 Concurrent, timer-reset, late-event, icon retry, menu callback, and stop cleanup behavior must be covered by tests.
 

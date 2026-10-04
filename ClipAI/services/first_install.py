@@ -5,7 +5,7 @@ from collections.abc import Callable
 from ClipAI.core.first_install import (
     FirstInstallBackend, FirstInstallOperation, FirstInstallSnapshot,
     InstallCancellation, InstallCancelled, InstallPhase,
-    RetainedDataUninstallBackend, RetainedDataUninstallIntent, UninstallPhase, UninstallSnapshot,
+    UninstallBackend, UninstallIntent, UninstallPhase, UninstallSnapshot,
 )
 from ClipAI.core.managed_update_commands import InstallManagedCommand
 
@@ -61,13 +61,13 @@ class FirstInstallCoordinator:
                 operation.close()
 
 
-class RetainedDataUninstallCoordinator:
-    """An explicit retained-data intent; success follows actual native settlement."""
+class UninstallCoordinator:
+    """Explicit removal policy; success follows actual native/data settlement."""
 
-    def __init__(self, backend: RetainedDataUninstallBackend) -> None:
+    def __init__(self, backend: UninstallBackend) -> None:
         self._backend = backend
 
-    def execute(self, intent: RetainedDataUninstallIntent, *, publish: Callable[[UninstallSnapshot], None]) -> UninstallSnapshot:
+    def execute(self, intent: UninstallIntent, *, publish: Callable[[UninstallSnapshot], None]) -> UninstallSnapshot:
         publish(UninstallSnapshot(intent.transaction_id, UninstallPhase.REMOVING))
         try:
             self._backend.remove(intent)

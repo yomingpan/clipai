@@ -17,6 +17,7 @@ def main() -> None:
     parser.add_argument("--script", type=Path, required=True)
     parser.add_argument("--stage", type=Path, required=True)
     parser.add_argument("--compiler", type=Path, required=True)
+    parser.add_argument("--delete-user-data", action="store_true")
     args = parser.parse_args()
     work = Path("artifacts/first-install-diagnostic").resolve() / f"setup-result-{uuid.uuid4().hex}"
     stage = work / "stage"
@@ -41,20 +42,25 @@ end;
     proofs = []
     for failure in (True, False):
         (engine / "entry.py").write_text(
-            "print('CLIPAI_PHASE:" + ("failed:InstallationBusyError" if failure else "uninstalled:")
+            "import sys\nassert ('--delete-user-data' in sys.argv) == " + str(args.delete_user_data) + "\n"
+            + "print('CLIPAI_PHASE:" + ("failed:InstallationBusyError" if failure else "uninstalled:")
             + "', flush=True)\nraise SystemExit(" + ("1" if failure else "0") + ")\n", encoding="utf-8")
         compiled = subprocess.run(command, capture_output=True, text=True)
         if compiled.returncode:
             (work / "compile-errors.txt").write_text(compiled.stdout + compiled.stderr, encoding="utf-8")
             raise RuntimeError("probe_compilation_failed")
         proof = work / ("failure.txt" if failure else "success.txt")
-        run = subprocess.run([str(output / "ClipAI-Preview-3.7.8-Setup.exe"), "/VERYSILENT",
+        launch = [str(output / "ClipAI-Preview-3.7.8-Setup.exe"), "/VERYSILENT",
                               "/SUPPRESSMSGBOXES", "/NORESTART", "/REMOVE=1", f"/PROOF={proof}",
-                              f"/LOG={work / ('failure.log' if failure else 'success.log')}"],
-                             timeout=120)
+                              f"/LOG={work / ('failure.log' if failure else 'success.log')}"]
+        if args.delete_user_data:
+            launch.append("/DELETEUSERDATA=1")
+        run = subprocess.run(launch, timeout=120)
         caption = proof.read_text(encoding="utf-8-sig")
         expected = "Removal did not complete" if failure else "ClipAI Preview removed"
         passed = expected in caption and ("has finished installing" not in caption)
+        if args.delete_user_data:
+            passed = passed and "retained" not in caption
         proofs.append({"fixture": "failure" if failure else "success", "exit_code": run.returncode,
                        "caption_passed": passed, "caption": caption})
     (work / "proof.json").write_text(json.dumps(proofs, indent=2) + "\n", encoding="utf-8")

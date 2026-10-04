@@ -6,8 +6,8 @@ import pytest
 
 from ClipAI.core.first_install import InstallCancelled, InstallPhase
 from ClipAI.services.first_install import FirstInstallCoordinator
-from ClipAI.services.first_install import RetainedDataUninstallCoordinator
-from ClipAI.core.first_install import RetainedDataUninstallIntent, UninstallPhase
+from ClipAI.services.first_install import UninstallCoordinator
+from ClipAI.core.first_install import UninstallIntent, UninstallPhase
 
 
 class Cancellation:
@@ -121,9 +121,9 @@ def test_uninstall_success_follows_backend_settlement_and_failure_is_visible(tmp
             events.append("remove")
             if failure:
                 raise OSError()
-    intent = RetainedDataUninstallIntent("remove-1", tmp_path / "install", tmp_path / "retained")
+    intent = UninstallIntent("remove-1", tmp_path / "install", tmp_path / "retained")
     snapshots = []
-    result = RetainedDataUninstallCoordinator(RemovalBackend()).execute(intent, publish=snapshots.append)
+    result = UninstallCoordinator(RemovalBackend()).execute(intent, publish=snapshots.append)
     assert events == ["remove"]
     assert snapshots[0].phase == UninstallPhase.REMOVING
     assert result.phase == (UninstallPhase.FAILED if failure else UninstallPhase.REMOVED)
@@ -137,7 +137,7 @@ def test_busy_uninstall_exposes_a_safe_actionable_code(tmp_path):
         def remove(self, intent):
             raise InstallationBusyError()
 
-    intent = RetainedDataUninstallIntent("busy-remove", tmp_path / "install", tmp_path / "data")
-    result = RetainedDataUninstallCoordinator(BusyBackend()).execute(intent, publish=lambda _: None)
+    intent = UninstallIntent("busy-remove", tmp_path / "install", tmp_path / "data")
+    result = UninstallCoordinator(BusyBackend()).execute(intent, publish=lambda _: None)
     assert result.phase == UninstallPhase.FAILED
     assert result.error_code == "InstallationBusyError"

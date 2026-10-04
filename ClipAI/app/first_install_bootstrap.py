@@ -8,15 +8,15 @@ import tempfile
 import uuid
 
 from ClipAI.core.first_install import FirstInstallSnapshot, InstallPhase
-from ClipAI.core.first_install import RetainedDataUninstallIntent, UninstallPhase, UninstallSnapshot
+from ClipAI.core.first_install import UninstallIntent, UninstallPhase, UninstallSnapshot
 from ClipAI.core.managed_update import transaction_id
 from ClipAI.core.managed_update_commands import InstallManagedCommand
 from ClipAI.platform.first_install_backend import (
-    BootstrapInputs, FilesystemFirstInstallBackend, FilesystemRetainedDataUninstaller,
+    BootstrapInputs, FilesystemFirstInstallBackend, FilesystemUninstaller,
     read_owner, start_maintenance_helper,
 )
 from ClipAI.platform.installation_windows import install_process_containment
-from ClipAI.services.first_install import FirstInstallCoordinator, RetainedDataUninstallCoordinator
+from ClipAI.services.first_install import FirstInstallCoordinator, UninstallCoordinator
 
 
 class _CancellationFile:
@@ -39,8 +39,13 @@ def main(argv: list[str] | None = None, *, bootstrap_root: Path | None = None,
     parser.add_argument("--shared-root", required=True, type=Path)
     parser.add_argument("--cancel-intent", type=Path)
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--delete-user-data", action="store_true")
     args = parser.parse_args(argv)
-    root, shared = args.install_root.resolve(), args.shared_root.resolve()
+    if args.delete_user_data and args.action not in {"uninstall", "remove-worker"}:
+        parser.error("--delete-user-data requires a removal action")
+    # Preserve the supplied spelling until the backend rejects redirected
+    # removal paths; resolving here would erase symlink/junction evidence.
+    root, shared = args.install_root.absolute(), args.shared_root.absolute()
     source = (bootstrap_root or Path(__file__).resolve().parents[3]).resolve()
     metadata = json.loads((source / "setup-engine/candidate.json").read_text(encoding="utf-8"))
     try:
@@ -54,25 +59,29 @@ def main(argv: list[str] | None = None, *, bootstrap_root: Path | None = None,
                              creationflags=subprocess.CREATE_NO_WINDOW, close_fds=True)
             return 0
         if args.action == "uninstall":
-            from ClipAI.ui.installation_maintenance import confirm_retained_data_uninstall
-            if not args.quiet and not confirm_retained_data_uninstall(metadata["product"]):
-                return 0
+            from ClipAI.ui.installation_maintenance import choose_uninstall
+            if not args.quiet:
+                choice = choose_uninstall(metadata["product"])
+                if choice is None:
+                    return 0
+                args.delete_user_data = choice
             read_owner(root, shared)
             # Copy the trusted maintenance engine/runtime before self-removal.
             # A new Setup can also run remove-worker when the installed venv or
             # runtime is broken. Never depend on a version venv for maintenance.
-            start_maintenance_helper(root, shared, temporary_root=Path(tempfile.gettempdir()), environment=environment)
+            start_maintenance_helper(root, shared, temporary_root=Path(tempfile.gettempdir()), environment=environment,
+                                     delete_user_data=args.delete_user_data)
             return 0
         if args.action == "remove-worker":
             # Parent Control Panel launcher must finish before the idle check.
             import time
             time.sleep(1)
-            result = RetainedDataUninstallCoordinator(FilesystemRetainedDataUninstaller(environment)).execute(
-                RetainedDataUninstallIntent(f"uninstall-{uuid.uuid4().hex}", root, shared), publish=_publish)
+            result = UninstallCoordinator(FilesystemUninstaller(environment)).execute(
+                UninstallIntent(f"uninstall-{uuid.uuid4().hex}", root, shared, args.delete_user_data), publish=_publish)
             if not args.quiet:
                 from ClipAI.ui.installation_maintenance import show_maintenance_result
                 show_maintenance_result(metadata["product"], success=result.phase == UninstallPhase.REMOVED,
-                                        error_code=result.error_code or "")
+                                        error_code=result.error_code or "", delete_user_data=args.delete_user_data)
             return 0 if result.phase == UninstallPhase.REMOVED else 1
         if args.action == "selfcheck":
             from ClipAI.platform.managed_install import ManagedInstallLayout

@@ -523,6 +523,9 @@ class Operation:
 
 
 class OperationTracker:
+    def set_ready(self, ready: bool) -> None:
+        self.events.append(("ready", ready))
+
     def __init__(self) -> None:
         self.events: list[tuple[str, ...]] = []
         self.stopped = False
