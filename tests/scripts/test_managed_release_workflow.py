@@ -68,3 +68,25 @@ def test_tag_workflow_pins_every_action_to_an_immutable_commit() -> None:
     for reference, version_comment in action_references:
         assert re.fullmatch(r"actions/[^@]+@[0-9a-f]{40}", reference), reference
         assert re.fullmatch(r"v\d+(?:\.\d+){0,2}", version_comment), reference
+
+
+def test_validation_branch_cannot_read_official_signing_secret_or_publish() -> None:
+    import yaml
+    # BaseLoader avoids YAML 1.1 interpreting the Actions `on` key as True.
+    workflow = yaml.load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    assert workflow["on"]["push"]["branches"] == ["release-validation/**"]
+    assert workflow["on"]["push"]["tags"] == ["v*"]
+    assert workflow["permissions"] == {"contents": "read"}
+    steps = workflow["jobs"]["build-verify-candidate"]["steps"]
+    secret_steps = [step for step in steps if "secrets." in str(step)]
+    assert len(secret_steps) == 1
+    assert secret_steps[0]["if"] == "github.ref_type == 'tag'"
+    ephemeral = next(step for step in steps if step.get("name") == "Prepare ephemeral validation authority")
+    assert ephemeral["if"] == "github.ref_type == 'branch'"
+    assert "'ssh-keygen.exe', '-q', '-t', 'ed25519'" in ephemeral["run"]
+    assert "CLIPAI_VALIDATION_KEY_ID" in ephemeral["run"]
+    assert sum("--payload-root" in step.get("run", "") for step in steps) == 1
+    assert sum("--bundle " in step.get("run", "") and "build_setup_release" in step.get("run", "") for step in steps) == 1
+    cleanup = steps[-1]
+    assert cleanup["if"] == "always()"
+    assert "signing-key.pub" in cleanup["run"]
