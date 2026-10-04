@@ -52,9 +52,11 @@ asset validation／upload／key cleanup；精確 hash 與 run 另記於下方連
 signed admission、installed-wheel import、compiled extraction 與 asset checks。
 使用者選擇 GitHub 作下載來源，已備妥 `acceptance-20261004` prerelease 提案與
 20 個 upload-ready 檔案。使用者已核准發布此測試 prerelease；已推送精確的
-`acceptance-20261004` tag 並建立未公開草稿，目前 Edge 上傳權限尚缺，assets
-仍為零；待使用者開啟 extension file-URL access 後繼續上傳／驗證／公開。
-此測試發布無須再次取得授權，正式 latest 仍為 `v3.7.8`。
+`acceptance-20261004` tag，經使用者開啟 Edge 上傳權限後，20 個檔案全部上傳。
+逐一核對 remote name／size／SHA256 後已公開為 prerelease；正式 latest 仍為
+`v3.7.8`。20 個檔案匿名下載／整檔 SHA256 與 B bundle 真實簽章 admission
+已通過，精確證據另記 evidence；實際 About 需按
+[人工實測步驟](../testing/github-acceptance-about-20261004.md)取得操作證據。
 正式 signer、native/license admission、實際 About 點擊與最終簽署檔／新手
 觀察仍須各自取得真實證據。精確 source／hash、remote runs、四步狀態見
 [本輪續作 evidence](../evidence/installer-acceptance-followup-20261004.md)；

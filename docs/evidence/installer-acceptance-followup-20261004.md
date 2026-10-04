@@ -100,26 +100,53 @@ Build log: `artifacts/acceptance-pair-build-20261004.log`.
 `artifacts/github-acceptance-20261004/` contains 20 upload-ready files. Its SHA256
 manifest was checked against every other file. The copied B test catalog changes
 only the download URL to the proposed `acceptance-20261004` release; bundle hash,
-size/version identity are checked against actual B bytes. The public download
-URL does not yet exist. The user then approved creating and publishing this
-experimental prerelease. The annotated acceptance tag was pushed at B source
-`7bcccb1`, and GitHub draft `403066673` was created. Its Pre-release setting is
-selected and Latest is unselected. There are zero uploaded assets: Edge extension
-file-URL access blocked the upload. User action is needed to enable that
-extension permission; no permission/security setting was changed automatically.
-The draft remains unpublished and production latest is `v3.7.8`.
-An anonymous-download/hash/signature-admission verifier is prepared at
-`artifacts/verify-github-acceptance-20261004.py` but has not run, since the assets
-are not public. Proposed release, assets and post-publication checks are in
+size/version identity are checked against actual B bytes. The user approved
+creating and publishing this experimental prerelease. The annotated tag was
+pushed at B source `7bcccb1`; tag object
+`87a7c17fdb436536c8d2339462c9ab94c2f51b62` was checked through the GitHub API to
+resolve to that exact source commit. Draft release `403066673` was prepared.
+After the user enabled Edge's required file-URL permission, all 20 assets were
+uploaded. Before publication, every remote name, size, uploaded state and GitHub
+SHA256 digest was compared against the actual local file bytes.
+
+The [acceptance release](https://github.com/yomingpan/clipai/releases/tag/acceptance-20261004)
+is now public: API confirms `draft=false`, `prerelease=true`, 20 uploaded assets.
+The page counts 22 including GitHub's two generated source archives. The stable
+latest endpoint still returns release ID `389999189`, tag `v3.7.8`, with its
+original five assets. No extension/security setting was changed automatically.
+Publication metadata is in `artifacts/github-acceptance-publication-20261004.json`;
+page proof is `artifacts/github-acceptance-published-20261004.jpg`.
+Anonymous download/admission verification: **passed**. Command:
+`.venv/Scripts/python.exe artifacts/verify-github-acceptance-20261004.py`.
+The verifier used credential-free public HTTPS requests, downloaded all 20
+assets and compared every complete file SHA256 against the prepublication local
+bytes. Large full-stream requests stalled on this host; supported HTTPS Range
+requests retrieved the four large files in 108 bounded chunks. Each assembled
+file was checked with its original full SHA256; no partial file was accepted.
+TLS verification remained enabled and no token/browser cookie was used.
+
+The served catalog parses as 3.7.9, with the exact public B URL, size/hash and
+manifest identity. The real `VerifiedManagedBundleStager` then admitted the
+downloaded B using the already-hash-pinned shared pair keyring and the actual
+Ed25519 verifier, including manifest and payload inventory verification.
+Full report:
+`artifacts/github-acceptance-download-20261004-verified/download-verification.json`.
+Report states `anonymous_https=passed`, `bundle_signature_admission=passed`,
+`actual_about_update=pending`, `clean_vm=deferred_by_user`. This evidence does
+not assert an attended About click, installation, restart or Windows trust gate.
+
+The [manual About guide](../testing/github-acceptance-about-20261004.md) gives the
+operator the exact paired A, installed interpreter and acceptance catalog URL.
+Release assets and post-publication checks are in
 [GitHub acceptance proposal](../specs/github-acceptance-release.md).
 
 | Requested next step | Current result | Remaining evidence |
 | --- | --- | --- |
 | Clean Windows 11 | deferred by user | New device/VM, offline/reboot/cross-logon/space measurements |
-| Actual About A → B | pair and isolated GitHub source prepared | Authorized test publication, anonymous downloads, paired A install, actual About click/health/retained data |
+| Actual About A → B | pair/prerelease, anonymous asset hashes and B signature admission passed | Paired A install, actual About click/health/retained data |
 | Remote CI and signing | Supported Windows source CI and complete candidate CI passed | Windows publisher signer, timestamp/final hashes, official native/license admission |
-| Final user distribution | Complete test upload set and reviewable proposal | Final signed candidate, browser Windows trust, first result observations |
+| Final user distribution | Complete experimental prerelease published | Final signed candidate, browser Windows trust, first result observations |
 
 The official release-ready gate correctly rejects these technical/unadmitted
 assets. Experimental hosting does not pass that gate. No paid signing service,
-hypervisor, OS trust changes, formal key rotation, or public publication occurred.
+hypervisor, OS trust changes, formal key rotation, or stable publication occurred.

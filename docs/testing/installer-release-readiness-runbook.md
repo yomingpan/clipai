@@ -44,7 +44,9 @@ Preserve B bundle bytes; copy B's catalog to a separate
 test distribution folder and change only `releases[0].bundle_url` to the actual
 isolated HTTPS asset URL. Keep formal asset catalogs unchanged. Validate with
 `parse_catalog` and download/hash the served bytes before launching. Do not use
-the intended GitHub tag URL: no release has been published there. Do not disable
+an unserved intended tag URL: this acceptance release is now published, with
+download verification recorded in the follow-up evidence. For the exact manual
+steps use [the About guide](github-acceptance-about-20261004.md). Do not disable
 TLS validation or install a test certificate into the user's Windows trust store.
 
 An operator may remove/reinstall their Candidate with retained data to install

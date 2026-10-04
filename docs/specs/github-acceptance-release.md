@@ -1,6 +1,6 @@
 # GitHub acceptance release: 3.7.8 → 3.7.9
 
-Authorized by the user, draft created, not published. GitHub Release assets provide both anonymous
+Authorized by the user and published as an experimental prerelease. GitHub Release assets provide both anonymous
 Setup downloads and the existing HTTPS About catalog/bundle transport. The user
 requested GitHub as the distribution location. No additional hosting service is
 required. Public final/stable publication remains a separate authorized action.
@@ -10,18 +10,22 @@ required. Public final/stable publication remains a separate authorized action.
 The user approved this exact acceptance tag/prerelease proposal. The annotated
 `acceptance-20261004` tag was pushed at the B commit listed below. GitHub draft
 release ID `403066673` was created with `prerelease=true`, title/body reviewed,
-and Latest unselected. Its
-[edit page](https://github.com/yomingpan/clipai/releases/edit/untagged-2a88e5b7ffef0686eca4)
-is retained for continuation. The draft has **zero assets** and remains private.
+and Latest unselected. After all assets were uploaded and checked, it was
+[published](https://github.com/yomingpan/clipai/releases/tag/acceptance-20261004).
+GitHub API confirms `draft=false`, `prerelease=true`, and exactly 20 uploaded
+assets. The page shows 22 assets because GitHub adds two source archives.
 
 All 19 files listed in the local SHA256 manifest were verified immediately
-before upload. Browser upload was blocked because the Edge ChatGPT extension
-does not have Allow access to file URLs enabled. The operator was asked to
-enable it in `edge://extensions` → ChatGPT → Details. No extension/security
-setting was changed automatically. Complete upload and inspect the draft before
-publishing; anonymous download/signature checks and actual About remain pending.
-The acceptance prerelease publication is already authorized; do not ask again merely
-because the task resumes. Stable latest remains `v3.7.8`.
+before upload. Browser upload initially required the Edge ChatGPT extension's
+Allow access to file URLs permission. The user enabled it; no extension/security
+setting was changed automatically. All 20 remote names, sizes and GitHub SHA256
+digests were compared with actual local bytes before publishing. Anonymous
+download verification passed for all 20 assets; the downloaded B passed actual
+signature/manifest/inventory admission. The follow-up evidence records the
+credential-free requests, full hashes and bounded Range recovery. Actual About
+remains pending. Stable latest remains `v3.7.8`.
+Publication metadata: `artifacts/github-acceptance-publication-20261004.json`.
+Manual update steps: [About acceptance guide](../testing/github-acceptance-about-20261004.md).
 
 ## Exact proposed release
 
@@ -41,8 +45,8 @@ Upload-ready folder: `artifacts/github-acceptance-20261004/`. It contains both
 Setups/bundles, the common public keyring, the test catalog, notices/proofs and
 SHA256SUMS.txt. `catalog.json` is copied from B and changes only its bundle URL to
 `https://github.com/yomingpan/clipai/releases/download/acceptance-20261004/clipai-managed-3.7.9.zip`.
-This catalog's fields and B bytes are validated locally. That URL does not exist
-until the explicitly authorized prerelease is published. Formal asset catalogs
+This catalog's fields and B bytes are validated locally. That URL is now served
+by the explicitly authorized prerelease. Formal asset catalogs
 and production `latest` are unchanged.
 
 ## After publication
