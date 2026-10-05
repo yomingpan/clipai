@@ -1,6 +1,17 @@
 # Preview 後續：一致的安裝／更新發行流程
 
 日期：2026-10-04。狀態：A／B 技術候選及 GitHub 測試交付包已完成；Windows source／完整候選 CI 通過；正式公開發行 NO-GO。歷史基準 commit：`a0502d3`。
+新增實機阻礙：使用者回報 Exit 後 Windows 卸載失敗。唯讀檢查確認舊 launcher
+仍使 idle gate 回報 busy；worker terminal error 原先被 supervisor 丟失。
+錯誤投影已修正；2026-10-05 經使用者明確授權，驗證身分後結束殘留 runtime，
+launcher 隨之退出，實際 idle gate 已通過。使用者隨後回報成功卸載；唯讀確認
+安裝目錄已移除、shared data 目錄保留。開發電腦卸載重試 passed；launcher 殘留原因仍 pending。
+見 [診斷與驗證](../evidence/uninstall-exit-residual-launcher-20261004.md)。
+2026-10-05 About 驗收：使用者從一般啟動的 3.7.8 按 Update 得到最新版。
+實際 discovery 對正式 latest 回傳 `up_to_date`，同程式對隔離 acceptance catalog
+選到 3.7.9；目前程序未使用 acceptance helper。已補強 runbook 的必要啟動步驟，
+使用者退出後已完成 helper 啟動並收到真實 ready marker；attended A→B 仍 pending，
+未更改 production latest。
 本文件接續 `first-install-installer-plan.md` 的 D／E 與尚未完成的 A gates，
 不重做已完成的本機 Preview。啟動提示詞見 [執行 prompt](installer-release-readiness-prompt.md)。
 

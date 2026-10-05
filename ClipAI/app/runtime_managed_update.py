@@ -6,13 +6,14 @@ import uuid
 
 from ClipAI.app.managed_update_handoff import ManagedUpdateHandoffExecutor
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import CheckForManagedUpdate, ManagedUpdateCheckCompleted
+from ClipAI.core.commands import CheckForManagedUpdate, ManagedUpdateCheckCompleted, ManagedUpdatePreparationProgress
 from ClipAI.core.managed_install import ManagedUpdateClientIdentity
 from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure, TransactionId, transaction_id
 from ClipAI.core.models import ManagedUpdatePresentation
+from ClipAI.core.update_preparation import ManagedUpdatePreparation
 
 
-ManagedUpdateRuntimeCommand: TypeAlias = CheckForManagedUpdate | ManagedUpdateCheckCompleted
+ManagedUpdateRuntimeCommand: TypeAlias = CheckForManagedUpdate | ManagedUpdateCheckCompleted | ManagedUpdatePreparationProgress
 
 
 class ManagedUpdatePresenter(Protocol):
@@ -43,6 +44,8 @@ class ManagedUpdateRuntimeModule:
             lambda: transaction_id(f"update-{uuid.uuid4().hex}")
         )
         self._active_operation_id: str | None = None
+        self._preparation: ManagedUpdatePreparation | None = None
+        self._stopped = False
         self._state = _unavailable() if identity is None else _idle()
 
     @property
@@ -53,6 +56,16 @@ class ManagedUpdateRuntimeModule:
         self._presenter.set_managed_update(self._state)
 
     def handle(self, command: ManagedUpdateRuntimeCommand) -> None:
+        if self._stopped:
+            return
+        if isinstance(command, ManagedUpdatePreparationProgress):
+            if command.operation_id == self._active_operation_id:
+                # Only forward stages belonging to the current operation may project.
+                if command.phase == "downloading" and self._state.phase == "checking":
+                    self._set(ManagedUpdatePresentation("downloading", "正在下載更新…", False))
+                elif command.phase == "preparing" and self._state.phase == "downloading":
+                    self._set(ManagedUpdatePresentation("preparing", "正在驗證並準備更新…", False))
+            return
         if isinstance(command, ManagedUpdateCheckCompleted):
             self._complete(command)
             return
@@ -60,13 +73,17 @@ class ManagedUpdateRuntimeModule:
             return
         operation_id = command.operation_id or uuid.uuid4().hex
         self._active_operation_id = operation_id
-        self._set(ManagedUpdatePresentation("checking", "正在檢查並準備更新…", False))
+        self._set(ManagedUpdatePresentation("checking", "正在檢查更新…", False))
+        preparation = ManagedUpdatePreparation(
+            report_phase=lambda phase: self._enqueue(ManagedUpdatePreparationProgress(operation_id, phase))
+        )
+        self._preparation = preparation
         identity = self._identity
         executor = self._executor
 
         def execute() -> None:
             try:
-                readiness = executor.execute(identity, self._transaction_id_factory())
+                readiness = executor.execute(identity, self._transaction_id_factory(), preparation=preparation)
             except ManagedUpdateFailure as exc:
                 self._enqueue(ManagedUpdateCheckCompleted(operation_id, "failed", exc.code))
             except BaseException:
@@ -85,15 +102,26 @@ class ManagedUpdateRuntimeModule:
                     operation_id, "failed", FailureCode.INTERNAL_ERROR
                 )),
                 task_class="maintenance",
+                cancellation_hook=preparation.cancellation.cancel,
             )
         except BaseException:
+            preparation.cancellation.cancel()
             self._active_operation_id = None
+            self._preparation = None
             self._set(_failed(FailureCode.INTERNAL_ERROR))
+
+    def stop(self) -> None:
+        self._stopped = True
+        if self._preparation is not None:
+            self._preparation.cancellation.cancel()
+        self._active_operation_id = None
+        self._preparation = None
 
     def _complete(self, command: ManagedUpdateCheckCompleted) -> None:
         if command.operation_id != self._active_operation_id:
             return
         self._active_operation_id = None
+        self._preparation = None
         if command.outcome == "up_to_date":
             self._set(ManagedUpdatePresentation("up_to_date", "目前已是最新版本。", True))
         elif command.outcome == "restarting":
