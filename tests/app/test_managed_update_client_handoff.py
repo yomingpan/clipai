@@ -15,7 +15,7 @@ class _Coordinator:
     def __init__(self, request):
         self.request = request
 
-    def prepare(self, identity, transaction):
+    def prepare(self, identity, transaction, *, preparation=None):
         return self.request
 
 

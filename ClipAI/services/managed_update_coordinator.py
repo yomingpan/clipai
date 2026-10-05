@@ -6,6 +6,7 @@ from ClipAI.core.managed_install import ManagedUpdateClientIdentity
 from ClipAI.core.managed_update import TransactionId
 from ClipAI.core.update_artifacts import UpdateRequestArtifact
 from ClipAI.core.update_ports import ManagedReleaseSource
+from ClipAI.core.update_preparation import ManagedUpdatePreparation
 
 
 class ManagedUpdateCoordinator:
@@ -24,18 +25,27 @@ class ManagedUpdateCoordinator:
         self,
         identity: ManagedUpdateClientIdentity,
         transaction_id: TransactionId,
+        *,
+        preparation: ManagedUpdatePreparation | None = None,
     ) -> UpdateRequestArtifact | None:
+        preparation = preparation or ManagedUpdatePreparation()
+        preparation.check_cancelled()
         release = self._release_source.discover(
             installed_version=identity.installed_version,
             launcher_version=identity.launcher_version,
+            preparation=preparation,
         )
+        preparation.check_cancelled()
         if release is None:
             return None
+        preparation.report_phase("downloading")
         bundle_path = self._release_source.download(
             release,
             shared_root=identity.shared_root,
             transaction_id=transaction_id,
+            preparation=preparation,
         )
+        preparation.check_cancelled()
         return UpdateRequestArtifact(
             transaction_id=transaction_id,
             created_at=self._now(),

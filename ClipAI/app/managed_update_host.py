@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.managed_update import FailureCode, LaunchAttemptId, TransactionId
+from ClipAI.core.managed_update import FailureCode, LaunchAttemptId, ManagedUpdateFailure, TransactionId
 from ClipAI.core.managed_update_commands import HostManagedCommand
 from ClipAI.core.update_artifacts import UpdateRequestArtifact, UpdateResultArtifact
 from ClipAI.core.update_ports import CandidateEnvironmentBuilder, ManagedUpdateGate
@@ -121,17 +121,20 @@ class ManagedUpdateHostExecutor:
                 return 1
 
             try:
+                # Prove the logical version before admitting its Windows runtime image.
+                layout.assert_update_eligible(artifact)
                 installed_process = self._process_handle_factory(
                     process_id=artifact.installed_process_id,
                     expected_executable=artifact.installed_executable,
+                    expected_runtime_executable=command.base_python,
                 )
-            except ManagedProcessIdentityError:
+            except (ManagedProcessIdentityError, ManagedUpdateFailure) as exc:
                 store.write(UpdateResultArtifact(
                     artifact.transaction_id,
                     self._now(),
                     "failed",
                     artifact.installed_version,
-                    FailureCode.IDENTITY_INELIGIBLE,
+                    exc.code if isinstance(exc, ManagedUpdateFailure) else FailureCode.IDENTITY_INELIGIBLE,
                 ))
                 return 1
             try:
