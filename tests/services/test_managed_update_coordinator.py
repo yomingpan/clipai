@@ -15,11 +15,11 @@ class _ReleaseSource:
         self.bundle_path = bundle_path
         self.downloads = []
 
-    def discover(self, *, installed_version: str, launcher_version: str):
+    def discover(self, *, installed_version: str, launcher_version: str, preparation=None):
         assert (installed_version, launcher_version) == ("1.0", "1.0")
         return self.release
 
-    def download(self, release, *, shared_root, transaction_id):
+    def download(self, release, *, shared_root, transaction_id, preparation=None):
         self.downloads.append((release, shared_root, transaction_id))
         return self.bundle_path
 

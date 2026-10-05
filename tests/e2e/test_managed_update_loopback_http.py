@@ -52,6 +52,9 @@ class _AdmittedResponse:
     def read(self, size: int = -1) -> bytes:
         return self._response.read(size)
 
+    def read1(self, size: int = -1) -> bytes:
+        return self._response.read1(size)
+
     def geturl(self) -> str:
         return self._admitted_url
 

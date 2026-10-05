@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -9,7 +10,7 @@ import sys
 import time
 
 from ClipAI.core.first_install import InstallCancellation, InstallCancelled
-from ClipAI.core.first_install import UninstallIntent
+from ClipAI.core.first_install import UninstallIntent, UninstallPhase, UninstallSnapshot
 from ClipAI.core.managed_update_commands import InstallManagedCommand
 from ClipAI.platform.candidate_environment import OfflineCandidateEnvironmentBuilder
 from ClipAI.platform.installation_windows import WindowsInstallationIntegration, assert_installation_idle
@@ -282,6 +283,19 @@ class FilesystemUninstaller:
                                      delete_user_data=intent.delete_user_data)
 
 
+def write_maintenance_result(helper: Path, snapshot: UninstallSnapshot) -> None:
+    """Project the existing terminal result; never persist raw worker output."""
+    if snapshot.phase not in {UninstallPhase.REMOVED, UninstallPhase.FAILED}:
+        raise ValueError("maintenance result must be terminal")
+    code = snapshot.error_code
+    if code is not None and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}", code) is None:
+        code = "UnknownRemovalError"
+    atomic_write_json(helper / "maintenance-result.json", {
+        "schema_version": 1, "phase": snapshot.phase.value,
+        "error_code": code,
+    })
+
+
 def start_maintenance_helper(root: Path, shared: Path, *, temporary_root: Path,
                              environment: dict[str, str], delete_user_data: bool = False) -> None:
     import uuid
@@ -295,7 +309,7 @@ def start_maintenance_helper(root: Path, shared: Path, *, temporary_root: Path,
         _require_unredirected_tree(helper)
         for name in ("runtime", "tools", "setup-engine"):
             shutil.copytree(root / name, helper / name)
-        command = ["-I", str(helper / "setup-engine/entry.py"), "remove-worker", "--quiet",
+        command = ["-I", str(helper / "setup-engine/entry.py"), "remove-worker", "--quiet", "--maintenance-result",
                    "--install-root", str(root), "--shared-root", str(shared)]
         if delete_user_data:
             command.append("--delete-user-data")
@@ -320,6 +334,8 @@ _MAINTENANCE_SUPERVISOR = r"""
 $ErrorActionPreference = 'Stop'
 $succeeded = $false
 $settled = $false
+$cleanupCompleted = $false
+$errorCode = ''
 $worker = $null
 $request = Get-Content -LiteralPath (Join-Path $taskRoot 'maintenance-request.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $resolved = [IO.Path]::GetFullPath($taskRoot)
@@ -330,7 +346,21 @@ try {
     $worker = Start-Process -FilePath (Join-Path $taskRoot 'runtime/python.exe') -ArgumentList $request.arguments -WorkingDirectory $request.temporary_root -WindowStyle Hidden -PassThru
     if (-not $worker.WaitForExit(600000)) { throw 'Removal did not settle within 10 minutes.' }
     $settled = $true
-    $succeeded = $worker.ExitCode -eq 0
+    # This fresh helper's terminal projection is finite and content-free.
+    # Exit code alone cannot prove that uninstall policy actually completed.
+    $resultPath = Join-Path $resolved 'maintenance-result.json'
+    $resultFile = Get-Item -LiteralPath $resultPath -Force
+    if ($resultFile.Length -gt 1024 -or $resultFile.PSIsContainer -or
+        ($resultFile.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Invalid result file.' }
+    $result = Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $fields = @($result.PSObject.Properties.Name | Sort-Object)
+    if (($fields -join ',') -ne 'error_code,phase,schema_version' -or
+        $result.schema_version -isnot [int] -or $result.schema_version -ne 1 -or
+        $result.phase -isnot [string] -or $result.phase -cnotin @('uninstalled', 'failed') -or
+        ($null -ne $result.error_code -and $result.error_code -isnot [string])) { throw 'Invalid result.' }
+    if ($result.phase -eq 'failed' -and $worker.ExitCode -ne 0 -and
+        $result.error_code -cmatch '^[A-Za-z][A-Za-z0-9_]{0,79}$') { $errorCode = $result.error_code }
+    $succeeded = $worker.ExitCode -eq 0 -and $result.phase -eq 'uninstalled' -and $null -eq $result.error_code
 } catch { $succeeded = $false }
 try {
     if ($settled -or $null -eq $worker) {
@@ -343,13 +373,22 @@ try {
         }
         AssertPlainTree $resolved
         Remove-Item -LiteralPath $resolved -Recurse -Force
+        $cleanupCompleted = $true
     } else { $succeeded = $false }
 } catch { $succeeded = $false }
+$message = if ($succeeded) {
+    if ($request.delete_user_data) { 'Program files, settings, API keys and ClipAI data have been removed.' } else { 'Program files removed. Settings and data have been retained.' }
+} elseif (-not $cleanupCompleted) {
+    'Temporary helper cleanup did not complete. Removal is not confirmed. Retry removal using the same Setup.'
+} elseif ($errorCode -eq 'InstallationBusyError') {
+    'ClipAI is still running. Exit ClipAI from the tray and close any ClipAI startup error windows, then retry removal using the same Setup. No program files or settings were removed.'
+} else {
+    'Removal did not complete. Retry removal using the same Setup.' + $(if ($errorCode) { ' Error: ' + $errorCode })
+}
 Add-Type -AssemblyName System.Windows.Forms
 if ($succeeded) {
-    $message = if ($request.delete_user_data) { 'Program files, settings, API keys and ClipAI data have been removed.' } else { 'Program files removed. Settings and data have been retained.' }
     [Windows.Forms.MessageBox]::Show($message, $request.product, 'OK', 'Information') | Out-Null
 } else {
-    [Windows.Forms.MessageBox]::Show('Removal or temporary helper cleanup did not complete. Exit ClipAI, then retry removal using the same Setup.', $request.product, 'OK', 'Error') | Out-Null
+    [Windows.Forms.MessageBox]::Show($message, $request.product, 'OK', 'Error') | Out-Null
 }
 """

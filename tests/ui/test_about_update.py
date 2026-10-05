@@ -71,3 +71,8 @@ def test_about_button_emits_typed_update_intent_and_projects_real_lifecycle(monk
     assert dialog._update_button.options["text"] == "正在檢查更新…"
     assert dialog._update_button.options["state"] == "disabled"
     assert dialog._update_status.options["text"] == "正在檢查並準備更新…"
+
+    for phase, label in [("downloading", "正在下載更新…"), ("preparing", "正在準備更新…")]:
+        dialog.set_managed_update(ManagedUpdatePresentation(phase, label, False))
+        assert dialog._update_button.options["text"] == label
+        assert dialog._update_button.options["state"] == "disabled"
