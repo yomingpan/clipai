@@ -1,6 +1,17 @@
 # Preview 後續：一致的安裝／更新發行流程
 
 日期：2026-10-04。狀態：A／B 技術候選及 GitHub 測試交付包已完成；Windows source／完整候選 CI 通過；正式公開發行 NO-GO。歷史基準 commit：`a0502d3`。
+新增實機阻礙：使用者回報 Exit 後 Windows 卸載失敗。唯讀檢查確認舊 launcher
+仍使 idle gate 回報 busy；worker terminal error 原先被 supervisor 丟失。
+錯誤投影已修正；2026-10-05 經使用者明確授權，驗證身分後結束殘留 runtime，
+launcher 隨之退出，實際 idle gate 已通過。使用者隨後回報成功卸載；唯讀確認
+安裝目錄已移除、shared data 目錄保留。開發電腦卸載重試 passed；launcher 殘留原因仍 pending。
+見 [診斷與驗證](../evidence/uninstall-exit-residual-launcher-20261004.md)。
+2026-10-05 About 驗收：使用者從一般啟動的 3.7.8 按 Update 得到最新版。
+實際 discovery 對正式 latest 回傳 `up_to_date`，同程式對隔離 acceptance catalog
+選到 3.7.9；目前程序未使用 acceptance helper。已補強 runbook 的必要啟動步驟，
+使用者退出後已完成 helper 啟動並收到真實 ready marker；attended A→B 仍 pending，
+未更改 production latest。
 本文件接續 `first-install-installer-plan.md` 的 D／E 與尚未完成的 A gates，
 不重做已完成的本機 Preview。啟動提示詞見 [執行 prompt](installer-release-readiness-prompt.md)。
 
@@ -37,6 +48,20 @@ keyring 不同，不承諾 Preview 可直接升級成正式版。正式切換先
 卸載／重裝方式，不新增多 channel 更新引擎。
 
 ## 2026-10-04 執行狀態
+
+2026-10-05 續作：實際 3.7.8 About 測試發現大區塊 HTTP read／缺整體下載期限，
+另有 helper 執行環境的 shared 路徑重導造成安全拒絕。已完成 bounded streaming、
+operation-scoped 取消／階段投影與 helper 路徑預檢；1,959 unit 與完整 managed-bundle
+gate 通過，helper 最新 targeted 測試通過。新 3.7.10／3.7.11 配對的兩版 Setup、
+signed bundle、已安裝 wheel、compiled extraction 與 asset checks 都 passed；
+使用者已直接授權本次發布；20 個資產完整上傳並公開為 `acceptance-20261005`
+prerelease，遠端精確 bytes／SHA256 全部 passed。兩個 tag 保存精確 A/B 來源，
+HEAD／一般 index 不變；正式 latest 仍 v3.7.8，舊 Release 未修改。20 檔匿名下載／整檔 SHA256 與 B 簽章 admission 全部 passed
+（大檔 ranges＋重試；不是實際 About continuous transfer 證據）。見
+[本次發布證據](../evidence/github-acceptance-publication-20261005.md)。
+實際 About、reboot 與保留設定仍 pending；VM 繼續 deferred。
+見[診斷證據](../evidence/about-download-stall-20261005.md)、
+[新發布提案](github-acceptance-release-20261005.md)。
 
 最新續作：Tray／完整移除已提交 `01bfb04`，使用者回報新版人工測試正常。
 使用者要求接續四步後，明確表示沒有 VM／第二台電腦，先跳過乾淨機驗收；

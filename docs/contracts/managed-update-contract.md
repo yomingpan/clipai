@@ -294,14 +294,38 @@ any future UI must emit an explicit typed intent into this same app-owned seam.
 
 The About surface emits `CheckForManagedUpdate(operation_id)` and only projects
 the immutable `ManagedUpdatePresentation` supplied by app runtime. Its legal
-phases are `unavailable`, `idle`, `checking`, `up_to_date`, `restarting`, and
-`failed`.
+phases are `unavailable`, `idle`, `checking`, `downloading`, `preparing`,
+`up_to_date`, `restarting`, and `failed`.
 `checking` disables duplicate intent and is projected before network or file
 work begins; `up_to_date` and `failed` allow retry. Source/development installs
 remain `unavailable` and never create a transaction. The runtime schedules the
 existing handoff executor on maintenance capacity and accepts completion only
 for the active operation identity. UI does not read environment, catalog,
 filesystem, process, or transaction state.
+
+One `ManagedUpdatePreparation` carries the operation's existing cancellation
+token and typed semantic stage reporter through discovery/download ports.
+Services reports `downloading` only after selecting a release; app reports
+`preparing` only after obtaining the exact downloaded request, immediately
+before external handoff. Runtime accepts ordered forward stage commands only
+for the active operation and ignores late commands after completion or stop.
+Runtime teardown and its maintenance task cancellation hook signal that same
+token. Cancellation is checked before discovery, around each streaming read,
+after download, and before host publication. Once handed off, the external host
+retains transaction ownership and its existing bounded readiness contract.
+Closing About alone does not cancel an explicitly requested update.
+
+HTTPS bodies use available-byte `read1(64 KiB)` instead of waiting to fill a
+large buffer. The catalog has a 12-second body deadline; bundles have a
+300-second whole-transfer deadline, counted from before opening the request,
+independent of the existing 20-second bundle socket inactivity timeout.
+Deadlines/cancellation are checked before and after each read, including EOF.
+An already blocked IO call settles at its socket timeout; redirects/opening
+remain governed by urllib's socket timeout and admitted redirect limit.
+These are cooperative bounds, not a hard timer interrupting DNS/TLS/OS calls.
+Failure keeps the atomic writer's known-good destination intact and removes
+the incomplete temporary file. No prefix, size-only result, or deadline is a
+substitute for the catalog-bound digest and downstream signature verification.
 
 Production composition uses the credential-free stable catalog URL
 `https://github.com/yomingpan/clipai/releases/latest/download/catalog.json`.
@@ -432,3 +456,27 @@ The current workflow intentionally builds isolated technical Setup until
 runtime/verifier/compiler distribution admission and signing are available.
 Moving to official packaging requires reviewed inputs, removal of technical mode
 and a fresh version/tag/commit, without changing the one-bundle/install ownership.
+
+## Windows venv logical executable and process image
+
+The version's `.venv/Scripts/python.exe` remains the logical installation and
+request identity. On Windows that executable is a CPython venv redirector; the
+retained application's native image can be the supplied base runtime's
+`python.exe`. `WindowsManagedProcessHandle` exclusively verifies this mapping:
+only the explicit base image, matching basename, and the exact version venv's
+bounded, contained `pyvenv.cfg` absolute `home` are accepted. Missing, duplicate,
+redirected or foreign mappings fail closed. The optional `executable` cfg key is
+creation provenance, not the redirector's runtime selector; CPython uses `home`.
+
+The host calls the existing `ManagedInstallLayout.assert_update_eligible` before
+opening the handle, so signed current-version metadata, logical executable,
+root and install identity are proven first. The transaction verifies the layout
+again before preparing and committing. There is no basename-only process
+allowlist, request schema change, PID substitution or trust-key override.
+Direct image equality remains valid. The same retained OS handle owns waiting
+and cleanup; runtime identity translation never changes the request's logical
+executable or startup-health identity.
+
+The real Windows integration regression launches an agent-owned venv process,
+proves logical/native inequality, rejects it without the runtime mapping,
+accepts the matching mapping, and waits for that exact process's normal exit.

@@ -7,6 +7,7 @@ from typing import Protocol
 from ClipAI.core.managed_update import CommitReceipt, LaunchAttemptId, TransactionId, TransactionSnapshot
 from ClipAI.core.update_artifacts import HandoffReadyArtifact, LaunchReceiptArtifact, StartupHealthArtifact, UpdateRequestArtifact
 from ClipAI.core.update_catalog import ManagedUpdateRelease
+from ClipAI.core.update_preparation import ManagedUpdatePreparation
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class ManagedReleaseSource(Protocol):
         *,
         installed_version: str,
         launcher_version: str,
+        preparation: ManagedUpdatePreparation | None = None,
     ) -> ManagedUpdateRelease | None: ...
 
     def download(
@@ -52,6 +54,7 @@ class ManagedReleaseSource(Protocol):
         *,
         shared_root: Path,
         transaction_id: TransactionId,
+        preparation: ManagedUpdatePreparation | None = None,
     ) -> Path: ...
 
 

@@ -4,6 +4,11 @@
 它是未做 Windows publisher 簽章的 ClipAI Candidate；乾淨 VM 已依使用者指示暫緩。
 本輪要取得的是開發電腦上的實際 About 更新證據。
 
+**本次 A 透過一般捷徑啟動時，About 仍查正式 `latest`；該來源目前沒有本次 B，
+所以 3.7.8 會顯示「目前已是最新版本」。必須依第 4 步用隔離 helper 啟動，
+才會查 `acceptance-20261004/catalog.json` 並找到 3.7.9。**
+這是候選驗收啟動方式；正式使用者的發行流程仍使用正式 `latest`。
+
 1. 下載該頁的 `ClipAI-Candidate-Setup-3.7.8-windows-x64.exe`（A）、
    `launch_isolated_about.py` 與 `SHA256SUMS.txt`。更新會透過 HTTPS 下載 B，
    不需先安裝 3.7.9。若只想測試新版安裝，才直接下載 3.7.9 Setup。
@@ -41,3 +46,6 @@
 
 實際 About 更新、重開機與 provider Action 尚待人工回報，不能以下載或簽章驗證
 代替。真實故障回復／跨 logon／新手首次結果及正式簽章仍是獨立驗收項目。
+
+2026-10-05：本配對實測未完成交接，另發現執行環境的路徑重導。新修正候選
+見[3.7.10 → 3.7.11 步驟](github-acceptance-about-20261005.md)；其隔離來源尚未發布。
