@@ -6,6 +6,10 @@ See [readiness plan](specs/installer-release-readiness-plan.md),
 [runbook](testing/installer-release-readiness-runbook.md) and
 [evidence](evidence/installer-release-readiness-20261004.md).
 
+2026-10-06: r3 About acceptance passed by user report. Official candidate
+preparation is planned in [the current release plan](specs/official-release-plan-20261006.md).
+Official signing, input admission and final device/user gates remain outstanding.
+
 1. Choose a new comparable app version; update `pyproject.toml` and release notes.
    Query the existing release/tag first. Never reuse or move a published tag, or
    replace a version's assets with different bytes. `r4` is a build ID, not an

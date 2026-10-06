@@ -65,3 +65,10 @@ reboot 仍 pending，乾淨 VM 仍依使用者要求 deferred。
 
 [診斷及回歸](about-health-timeout-20261006.md)、
 [實機步驟](../testing/github-acceptance-about-20261006-r3.md)。
+
+2026-10-06 本對話續驗：使用者下載 helper 並核對上述 SHA256 後，
+`--timeout-seconds 1200` 被 helper 的 30–600 秒限制拒絕；改以 600 秒
+重跑後回報「成功了。可以準備發行正式版 規劃一下」。本輪 About 更新
+passed（使用者回報），沒有另外收集版本畫面或交易／health receipt；
+設定保留、捷徑重開與 reboot 不由此推論通過。已修正 r3 runbook 的參數。
+後續見[正式版發行計畫](../specs/official-release-plan-20261006.md)。

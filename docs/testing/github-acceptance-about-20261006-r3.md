@@ -28,10 +28,11 @@ ranges／重試，不代替 App 的實際連續下載與完整 About 更新。
    & "$acceptanceInstall\versions\3.7.16\.venv\Scripts\python.exe" -I $acceptanceHelper `
      --install-root $acceptanceInstall --shared-root $acceptanceShared `
      --catalog-url 'https://github.com/yomingpan/clipai/releases/download/acceptance-20261006-r3/catalog.json' `
-     --timeout-seconds 1200
+     --timeout-seconds 600
    ```
 
-   `1200` 是驗收 helper 的總存活期限；準備交接等待上限 600 秒、
+   `600` 是驗收 helper 的總存活期限，也是此 helper 接受的上限；
+   可接受範圍為 30–600 秒。準備交接等待上限 600 秒、
    每次啟動健康檢查上限 120 秒各有自己的用途。一般捷徑讀正式 latest，
    本次需由 helper 啟動以讀隔離 catalog。
 4. 出現 `ISOLATED_ABOUT_READY` 後，開啟 About 並按 Update。
