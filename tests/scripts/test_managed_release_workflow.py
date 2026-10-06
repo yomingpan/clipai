@@ -92,7 +92,8 @@ def test_validation_branch_cannot_read_official_signing_secret_or_publish() -> N
     assert sum("--payload-root" in step.get("run", "") for step in steps) == 1
     assert sum("--bundle " in step.get("run", "") and "build_setup_release" in step.get("run", "") for step in steps) == 1
     package = next(step for step in steps if "build_setup_release" in step.get("run", ""))
-    assert '$mode = if ($env:GITHUB_REF_TYPE -eq "branch") { @("--technical-candidate") } else { @() }' in package["run"]
+    assert '$mode = @()' in package["run"]
+    assert 'if ($env:GITHUB_REF_TYPE -eq "branch") { $mode += "--technical-candidate" }' in package["run"]
     assert '--source-commit $commit @mode' in package["run"]
     assert 'Copy-Item -LiteralPath release/bootstrap/sources -Destination release/setup/output/sources -Recurse' in package["run"]
     cycle = next(step for step in steps if step.get("name") == "Exercise compiled installer and retained-data recovery")
@@ -102,3 +103,28 @@ def test_validation_branch_cannot_read_official_signing_secret_or_publish() -> N
     cleanup = steps[-1]
     assert cleanup["if"] == "always()"
     assert "signing-key.pub" in cleanup["run"]
+
+
+def test_actual_powershell_passes_ref_mode_as_whole_native_arguments() -> None:
+    import json
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import pytest
+    import yaml
+
+    powershell = shutil.which("pwsh")
+    if powershell is None:
+        pytest.skip("native PowerShell is unavailable")
+    workflow = yaml.load((ROOT / ".github/workflows/release.yml").read_text(), Loader=yaml.BaseLoader)
+    steps = workflow["jobs"]["build-verify-candidate"]["steps"]
+    package = next(step for step in steps if "build_setup_release" in step.get("run", ""))
+    prefix = package["run"].split("python -m scripts.build_setup_release", 1)[0]
+    python_path = sys.executable.replace("'", "''")
+    script = prefix + f"\n& '{python_path}' -I -c 'import json,sys; print(json.dumps(sys.argv[1:]))' @mode"
+    for ref_type, expected in (("branch", ["--technical-candidate"]), ("tag", [])):
+        result = subprocess.run([powershell, "-NoProfile", "-Command", script],
+                                cwd=ROOT, env=dict(os.environ, GITHUB_REF_TYPE=ref_type),
+                                capture_output=True, text=True, check=True, timeout=30)
+        assert json.loads(result.stdout) == expected

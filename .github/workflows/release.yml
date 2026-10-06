@@ -163,7 +163,8 @@ jobs:
         shell: pwsh
         run: |
           $commit = git rev-parse HEAD
-          $mode = if ($env:GITHUB_REF_TYPE -eq "branch") { @("--technical-candidate") } else { @() }
+          $mode = @()
+          if ($env:GITHUB_REF_TYPE -eq "branch") { $mode += "--technical-candidate" }
           python -m scripts.build_setup_release `
             --bundle "release/assets/clipai-managed-$env:CLIPAI_VERSION.zip" `
             --catalog release/assets/catalog.json `

@@ -51,6 +51,14 @@ The final unit/architecture suite passed **2,022 tests**, 64 deselected, 106.66s
 An initial targeted invocation used the host Python without PyYAML; rerunning
 with the project's explicit venv passed. Fresh Windows packaging is still pending.
 
+The bdeef09 Windows source matrix passed. Candidate run 37472629909 passed the
+2,022-test suite and complete managed transaction, then failed before compilation:
+PowerShell unwrapped a one-element conditional array and native splatting split
+the mode string into characters. Mode is now constructed as an array before
+conditional append. A real PowerShell-to-Python argv regression covers branch
+and tag behavior; all four workflow tests passed. No failed run is admitted as
+compiled-payload proof, and the input admission label remains pending.
+
 Primary sources:
 [PBS licensing](https://gregoryszorc.com/docs/python-build-standalone/main/running.html#licensing),
 [Pygame-CE](https://pypi.org/project/pygame-ce/2.5.3/),

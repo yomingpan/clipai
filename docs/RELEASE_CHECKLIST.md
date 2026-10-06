@@ -44,9 +44,10 @@ gates remain outstanding; no paid certificate or signing service is needed.
    Those per-run keys cannot authorize an update to an older candidate. Use an
    explicitly paired A/B local authority for isolated update acceptance; never
    promote branch artifacts or treat their intended tag URLs as published.
-6. Current CI uses `--technical-candidate`, isolated ClipAI Candidate identity,
-   unsigned Setup and pending bootstrap admission. These artifacts cannot be
-   promoted. After reviewed admission, use official mode and a fresh version,
+6. Validation-branch CI uses `--technical-candidate` and isolated ClipAI Candidate
+   identity. Tag CI uses official ClipAI identity and requires reviewed input
+   admission; local validation authorities are rejected. Branch artifacts cannot
+   be promoted. After reviewed admission, use official mode and a fresh version,
    not a relabeled technical candidate. `build_setup_release` proves the actual
    Git tag/commit and complete first-party wheel/payload source correspondence.
 7. Record the publisher policy in exact-hash acceptance. For 3.7.18 use
@@ -68,7 +69,10 @@ gates remain outstanding; no paid certificate or signing service is needed.
    substituting an editable test, empty PATH or fixture for a clean VM.
 10. Retain the complete asset set: wheel/sdist, `ClipAI-Setup-{version}-windows-x64.exe`,
     `clipai-managed-{version}.zip`, `catalog.json`, public keyring, lock, notices,
-    provenance, packaged/extraction proofs and exact-hash acceptance. Catalog
+    provenance, packaged/extraction proofs, corresponding source archives and
+    exact-hash acceptance. Corresponding source bytes must match the input pins.
+    The runner's compiled-install/retained-data cycle receipt is also retained;
+    it does not substitute for independent device/user gates. Catalog
     names the immutable tag URL; Setup's extracted bundle hash must equal it.
 11. Before any directly authorized public promotion, run:
 
@@ -82,8 +86,9 @@ gates remain outstanding; no paid certificate or signing service is needed.
     valid matching publisher/timestamp. A missing
     asset, wrong URL/version/hash or stale evidence rejects the candidate. A draft
     cannot serve ordinary About latest. Create a complete draft only after the
-    gate, inspect it, and publish only with separate direct authorization. This
-    task does not execute any publication command or alter repository protections.
+    gate, inspect it, and publish with direct authorization. The maintainer has
+    authorized the 3.7.18 release; do not request the same permission again.
+    Repository protections remain in effect.
 12. After actual authorized publication, verify anonymous HTTPS asset access and
     one installed-app update against the official latest endpoint. Retain old
     version/shared data and compare identities. A candidate-only run leaves this
