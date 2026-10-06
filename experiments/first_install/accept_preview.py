@@ -59,6 +59,12 @@ def main() -> int:
         result = subprocess.run(command, env=env, timeout=600, check=False)
         record(name, exit_code=result.returncode, elapsed_seconds=round(time.monotonic() - started, 2))
         if (result.returncode == 0) != success:
+            log = args.output / (name + ".log")
+            if log.is_file():
+                # Only the explicitly requested Setup log from this owned test.
+                content = log.read_bytes()
+                encoding = "utf-16" if content.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+                print(content.decode(encoding, errors="replace")[-12000:], flush=True)
             raise RuntimeError(f"Unexpected Setup settlement: {name}")
 
     def check() -> Path:

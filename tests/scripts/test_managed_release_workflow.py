@@ -103,6 +103,9 @@ def test_validation_branch_cannot_read_official_signing_secret_or_publish() -> N
     cleanup = steps[-1]
     assert cleanup["if"] == "always()"
     assert "signing-key.pub" in cleanup["run"]
+    artifacts = next(step for step in steps if step.get("name") == "Upload auditable workflow artifacts")
+    assert artifacts["if"] == "always()"
+    assert "RUNNER_TEMP" not in artifacts["with"]["path"]
 
 
 def test_actual_powershell_passes_ref_mode_as_whole_native_arguments() -> None:
