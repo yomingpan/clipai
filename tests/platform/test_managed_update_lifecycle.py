@@ -3,15 +3,19 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
-from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure, launch_attempt_id, transaction_id
-from ClipAI.core.update_artifacts import StartupHealthArtifact
+from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure, TransactionPhase, TransactionSnapshot, launch_attempt_id, transaction_id
+from ClipAI.core.update_artifacts import StartupHealthArtifact, UpdateRequestArtifact
+from ClipAI.core.update_ports import CandidateEnvironment
 from ClipAI.platform.managed_update_fs import atomic_write_json, native_path
 from ClipAI.platform.managed_update_lifecycle import StartupHealthReporter, SubprocessManagedApplicationLifecycle
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
 from ClipAI.platform.managed_update_lifecycle import start_detached_process
+from ClipAI.services.managed_current_launch import ManagedCurrentLaunchCoordinator
+from ClipAI.services.managed_update_recovery import ManagedUpdateRecovery
 
 
 NOW = "2026-09-13T00:00:00+00:00"
@@ -258,3 +262,83 @@ def test_launch_failure_after_process_start_cleans_up_the_unpublished_process(tm
     assert raised.value.code is FailureCode.LAUNCH_FAILED
     assert process.terminated is True
     assert process.poll() == 0
+
+
+@pytest.mark.parametrize("evidence", ["healthy", "wrong-version", "unhealthy", "stale", "missing"])
+def test_health_deadline_samples_and_validates_final_evidence_without_oversleep(tmp_path: Path, evidence):
+    layout = Layout(tmp_path)
+    python, _ = _installed_version(layout)
+    tick = [0.0]
+    reporter = StartupHealthReporter(shared_root=layout.shared_root, now=lambda: NOW)
+
+    def sleep(seconds):
+        tick[0] += seconds
+        if tick[0] >= 1.0 and evidence != "missing":
+            reporter.report(
+                transaction_id=transaction_id("tx-1"),
+                launch_attempt_id=launch_attempt_id("stale" if evidence == "stale" else "attempt-1"),
+                expected_version="2.0", actual_version="1.0" if evidence == "wrong-version" else "2.0",
+                executable_path=python, healthy=evidence != "unhealthy",
+            )
+
+    lifecycle = _lifecycle(layout, starter=lambda *_args: Process(), clock=lambda: tick[0], sleep=sleep)
+    lifecycle._poll_interval_sec = 0.3
+    launch = lifecycle.launch(
+        version_root=layout.version_root("2.0"), transaction_id=transaction_id("tx-1"),
+        launch_attempt_id=launch_attempt_id("attempt-1"), expected_version="2.0",
+    )
+    if evidence == "healthy":
+        health = lifecycle.await_health(launch, timeout_sec=1.0)
+        assert health.healthy and health.launch_attempt_id == launch.launch_attempt_id
+    else:
+        with pytest.raises(ManagedUpdateFailure) as raised:
+            lifecycle.await_health(launch, timeout_sec=1.0)
+        assert raised.value.code is (
+            FailureCode.HEALTH_FAILED if evidence in {"wrong-version", "unhealthy"} else FailureCode.HEALTH_TIMEOUT
+        )
+    assert tick[0] == 1.0
+
+
+@pytest.mark.parametrize("owner", ["current-launch", "recovery"])
+def test_current_and_recovery_defaults_allow_real_30_second_health_wait(tmp_path: Path, owner):
+    layout = Layout(tmp_path)
+    python, entrypoint = _installed_version(layout)
+    candidate = CandidateEnvironment(layout.version_root("2.0"), python, entrypoint, "2.0")
+    tick = [0.0]
+    reporter = StartupHealthReporter(shared_root=layout.shared_root, now=lambda: NOW)
+
+    def sleep(seconds):
+        tick[0] += seconds
+        if tick[0] >= 30.0:
+            reporter.report(
+                transaction_id=transaction_id("tx-1"), launch_attempt_id=launch_attempt_id("attempt-1"),
+                expected_version="2.0", actual_version="2.0", executable_path=python, healthy=True,
+            )
+
+    lifecycle = _lifecycle(layout, starter=lambda *_args: Process(), clock=lambda: tick[0], sleep=sleep)
+    lifecycle._poll_interval_sec = 1.0
+    if owner == "current-launch":
+        health = ManagedCurrentLaunchCoordinator(
+            install=SimpleNamespace(prove_current_install=lambda: candidate), lifecycle=lifecycle,
+            transaction_id_factory=lambda: transaction_id("tx-1"),
+            launch_attempt_factory=lambda: launch_attempt_id("attempt-1"),
+        ).execute()
+        assert health.healthy and health.actual_version == "2.0"
+    else:
+        request = UpdateRequestArtifact(
+            transaction_id("tx-1"), NOW, "2.0", "3.0", python, 123,
+            (tmp_path / "release.zip").resolve(), 42, "a" * 64, "b" * 64,
+            "release-key", layout.install_root, layout.shared_root, "managed-1",
+        )
+        snapshots = []
+        recovery = ManagedUpdateRecovery(
+            backend=SimpleNamespace(restore_known_good=lambda _request: candidate), lifecycle=lifecycle,
+            journal=SimpleNamespace(record=snapshots.append),
+            launch_attempt_factory=lambda: launch_attempt_id("attempt-1"), now=lambda: NOW,
+        )
+        result = recovery.execute(request, TransactionSnapshot(request.transaction_id, TransactionPhase.HEALTH, "2.0", "3.0"))
+        assert (result.outcome, result.active_version, result.failure_code, result.rollback_failure_code) == (
+            "rolled_back", "2.0", FailureCode.UPDATE_INTERRUPTED, None,
+        )
+        assert snapshots[0].phase is TransactionPhase.ROLLBACK
+    assert tick[0] == 30.0

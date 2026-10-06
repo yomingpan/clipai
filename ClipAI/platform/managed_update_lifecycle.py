@@ -130,23 +130,23 @@ class SubprocessManagedApplicationLifecycle:
     def await_health(self, launch: LaunchReceiptArtifact, *, timeout_sec: float) -> StartupHealthArtifact:
         deadline = self._monotonic() + timeout_sec
         store = self._store(launch.transaction_id)
-        while self._monotonic() < deadline:
+        while True:
             if native_path(store.path("startup_health")).is_file():
                 try:
                     artifact = store.read("startup_health")
                     if not isinstance(artifact, StartupHealthArtifact):
                         raise ArtifactValidationError("startup health artifact type is invalid")
-                    if artifact.launch_attempt_id != launch.launch_attempt_id:
-                        self._sleep(self._poll_interval_sec)
-                        continue
-                    validate_health_relation(launch, artifact)
-                    return artifact
+                    if artifact.launch_attempt_id == launch.launch_attempt_id:
+                        validate_health_relation(launch, artifact)
+                        return artifact
                 except ArtifactValidationError as exc:
                     raise ManagedUpdateFailure(FailureCode.HEALTH_FAILED, "startup health evidence is invalid") from exc
                 except ValueError as exc:
                     raise ManagedUpdateFailure(FailureCode.HEALTH_FAILED, "startup health does not match launch") from exc
-            self._sleep(self._poll_interval_sec)
-        raise ManagedUpdateFailure(FailureCode.HEALTH_TIMEOUT, "startup health timed out")
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                raise ManagedUpdateFailure(FailureCode.HEALTH_TIMEOUT, "startup health timed out")
+            self._sleep(min(self._poll_interval_sec, remaining))
 
     def stop(self, launch: LaunchReceiptArtifact, *, timeout_sec: float) -> None:
         key = (launch.transaction_id, launch.launch_attempt_id)

@@ -5,6 +5,7 @@ from collections.abc import Callable
 from ClipAI.core.managed_update import FailureCode, LaunchAttemptId, TransactionPhase, TransactionSnapshot
 from ClipAI.core.update_artifacts import UpdateRequestArtifact, UpdateResultArtifact, validate_health_relation
 from ClipAI.core.update_ports import ManagedApplicationLifecycle, ManagedUpdateRecoveryBackend, UpdateTransactionJournal
+from ClipAI.services.managed_startup_policy import MANAGED_STARTUP_HEALTH_TIMEOUT_SEC
 
 
 class ManagedUpdateRecovery:
@@ -18,7 +19,7 @@ class ManagedUpdateRecovery:
         journal: UpdateTransactionJournal,
         launch_attempt_factory: Callable[[], LaunchAttemptId],
         now: Callable[[], str],
-        health_timeout_sec: float = 20.0,
+        health_timeout_sec: float = MANAGED_STARTUP_HEALTH_TIMEOUT_SEC,
     ) -> None:
         if health_timeout_sec <= 0:
             raise ValueError("managed recovery health budget must be positive")

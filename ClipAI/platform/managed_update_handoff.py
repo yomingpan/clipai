@@ -20,6 +20,10 @@ class HostProcess(Protocol):
 
 StartHostProcess = Callable[[Sequence[str], Mapping[str, str], Path], HostProcess]
 
+# Preparation includes four independently bounded 120-second offline commands,
+# plus signature verification, filesystem work, and scheduling allowance.
+HOST_PREPARATION_TIMEOUT_SEC = 600.0
+
 
 class SubprocessManagedUpdateHandoff:
     """Publish one request and await exact preparation evidence from a stable host."""
@@ -34,7 +38,7 @@ class SubprocessManagedUpdateHandoff:
         start_process: StartHostProcess = start_detached_process,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
-        timeout_sec: float = 20.0,
+        timeout_sec: float = HOST_PREPARATION_TIMEOUT_SEC,
         poll_interval_sec: float = 0.05,
     ) -> None:
         if timeout_sec <= 0 or poll_interval_sec <= 0:
@@ -70,15 +74,19 @@ class SubprocessManagedUpdateHandoff:
             raise ManagedUpdateFailure(FailureCode.HANDOFF_FAILED, "managed update host did not start") from exc
 
         deadline = self._monotonic() + self._timeout_sec
-        while self._monotonic() < deadline:
+        while True:
             if native_path(store.path("result")).is_file():
                 self._raise_terminal_result(store, request)
             if native_path(store.path("handoff_ready")).is_file():
                 return self._read_readiness(store, request)
             if process.poll() is not None:
                 raise ManagedUpdateFailure(FailureCode.HANDOFF_FAILED, "managed update host exited before readiness")
-            self._sleep(self._poll_interval_sec)
-        raise ManagedUpdateFailure(FailureCode.HANDOFF_TIMEOUT, "managed update handoff timed out")
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                raise ManagedUpdateFailure(FailureCode.HANDOFF_TIMEOUT, "managed update handoff timed out")
+            # Check published evidence once more at the deadline, including when
+            # preparation finishes during the final polling sleep.
+            self._sleep(min(self._poll_interval_sec, remaining))
 
     def _validate_runtime_files(self) -> None:
         if not all(native_path(path).is_file() for path in (

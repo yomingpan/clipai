@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 import threading
 
-from ClipAI.platform.managed_update_fs import canonical_path
+from ClipAI.platform.managed_update_fs import canonical_path, native_path, read_bytes, require_contained
 
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -26,6 +26,7 @@ class WindowsManagedProcessHandle:
         *,
         process_id: int,
         expected_executable: str | Path,
+        expected_runtime_executable: str | Path | None = None,
         open_process: Callable[[int, int], int] | None = None,
         query_image: Callable[[int], str] | None = None,
         wait_for_single_object: Callable[[int, int], int] | None = None,
@@ -53,7 +54,7 @@ class WindowsManagedProcessHandle:
         try:
             actual = canonical_path(query_image(handle))
             expected = canonical_path(expected_executable)
-            if actual != expected:
+            if actual != expected and not _matches_venv_runtime(expected, actual, expected_runtime_executable):
                 raise ManagedProcessIdentityError("installed process executable does not match request")
         except Exception:
             self.close()
@@ -84,6 +85,41 @@ class WindowsManagedProcessHandle:
 
     def __exit__(self, _type, _value, _traceback) -> None:
         self.close()
+
+
+def _matches_venv_runtime(expected: Path, actual: Path, runtime_executable: str | Path | None) -> bool:
+    """Admit the base image only through this version's explicit venv mapping."""
+    if runtime_executable is None:
+        return False
+    runtime = canonical_path(runtime_executable)
+    if (
+        actual != runtime
+        or expected.name.casefold() != "python.exe"
+        or runtime.name.casefold() != expected.name.casefold()
+        or expected.parent.name.casefold() != "scripts"
+        or expected.parent.parent.name != ".venv"
+    ):
+        return False
+    try:
+        venv_root = expected.parent.parent
+        config = require_contained(venv_root, venv_root / "pyvenv.cfg")
+        if not native_path(expected).is_file() or not native_path(runtime).is_file():
+            return False
+        values: dict[str, str] = {}
+        for line in read_bytes(config, maximum_size=16 * 1024).decode("utf-8").splitlines():
+            key, separator, value = line.partition("=")
+            key = key.strip().casefold()
+            if separator and key == "home":
+                if key in values:
+                    return False
+                values[key] = value.strip()
+        home = Path(values.get("home", ""))
+        if not home.is_absolute() or canonical_path(home) != runtime.parent:
+            return False
+        return True
+    except (OSError, ValueError, UnicodeError):
+        return False
+
 
 def _windows_process_functions():
     import ctypes

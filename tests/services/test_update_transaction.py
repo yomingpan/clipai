@@ -155,3 +155,20 @@ def test_typed_backend_failure_code_is_preserved(tmp_path: Path):
     )
     result = transaction.execute(_request(tmp_path))
     assert result.failure_code == FailureCode.SIGNATURE_INVALID
+
+
+def test_direct_transaction_default_accepts_30_second_startup(tmp_path: Path):
+    class SlowLifecycle(Lifecycle):
+        def await_health(self, launch, *, timeout_sec):
+            if timeout_sec < 30.0:
+                raise ManagedUpdateFailure(FailureCode.HEALTH_TIMEOUT, "startup needs 30 seconds")
+            return super().await_health(launch, timeout_sec=timeout_sec)
+
+    events = []
+    transaction = ManagedUpdateTransaction(
+        backend=Backend(tmp_path, events), lifecycle=SlowLifecycle(events), journal=Journal(events),
+        launch_attempt_factory=lambda: launch_attempt_id("attempt"), now=lambda: NOW,
+    )
+    result = transaction.execute(_request(tmp_path))
+    assert (result.outcome, result.active_version) == ("updated", "3.8.0")
+    assert "finalize" in events and "rollback" not in events
