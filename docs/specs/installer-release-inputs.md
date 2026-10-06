@@ -12,6 +12,14 @@ are superseded by [the migration ADR](sshsig-verifier-migration-3.7.18.md).
 Interoperability with r3 3.7.17 and the 3.7.18 validation bundle was actually proved;
 new bootstrap/native and final input admission remain pending.
 
+Follow-up: cryptography bootstrap and installed native imports passed actual
+Windows CI at f637065. The 230-file native review and supplemental runtime/vendor
+notice mapping are recorded in [the 3.7.18 component review](../evidence/third-party-notices-3.7.18-20261006.md).
+Fresh compiled proof must include all 46 pinned notices and corresponding source
+assets before approving inputs. The component table and host inventory below are
+historical 3.7.8 evidence; the migration and unsigned policy supersede their
+OpenSSH/signer rows. Clean VM and final device gates remain independent.
+
 The pinned Inno 6.7.3 package's `license.txt` permits use and redistribution,
 including commercial use, subject to notice/origin conditions. Its pinned SHA-256
 is `2e5346868c2a18434489824e11d65c3031620f792fefc415d05f19cd441abf5c`.

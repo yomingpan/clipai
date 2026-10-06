@@ -15,7 +15,7 @@ the admitted managed bundle, enforces the fixed verifier profile/version and
 extracts them into bootstrap. The runtime OpenSSH archive/EXE/DLL is removed from
 current Setup inputs, fetch and backend copying. Installed/isolated bootstrap
 smoke now imports native dependencies and verifies the actual signed manifest;
-remote execution of that new packaged proof remains pending.
+remote execution of that new packaged proof passed in the validation run below.
 
 ## Actual verification
 
@@ -48,3 +48,41 @@ checks, and both code/metadata now report 50.0.1. Project code/metadata report
 Next gates: new Windows matrix/candidate build and isolated bootstrap native
 imports, actual component/native/license review and any required notices, then
 official-mode/tag authority and final exact-hash device acceptance/publication.
+
+## Follow-up: actual Windows candidate at f637065
+
+Source: `f637065c0df6ea543b20938164297301eedc559f`.
+[Windows CI](https://github.com/yomingpan/clipai/actions/runs/37467548051) passed
+Python 3.10–3.13 unit/architecture checks.
+[Candidate CI](https://github.com/yomingpan/clipai/actions/runs/37467548213) passed
+all steps, including the new native bootstrap signature proof, offline installed
+imports, full transaction gate and compiled Setup extraction. Official authority
+admission was correctly skipped on this isolated branch.
+
+Downloaded artifact `11415718379`: 65,628,602 bytes, verified SHA-256
+`711e358d76de6e005c020ba26b9b88fc38667ad21c8683d7ec43447121e683e8`.
+Technical Setup: 40,560,101 bytes, SHA-256
+`dd4bd8e9526c49448d978cdba41745c0b147c7bc45a9f75a8102650d358bf688`;
+actual native inspection returned `NotSigned` with null publisher/timestamp.
+Bundle: 24,455,784 bytes, SHA-256
+`02da0d2979a6f536a1ac31bfdae08efece9e99d442db476899711485235c74f9`.
+Packaged imports were under the installed venv, including cryptography/cffi/
+pycparser and `_cffi_backend.cp312-win_amd64.pyd`; editable import was false.
+
+Read-only native review of that exact runtime/wheel set examined **230** files:
+125 `NotSigned`, 105 `Valid`, no damaged/untrusted/unknown signature status.
+Original third-party bytes were retained. Detailed file hashes and publisher
+subjects: `artifacts/official-release-3.7.18/crypto-native-review/native-review.json`.
+This is native inventory evidence, not clean VM or user acceptance.
+
+Matching upstream full runtime licensing archive: 43,477,314 bytes, SHA-256
+`b7cf8be5cd5222d1e456fbf71257efe558d84fe092757b6892c16584e5df01c2`.
+Its `PYTHON.json` identifies 3.12.14 / x86_64-pc-windows-msvc / vcruntime:140;
+the actual selected runtime reports OpenSSL **3.5.8 (25 Aug 2026)**. Required
+runtime license texts and build metadata are being supplemented into pinned
+bootstrap notices. The stripped archive omitted most separate upstream licenses.
+Pygame's LGPL filename was also missed by the former basename filter; its exact
+2.5.3 source SHA-256 is
+`dc04f0bf1a270a84eb371556298a9902b9c4ab08137c9dd10ef03fa4e7fcbfed`.
+Notice inclusion/integrity changes have 90 targeted/architecture/workflow passes
+so far. Final supplemental notice completeness and fresh packaging remain pending.

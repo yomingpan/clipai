@@ -1,0 +1,20 @@
+ClipAI 3.7.18 bundles unmodified upstream Python packages and a private CPython
+runtime. Their licenses and notices are preserved in the installed environment
+and in setup-engine/third-party-notices. These licenses apply to the respective
+third-party components and do not assign a license to ClipAI itself.
+
+The Pygame-CE / SDL font components use the FreeType Project (www.freetype.org)
+and HarfBuzz. FreeType is used under the FreeType License; its copyright,
+permission notice and disclaimer are included alongside the other font notices.
+
+The unmodified Pygame-CE 2.5.3 corresponding source archive is supplied with this
+release. Pygame-CE is LGPL-2.1-or-later. The pure-Python LGPL components edge-tts,
+pynput and pystray include their source code in the supplied wheels. Their
+copyright and license texts are retained. The packaged Python environment uses
+separate upstream modules and libraries; this distribution imposes no additional
+restriction on replacement, modification, or debugging of those LGPL libraries.
+
+Runtime, dependency-wheel and native-file identities are recorded in the release
+provenance. Source locations and supplemental notice hashes are pinned in the
+setup input manifest. Original third-party native bytes are preserved, including
+any upstream signatures. The ClipAI Windows installer itself is unsigned.

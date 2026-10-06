@@ -91,6 +91,10 @@ def test_validation_branch_cannot_read_official_signing_secret_or_publish() -> N
     assert '"local-validation-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"' in ephemeral["run"]
     assert sum("--payload-root" in step.get("run", "") for step in steps) == 1
     assert sum("--bundle " in step.get("run", "") and "build_setup_release" in step.get("run", "") for step in steps) == 1
+    package = next(step for step in steps if "build_setup_release" in step.get("run", ""))
+    assert '$mode = if ($env:GITHUB_REF_TYPE -eq "branch") { @("--technical-candidate") } else { @() }' in package["run"]
+    assert '--source-commit $commit @mode' in package["run"]
+    assert 'Copy-Item -LiteralPath release/bootstrap/sources -Destination release/setup/output/sources -Recurse' in package["run"]
     cleanup = steps[-1]
     assert cleanup["if"] == "always()"
     assert "signing-key.pub" in cleanup["run"]

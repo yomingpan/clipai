@@ -37,10 +37,14 @@ def build_request(tmp_path, monkeypatch):
     compiler.write_bytes(b"compiler fixture")
     (compiler.parent / "license.txt").write_bytes(b"license")
     inputs = tmp_path / "inputs.json"
+    notice = tmp_path / "third-party-notices/dependency-LICENSE.txt"
+    notice.parent.mkdir()
+    notice.write_bytes(b"upstream notice fixture")
     inputs.write_text(json.dumps({"platform": "windows-x64", "python_abi": "cp312",
         "distribution_admission": "approved", "runtime": {**identity(runtime), "runtime_version": "3.12.14"},
         "verifier": {"profile": "cryptography-ed25519-sshsig-v1", "version": "50.0.2"},
-        "compiler": {"files": {"ISCC.exe": identity(compiler)}}}))
+        "compiler": {"files": {"ISCC.exe": identity(compiler)}},
+        "additional_notices": {"dependency-LICENSE.txt": identity(notice)}}))
     payload = tmp_path / "payload"
     payload.mkdir()
     (payload / "main.py").write_bytes(b"entry fixture")
@@ -93,6 +97,7 @@ def test_setup_consumes_identical_bundle_and_wheel_bootstrap(build_request):
     assert proof["bundle"] == identity(build_request.bundle)
     assert proof["release_ready"] is False
     assert proof["setup"]["sha256"] == file_sha256(setup)
+    assert (root / "stage/setup-engine/third-party-notices/dependency-LICENSE.txt").read_bytes() == b"upstream notice fixture"
     assert not (root / "stage/tools/ssh-keygen.exe").exists()
     for dependency in ("cryptography", "cffi", "pycparser"):
         assert (root / f"stage/setup-engine/{dependency}/__init__.py").read_bytes() == b"verifier fixture"
@@ -105,6 +110,18 @@ def test_unrecognized_verifier_profile_cannot_be_shipped(build_request):
     with pytest.raises(ValueError, match="verifier input"):
         SetupReleaseBuilder(environment={}).build(build_request)
     assert not build_request.output_root.exists()
+
+
+def test_changed_pinned_notice_blocks_packaging_before_execution(build_request):
+    (build_request.inputs.parent / "third-party-notices/dependency-LICENSE.txt").write_bytes(b"substituted")
+    with pytest.raises(ValueError, match="identity mismatch"):
+        SetupReleaseBuilder(environment={}).build(build_request)
+    assert not build_request.output_root.exists()
+
+
+@pytest.mark.parametrize("name", ["pygame/docs/generated/LGPL.txt", "python/tcl/tk8.6/license.terms", "vendor/licenses/SDL.txt"])
+def test_upstream_notice_locations_are_recognized(name):
+    assert module._notice_name(name)
 
 
 @pytest.mark.parametrize("field", ["bundle_sha256", "manifest_sha256", "version", "bundle_size"])
@@ -174,6 +191,26 @@ def candidate_assets(build_request, *, technical=False):
 def test_complete_candidate_passes_asset_check(build_request):
     from scripts.verify_release_assets import verify
     assert verify(candidate_assets(build_request))["release_ready"] is False
+
+
+@pytest.mark.parametrize("change", ["none", "missing", "substituted"])
+def test_corresponding_source_bytes_are_required_in_release_assets(build_request, change):
+    from scripts.verify_release_assets import verify
+    source = build_request.inputs.parent / "dependency-source.tar.gz"
+    source.write_bytes(b"corresponding source fixture")
+    inputs = json.loads(build_request.inputs.read_text())
+    inputs["corresponding_sources"] = {"dependency": {"filename": source.name, **identity(source)}}
+    build_request.inputs.write_text(json.dumps(inputs))
+    assets = candidate_assets(build_request)
+    (assets / "sources").mkdir()
+    target = assets / "sources" / source.name
+    if change != "missing":
+        target.write_bytes(source.read_bytes() if change == "none" else b"substituted")
+    if change == "none":
+        assert verify(assets)["status"] == "passed"
+    else:
+        with pytest.raises((ValueError, FileNotFoundError)):
+            verify(assets)
 
 
 @pytest.mark.parametrize("asset", ["setup", "bundle", "catalog.json", "managed-update-trusted-keys.json", "packaged-smoke.json", "setup-extraction.json"])

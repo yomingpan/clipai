@@ -159,10 +159,11 @@ jobs:
       - name: Fetch pinned Setup inputs and compiler
         run: python -m scripts.fetch_setup_inputs --inputs packaging/windows/setup-inputs.json --output release/bootstrap --install-compiler
 
-      - name: Package the same managed bundle into isolated technical Setup
+      - name: Package the same managed bundle with ref-scoped product identity
         shell: pwsh
         run: |
           $commit = git rev-parse HEAD
+          $mode = if ($env:GITHUB_REF_TYPE -eq "branch") { @("--technical-candidate") } else { @() }
           python -m scripts.build_setup_release `
             --bundle "release/assets/clipai-managed-$env:CLIPAI_VERSION.zip" `
             --catalog release/assets/catalog.json `
@@ -171,7 +172,9 @@ jobs:
             --runtime-archive release/bootstrap/runtime.archive `
             --compiler release/bootstrap/compiler/ISCC.exe `
             --output-root release/setup `
-            --tag $env:CLIPAI_TAG --source-commit $commit --technical-candidate
+            --tag $env:CLIPAI_TAG --source-commit $commit @mode
+          if ($LASTEXITCODE -ne 0) { throw "Setup packaging failed" }
+          Copy-Item -LiteralPath release/bootstrap/sources -Destination release/setup/output/sources -Recurse
 
       - name: Prove installed-wheel imports and compiled Setup payload
         shell: pwsh

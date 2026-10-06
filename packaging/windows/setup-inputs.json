@@ -17,6 +17,238 @@
     "profile": "cryptography-ed25519-sshsig-v1",
     "version": "50.0.2"
   },
+  "additional_notices": {
+    "proxy-tools-0.1.0-LICENSE.txt": {
+      "size": 1437,
+      "sha256": "f96cf2b17c9b0cede77438165fdc6ea2f91bedb248d1779538727a2b93d71e12",
+      "source": "https://github.com/jtushman/proxy_tools/blob/ccd35a569b95bec271a59890780c7821756c548a/LICENSE.txt"
+    },
+    "runtime/LICENSE.cpython.txt": {
+      "size": 36935,
+      "sha256": "8fe98bf9822926d854f56ffd8d97877d8b942617aa44eb7ea77fd99e22f2537e",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.cpython.txt"
+    },
+    "runtime/LICENSE.bzip2.txt": {
+      "size": 1780,
+      "sha256": "bd5628cc76fb0ebf9c657d1dd4d1a240a1a7b216c31663e7bbf1131c0b70a910",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.bzip2.txt"
+    },
+    "runtime/LICENSE.expat.txt": {
+      "size": 1165,
+      "sha256": "8a9cfe4b5924f4b25881aa0c9f5e4561c5f31065d0c4a13cdcdbcf917edf39aa",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.expat.txt"
+    },
+    "runtime/LICENSE.libffi.txt": {
+      "size": 1153,
+      "sha256": "9afb8970cd29fc1031fa647278e4bef613399e2e3468a1e3a397f4d158c6101c",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.libffi.txt"
+    },
+    "runtime/LICENSE.liblzma.txt": {
+      "size": 673,
+      "sha256": "d87d218dd908b3243ec4cbc72af400e5b7437513ea9d9229291d0812b8464fec",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.liblzma.txt"
+    },
+    "runtime/LICENSE.libuuid.txt": {
+      "size": 1459,
+      "sha256": "cbccaa3efe07a9a602751375085be572d4410a250b996716fbe8c5255c7ec6f2",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.libuuid.txt"
+    },
+    "runtime/LICENSE.mpdecimal.txt": {
+      "size": 1308,
+      "sha256": "f094277cd46e1f6e4d87916cc4b51e22f613d45eb81f48231c3cb7caf8fc8a6a",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.mpdecimal.txt"
+    },
+    "runtime/LICENSE.openssl-3.txt": {
+      "size": 10352,
+      "sha256": "ed72ce2b51ee58f117e5a021e2e04af158857f40269fbc03491f0b2a99dbcc96",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.openssl-3.txt"
+    },
+    "runtime/LICENSE.sqlite.txt": {
+      "size": 1504,
+      "sha256": "d8eb9aba7ef6b5ed06cb3ec19a7242316af2e5933c638eb67fb781c13884e01d",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.sqlite.txt"
+    },
+    "runtime/LICENSE.tcl.txt": {
+      "size": 2295,
+      "sha256": "41613eabfc08921a7da9c4bfd7f3ce5d5406f55214b253d89f392ed86eebeb8f",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.tcl.txt"
+    },
+    "runtime/LICENSE.tix.txt": {
+      "size": 2880,
+      "sha256": "8cdff3addb9e9eb108c78e2cf5e05f26b216c098304945733bbec382b2eaef66",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.tix.txt"
+    },
+    "runtime/LICENSE.zlib.txt": {
+      "size": 1016,
+      "sha256": "365e36720db366054863235aea5d6f440142ab968834bfaf81fa9d187c99b9b8",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.zlib.txt"
+    },
+    "runtime/PYTHON.NOTICE.json": {
+      "size": 62407,
+      "sha256": "87c784e89df8e0cbea2986cff27bd2d6be3fb522000c441f48fda16310ebd520",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/PYTHON.json"
+    },
+    "pygame-ce-2.5.3/LGPL.txt": {
+      "size": 26430,
+      "sha256": "a190dc9c8043755d90f8b0a75fa66b9e42d4af4c980bf5ddc633f0124db3cee7",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/LGPL.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.FLAC.txt": {
+      "size": 1522,
+      "sha256": "349b7bdbf2de10e1303fc3e8aa81f944fd2832fe40270e1b805e20b1b131187c",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.FLAC.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.fluidsynth.txt": {
+      "size": 26461,
+      "sha256": "9b872a8a070b8ad329c4bd380fb1bf0000f564c75023ec8e1e6803f15364b9e9",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.fluidsynth.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.freetype.txt": {
+      "size": 6912,
+      "sha256": "650737ec7589c35600de73b0db88dafb314f7e32e7e3cf38d0c87ceb1a7ed31b",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.freetype.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.jpeg.txt": {
+      "size": 3021,
+      "sha256": "2899a194cc43af0cfbeff33cdecfad20de8bbf784155b0cd0217d27c37609a28",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.jpeg.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.modplug.txt": {
+      "size": 59,
+      "sha256": "b64d05522976d26e870bfbbf701e5a89cc5e2ab8fbde677e24f07ddaf0dac7c1",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.modplug.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.mpg123.txt": {
+      "size": 41488,
+      "sha256": "892cd7e1c0b23374c8a82c244f64c30297c1feada0143cfdd9f6a25f445b0dd6",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.mpg123.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.numpy.txt": {
+      "size": 1543,
+      "sha256": "faaa516b85dbf609b0296918d61924e3145c9d2b8d91ea5be93e7ba073a78aa1",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.numpy.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.ogg-vorbis.txt": {
+      "size": 1498,
+      "sha256": "776b6f6ab87afa263d534ad4061b6180149de0fed90e2e18e1592992922327ce",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.ogg-vorbis.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.opus.txt": {
+      "size": 1972,
+      "sha256": "fde149f902d124a8c02a218527c440ee2fab6884323f180061b1405fb06af60e",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.opus.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.opusfile.txt": {
+      "size": 1515,
+      "sha256": "54e125c8250361407b34322e0f328f6bdf7fd30cd4f2941a321e47b41f9c159d",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.opusfile.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.png.txt": {
+      "size": 5479,
+      "sha256": "0ad3bfee8be10e5519949e7af492e36bc349376b75fbeb412229a5967e3e9434",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.png.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.portmidi.txt": {
+      "size": 11342,
+      "sha256": "eb5d0724b2ae76a94ae804c44b3d6cfaaca822b7d42907aefa9256cb93db6fe0",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.portmidi.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.sdl2.txt": {
+      "size": 930,
+      "sha256": "ae4df3759a726538607b84c00ab8f8a5567d9f38ad5397486eb9b5c5f626caef",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.sdl2.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.sdl2_image.txt": {
+      "size": 996,
+      "sha256": "45079362e2230154205413a6940544ca94e3479ccf76205c71c4f542a6815d25",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.sdl2_image.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.sdl2_mixer.txt": {
+      "size": 994,
+      "sha256": "113727180e7956cb9718b03b41da85b63ea54743a33047071a623bf672895a10",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.sdl2_mixer.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.sdl_gfx.txt": {
+      "size": 191,
+      "sha256": "63744690fa28ecf2a9dedacafb08d1209031e7eff1820430d952264f678a1bcf",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.sdl_gfx.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.sse2neon-h.txt": {
+      "size": 1832,
+      "sha256": "ada11c843d252c0b70837629ac7a54a525ecb7d8c0932ebccf863c55dbd32cb1",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.sse2neon-h.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.tiff.txt": {
+      "size": 1160,
+      "sha256": "8eeab3915f97f6f7b62a8008bf77e7ac3bfbb034b04d93cd63aafa10b2dd6614",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.tiff.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.webp.txt": {
+      "size": 1526,
+      "sha256": "17c029a902ad45a199dfe8e3a1c39305ab28d302b0703360c4a27351a4673dcb",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.webp.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.zlib.txt": {
+      "size": 1562,
+      "sha256": "31010e0bc26df3001c7bb3c1b7a7094a8972bf6d37a5d0c59d3d3c98fbfaf463",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.zlib.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_ttf-LICENSE.txt": {
+      "size": 878,
+      "sha256": "7826eca0a0f7e591f38dd844e207a200aac81a59b20d8a30c3af8c6282af13e6",
+      "source": "https://github.com/libsdl-org/SDL_ttf/releases/download/release-2.24.0/SDL2_ttf-devel-2.24.0-VC.zip#SDL2_ttf-2.24.0/LICENSE.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.opusfile.txt": {
+      "size": 1649,
+      "sha256": "15c55f8c6a88ef9ee9a18ada9dbb2459bebaaf2527c91159fc23818f275f32b2",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/lib/x64/optional/LICENSE.opusfile.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.xmp.txt": {
+      "size": 1132,
+      "sha256": "f3d26f4ea4cd56a6039281a3ec3affca05a36393e8e923b8e676c967a7d34ebb",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/lib/x64/optional/LICENSE.xmp.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.opus.txt": {
+      "size": 2106,
+      "sha256": "113738704d44ece5a62519426b4c661e44b94a7e0d38e2207f321175478c264d",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/lib/x64/optional/LICENSE.opus.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.ogg-vorbis.txt": {
+      "size": 1632,
+      "sha256": "dd292660913d2052c8405bf634e8386908654b4abe60334b721d71de700b3210",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/lib/x64/optional/LICENSE.ogg-vorbis.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.wavpack.txt": {
+      "size": 1582,
+      "sha256": "c580b15e1391e59164d17c642df7019cb11946ab89281b5d781b43c732d4bf97",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/lib/x64/optional/LICENSE.wavpack.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.txt": {
+      "size": 878,
+      "sha256": "a0e8ce06504966e45088ee1cc7583cc8af9aac615d4cf56d47d847da9cb15139",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/LICENSE.txt"
+    },
+    "pygame-ce-2.5.3/libxmp-LICENSE.txt": {
+      "size": 3102,
+      "sha256": "6e56b579aff6d27fb16d68158fadf235c52e1cf85f17109be16d217ea5c12baf",
+      "source": "https://github.com/libsdl-org/libxmp/blob/f59573ed254d2c5a5b02bac2d2b09a4496d5d6fc/README"
+    },
+    "pygame-ce-2.5.3/wavpack-LICENSE.txt": {
+      "size": 1557,
+      "sha256": "275d65ec11a78d552d078b9c26d950e3075892bca895a415ceaaec33bcfabff9",
+      "source": "https://github.com/libsdl-org/WavPack/blob/413bcf497a174657d4bd1f857c0ecd27dfb68317/COPYING"
+    },
+    "pygame-ce-2.5.3/harfbuzz-LICENSE.txt": {
+      "size": 1971,
+      "sha256": "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64",
+      "source": "https://github.com/libsdl-org/harfbuzz/blob/e18e66409d0136cc8f8b05aac791f84314520676/COPYING"
+    },
+    "THIRD-PARTY-NOTICE.txt": {
+      "size": 1339,
+      "sha256": "4790add893461276113a62fb16d8dc310aba163e332d28eaa40fe64cb7f4797b",
+      "source": "ClipAI release component attribution"
+    }
+  },
   "compiler": {
     "version": "6.7.3",
     "url": "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe",
@@ -337,5 +569,33 @@
       }
     },
     "upstream_publisher": "CN=Pyrsys B.V., O=Pyrsys B.V., S=Noord-Holland, C=NL"
+  },
+  "runtime_notice_source": {
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst",
+    "size": 43477314,
+    "sha256": "b7cf8be5cd5222d1e456fbf71257efe558d84fe092757b6892c16584e5df01c2",
+    "purpose": "matching build metadata and license texts; not installed runtime"
+  },
+  "corresponding_sources": {
+    "pygame-ce-2.5.3": {
+      "filename": "pygame_ce-2.5.3.tar.gz",
+      "size": 6987675,
+      "url": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz",
+      "sha256": "dc04f0bf1a270a84eb371556298a9902b9c4ab08137c9dd10ef03fa4e7fcbfed"
+    }
+  },
+  "pygame_native_notice_sources": {
+    "SDL2_ttf-devel-2.24.0-VC.zip": {
+      "url": "https://github.com/libsdl-org/SDL_ttf/releases/download/release-2.24.0/SDL2_ttf-devel-2.24.0-VC.zip",
+      "size": 11640089,
+      "sha256": "2dea8ea01e04756ead27e196a681034ed71342562a75b512ea279fcdfde83307",
+      "purpose": "license provenance; shipped DLL hashes match x64 SDK bytes"
+    },
+    "SDL2_mixer-devel-2.8.0-VC.zip": {
+      "url": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip",
+      "size": 1991107,
+      "sha256": "47a5713937f8d8b903a9c5555fef3ec73a793ef95abdd078773fc11fcb00ec8a",
+      "purpose": "license provenance; shipped DLL hashes match x64 SDK bytes"
+    }
   }
 }

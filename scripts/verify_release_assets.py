@@ -78,6 +78,12 @@ def verify(assets: Path, *, require_release_ready: bool = False,
                 raise ValueError("wheel substitution")
     if not (assets / "notices").is_dir() or not any((assets / "notices").rglob("*")):
         raise ValueError("component notices are missing")
+    for source in proof["inputs"].get("corresponding_sources", {}).values():
+        filename = source["filename"]
+        if (not filename or Path(filename).name != filename
+                or filename in (".", "..") or "\\" in filename or ":" in filename):
+            raise ValueError("unsafe corresponding source filename")
+        _matches(assets / "sources" / filename, source)
     smoke = json.loads((assets / "packaged-smoke.json").read_text())
     extraction = json.loads((assets / "setup-extraction.json").read_text())
     for evidence in (smoke, extraction):

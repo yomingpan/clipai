@@ -11,11 +11,19 @@ from ClipAI.platform.managed_update_fs import file_sha256
 def fetch(inputs: Path, output: Path, *, install_compiler: bool = False) -> None:
     data = json.loads(inputs.read_text(encoding="utf-8"))
     output.mkdir(parents=True, exist_ok=False)
-    for component, filename in (("runtime", "runtime.archive"), ("compiler", "compiler-installer.exe")):
-        expected = data[component]
+    downloads = [("runtime.archive", data["runtime"]),
+                 ("compiler-installer.exe", data["compiler"])]
+    for expected in data.get("corresponding_sources", {}).values():
+        filename = expected["filename"]
+        if (not filename or Path(filename).name != filename
+                or filename in (".", "..") or "\\" in filename or ":" in filename):
+            raise ValueError("unsafe corresponding source filename")
+        downloads.append(("sources/" + filename, expected))
+    for filename, expected in downloads:
         if not expected["url"].startswith("https://"):
             raise ValueError("pinned inputs require HTTPS")
         target = output / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
         with urllib.request.urlopen(expected["url"], timeout=30) as source, target.open("xb") as destination:
             if not source.url.startswith("https://"):
                 raise ValueError("bootstrap download redirected outside HTTPS")

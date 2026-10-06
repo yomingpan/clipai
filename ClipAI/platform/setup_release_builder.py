@@ -116,6 +116,14 @@ class SetupReleaseBuilder:
             if relative.is_absolute() or ".." in relative.parts or "\\" in name or ":" in name:
                 raise ValueError("unsafe compiler input path")
             _require_identity(request.compiler.parent.joinpath(*relative.parts), identity)
+        additional_notices = {}
+        for name, identity in inputs.get("additional_notices", {}).items():
+            relative = PurePosixPath(name)
+            if relative.is_absolute() or ".." in relative.parts or "\\" in name or ":" in name:
+                raise ValueError("unsafe notice input path")
+            source = request.inputs.parent.joinpath("third-party-notices", *relative.parts)
+            _require_identity(source, identity)
+            additional_notices[name] = source
         root = request.output_root.resolve()
         root.mkdir(parents=True, exist_ok=False)
         frozen_wizard = root / "setup.iss"
@@ -156,6 +164,10 @@ class SetupReleaseBuilder:
         engine.mkdir()
         for wheel in selected.values():
             extract_prefixed_zip(wheel, engine, prefix="", maximum_uncompressed_size=64 * 1024 * 1024)
+        for name, source in additional_notices.items():
+            target = engine / "third-party-notices" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
         shutil.copyfile(engine / "ClipAI/ui/assets/clipai.ico", engine / "clipai.ico")
         shutil.copyfile(request.keyring, engine / "managed-update-trusted-keys.json")
         shutil.copyfile(admitted_archive, stage / "bundle.zip")
@@ -174,14 +186,14 @@ class SetupReleaseBuilder:
         notices.mkdir(parents=True)
         for component, component_root in (("runtime", stage / "runtime"), ("bootstrap", engine)):
             for name in regular_file_inventory(component_root):
-                if any(token in Path(name).name.lower() for token in ("license", "notice", "copying")):
+                if _notice_name(name):
                     target = notices / component / name
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(component_root / name, target)
         for wheel in wheels:
             with ZipFile(wheel) as archive:
                 for name in archive.namelist():
-                    if any(token in PurePosixPath(name).name.lower() for token in ("license", "notice", "copying")) and not name.endswith("/"):
+                    if _notice_name(name) and not name.endswith("/"):
                         path = PurePosixPath(name)
                         if path.is_absolute() or ".." in path.parts or "\\" in name or ":" in name:
                             raise ValueError("unsafe wheel notice path")
@@ -220,6 +232,12 @@ class SetupReleaseBuilder:
         shutil.copyfile(request.keyring, root / "output/managed-update-trusted-keys.json")
         shutil.copyfile(stage / "bundle.zip", root / "output" / f"clipai-managed-{release.version}.zip")
         return setup
+
+
+def _notice_name(name: str) -> bool:
+    path = PurePosixPath(name.lower())
+    return any(part in ("licenses", "licences", "notices") for part in path.parts) or any(token in path.name for token in
+               ("license", "licence", "notice", "copying", "copyright", "lgpl", "gpl", "terms"))
 
 
 def _environment(environment: Mapping[str, str]) -> dict[str, str]:
