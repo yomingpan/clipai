@@ -185,8 +185,6 @@ end;
 
 procedure EngineOutput(const S: String; const Error, FirstLine: Boolean);
 begin
-  // Temporary content-free release-runner diagnostic; no UI state changes.
-  if Pos('[DEBUG-shortcut-3718]', S) = 1 then Log(S);
   if (not Error) and (Pos('CLIPAI_PHASE:', S) = 1) then begin
     LastPhase := S;
     Log(S);
