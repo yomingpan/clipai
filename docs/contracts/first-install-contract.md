@@ -145,6 +145,19 @@ exit and removes only that exact, generated helper directory before showing
 success. Cleanup failure is visible; it never terminates a user process or
 sweeps other temporary directories. Clean-VM self-removal remains pending.
 
+The quiet helper projects the existing coordinator's terminal `UninstallSnapshot`
+into `maintenance-result.json` only when explicitly launched with
+`--maintenance-result`. The freshly generated helper owns that result path;
+the supervisor accepts a regular, non-redirected file of at most 1 KiB with
+schema version 1, terminal phase and bounded exception-class code only.
+No raw subprocess output, traceback, credentials or user content is persisted.
+Worker exit code and terminal phase must both prove removal before success,
+and exact-helper cleanup must also finish. Busy removal, other removal failure
+and helper cleanup failure have distinct terminal feedback. A missing,
+malformed or contradictory projection fails closed. A busy result with successful
+helper cleanup must not claim cleanup failed; ask the user to exit the tray and
+close remaining startup error windows. The idle gate is never bypassed.
+
 Both Setup and Windows/Start Menu removal offer keep-data (default) and
 full-removal choices. Full removal explicitly warns that settings, API keys,
 history, logs, caches and custom ClipAI content are permanently deleted and

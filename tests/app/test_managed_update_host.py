@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from ClipAI.app.managed_update_host import ManagedUpdateHostExecutor
-from ClipAI.core.managed_update import FailureCode, TransactionPhase, TransactionSnapshot, launch_attempt_id, transaction_id
+from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure, TransactionPhase, TransactionSnapshot, launch_attempt_id, transaction_id
 from ClipAI.core.managed_update_commands import HostManagedCommand
 from ClipAI.core.update_artifacts import UpdateRequestArtifact
 from ClipAI.core.update_ports import CandidateEnvironment
@@ -166,8 +166,9 @@ def test_host_executes_verified_transaction_and_publishes_updated_result(tmp_pat
     installed_processes: list[_InstalledProcess] = []
     lease = _Lease()
 
-    def open_installed_process(*, process_id, expected_executable):
+    def open_installed_process(*, process_id, expected_executable, expected_runtime_executable):
         assert (process_id, expected_executable) == (1234, request.installed_executable)
+        assert expected_runtime_executable == command.base_python
         process = _InstalledProcess(request)
         installed_processes.append(process)
         return process
@@ -320,3 +321,55 @@ def test_restarted_host_recovers_committed_pointer_without_reopening_dead_instal
         "rolled_back", "1.0", FailureCode.UPDATE_INTERRUPTED,
     )
     assert read_json(request.install_root / "install-state.json")["current_version"] == "1.0"
+
+
+def test_host_rejects_unproven_logical_install_before_opening_runtime_image(tmp_path: Path):
+    command, request = _write_request(tmp_path)
+    state_path = request.install_root / "install-state.json"
+    state = read_json(state_path)
+    state["managed_install_id"] = "different-install"
+    atomic_write_json(state_path, state)
+    lease = _Lease()
+    opened = []
+
+    def must_not_open(**kwargs):
+        opened.append(kwargs)
+        raise AssertionError("unproven installation must not open a process")
+
+    executor = ManagedUpdateHostExecutor(
+        manifest_verifier=_Verifier(), candidate_builder=_CandidateBuilder(),
+        environment={}, now=lambda: NOW,
+        launch_attempt_factory=lambda: launch_attempt_id("attempt-never"),
+        process_handle_factory=must_not_open,
+        update_gate_factory=lambda _root: _FreeGate(lease),
+    )
+    assert executor.execute(command) == 1
+    assert opened == [] and lease.closed
+    store = ManagedUpdateArtifactStore(shared_root=request.shared_root, transaction_id=str(request.transaction_id))
+    result = store.read("result")
+    assert result.failure_code is FailureCode.IDENTITY_INELIGIBLE
+    assert not store.path("handoff_ready").exists()
+    assert read_json(state_path) == state
+
+
+def test_host_preserves_signature_failure_before_runtime_image_admission(tmp_path: Path):
+    command, request = _write_request(tmp_path)
+    lease = _Lease()
+
+    class RejectedManifest:
+        def verify(self, *args, **kwargs):
+            raise ManagedUpdateFailure(FailureCode.SIGNATURE_INVALID, "signature rejected")
+
+    def must_not_open(**kwargs):
+        raise AssertionError("untrusted version must not open a process")
+
+    executor = ManagedUpdateHostExecutor(
+        manifest_verifier=RejectedManifest(), candidate_builder=_CandidateBuilder(),
+        environment={}, now=lambda: NOW,
+        launch_attempt_factory=lambda: launch_attempt_id("attempt-never"),
+        process_handle_factory=must_not_open,
+        update_gate_factory=lambda _root: _FreeGate(lease),
+    )
+    assert executor.execute(command) == 1
+    result = ManagedUpdateArtifactStore(shared_root=request.shared_root, transaction_id=str(request.transaction_id)).read("result")
+    assert result.failure_code is FailureCode.SIGNATURE_INVALID and lease.closed

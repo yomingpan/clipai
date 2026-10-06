@@ -26,7 +26,7 @@ from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.app.provider_execution import ProviderExecutionModule
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActionFeedbackCompleted, ActionLanguagePackSelectionCompleted, ActivateWorkflow, ArchiveResult, CancelSession, CancelVoiceCapture, CloseAbout, CloseEntryPanel, ClosePersonalStyles, CloseProviderSettings, CloseSession, CloseShortcutGuide, ContextualSourceCaptured, ContextualSourceCaptureFailed, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, DisableVoiceInput, EnableVoiceInput, EntryPanelActionSelected, EntryPanelBack, EntryPanelDensityPreferencesCompleted, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelInputPreparationProgress, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, ExportDiagnostics, ExternalForegroundChanged, FollowUp, GuidancePreferencesCompleted, ImportPersonalStyle, InterruptionRequested, InterruptAll, InterruptCurrent, NavigateWorkflowBack, OpenAbout, OpenContextualQuestion, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenUnifiedEntryPanel, OpenVoicePermissionSettings, OpenVoiceSetup, PasteOperationCompleted, PasteResult, PersonalStyleOperationCompleted, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, RetryEntryPanelInput, UseEntryPanelClipboard, RetryVoiceInputSetup, SelectActionLanguagePack, SelectPersonalStyle, SelectProvider, SelectProviderModel, SelectShortcutGuideItem, SetEntryPanelDensity, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShutdownApplication, SpeakSelectionOrClipboard, SpeechSpeedPreferencesCompleted, StartAction, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, ValidateAndSaveProviderSettings, VoiceCaptureCountdownTick, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired, WorkflowAttentionCompleted, WorkflowStepAccepted
 from ClipAI.core.commands import OpenGitHub
-from ClipAI.core.commands import CheckForManagedUpdate, ManagedUpdateCheckCompleted
+from ClipAI.core.commands import CheckForManagedUpdate, ManagedUpdateCheckCompleted, ManagedUpdatePreparationProgress
 from ClipAI.core.models import ControlSurfaceRef, InterruptionPlan, ShortcutObservationSnapshot
 from ClipAI.core.ports import ApplicationView, ForegroundWindowMonitor, OperationTracker, RuntimeComponent, ShortcutInput, ShortcutObservationLease
 from ClipAI.services.provider_configuration import ProviderConfigurationResult
@@ -178,6 +178,7 @@ class AppRuntime:
             return
         self._stopping = True
         teardown = [
+            self._managed_update_module.stop if self._managed_update_module is not None else None,
             self._foreground_monitor.stop if self._foreground_monitor is not None else None,
             self._workflow_module.stop,
             self._entry_panel_module.stop if self._entry_panel_module is not None else None,
@@ -316,7 +317,7 @@ class AppRuntime:
             self._view.show_about()
         elif isinstance(command, CloseAbout):
             self._view.close_about()
-        elif isinstance(command, (CheckForManagedUpdate, ManagedUpdateCheckCompleted)):
+        elif isinstance(command, (CheckForManagedUpdate, ManagedUpdateCheckCompleted, ManagedUpdatePreparationProgress)):
             if self._managed_update_module is not None:
                 self._managed_update_module.handle(cast(ManagedUpdateRuntimeCommand, command))
         elif isinstance(command, OpenGitHub):
