@@ -6,6 +6,7 @@ from ClipAI.core.managed_install import ManagedUpdateClientIdentity
 from ClipAI.core.managed_update import TransactionId
 from ClipAI.core.update_artifacts import HandoffReadyArtifact
 from ClipAI.core.update_ports import ManagedUpdateHandoff
+from ClipAI.core.update_preparation import ManagedUpdatePreparation
 from ClipAI.services.managed_update_coordinator import ManagedUpdateCoordinator
 
 
@@ -27,10 +28,17 @@ class ManagedUpdateHandoffExecutor:
         self,
         identity: ManagedUpdateClientIdentity,
         transaction_id: TransactionId,
+        *,
+        preparation: ManagedUpdatePreparation | None = None,
     ) -> HandoffReadyArtifact | None:
-        request = self._coordinator.prepare(identity, transaction_id)
+        preparation = preparation or ManagedUpdatePreparation()
+        preparation.check_cancelled()
+        request = self._coordinator.prepare(identity, transaction_id, preparation=preparation)
+        preparation.check_cancelled()
         if request is None:
             return None
+        preparation.report_phase("preparing")
+        preparation.check_cancelled()
         readiness = self._handoff.prepare(request)
         self._request_shutdown()
         return readiness

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure
+from ClipAI.core.update_preparation import ManagedUpdatePreparation
 from ClipAI.platform.managed_update_fs import ManagedUpdateFileError, atomic_write_verified_chunks
 from ClipAI.platform.update_catalog import MAX_BUNDLE_SIZE
 
@@ -15,6 +17,7 @@ from ClipAI.platform.update_catalog import MAX_BUNDLE_SIZE
 MAX_CATALOG_SIZE = 1024 * 1024
 CATALOG_TIMEOUT_SEC = 12.0
 BUNDLE_TIMEOUT_SEC = 20.0
+BUNDLE_DEADLINE_SEC = 300.0
 USER_AGENT = "ClipAI-Managed-Update/1"
 OpenUrl = Callable[..., Any]
 
@@ -41,15 +44,22 @@ class UrllibManagedUpdateTransport:
         catalog_timeout_sec: float = CATALOG_TIMEOUT_SEC,
         maximum_catalog_size: int = MAX_CATALOG_SIZE,
         bundle_timeout_sec: float = BUNDLE_TIMEOUT_SEC,
+        bundle_deadline_sec: float = BUNDLE_DEADLINE_SEC,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
-        if catalog_timeout_sec <= 0 or maximum_catalog_size <= 0 or bundle_timeout_sec <= 0:
+        if min(catalog_timeout_sec, maximum_catalog_size, bundle_timeout_sec, bundle_deadline_sec) <= 0:
             raise ValueError("managed update transport bounds must be positive")
         self._open_url = open_url
         self._catalog_timeout_sec = catalog_timeout_sec
         self._maximum_catalog_size = maximum_catalog_size
         self._bundle_timeout_sec = bundle_timeout_sec
+        self._bundle_deadline_sec = bundle_deadline_sec
+        self._monotonic = monotonic
 
-    def fetch_catalog(self, url: str) -> bytes:
+    def fetch_catalog(self, url: str, *, preparation: ManagedUpdatePreparation | None = None) -> bytes:
+        preparation = preparation or ManagedUpdatePreparation()
+        preparation.check_cancelled()
+        deadline = self._monotonic() + self._catalog_timeout_sec
         _require_https_url(url)
         request = Request(
             url,
@@ -67,10 +77,14 @@ class UrllibManagedUpdateTransport:
                 length = _content_length(response.headers)
                 if length is not None and length > self._maximum_catalog_size:
                     raise ManagedUpdateFailure(FailureCode.CATALOG_INVALID, "catalog response exceeds size limit")
-                content = response.read(self._maximum_catalog_size + 1)
-                if len(content) > self._maximum_catalog_size:
-                    raise ManagedUpdateFailure(FailureCode.CATALOG_INVALID, "catalog response exceeds size limit")
-                return content
+                content = bytearray()
+                for chunk in _response_chunks(response, check_pending=lambda: self._check_pending(
+                    preparation, deadline, FailureCode.CATALOG_UNAVAILABLE
+                )):
+                    content.extend(chunk)
+                    if len(content) > self._maximum_catalog_size:
+                        raise ManagedUpdateFailure(FailureCode.CATALOG_INVALID, "catalog response exceeds size limit")
+                return bytes(content)
         except ManagedUpdateFailure:
             raise
         except (HTTPError, URLError, OSError) as exc:
@@ -83,7 +97,11 @@ class UrllibManagedUpdateTransport:
         *,
         expected_size: int,
         expected_sha256: str,
+        preparation: ManagedUpdatePreparation | None = None,
     ) -> Path:
+        preparation = preparation or ManagedUpdatePreparation()
+        preparation.check_cancelled()
+        deadline = self._monotonic() + self._bundle_deadline_sec
         _require_bundle_url(url)
         request = Request(
             url,
@@ -103,7 +121,9 @@ class UrllibManagedUpdateTransport:
                     raise ManagedUpdateFailure(FailureCode.DOWNLOAD_FAILED, "bundle content length does not match")
                 return atomic_write_verified_chunks(
                     destination,
-                    _response_chunks(response),
+                    _response_chunks(response, check_pending=lambda: self._check_pending(
+                        preparation, deadline, FailureCode.DOWNLOAD_FAILED
+                    )),
                     expected_size=expected_size,
                     expected_sha256=expected_sha256,
                     maximum_size=MAX_BUNDLE_SIZE,
@@ -114,6 +134,11 @@ class UrllibManagedUpdateTransport:
             raise
         except (HTTPError, URLError, OSError, ManagedUpdateFileError) as exc:
             raise ManagedUpdateFailure(FailureCode.DOWNLOAD_FAILED, "bundle download failed") from exc
+
+    def _check_pending(self, preparation: ManagedUpdatePreparation, deadline: float, code: FailureCode) -> None:
+        preparation.check_cancelled()
+        if self._monotonic() >= deadline:
+            raise ManagedUpdateFailure(code, "managed update transfer deadline exceeded")
 
 
 def _require_https_url(url: str) -> None:
@@ -153,6 +178,11 @@ def _require_bundle_url(url: str) -> None:
         raise ManagedUpdateFailure(FailureCode.DOWNLOAD_FAILED, "bundle URL is invalid") from exc
 
 
-def _response_chunks(response: Any):
-    while chunk := response.read(1024 * 1024):
+def _response_chunks(response: Any, *, check_pending: Callable[[], None] = lambda: None):
+    while True:
+        check_pending()
+        chunk = response.read1(64 * 1024)
+        check_pending()
+        if not chunk:
+            return
         yield chunk

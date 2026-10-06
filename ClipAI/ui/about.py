@@ -139,6 +139,8 @@ class AboutDialog:
             "unavailable": "無法自動更新",
             "idle": "檢查更新",
             "checking": "正在檢查更新…",
+            "downloading": "正在下載更新…",
+            "preparing": "正在準備更新…",
             "up_to_date": "再次檢查",
             "restarting": "正在重新啟動…",
             "failed": "重試更新",

@@ -13,12 +13,13 @@ from ClipAI.core.managed_update import (
 )
 from ClipAI.core.update_artifacts import LaunchReceiptArtifact, UpdateRequestArtifact, UpdateResultArtifact, validate_health_relation
 from ClipAI.core.update_ports import ManagedApplicationLifecycle, ManagedUpdateBackend, UpdateTransactionJournal
+from ClipAI.services.managed_startup_policy import MANAGED_STARTUP_HEALTH_TIMEOUT_SEC
 
 
 class ManagedUpdateTransaction:
     """Own the legal transaction sequence and rollback decision."""
 
-    def __init__(self, *, backend: ManagedUpdateBackend, lifecycle: ManagedApplicationLifecycle, journal: UpdateTransactionJournal, launch_attempt_factory: Callable[[], LaunchAttemptId], now: Callable[[], str], health_timeout_sec: float = 20.0, stop_timeout_sec: float = 5.0) -> None:
+    def __init__(self, *, backend: ManagedUpdateBackend, lifecycle: ManagedApplicationLifecycle, journal: UpdateTransactionJournal, launch_attempt_factory: Callable[[], LaunchAttemptId], now: Callable[[], str], health_timeout_sec: float = MANAGED_STARTUP_HEALTH_TIMEOUT_SEC, stop_timeout_sec: float = 5.0) -> None:
         self._backend = backend
         self._lifecycle = lifecycle
         self._journal = journal

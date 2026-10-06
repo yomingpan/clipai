@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from ClipAI.app.managed_update_host import ManagedUpdateHostExecutor
-from ClipAI.core.managed_update import FailureCode, TransactionPhase, TransactionSnapshot, launch_attempt_id, transaction_id
+from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure, TransactionPhase, TransactionSnapshot, launch_attempt_id, transaction_id
 from ClipAI.core.managed_update_commands import HostManagedCommand
 from ClipAI.core.update_artifacts import UpdateRequestArtifact
 from ClipAI.core.update_ports import CandidateEnvironment
@@ -12,6 +14,7 @@ from ClipAI.platform.managed_release_builder import ManagedReleaseBuilder
 from ClipAI.platform.managed_process import ManagedProcessIdentityError
 from ClipAI.platform.managed_update_fs import atomic_write_json, read_json
 from ClipAI.platform.managed_update_lifecycle import StartupHealthReporter
+from ClipAI.platform.managed_update_lifecycle import SubprocessManagedApplicationLifecycle
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
 from ClipAI.platform.update_journal import JsonUpdateTransactionJournal
 
@@ -166,8 +169,9 @@ def test_host_executes_verified_transaction_and_publishes_updated_result(tmp_pat
     installed_processes: list[_InstalledProcess] = []
     lease = _Lease()
 
-    def open_installed_process(*, process_id, expected_executable):
+    def open_installed_process(*, process_id, expected_executable, expected_runtime_executable):
         assert (process_id, expected_executable) == (1234, request.installed_executable)
+        assert expected_runtime_executable == command.base_python
         process = _InstalledProcess(request)
         installed_processes.append(process)
         return process
@@ -320,3 +324,140 @@ def test_restarted_host_recovers_committed_pointer_without_reopening_dead_instal
         "rolled_back", "1.0", FailureCode.UPDATE_INTERRUPTED,
     )
     assert read_json(request.install_root / "install-state.json")["current_version"] == "1.0"
+
+
+def test_host_rejects_unproven_logical_install_before_opening_runtime_image(tmp_path: Path):
+    command, request = _write_request(tmp_path)
+    state_path = request.install_root / "install-state.json"
+    state = read_json(state_path)
+    state["managed_install_id"] = "different-install"
+    atomic_write_json(state_path, state)
+    lease = _Lease()
+    opened = []
+
+    def must_not_open(**kwargs):
+        opened.append(kwargs)
+        raise AssertionError("unproven installation must not open a process")
+
+    executor = ManagedUpdateHostExecutor(
+        manifest_verifier=_Verifier(), candidate_builder=_CandidateBuilder(),
+        environment={}, now=lambda: NOW,
+        launch_attempt_factory=lambda: launch_attempt_id("attempt-never"),
+        process_handle_factory=must_not_open,
+        update_gate_factory=lambda _root: _FreeGate(lease),
+    )
+    assert executor.execute(command) == 1
+    assert opened == [] and lease.closed
+    store = ManagedUpdateArtifactStore(shared_root=request.shared_root, transaction_id=str(request.transaction_id))
+    result = store.read("result")
+    assert result.failure_code is FailureCode.IDENTITY_INELIGIBLE
+    assert not store.path("handoff_ready").exists()
+    assert read_json(state_path) == state
+
+
+def test_host_preserves_signature_failure_before_runtime_image_admission(tmp_path: Path):
+    command, request = _write_request(tmp_path)
+    lease = _Lease()
+
+    class RejectedManifest:
+        def verify(self, *args, **kwargs):
+            raise ManagedUpdateFailure(FailureCode.SIGNATURE_INVALID, "signature rejected")
+
+    def must_not_open(**kwargs):
+        raise AssertionError("untrusted version must not open a process")
+
+    executor = ManagedUpdateHostExecutor(
+        manifest_verifier=RejectedManifest(), candidate_builder=_CandidateBuilder(),
+        environment={}, now=lambda: NOW,
+        launch_attempt_factory=lambda: launch_attempt_id("attempt-never"),
+        process_handle_factory=must_not_open,
+        update_gate_factory=lambda _root: _FreeGate(lease),
+    )
+    assert executor.execute(command) == 1
+    result = ManagedUpdateArtifactStore(shared_root=request.shared_root, transaction_id=str(request.transaction_id)).read("result")
+    assert result.failure_code is FailureCode.SIGNATURE_INVALID and lease.closed
+
+
+@pytest.mark.parametrize("ready_after,override", [
+    (30.0, None), (120.0, None), (121.0, None), (None, None),
+    (30.0, 20.0), (30.0, 120.0), (120.0, 120.0),
+])
+def test_host_slow_startup_and_timeout_rollback(tmp_path: Path, monkeypatch, ready_after, override):
+    command, request = _write_request(tmp_path)
+    tick = [0.0]
+    pending = []
+    launches = []
+    events = []
+    lease = _Lease()
+    retained = _InstalledProcess(request)
+
+    def start_process(arguments, environment, cwd):
+        values = list(arguments)
+        version = values[values.index("--expected-version") + 1]
+        attempt = launch_attempt_id(values[values.index("--launch-attempt-id") + 1])
+        launches.append(version)
+        events.append(("launch", version))
+        delay = ready_after if version == "2.0" else (30.0 if override is None else 5.0)
+        if delay is not None:
+            pending.append((tick[0] + delay, attempt, version, values[0]))
+
+        class Process:
+            pid = 4321
+            returncode = None
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                events.append(("stop", version))
+
+            def wait(self, timeout=None):
+                self.returncode = 0
+                return 0
+
+        return Process()
+
+    def sleep(seconds):
+        tick[0] += seconds
+        for item in list(pending):
+            due, attempt, version, executable = item
+            if tick[0] >= due:
+                StartupHealthReporter(shared_root=request.shared_root, now=lambda: NOW).report(
+                    transaction_id=request.transaction_id, launch_attempt_id=attempt,
+                    expected_version=version, actual_version=version,
+                    executable_path=executable, healthy=True,
+                )
+                pending.remove(item)
+
+    def lifecycle_factory(**kwargs):
+        return SubprocessManagedApplicationLifecycle(
+            **kwargs, monotonic=lambda: tick[0], sleep=sleep, poll_interval_sec=1.0,
+        )
+
+    monkeypatch.setattr("ClipAI.app.managed_update_host.SubprocessManagedApplicationLifecycle", lifecycle_factory)
+    attempts = iter((launch_attempt_id("slow-candidate"), launch_attempt_id("rollback-old")))
+    options = {} if override is None else {"health_timeout_sec": override}
+    executor = ManagedUpdateHostExecutor(
+        manifest_verifier=_Verifier(), candidate_builder=_CandidateBuilder(),
+        environment={}, now=lambda: NOW,
+        launch_attempt_factory=lambda: next(attempts),
+        process_handle_factory=lambda **_kwargs: retained,
+        update_gate_factory=lambda _root: _FreeGate(lease), start_process=start_process, **options,
+    )
+    exit_code = executor.execute(command)
+    result = ManagedUpdateArtifactStore(shared_root=request.shared_root, transaction_id="tx-1").read("result")
+    budget = 120.0 if override is None else override
+    if ready_after is not None and ready_after <= budget:
+        assert (result.outcome, result.active_version) == ("updated", "2.0")
+        assert exit_code == 0 and launches == ["2.0"]
+        assert tick[0] == ready_after
+    else:
+        assert (result.outcome, result.active_version, result.failure_code, result.rollback_failure_code) == (
+            "rolled_back", "1.0", FailureCode.HEALTH_TIMEOUT, None,
+        )
+        assert exit_code == 1 and launches == ["2.0", "1.0"]
+        assert events == [("launch", "2.0"), ("stop", "2.0"), ("launch", "1.0")]
+        assert tick[0] == budget + (30.0 if override is None else 5.0)
+    assert read_json(request.install_root / "install-state.json")["current_version"] == result.active_version
+    assert (request.install_root / "versions" / "1.0").is_dir()
+    assert retained.waited and retained.closed and lease.closed

@@ -5,6 +5,7 @@ from collections.abc import Callable
 from ClipAI.core.managed_update import LaunchAttemptId, TransactionId
 from ClipAI.core.update_artifacts import StartupHealthArtifact
 from ClipAI.core.update_ports import ManagedApplicationLifecycle, ManagedInstallReader
+from ClipAI.services.managed_startup_policy import MANAGED_STARTUP_HEALTH_TIMEOUT_SEC
 
 
 class ManagedCurrentLaunchCoordinator:
@@ -17,7 +18,7 @@ class ManagedCurrentLaunchCoordinator:
         lifecycle: ManagedApplicationLifecycle,
         transaction_id_factory: Callable[[], TransactionId],
         launch_attempt_factory: Callable[[], LaunchAttemptId],
-        health_timeout_sec: float = 20.0,
+        health_timeout_sec: float = MANAGED_STARTUP_HEALTH_TIMEOUT_SEC,
     ) -> None:
         if health_timeout_sec <= 0:
             raise ValueError("managed launch health budget must be positive")

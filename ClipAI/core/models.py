@@ -14,7 +14,7 @@ EntryInputPreparationId = NewType("EntryInputPreparationId", str)
 ShortcutPressOutcome = Literal["released", "cancelled"]
 InterruptionScope = Literal["current", "all"]
 ManagedUpdatePhase = Literal[
-    "unavailable", "idle", "checking", "up_to_date", "restarting", "failed"
+    "unavailable", "idle", "checking", "downloading", "preparing", "up_to_date", "restarting", "failed"
 ]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
 MessageRole = Literal["system", "user", "assistant"]

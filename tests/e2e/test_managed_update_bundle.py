@@ -67,7 +67,7 @@ class _FileReleaseTransport:
         self._catalog = catalog
         self._bundle = bundle
 
-    def fetch_catalog(self, url: str) -> bytes:
+    def fetch_catalog(self, url: str, *, preparation=None) -> bytes:
         assert url == "https://updates.invalid/catalog.json"
         return self._catalog
 
@@ -78,6 +78,7 @@ class _FileReleaseTransport:
         *,
         expected_size: int,
         expected_sha256: str,
+        preparation=None,
     ) -> Path:
         assert url == "https://updates.invalid/clipai-2.0.zip"
         return atomic_write_verified_chunks(
