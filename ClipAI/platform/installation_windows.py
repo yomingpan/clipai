@@ -153,15 +153,20 @@ class WindowsInstallationIntegration:
                                     "icon": str(self.icon), "create": create})
         code = r"""
 $ErrorActionPreference = 'Stop'
+Write-Output '[DEBUG-shortcut-3718] shell-ready'
 $taskIntent = Get-Content -LiteralPath $env:CLIPAI_SHORTCUT_INTENT -Raw -Encoding UTF8 | ConvertFrom-Json
+Write-Output '[DEBUG-shortcut-3718] intent-read'
 $taskShell = New-Object -ComObject WScript.Shell
+Write-Output '[DEBUG-shortcut-3718] com-ready'
 $taskLink = $taskShell.CreateShortcut($taskIntent.path)
+Write-Output '[DEBUG-shortcut-3718] link-open'
 if ($taskIntent.create) {
   $taskLink.TargetPath = $taskIntent.target
   $taskLink.Arguments = $taskIntent.arguments
   $taskLink.IconLocation = $taskIntent.icon + ',0'
   $taskLink.WorkingDirectory = Split-Path -Parent $taskIntent.target
   $taskLink.Save()
+  Write-Output '[DEBUG-shortcut-3718] link-saved'
 } elseif (($taskLink.TargetPath -ne $taskIntent.target) -or ($taskLink.Arguments -ne $taskIntent.arguments)) {
   throw 'Shortcut ownership changed'
 }
@@ -175,6 +180,13 @@ if ($taskIntent.create) {
                                     creationflags=subprocess.CREATE_NO_WINDOW)
             if result.returncode:
                 raise RuntimeError("shortcut_integration_failed")
+        except subprocess.TimeoutExpired as error:
+            # Temporary content-free phase probe for the release-runner failure.
+            output = (error.stdout or b'').decode('utf-8', errors='replace')
+            for line in output.splitlines():
+                if line.startswith('[DEBUG-shortcut-3718]'):
+                    print(line, flush=True)
+            raise
         finally:
             request.unlink(missing_ok=True)
 
