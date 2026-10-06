@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Protocol
 
-from ClipAI.core.managed_update import FailureCode, LaunchAttemptId, TransactionId
+from ClipAI.core.managed_update import FailureCode, LaunchAttemptId, ManagedUpdateFailure, TransactionId
 from ClipAI.core.managed_update_commands import HostManagedCommand
 from ClipAI.core.update_artifacts import UpdateRequestArtifact, UpdateResultArtifact
 from ClipAI.core.update_ports import CandidateEnvironmentBuilder, ManagedUpdateGate
@@ -17,6 +17,7 @@ from ClipAI.platform.managed_update_mutex import WindowsManagedUpdateGate
 from ClipAI.platform.update_artifacts import ManagedUpdateArtifactStore
 from ClipAI.platform.update_journal import JsonUpdateTransactionJournal
 from ClipAI.services.managed_update_recovery import ManagedUpdateRecovery
+from ClipAI.services.managed_startup_policy import MANAGED_STARTUP_HEALTH_TIMEOUT_SEC
 from ClipAI.services.update_transaction import ManagedUpdateTransaction
 
 
@@ -45,7 +46,7 @@ class ManagedUpdateHostExecutor:
         update_gate_factory: UpdateGateFactory = WindowsManagedUpdateGate,
         start_process: StartProcess | None = None,
         shutdown_timeout_sec: float = 20.0,
-        health_timeout_sec: float = 20.0,
+        health_timeout_sec: float = MANAGED_STARTUP_HEALTH_TIMEOUT_SEC,
     ) -> None:
         self._manifest_verifier = manifest_verifier
         self._candidate_builder = candidate_builder
@@ -121,17 +122,20 @@ class ManagedUpdateHostExecutor:
                 return 1
 
             try:
+                # Prove the logical version before admitting its Windows runtime image.
+                layout.assert_update_eligible(artifact)
                 installed_process = self._process_handle_factory(
                     process_id=artifact.installed_process_id,
                     expected_executable=artifact.installed_executable,
+                    expected_runtime_executable=command.base_python,
                 )
-            except ManagedProcessIdentityError:
+            except (ManagedProcessIdentityError, ManagedUpdateFailure) as exc:
                 store.write(UpdateResultArtifact(
                     artifact.transaction_id,
                     self._now(),
                     "failed",
                     artifact.installed_version,
-                    FailureCode.IDENTITY_INELIGIBLE,
+                    exc.code if isinstance(exc, ManagedUpdateFailure) else FailureCode.IDENTITY_INELIGIBLE,
                 ))
                 return 1
             try:

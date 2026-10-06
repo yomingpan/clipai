@@ -13,11 +13,11 @@ class _Transport:
         self.fetches = []
         self.downloads = []
 
-    def fetch_catalog(self, url: str) -> bytes:
+    def fetch_catalog(self, url: str, *, preparation=None) -> bytes:
         self.fetches.append(url)
         return self.catalog
 
-    def download_bundle(self, url, destination, *, expected_size, expected_sha256):
+    def download_bundle(self, url, destination, *, expected_size, expected_sha256, preparation=None):
         self.downloads.append((url, destination, expected_size, expected_sha256))
         return destination.resolve()
 

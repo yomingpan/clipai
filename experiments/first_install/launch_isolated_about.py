@@ -16,6 +16,25 @@ from urllib.parse import urlparse
 import uuid
 
 
+def require_unredirected_shared_root(shared_root: Path) -> None:
+    """Check actual filesystem facts through the existing containment owner."""
+    from ClipAI.platform.managed_update_fs import ManagedUpdateFileError, require_contained
+    try:
+        for name in ("state", "secrets", "managed-update"):
+            require_contained(shared_root, shared_root / name)
+        require_contained(shared_root, shared_root / "managed-update" / "about-acceptance")
+        transactions = shared_root / "managed-update" / "transactions"
+        require_contained(shared_root, transactions)
+        if transactions.is_dir():
+            for path in transactions.iterdir():
+                require_contained(shared_root, path)
+    except ManagedUpdateFileError as exc:
+        raise RuntimeError(
+            "Open ordinary Windows PowerShell from Start and run this helper there; "
+            "shared installation/update paths are redirected outside the declared root."
+        ) from exc
+
+
 def require_isolated_url(url: str) -> str:
     parsed = urlparse(url)
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
@@ -41,6 +60,7 @@ def main() -> int:
     catalog_url = require_isolated_url(args.catalog_url)
     if not 30 <= args.timeout_seconds <= 600:
         parser.error("attended launch timeout must be 30–600 seconds")
+    require_unredirected_shared_root(args.shared_root.resolve())
     # Import only after argument validation, from this installed interpreter.
     import ClipAI
     import main as application

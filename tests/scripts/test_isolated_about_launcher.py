@@ -1,5 +1,6 @@
 import pytest
 from experiments.first_install.launch_isolated_about import require_isolated_url
+from experiments.first_install.launch_isolated_about import require_unredirected_shared_root
 
 
 @pytest.mark.parametrize("url", ["http://updates.invalid/catalog.json", "https://u:p@updates.invalid/catalog.json",
@@ -29,3 +30,19 @@ def test_isolated_github_entry_refuses_official_or_ambiguous_asset_paths(suffix)
 def test_isolated_github_entry_refuses_other_repositories():
     with pytest.raises(ValueError):
         require_isolated_url("https://github.com/another/clipai/releases/download/acceptance-20261004/catalog.json")
+
+
+def test_isolated_launcher_admits_unredirected_shared_paths(tmp_path):
+    require_unredirected_shared_root(tmp_path)
+
+
+def test_isolated_launcher_rejects_effective_path_redirection_before_app_start(tmp_path, monkeypatch):
+    from pathlib import Path
+    original = Path.resolve
+    redirected = tmp_path / "managed-update"
+    outside = tmp_path.parent / "virtualized-shared" / "managed-update"
+    def resolve(path, *args, **kwargs):
+        return outside if path == redirected else original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "resolve", resolve)
+    with pytest.raises(RuntimeError, match="ordinary Windows PowerShell"):
+        require_unredirected_shared_root(tmp_path)
