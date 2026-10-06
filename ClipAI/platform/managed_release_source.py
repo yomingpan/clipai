@@ -5,12 +5,13 @@ from typing import Protocol
 
 from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure, TransactionId
 from ClipAI.core.update_catalog import ManagedUpdateRelease
+from ClipAI.core.update_preparation import ManagedUpdatePreparation
 from ClipAI.platform.managed_update_fs import canonical_path, require_contained
 from ClipAI.platform.update_catalog import CatalogValidationError, parse_catalog, select_update
 
 
 class ManagedUpdateTransport(Protocol):
-    def fetch_catalog(self, url: str) -> bytes: ...
+    def fetch_catalog(self, url: str, *, preparation: ManagedUpdatePreparation | None = None) -> bytes: ...
 
     def download_bundle(
         self,
@@ -19,6 +20,7 @@ class ManagedUpdateTransport(Protocol):
         *,
         expected_size: int,
         expected_sha256: str,
+        preparation: ManagedUpdatePreparation | None = None,
     ) -> Path: ...
 
 
@@ -41,8 +43,9 @@ class HttpsManagedReleaseSource:
         *,
         installed_version: str,
         launcher_version: str,
+        preparation: ManagedUpdatePreparation | None = None,
     ) -> ManagedUpdateRelease | None:
-        content = self._transport.fetch_catalog(self._catalog_url)
+        content = self._transport.fetch_catalog(self._catalog_url, preparation=preparation)
         try:
             catalog = parse_catalog(content, expected_channel=self._channel)
             return select_update(
@@ -59,6 +62,7 @@ class HttpsManagedReleaseSource:
         *,
         shared_root: Path,
         transaction_id: TransactionId,
+        preparation: ManagedUpdatePreparation | None = None,
     ) -> Path:
         transaction_root = require_contained(
             shared_root,
@@ -73,6 +77,7 @@ class HttpsManagedReleaseSource:
             destination,
             expected_size=release.bundle_size,
             expected_sha256=release.bundle_sha256,
+            preparation=preparation,
         )
         if canonical_path(downloaded) != canonical_path(destination):
             raise ManagedUpdateFailure(

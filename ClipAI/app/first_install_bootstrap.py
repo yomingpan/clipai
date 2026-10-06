@@ -13,7 +13,7 @@ from ClipAI.core.managed_update import transaction_id
 from ClipAI.core.managed_update_commands import InstallManagedCommand
 from ClipAI.platform.first_install_backend import (
     BootstrapInputs, FilesystemFirstInstallBackend, FilesystemUninstaller,
-    read_owner, start_maintenance_helper,
+    read_owner, start_maintenance_helper, write_maintenance_result,
 )
 from ClipAI.platform.installation_windows import install_process_containment
 from ClipAI.services.first_install import FirstInstallCoordinator, UninstallCoordinator
@@ -40,9 +40,12 @@ def main(argv: list[str] | None = None, *, bootstrap_root: Path | None = None,
     parser.add_argument("--cancel-intent", type=Path)
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--delete-user-data", action="store_true")
+    parser.add_argument("--maintenance-result", action="store_true")
     args = parser.parse_args(argv)
     if args.delete_user_data and args.action not in {"uninstall", "remove-worker"}:
         parser.error("--delete-user-data requires a removal action")
+    if args.maintenance_result and args.action != "remove-worker":
+        parser.error("--maintenance-result requires remove-worker")
     # Preserve the supplied spelling until the backend rejects redirected
     # removal paths; resolving here would erase symlink/junction evidence.
     root, shared = args.install_root.absolute(), args.shared_root.absolute()
@@ -78,6 +81,8 @@ def main(argv: list[str] | None = None, *, bootstrap_root: Path | None = None,
             time.sleep(1)
             result = UninstallCoordinator(FilesystemUninstaller(environment)).execute(
                 UninstallIntent(f"uninstall-{uuid.uuid4().hex}", root, shared, args.delete_user_data), publish=_publish)
+            if args.maintenance_result:
+                write_maintenance_result(source, result)
             if not args.quiet:
                 from ClipAI.ui.installation_maintenance import show_maintenance_result
                 show_maintenance_result(metadata["product"], success=result.phase == UninstallPhase.REMOVED,
