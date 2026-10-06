@@ -108,7 +108,15 @@ def test_selection_capture_restores_original_non_text_content() -> None:
     assert clipboard.image == image
 
 
-def test_selection_capture_waits_for_physical_hotkey_modifiers_to_be_released() -> None:
+def test_selection_capture_waits_for_physical_hotkey_modifiers_to_be_released(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    # This is an ordering test, not a 10 ms Windows scheduling benchmark.
+    now = [0.0]
+    def wait(seconds):
+        now[0] += max(seconds, 0.001)
+    monkeypatch.setattr("ClipAI.services.selection_capture.time",
+                        SimpleNamespace(monotonic=lambda: now[0], sleep=wait))
     clipboard = Clipboard("original")
     physical_modifiers = {"ctrl": True, "alt": True, "shift": False}
     checks = 0
