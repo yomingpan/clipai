@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "distribution_admission": "pending",
+  "distribution_admission": "approved",
   "platform": "windows-x64",
   "python_abi": "cp312",
   "owner": "ClipAI release maintainer",
@@ -597,5 +597,16 @@
       "sha256": "47a5713937f8d8b903a9c5555fef3ec73a793ef95abdd078773fc11fcb00ec8a",
       "purpose": "license provenance; shipped DLL hashes match x64 SDK bytes"
     }
+  },
+  "admission_record": {
+    "review_date": "2026-10-06",
+    "publisher_policy": "unsigned",
+    "review_document": "docs/evidence/third-party-notices-3.7.18-20261006.md",
+    "native_inventory": "docs/evidence/native-components-3.7.18-20261006.json",
+    "supplemental_notice_count": 46,
+    "notice_payload_setup_sha256": "b47cf92c08ceef8b97b77f58c06ccbc78ae4bb5fe8593252022b59c91ee141c9",
+    "notice_payload_bundle_sha256": "02da0d2979a6f536a1ac31bfdae08efece9e99d442db476899711485235c74f9",
+    "notice_payload_kind": "technical input proof; not final official candidate",
+    "device_acceptance": "separate pending gate"
   }
 }

@@ -1,8 +1,8 @@
 # 3.7.18 component notice review
 
 Date: 2026-10-06. Scope: pinned runtime and sealed wheelhouse, unsigned Windows
-packaging. Input admission remains pending until fresh compiled payload proof
-includes the supplemental notices. Device acceptance is a separate gate.
+packaging. The fixed input profile is approved after the compiled proof recorded
+below. Final official assets and device acceptance are separate gates.
 
 The f637065 validation bundle SHA-256 is
 `02da0d2979a6f536a1ac31bfdae08efece9e99d442db476899711485235c74f9`.
@@ -57,7 +57,36 @@ PowerShell unwrapped a one-element conditional array and native splatting split
 the mode string into characters. Mode is now constructed as an array before
 conditional append. A real PowerShell-to-Python argv regression covers branch
 and tag behavior; all four workflow tests passed. No failed run is admitted as
-compiled-payload proof, and the input admission label remains pending.
+compiled-payload proof; input admission was still pending at that failed run.
+
+## Fixed input admission
+
+The corrected local packaging adapter actually compiled the f637065 sealed bundle
+with all 46 supplemental notices. Packaged offline imports, bootstrap signature
+verification, full Setup extraction and asset/source identity checks passed.
+Every pinned notice was found with its exact hash in both the compiled stage
+inventory and exported notice directory. Actual native inspection returned
+NotSigned with null publisher/timestamp.
+
+Setup SHA-256:
+`b47cf92c08ceef8b97b77f58c06ccbc78ae4bb5fe8593252022b59c91ee141c9`.
+Bundle SHA-256:
+`02da0d2979a6f536a1ac31bfdae08efece9e99d442db476899711485235c74f9`.
+Evidence: `artifacts/official-release-3.7.18/notice-payload-proof/output/`.
+The receipt `notice-admission-proof.json` records 46 notices and explicitly sets
+formal_candidate/device_evidence false. These bytes are technical input evidence,
+not a promoted official Setup; the app source remains the earlier f637065 snapshot.
+
+On this reviewed source/license/native/compiled-notice basis, the pinned bootstrap
+input profile is approved under the explicit unsigned policy. Approval does not
+waive production-key/tag binding, latest source CI, the exact final Setup/bundle
+acceptance or any remaining independent device/user gate.
+
+The d6ce838 Python 3.12 matrix had one ordering-test failure caused by a real 15 ms
+scheduler delay exceeding its 10 ms modifier deadline. A test-local controlled
+clock now exercises release ordering without changing product timeout policy.
+The 28 selection/workflow regressions passed, 2.32s. Latest corrected Windows
+matrix and compiled installer recovery cycle still need terminal success.
 
 Primary sources:
 [PBS licensing](https://gregoryszorc.com/docs/python-build-standalone/main/running.html#licensing),

@@ -9,8 +9,9 @@ See [readiness plan](specs/installer-release-readiness-plan.md),
 2026-10-06: r3 About acceptance passed by user report. Official candidate
 preparation is planned in [the current release plan](specs/official-release-plan-20261006.md).
 The maintainer explicitly selected unsigned Windows Setup for 3.7.18 on 2026-10-06.
-Managed content signatures remain required. Input admission and final device/user
-gates remain outstanding; no paid certificate or signing service is needed.
+Managed content signatures remain required. Fixed input admission is approved
+after the recorded native/license/compiled-notice proof. Final official asset and
+device/user gates remain outstanding; no paid certificate or signing service is needed.
 
 1. Choose a new comparable app version; update `pyproject.toml` and release notes.
    Query the existing release/tag first. Never reuse or move a published tag, or
@@ -23,7 +24,8 @@ gates remain outstanding; no paid certificate or signing service is needed.
 3. Review `packaging/windows/setup-inputs.json`: fixed runtime CPython/ABI,
    verifier and compiler archive identities, all compiler component hashes,
    native inventories/notices/licenses, prerequisites, maintenance owner and
-   commercial tool eligibility. Current inputs are **pending**. 3.7.18 selects
+   commercial tool eligibility. Current fixed inputs are **approved** with evidence
+   in the component review and machine-readable admission record. 3.7.18 selects
    cryptography 50.0.2 from the sealed bundle for SSHSIG verification and removes
    the runtime OpenSSH Preview archive; bootstrap dependency/native import and
    interoperability proofs are required. Never approve by changing a status string alone.

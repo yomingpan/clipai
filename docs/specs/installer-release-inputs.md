@@ -1,8 +1,10 @@
 # Installer release inputs and admission
 
 Date: 2026-10-04. Maintainer: ClipAI release owner. Machine-readable byte pins:
-[setup-inputs.json](../../packaging/windows/setup-inputs.json). Status: **pending
-production distribution admission**; these are technical candidate inputs.
+[setup-inputs.json](../../packaging/windows/setup-inputs.json). Status: **approved
+fixed 3.7.18 input profile** under the selected unsigned policy, after the compiled
+notice proof in [the component review](../evidence/third-party-notices-3.7.18-20261006.md).
+Final official assets and device/user acceptance remain pending.
 
 2026-10-06 / 3.7.18 update: the maintainer selected unsigned Setup, with formal
 managed content signing retained. Runtime verifier selection now uses cryptography
@@ -15,8 +17,8 @@ new bootstrap/native and final input admission remain pending.
 Follow-up: cryptography bootstrap and installed native imports passed actual
 Windows CI at f637065. The 230-file native review and supplemental runtime/vendor
 notice mapping are recorded in [the 3.7.18 component review](../evidence/third-party-notices-3.7.18-20261006.md).
-Fresh compiled proof must include all 46 pinned notices and corresponding source
-assets before approving inputs. The component table and host inventory below are
+Fresh local compiled proof included all 46 pinned notices and corresponding source
+assets; the profile is now approved. The component table and host inventory below are
 historical 3.7.8 evidence; the migration and unsigned policy supersede their
 OpenSSH/signer rows. Clean VM and final device gates remain independent.
 
