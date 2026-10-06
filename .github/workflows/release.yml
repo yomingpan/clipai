@@ -26,7 +26,7 @@ jobs:
           cache: pip
 
       - name: Install release tooling
-        run: python -m pip install --upgrade pip build tomli pip-tools
+        run: python -m pip install --upgrade pip build tomli pip-tools -c constraints/windows.txt cryptography
 
       - name: Verify repository and candidate identity
         shell: pwsh
@@ -169,7 +169,6 @@ jobs:
             --keyring release/assets/managed-update-trusted-keys.json `
             --inputs packaging/windows/setup-inputs.json `
             --runtime-archive release/bootstrap/runtime.archive `
-            --verifier-archive release/bootstrap/verifier.archive `
             --compiler release/bootstrap/compiler/ISCC.exe `
             --output-root release/setup `
             --tag $env:CLIPAI_TAG --source-commit $commit --technical-candidate

@@ -81,10 +81,7 @@ def prepare(args) -> Path:
     admitted_bundle = admission / "bundle.zip"
     shutil.copyfile(a_bundle, admitted_bundle)
     original_keys = load_trusted_release_keyring(args.a_assets / "managed-update-trusted-keys.json")
-    verified = VerifiedManagedBundleStager(manifest_verifier=Ed25519ManifestVerifier(
-        ssh_keygen=args.ssh_keygen, trusted_keys=original_keys.verification_keys(),
-        work_root=root / "original-verification", environment=environment,
-    )).stage(BundleAdmissionRequest(admission, admitted_bundle, a_release.bundle_size,
+    verified = VerifiedManagedBundleStager(manifest_verifier=Ed25519ManifestVerifier(trusted_keys=original_keys.verification_keys())).stage(BundleAdmissionRequest(admission, admitted_bundle, a_release.bundle_size,
                                     a_release.bundle_sha256, a_release.manifest_sha256,
                                     a_release.version, a_release.key_id))
     a_wheels = verified.staging_root / "wheelhouse"
@@ -134,7 +131,7 @@ def prepare(args) -> Path:
             delivery = root / label
             run(sys.executable, "-m", "scripts.build_setup_release", "--bundle", result.bundle_path,
                 "--catalog", assets / "catalog.json", "--keyring", keyring, "--inputs", args.inputs,
-                "--runtime-archive", args.runtime_archive, "--verifier-archive", args.verifier_archive,
+                "--runtime-archive", args.runtime_archive,
                 "--compiler", args.compiler, "--output-root", delivery,
                 "--tag", "v" + version, "--source-commit", commit, "--technical-candidate")
             run(sys.executable, "-m", "scripts.verify_packaged_app", "--stage", delivery / "stage",
@@ -154,7 +151,7 @@ def prepare(args) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("a-assets", "build-python", "ssh-keygen", "runtime-archive", "verifier-archive", "compiler", "inputs", "output-root"):
+    for name in ("a-assets", "build-python", "ssh-keygen", "runtime-archive", "compiler", "inputs", "output-root"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--b-source-commit", required=True)
     prepare(parser.parse_args())

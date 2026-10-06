@@ -32,10 +32,6 @@ def build_request(tmp_path, monkeypatch):
             m = tarfile.TarInfo(name)
             m.size = 7
             archive.addfile(m, io.BytesIO(b"fixture"))
-    verifier = tmp_path / "verifier.zip"
-    with ZipFile(verifier, "w") as archive:
-        for name in ("ssh-keygen.exe", "libcrypto.dll", "LICENSE.txt", "NOTICE.txt"):
-            archive.writestr("OpenSSH-Win64/" + name, b"fixture")
     compiler = tmp_path / "compiler/ISCC.exe"
     compiler.parent.mkdir()
     compiler.write_bytes(b"compiler fixture")
@@ -43,7 +39,8 @@ def build_request(tmp_path, monkeypatch):
     inputs = tmp_path / "inputs.json"
     inputs.write_text(json.dumps({"platform": "windows-x64", "python_abi": "cp312",
         "distribution_admission": "approved", "runtime": {**identity(runtime), "runtime_version": "3.12.14"},
-        "verifier": identity(verifier), "compiler": {"files": {"ISCC.exe": identity(compiler)}}}))
+        "verifier": {"profile": "cryptography-ed25519-sshsig-v1", "version": "50.0.2"},
+        "compiler": {"files": {"ISCC.exe": identity(compiler)}}}))
     payload = tmp_path / "payload"
     payload.mkdir()
     (payload / "main.py").write_bytes(b"entry fixture")
@@ -54,6 +51,9 @@ def build_request(tmp_path, monkeypatch):
         archive.writestr("ClipAI/ui/assets/clipai.ico", b"icon")
     with ZipFile(wheelhouse / "packaging-26.0-py3-none-any.whl", "w") as archive:
         archive.writestr("packaging/__init__.py", b"packaging fixture")
+    for name, version in (("cryptography", "50.0.2"), ("cffi", "2.1.0"), ("pycparser", "3.0")):
+        with ZipFile(wheelhouse / f"{name}-{version}-py3-none-any.whl", "w") as archive:
+            archive.writestr(f"{name}/__init__.py", b"verifier fixture")
     lock = tmp_path / "requirements.lock"
     lock.write_bytes(b"fixture lock")
     release = ManagedReleaseBuilder(Signer()).build(payload_root=payload, wheelhouse_root=wheelhouse,
@@ -79,7 +79,7 @@ def build_request(tmp_path, monkeypatch):
     wizard = tmp_path / "setup.iss"
     wizard.write_bytes(b"wizard fixture")
     (tmp_path / "entry.py").write_bytes(b"entry fixture")
-    return SetupBuildRequest(tmp_path / "bundle.zip", catalog, keyring, inputs, runtime, verifier,
+    return SetupBuildRequest(tmp_path / "bundle.zip", catalog, keyring, inputs, runtime,
                              compiler, wizard, tmp_path / "candidate", "v3.7.8", "a" * 40)
 
 
@@ -93,6 +93,18 @@ def test_setup_consumes_identical_bundle_and_wheel_bootstrap(build_request):
     assert proof["bundle"] == identity(build_request.bundle)
     assert proof["release_ready"] is False
     assert proof["setup"]["sha256"] == file_sha256(setup)
+    assert not (root / "stage/tools/ssh-keygen.exe").exists()
+    for dependency in ("cryptography", "cffi", "pycparser"):
+        assert (root / f"stage/setup-engine/{dependency}/__init__.py").read_bytes() == b"verifier fixture"
+
+
+def test_unrecognized_verifier_profile_cannot_be_shipped(build_request):
+    inputs = json.loads(build_request.inputs.read_text())
+    inputs["verifier"]["profile"] = "unreviewed-fallback"
+    build_request.inputs.write_text(json.dumps(inputs))
+    with pytest.raises(ValueError, match="verifier input"):
+        SetupReleaseBuilder(environment={}).build(build_request)
+    assert not build_request.output_root.exists()
 
 
 @pytest.mark.parametrize("field", ["bundle_sha256", "manifest_sha256", "version", "bundle_size"])
@@ -114,7 +126,7 @@ def test_different_keyring_cannot_bypass_stager(build_request, monkeypatch):
         SetupReleaseBuilder(environment={}).build(build_request)
 
 
-@pytest.mark.parametrize("component", ["runtime_archive", "verifier_archive", "compiler"])
+@pytest.mark.parametrize("component", ["runtime_archive", "compiler"])
 def test_modified_pinned_input_is_rejected_before_execution(build_request, component):
     getattr(build_request, component).write_bytes(b"substitution")
     with pytest.raises(ValueError, match="identity mismatch"):

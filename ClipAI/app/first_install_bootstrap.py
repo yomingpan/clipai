@@ -94,10 +94,7 @@ def main(argv: list[str] | None = None, *, bootstrap_root: Path | None = None,
             from ClipAI.platform.update_signature import Ed25519ManifestVerifier
             read_owner(root, shared)
             keys = load_trusted_release_keyring(root / "setup-engine/managed-update-trusted-keys.json")
-            ManagedInstallLayout(install_root=root, shared_root=shared, manifest_verifier=Ed25519ManifestVerifier(
-                ssh_keygen=root / "tools/ssh-keygen.exe", trusted_keys=keys.verification_keys(),
-                work_root=shared / "managed-update/selfcheck", environment=dict(environment),
-            )).prove_current_install()
+            ManagedInstallLayout(install_root=root, shared_root=shared, manifest_verifier=Ed25519ManifestVerifier(trusted_keys=keys.verification_keys())).prove_current_install()
             print("CLIPAI_PHASE:selfcheck_passed:", flush=True)
             return 0
         # Keep the native job handle alive until process exit. All pip/venv

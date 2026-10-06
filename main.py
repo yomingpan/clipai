@@ -6,7 +6,6 @@ from importlib.metadata import PackageNotFoundError, version
 import multiprocessing
 import os
 from pathlib import Path
-import shutil
 import sys
 import uuid
 
@@ -85,11 +84,7 @@ def managed_main(
     ) -> DocumentVerifier:
         if manifest_verifier is not None:
             return manifest_verifier
-        return _build_manifest_verifier(
-            app_root,
-            command.shared_root,
-            injected_environment,
-        )
+        return _build_manifest_verifier(app_root)
 
     def builder_for() -> CandidateEnvironmentBuilder:
         return candidate_builder or OfflineCandidateEnvironmentBuilder(environment=injected_environment)
@@ -212,25 +207,9 @@ def _entry_application_root(entrypoint: Path) -> Path:
 
 def _build_manifest_verifier(
     app_root: Path,
-    shared_root: Path,
-    environment: Mapping[str, str],
 ) -> DocumentVerifier:
-    marker = read_stable_launcher_marker(app_root)
-    private_tool = marker.install_root / "tools" / "ssh-keygen.exe" if marker is not None else None
-    ssh_keygen = str(private_tool) if private_tool is not None and private_tool.is_file() else None
-    if marker is None or (ssh_keygen is None and not (marker.install_root / "first-install-owner.json").exists()):
-        # Source/legacy managed installs have no embedded-tools ownership.
-        # New Setup installs fail closed when their admitted private tool is missing.
-        ssh_keygen = shutil.which("ssh-keygen", path=environment.get("PATH", ""))
-    if ssh_keygen is None:
-        raise ValueError("Windows OpenSSH ssh-keygen is required")
     keyring = load_trusted_release_keyring(app_root / "managed-update-trusted-keys.json")
-    return Ed25519ManifestVerifier(
-        ssh_keygen=ssh_keygen,
-        trusted_keys=keyring.verification_keys(),
-        work_root=shared_root / "managed-update" / "signature-verification",
-        environment=environment,
-    )
+    return Ed25519ManifestVerifier(trusted_keys=keyring.verification_keys())
 
 
 def _managed_update_configuration(
@@ -241,7 +220,7 @@ def _managed_update_configuration(
 ) -> ManagedUpdateRuntimeConfiguration | None:
     try:
         launcher_root = command.install_root / "launcher"
-        verifier = _build_manifest_verifier(launcher_root, command.shared_root, environment)
+        verifier = _build_manifest_verifier(launcher_root)
         proof = ManagedInstallLayout(
             install_root=command.install_root,
             shared_root=command.shared_root,
@@ -274,7 +253,7 @@ def _managed_update_configuration(
 
 
 def _launch_managed_current(app_root, marker, environment: Mapping[str, str]) -> None:
-    verifier = _build_manifest_verifier(app_root, marker.shared_root, environment)
+    verifier = _build_manifest_verifier(app_root)
     layout = ManagedInstallLayout(
         install_root=marker.install_root,
         shared_root=marker.shared_root,

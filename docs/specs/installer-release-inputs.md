@@ -4,6 +4,21 @@ Date: 2026-10-04. Maintainer: ClipAI release owner. Machine-readable byte pins:
 [setup-inputs.json](../../packaging/windows/setup-inputs.json). Status: **pending
 production distribution admission**; these are technical candidate inputs.
 
+2026-10-06 / 3.7.18 update: the maintainer selected unsigned Setup, with formal
+managed content signing retained. Runtime verifier selection now uses cryptography
+50.0.2 from the sealed app wheelhouse, plus admitted cffi/pycparser bootstrap
+dependencies. The OpenSSH archive rows below describe the earlier candidate and
+are superseded by [the migration ADR](sshsig-verifier-migration-3.7.18.md).
+Interoperability with r3 3.7.17 and the 3.7.18 validation bundle was actually proved;
+new bootstrap/native and final input admission remain pending.
+
+The pinned Inno 6.7.3 package's `license.txt` permits use and redistribution,
+including commercial use, subject to notice/origin conditions. Its pinned SHA-256
+is `2e5346868c2a18434489824e11d65c3031620f792fefc415d05f19cd441abf5c`.
+The website's purchase request does not establish a required fee in that pinned
+license; no compiler purchase is needed for this selected input. Retain its
+license and upstream notices. [Upstream license](https://jrsoftware.org/files/is/license.txt).
+
 | Component | Fixed identity / role | Current evidence | Admission / next owner action |
 | --- | --- | --- | --- |
 | App | 3.7.8 wheel from r4, source `a0502d34cfa2b1ab554c480d39b8b8813d1ef201` | full first-party wheel/payload compared to Git; SHA in provenance | new real app version/tag for B; no relabeling r4 as upgrade |

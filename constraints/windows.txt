@@ -10,6 +10,7 @@ anyio==4.14.2
 cffi==2.1.0
 charset-normalizer==3.4.9
 clr_loader==0.3.1
+cryptography==50.0.2
 customtkinter==5.2.2
 darkdetect==0.8.0
 edge-tts==7.2.8

@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import base64
+import binascii
+import hashlib
+import hmac
 import json
 from pathlib import Path
 import re
-import subprocess
-import uuid
 
 from ClipAI.core.update_signing import SIGNING_NAMESPACE, TEST_KEY_ID
 from ClipAI.platform.managed_update_fs import (
-    atomic_write_bytes,
-    native_path,
     read_bytes,
-    unlink_file,
 )
 
 
@@ -33,25 +32,17 @@ def canonical_json_bytes(payload: object) -> bytes:
 
 
 class Ed25519ManifestVerifier:
-    """Verify canonical manifests through an injected OpenSSH executable."""
+    """Verify canonical manifests and OpenSSH SSHSIG v1 with Ed25519."""
 
     def __init__(
         self,
         *,
-        ssh_keygen: str | Path,
         trusted_keys: Mapping[str, str],
-        work_root: str | Path,
-        environment: Mapping[str, str],
         allow_test_keys: bool = False,
-        timeout_sec: float = 12.0,
         namespace: str = SIGNING_NAMESPACE,
     ) -> None:
-        self._ssh_keygen = Path(ssh_keygen).resolve()
         self._trusted_keys = dict(trusted_keys)
-        self._work_root = Path(work_root).resolve()
-        self._environment = dict(environment)
         self._allow_test_keys = allow_test_keys
-        self._timeout_sec = timeout_sec
         self._namespace = namespace
 
     def verify(
@@ -75,42 +66,72 @@ class Ed25519ManifestVerifier:
         if canonical_json_bytes(payload) != manifest:
             raise SignatureVerificationError("manifest JSON is not canonical")
 
-        principal = f"clipai-managed-update:{key_id}"
-        allowed_signers = self._work_root / f"allowed-signers-{uuid.uuid4().hex[:8]}"
-        atomic_write_bytes(
-            allowed_signers,
-            f"{principal} {normalized_key}\n".encode("ascii"),
-        )
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
         try:
-            try:
-                completed = subprocess.run(
-                    [
-                        str(self._ssh_keygen),
-                        "-Y",
-                        "verify",
-                        "-f",
-                        str(native_path(allowed_signers)),
-                        "-I",
-                        principal,
-                        "-n",
-                        self._namespace,
-                        "-s",
-                        str(native_path(signature_path)),
-                    ],
-                    input=manifest,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    check=False,
-                    timeout=self._timeout_sec,
-                    env=self._environment,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                raise SignatureVerificationError("signature verifier unavailable") from exc
-            if completed.returncode != 0:
-                raise SignatureVerificationError("manifest signature is invalid")
-        finally:
-            unlink_file(allowed_signers)
+            trusted_blob = base64.b64decode(normalized_key.split()[1], validate=True)
+            trusted = _Strings(trusted_blob)
+            if trusted.string() != b"ssh-ed25519":
+                raise ValueError("key algorithm")
+            key = trusted.string()
+            trusted.finish()
+            if len(key) != 32:
+                raise ValueError("key length")
+            lines = read_bytes(signature_path, maximum_size=16 * 1024).splitlines()
+            if len(lines) < 3 or lines[0] != b"-----BEGIN SSH SIGNATURE-----" or lines[-1] != b"-----END SSH SIGNATURE-----":
+                raise ValueError("signature armor")
+            blob = base64.b64decode(b"".join(lines[1:-1]), validate=True)
+            if blob[:6] != b"SSHSIG" or blob[6:10] != b"\0\0\0\1":
+                raise ValueError("signature version")
+            fields = _Strings(blob[10:])
+            if not hmac.compare_digest(fields.string(), trusted_blob):
+                raise ValueError("signature key")
+            namespace, reserved, algorithm = fields.string(), fields.string(), fields.string()
+            if not namespace or namespace != self._namespace.encode("utf-8"):
+                raise ValueError("signature namespace")
+            if algorithm not in (b"sha256", b"sha512"):
+                raise ValueError("signature hash")
+            signature = _Strings(fields.string())
+            fields.finish()
+            if signature.string() != b"ssh-ed25519":
+                raise ValueError("signature algorithm")
+            signed_bytes = signature.string()
+            signature.finish()
+            if len(signed_bytes) != 64:
+                raise ValueError("signature length")
+            digest = hashlib.new(algorithm.decode("ascii"), manifest).digest()
+            message = b"SSHSIG" + b"".join(_string(value) for value in (namespace, reserved, algorithm, digest))
+            Ed25519PublicKey.from_public_bytes(key).verify(signed_bytes, message)
+        except (ValueError, binascii.Error, UnicodeError, InvalidSignature) as exc:
+            raise SignatureVerificationError("manifest signature is invalid") from exc
+
+
+def _string(value: bytes) -> bytes:
+    return len(value).to_bytes(4, "big") + value
+
+
+class _Strings:
+    """Bounded RFC4253 string reader; no allocation follows untrusted lengths."""
+
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+        self._offset = 0
+
+    def string(self) -> bytes:
+        if self._offset + 4 > len(self._content):
+            raise ValueError("truncated SSH string")
+        size = int.from_bytes(self._content[self._offset:self._offset + 4], "big")
+        start = self._offset + 4
+        end = start + size
+        if end > len(self._content):
+            raise ValueError("truncated SSH string")
+        self._offset = end
+        return self._content[start:end]
+
+    def finish(self) -> None:
+        if self._offset != len(self._content):
+            raise ValueError("trailing SSH data")
 
 
 def _normalize_public_key(value: str) -> str:

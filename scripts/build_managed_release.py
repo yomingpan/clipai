@@ -104,12 +104,7 @@ def main() -> int:
         if file_sha256(manifest_path) != result.manifest_sha256:
             raise RuntimeError("built manifest digest does not match release result")
         keyring = load_trusted_release_keyring(trusted_keyring)
-        Ed25519ManifestVerifier(
-            ssh_keygen=ssh_keygen,
-            trusted_keys=keyring.verification_keys(),
-            work_root=Path(work_root).resolve() / "signature-verification",
-            environment=dict(os.environ),
-        ).verify(
+        Ed25519ManifestVerifier(trusted_keys=keyring.verification_keys()).verify(
             manifest_path,
             verification_root / "install-manifest.json.sig",
             key_id=key_id,

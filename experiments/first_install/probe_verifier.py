@@ -52,10 +52,7 @@ def probe(tools_root: Path, output_root: Path) -> tuple[Path, dict]:
             ssh_keygen=tool, private_key=private_key,
             work_root=root / "sign-work", environment=environment,
         )
-        verifier = Ed25519ManifestVerifier(
-            ssh_keygen=tool, trusted_keys={TEST_KEY_ID: public_key},
-            work_root=root / "verify-work", environment=environment, allow_test_keys=True,
-        )
+        verifier = Ed25519ManifestVerifier(trusted_keys={TEST_KEY_ID: public_key}, allow_test_keys=True)
         manifest = root / "synthetic-manifest.json"
         signature = root / "synthetic-manifest.json.sig"
         original = canonical_json_bytes({"probe": "synthetic-verifier-only"})
@@ -71,10 +68,7 @@ def probe(tools_root: Path, output_root: Path) -> tuple[Path, dict]:
         else:
             raise RuntimeError("tampered fixture was accepted")
         manifest.write_bytes(original)
-        production_verifier = Ed25519ManifestVerifier(
-            ssh_keygen=tool, trusted_keys={TEST_KEY_ID: public_key},
-            work_root=root / "production-policy", environment=environment,
-        )
+        production_verifier = Ed25519ManifestVerifier(trusted_keys={TEST_KEY_ID: public_key})
         try:
             production_verifier.verify(manifest, signature, key_id=TEST_KEY_ID)
         except SignatureVerificationError:

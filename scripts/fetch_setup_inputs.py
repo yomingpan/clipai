@@ -11,7 +11,7 @@ from ClipAI.platform.managed_update_fs import file_sha256
 def fetch(inputs: Path, output: Path, *, install_compiler: bool = False) -> None:
     data = json.loads(inputs.read_text(encoding="utf-8"))
     output.mkdir(parents=True, exist_ok=False)
-    for component, filename in (("runtime", "runtime.archive"), ("verifier", "verifier.archive"), ("compiler", "compiler-installer.exe")):
+    for component, filename in (("runtime", "runtime.archive"), ("compiler", "compiler-installer.exe")):
         expected = data[component]
         if not expected["url"].startswith("https://"):
             raise ValueError("pinned inputs require HTTPS")

@@ -17,6 +17,7 @@ dependencies = [
   "pystray",
   "Pillow",
   "packaging>=26,<27",
+  "cryptography>=50.0.2,<51",
   "customtkinter",
   "edge-tts>=7.2.8",
   "miniaudio",

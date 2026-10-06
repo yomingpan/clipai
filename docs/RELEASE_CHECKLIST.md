@@ -23,8 +23,10 @@ gates remain outstanding; no paid certificate or signing service is needed.
 3. Review `packaging/windows/setup-inputs.json`: fixed runtime CPython/ABI,
    verifier and compiler archive identities, all compiler component hashes,
    native inventories/notices/licenses, prerequisites, maintenance owner and
-   commercial tool eligibility. Current inputs are **pending**, and OpenSSH is
-   explicitly Preview-only. Never approve by changing a status string alone.
+   commercial tool eligibility. Current inputs are **pending**. 3.7.18 selects
+   cryptography 50.0.2 from the sealed bundle for SSHSIG verification and removes
+   the runtime OpenSSH Preview archive; bootstrap dependency/native import and
+   interoperability proofs are required. Never approve by changing a status string alone.
 4. Confirm managed content-signing configuration exists without reading secrets:
    secret `CLIPAI_MANAGED_UPDATE_PRIVATE_KEY`, vars `CLIPAI_MANAGED_UPDATE_KEY_ID`
    and `CLIPAI_MANAGED_UPDATE_TRUSTED_KEYRING`. Retain rotation keys and prohibit

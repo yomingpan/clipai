@@ -234,7 +234,7 @@ bundle against catalog size/hash, manifest signature/version/key and inventory.
 Generic archive extraction is limited to pinned upstream bootstrap archives and
 wheels from that admitted tree; it is not another managed-bundle admission path.
 
-The bootstrap package and `packaging` dependency come from those exact wheels,
+The bootstrap package, `packaging`, `cryptography`, `cffi` and `pycparser` come from those exact wheels,
 not the checkout. The CLI compares all first-party wheel code/resources and
 shipped payload to the declared Git commit, allowing only Git text newline
 conversion. Official packaging also checks the actual tag points to that commit.
@@ -259,9 +259,18 @@ neither is clean-VM or reboot evidence.
 technical-candidate mode preserves production signature/keyring validation but
 does not authorize public distribution. Native/license admission, the explicitly
 selected publisher policy, clean VM, first-use observation and direct publication
-authorization remain independent gates. The current OpenSSH Preview input is
-not a production selection. Do not change the admission label without the
+authorization remain independent gates. 3.7.18 replaces the runtime OpenSSH
+Preview input with the pinned cryptography SSHSIG profile. Do not change the admission label without the
 component/license/security review described in the release runbook.
+
+The platform `Ed25519ManifestVerifier` is the single canonical-manifest and
+SSHSIG admission owner. It uses cryptography's Ed25519 primitive with a bounded
+SSHSIG v1/Ed25519 envelope, exact trusted public key and namespace, SHA-256 or
+SHA-512, and rejects trailing/truncated data. No runtime executable, PATH lookup,
+temporary allowed-signers file or fallback verifier is used. Build-time signing
+remains OpenSSH. Setup extracts verifier dependency wheels only from the admitted
+bundle and checks the pinned cryptography version; offline bootstrap and installed
+app smoke must import those exact native dependencies and verify a real manifest.
 
 For 3.7.18 the maintainer selected unsigned Windows Setup with no paid signing
 service. The release verifier requires explicit unsigned acceptance and actual

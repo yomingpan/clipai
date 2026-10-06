@@ -32,7 +32,6 @@ class SetupBuildRequest:
     keyring: Path
     inputs: Path
     runtime_archive: Path
-    verifier_archive: Path
     compiler: Path
     wizard: Path
     output_root: Path
@@ -88,6 +87,8 @@ class SetupReleaseBuilder:
             raise ValueError("unsupported bootstrap platform/ABI")
         if not request.technical_candidate and inputs["distribution_admission"] != "approved":
             raise ValueError("bootstrap distribution admission is pending")
+        if inputs["verifier"] != {"profile": "cryptography-ed25519-sshsig-v1", "version": "50.0.2"}:
+            raise ValueError("unsupported manifest verifier input")
         if re.fullmatch(r"[0-9a-f]{40}", request.source_commit) is None:
             raise ValueError("source commit must be a full SHA")
         catalog = parse_catalog(request.catalog.read_bytes())
@@ -103,8 +104,7 @@ class SetupReleaseBuilder:
         keys = load_trusted_release_keyring(request.keyring).verification_keys()
         if not request.technical_candidate and release.key_id.startswith(("local-", "test-")):
             raise ValueError("local candidate keys cannot authorize official packaging")
-        for path, component in ((request.runtime_archive, "runtime"),
-                                (request.verifier_archive, "verifier")):
+        for path, component in ((request.runtime_archive, "runtime"),):
             _require_identity(path, inputs[component])
         if request.compiler.name.lower() != "iscc.exe":
             raise ValueError("the pinned Inno compiler is required")
@@ -128,21 +128,12 @@ class SetupReleaseBuilder:
         _extract_runtime(request.runtime_archive, root / "runtime-source")
         shutil.copytree(root / "runtime-source/python", stage / "runtime",
                         ignore=shutil.ignore_patterns("site-packages", "__pycache__", "*.pyc"))
-        extract_prefixed_zip(request.verifier_archive, root / "verifier-source",
-                             prefix="OpenSSH-Win64/", maximum_uncompressed_size=512 * 1024 * 1024)
-        tools = stage / "tools"
-        tools.mkdir()
-        for name in ("ssh-keygen.exe", "libcrypto.dll", "LICENSE.txt", "NOTICE.txt"):
-            shutil.copy2(root / "verifier-source" / name, tools / name)
         environment = self._environment
         transaction = root / "admission"
         transaction.mkdir()
         admitted_archive = transaction / "bundle.zip"
         shutil.copyfile(request.bundle, admitted_archive)
-        verified = VerifiedManagedBundleStager(manifest_verifier=Ed25519ManifestVerifier(
-            ssh_keygen=tools / "ssh-keygen.exe", trusted_keys=keys,
-            work_root=root / "verify", environment=environment,
-        )).stage(BundleAdmissionRequest(transaction, admitted_archive, release.bundle_size,
+        verified = VerifiedManagedBundleStager(manifest_verifier=Ed25519ManifestVerifier(trusted_keys=keys)).stage(BundleAdmissionRequest(transaction, admitted_archive, release.bundle_size,
                                         release.bundle_sha256, release.manifest_sha256,
                                         release.version, release.key_id))
         if (str(Version(release.version)) != release.version
@@ -154,12 +145,13 @@ class SetupReleaseBuilder:
         selected = {}
         for wheel in wheels:
             name, version, _, _ = parse_wheel_filename(wheel.name)
-            if name in ("clipai", "packaging"):
-                if name in selected or (name == "clipai" and str(version) != release.version):
+            if name in ("clipai", "packaging", "cryptography", "cffi", "pycparser"):
+                if (name in selected or (name == "clipai" and str(version) != release.version)
+                        or (name == "cryptography" and str(version) != inputs["verifier"]["version"])):
                     raise ValueError("ambiguous or mismatched bootstrap wheels")
                 selected[name] = wheel
-        if set(selected) != {"clipai", "packaging"}:
-            raise ValueError("admitted app and packaging wheels are required")
+        if set(selected) != {"clipai", "packaging", "cryptography", "cffi", "pycparser"}:
+            raise ValueError("admitted app, packaging and verifier dependency wheels are required")
         engine = stage / "setup-engine"
         engine.mkdir()
         for wheel in selected.values():
@@ -180,7 +172,7 @@ class SetupReleaseBuilder:
         # separate admission gate for completeness/license review.
         notices = root / "output/notices"
         notices.mkdir(parents=True)
-        for component, component_root in (("runtime", stage / "runtime"), ("verifier", tools), ("bootstrap", engine)):
+        for component, component_root in (("runtime", stage / "runtime"), ("bootstrap", engine)):
             for name in regular_file_inventory(component_root):
                 if any(token in Path(name).name.lower() for token in ("license", "notice", "copying")):
                     target = notices / component / name

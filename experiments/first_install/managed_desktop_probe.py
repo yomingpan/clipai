@@ -47,8 +47,7 @@ entry=sys.argv.pop(1);sys.argv[0]=entry
 runpy.run_path(entry,run_name="__main__")
 '''.replace("REPORT", repr(str(report))), encoding="utf-8")
     keys = load_trusted_release_keyring(root / "launcher/managed-update-trusted-keys.json")
-    verifier = Ed25519ManifestVerifier(ssh_keygen=root / "tools/ssh-keygen.exe",
-        trusted_keys=keys.verification_keys(), work_root=out / "verification", environment=os.environ)
+    verifier = Ed25519ManifestVerifier(trusted_keys=keys.verification_keys())
     layout = ManagedInstallLayout(install_root=root, shared_root=shared, manifest_verifier=verifier)
     layout.prove_current_install()
     processes = []

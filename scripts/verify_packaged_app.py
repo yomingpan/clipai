@@ -15,14 +15,31 @@ from ClipAI.platform.managed_update_fs import atomic_write_json, file_sha256
 PROBE = """
 import importlib.metadata, json, pathlib, sys
 import ClipAI, ClipAI.app.first_install_bootstrap, main
+import cryptography, cffi, pycparser, _cffi_backend
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+assert cryptography.__version__ == '50.0.2'
 dist = importlib.metadata.distribution('clipai')
 assert dist.version == sys.argv[1]
 prefix = pathlib.Path(sys.prefix).resolve()
-paths = [pathlib.Path(m.__file__).resolve() for m in (ClipAI, main)]
+paths = [pathlib.Path(m.__file__).resolve() for m in (ClipAI, main, cryptography, cffi, pycparser, _cffi_backend)]
 assert all(p.is_relative_to(prefix) for p in paths), 'import escaped installed wheel'
 direct = dist.read_text('direct_url.json')
 assert not direct or not json.loads(direct).get('dir_info', {}).get('editable'), 'editable install'
 print(json.dumps({'version': dist.version, 'executable': sys.executable, 'import_paths': [str(p) for p in paths], 'editable': False}))
+"""
+
+BOOTSTRAP_PROBE = """
+import pathlib, sys
+sys.path.insert(0, sys.argv[1])
+import cryptography, cffi, pycparser, _cffi_backend
+assert cryptography.__version__ == '50.0.2'
+root = pathlib.Path(sys.argv[1]).resolve()
+assert all(pathlib.Path(module.__file__).resolve().is_relative_to(root) for module in (cryptography, cffi, pycparser, _cffi_backend))
+from ClipAI.platform.trusted_release_keys import load_trusted_release_keyring
+from ClipAI.platform.update_signature import Ed25519ManifestVerifier
+keys = load_trusted_release_keyring(root / 'managed-update-trusted-keys.json')
+manifest = pathlib.Path(sys.argv[2])
+Ed25519ManifestVerifier(trusted_keys=keys.verification_keys()).verify(manifest / 'install-manifest.json', manifest / 'install-manifest.json.sig', key_id=sys.argv[3])
 """
 
 
@@ -39,6 +56,11 @@ def verify(stage: Path, output: Path) -> Path:
     smoke = root / "packaged-smoke"
     env = {k: v for k, v in os.environ.items() if k.upper() in {"SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "PROGRAMDATA"}}
     env.update(PATH="", PYTHONPATH=str(Path.cwd()), PYTHONHOME="poisoned", PIP_NO_INDEX="1")
+    clean_env = {k: v for k, v in env.items() if k not in {"PYTHONPATH", "PYTHONHOME"}}
+    subprocess.run([str(stage / "runtime/python.exe"), "-I", "-c", BOOTSTRAP_PROBE,
+                    str(stage / "setup-engine"), str(admitted), metadata["key_id"]],
+                   cwd=root, env=clean_env, check=True, capture_output=True, text=True, timeout=60,
+                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     candidate = PreparedManagedPayloadMaterializer(candidate_builder=OfflineCandidateEnvironmentBuilder(
         environment=env, timeout_sec=240)).prepare(
             VerifiedManagedBundle(admitted, manifest), target_root=smoke,

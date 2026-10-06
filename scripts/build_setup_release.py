@@ -48,7 +48,7 @@ def verify_source_commit(bundle: Path, commit: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    for option in ("bundle", "catalog", "keyring", "inputs", "runtime-archive", "verifier-archive", "compiler", "output-root"):
+    for option in ("bundle", "catalog", "keyring", "inputs", "runtime-archive", "compiler", "output-root"):
         parser.add_argument("--" + option, required=True, type=Path)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--source-commit", required=True)
@@ -61,7 +61,7 @@ def main() -> int:
             raise ValueError("tag does not identify the release source commit")
     verify_source_commit(args.bundle, args.source_commit)
     setup = SetupReleaseBuilder(environment=dict(os.environ)).build(SetupBuildRequest(
-        args.bundle, args.catalog, args.keyring, args.inputs, args.runtime_archive, args.verifier_archive,
+        args.bundle, args.catalog, args.keyring, args.inputs, args.runtime_archive,
         args.compiler, Path(__file__).resolve().parents[1] / "packaging/windows/setup.iss",
         args.output_root, args.tag, args.source_commit, args.technical_candidate,
     ))

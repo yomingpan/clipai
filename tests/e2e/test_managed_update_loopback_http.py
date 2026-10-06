@@ -174,13 +174,7 @@ def _build_release(tmp_path: Path, *, tamper_signature: bool = False) -> _Releas
         bundle = tmp_path / "clipai-2.0-tampered.zip"
         write_prefixed_zip(bundle, members)
     public_key = private_key.with_suffix(".pub").read_text(encoding="ascii")
-    verifier = Ed25519ManifestVerifier(
-        ssh_keygen=ssh_keygen,
-        trusted_keys={TEST_KEY_ID: public_key},
-        work_root=tmp_path / "verify-work",
-        environment=dict(os.environ),
-        allow_test_keys=True,
-    )
+    verifier = Ed25519ManifestVerifier(trusted_keys={TEST_KEY_ID: public_key}, allow_test_keys=True)
     return _Release(
         bundle,
         file_sha256(bundle),

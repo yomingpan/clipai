@@ -63,10 +63,7 @@ def child(root: Path, tool: Path) -> dict:
         install = root / "安裝 中文 空格"
         shared = root / "資料 中文 空格"
         FilesystemManagedInstaller(
-            manifest_verifier=Ed25519ManifestVerifier(
-                ssh_keygen=tool, trusted_keys={TEST_KEY_ID: public},
-                work_root=root / "verify-work", environment=environment, allow_test_keys=True,
-            ),
+            manifest_verifier=Ed25519ManifestVerifier(trusted_keys={TEST_KEY_ID: public}, allow_test_keys=True),
             candidate_builder=OfflineCandidateEnvironmentBuilder(environment=environment),
             trusted_keyring_path=keyring,
         ).install(InstallManagedCommand(

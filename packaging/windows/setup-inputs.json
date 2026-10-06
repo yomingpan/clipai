@@ -14,12 +14,8 @@
     "flavor": "x86_64-pc-windows-msvc-install_only_stripped"
   },
   "verifier": {
-    "release": "https://github.com/PowerShell/Win32-OpenSSH/releases/tag/10.0.0.0p2-Preview",
-    "url": "https://github.com/PowerShell/Win32-OpenSSH/releases/download/10.0.0.0p2-Preview/OpenSSH-Win64.zip",
-    "size": 5704583,
-    "sha256": "23f50f3458c4c5d0b12217c6a5ddfde0137210a30fa870e98b29827f7b43aba5",
-    "format": "zip",
-    "release_status": "preview_only_not_a_production_selection"
+    "profile": "cryptography-ed25519-sshsig-v1",
+    "version": "50.0.2"
   },
   "compiler": {
     "version": "6.7.3",

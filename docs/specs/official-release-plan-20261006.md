@@ -10,6 +10,11 @@ tag CI 實際 self-verification。`release-validation/3.7.18` 已啟動隔離建
 實際最終 Setup 必須 `NotSigned`，公開說明 Windows 未知 publisher 提示。
 其他正式信任鏈、inputs admission 及裝置驗收門檻保留。
 
+Verifier 執行更新：改用既有平台 adapter + cryptography 50.0.2 驗證相同 SSHSIG
+格式，移除 runtime OpenSSH Preview archive；封裝需帶入 admitted wheelhouse 的
+cryptography/cffi/pycparser，完成真實簽章互通、歷史 bundle、bootstrap 及 installed
+native import 證據後才完成 admission。見 [診斷與 ADR](sshsig-verifier-migration-3.7.18.md)。
+
 本輪使用者在下載並核對 r3 helper 後，以 `--timeout-seconds 600` 啟動，
 回報「成功了。可以準備發行正式版 規劃一下」。記為本輪 About 更新
 passed（使用者回報）；本次沒有另收集版本畫面、health receipt 或交易日誌。

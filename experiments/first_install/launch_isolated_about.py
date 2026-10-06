@@ -85,10 +85,7 @@ def main() -> int:
         "SYSTEMROOT", "WINDIR", "COMSPEC", "PROGRAMDATA", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"}}
     environment["PATH"] = ""
     keys = load_trusted_release_keyring(root / "launcher/managed-update-trusted-keys.json")
-    proof = ManagedInstallLayout(install_root=root, shared_root=shared, manifest_verifier=Ed25519ManifestVerifier(
-        ssh_keygen=root / "tools/ssh-keygen.exe", trusted_keys=keys.verification_keys(),
-        work_root=shared / "managed-update/about-acceptance", environment=environment,
-    )).prove_update_client(executable_path=Path(sys.executable), process_id=os.getpid())
+    proof = ManagedInstallLayout(install_root=root, shared_root=shared, manifest_verifier=Ed25519ManifestVerifier(trusted_keys=keys.verification_keys())).prove_update_client(executable_path=Path(sys.executable), process_id=os.getpid())
     relative_entry = proof.current.entrypoint.relative_to(proof.current.root)
     configuration = ManagedUpdateRuntimeConfiguration(
         proof.identity, root / "launcher/.venv/Scripts/python.exe", root / "launcher" / relative_entry,

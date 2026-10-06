@@ -346,13 +346,7 @@ def _signing_fixture(tmp_path: Path) -> _SigningFixture:
         environment=_clean_environment(),
     )
     public_key = private_key.with_suffix(".pub").read_text(encoding="ascii")
-    verifier = Ed25519ManifestVerifier(
-        ssh_keygen=ssh_keygen,
-        trusted_keys={TEST_KEY_ID: public_key},
-        work_root=root / "verify-work",
-        environment=_clean_environment(),
-        allow_test_keys=True,
-    )
+    verifier = Ed25519ManifestVerifier(trusted_keys={TEST_KEY_ID: public_key}, allow_test_keys=True)
     keyring = root / "trusted-keys.json"
     atomic_write_json(keyring, {
         "schema_version": 1,

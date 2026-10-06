@@ -487,6 +487,15 @@ runtime/verifier/compiler distribution admission and the chosen publisher policy
 Moving to official packaging requires reviewed inputs, removal of technical mode
 and a fresh version/tag/commit, without changing the one-bundle/install ownership.
 
+3.7.18 preserves the OpenSSH SSHSIG v1 signature format and production keyring but
+uses cryptography 50.0.2 for runtime Ed25519 verification. The platform adapter
+owns bounded envelope parsing and canonical JSON/key/namespace policy; callers
+supply only trusted keys and explicit test/namespace policy. Runtime verification
+does not invoke an external tool or search PATH. The existing OpenSSH build signer
+remains independent. The sealed wheel lock, bootstrap extraction, installed imports
+and native inventory must cover cryptography/cffi/pycparser. Historical signatures
+must remain verifiable without changing their bytes or trusted authority.
+
 ## Windows venv logical executable and process image
 
 The version's `.venv/Scripts/python.exe` remains the logical installation and

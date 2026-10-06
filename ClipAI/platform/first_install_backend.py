@@ -124,17 +124,13 @@ class _InstallOperation:
 
     def prepare(self) -> None:
         self._record("copying_bootstrap")
-        for name in ("runtime", "tools", "setup-engine"):
+        for name in ("runtime", "setup-engine"):
             if self.cancellation.is_cancelled():
                 raise InstallCancelled()
             shutil.copytree(self.inputs.source / name, self.command.install_root / name)
         keyring_path = self.command.install_root / "setup-engine/managed-update-trusted-keys.json"
         keyring = load_trusted_release_keyring(keyring_path)
-        verifier = Ed25519ManifestVerifier(
-            ssh_keygen=self.command.install_root / "tools/ssh-keygen.exe",
-            trusted_keys=keyring.verification_keys(), work_root=self.transaction_root / "verification",
-            environment=self.environment,
-        )
+        verifier = Ed25519ManifestVerifier(trusted_keys=keyring.verification_keys())
         self._record("preparing_payload")
         installer = FilesystemManagedInstaller(
             manifest_verifier=verifier, candidate_builder=OfflineCandidateEnvironmentBuilder(
