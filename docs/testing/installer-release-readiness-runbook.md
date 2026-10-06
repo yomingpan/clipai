@@ -68,6 +68,14 @@ Inspect actual run/jobs/logs/artifacts; source tests alone do not pass this gate
 
 ## Publisher signing and final observation handoff
 
+2026-10-06 policy update: the maintainer explicitly selected **unsigned** Windows
+Setup for 3.7.18 and no paid signing service. That decision replaces the signer
+acquisition/signing steps below for this release. Keep official managed content
+signatures and native/license/device admission. Record `publisher_policy: "unsigned"`
+in exact-hash acceptance and use `verify_release_assets --require-release-ready
+--publisher-policy unsigned`; the real file must be `NotSigned`. Record Windows
+prompts with protections enabled. Do not mark an unsigned publisher as verified.
+
 No code-signing certificate was found in CurrentUser/My or LocalMachine/My and
 no available SignTool was found in PATH/the checked Windows SDK location.
 External signing services remain unconfirmed; do not infer they are absent.

@@ -1,6 +1,18 @@
 # 3.7.18 Windows 簽署選項
 
-查核日期：2026-10-06。這是可審核的選型提案，未購買、申請、接受條款或傳送身分資料。
+查核日期：2026-10-06。未購買、申請、接受條款或傳送身分資料。
+
+## 已決定的本輪政策
+
+維護者明確指示「調整成未簽署 我不想要付費」。3.7.18 採未簽署 Windows
+Setup，保留正式 Ed25519 managed 內容簽章。以下付費／OSS 選項僅供歷史
+參考，本輪不申請服務、不取得憑證、不收集身分資料。
+
+正式資產驗證使用 `--publisher-policy unsigned`，exact-hash acceptance 必須
+記錄 `publisher_policy: "unsigned"`。驗證最終檔案的真實 Authenticode 狀態必須
+為 `NotSigned`；損壞簽章、無法驗證或意外已簽署檔案均不接受。預設仍是 signed，
+不因缺少憑證自動降級。其他 source/hash、正式 key、native/license admission
+與實機驗收 gate 保留。Release notes 明確揭露未知 publisher／Windows 提示。
 
 ## 目前事實
 
@@ -20,7 +32,7 @@
 | SignPath Foundation | 合資格 OSS 免費；須符合 OSI license、來源建置、審核與其簽署政策 | 若確定開源，可先評估；目前授權未定，不能保證接受或時程 |
 | SSL.com IV + eSigner | IV 頁面一年 US$129；eSigner IV/OV 最低 US$180/年或 US$20/月，另計憑證 | 若用個人名義且願意付費，列為候選；先確認所在地資格、checkout 總價與身分驗證 |
 | Microsoft Artifact Signing | Public Trust 個人目前限美國／加拿大；組織有另列地區資格 | 未確認發行者資格前不選用，不以部署區域替代合法所在地 |
-| 明確未簽署發行 | 不支付 publisher 簽署費，但最終 Setup 沒有已驗證 Windows publisher | 現行正式 gate 不允許；必須由維護者明確調整政策，保留未簽署的事實與其他 admission |
+| 明確未簽署發行 | 不支付 publisher 簽署費，但最終 Setup 沒有已驗證 Windows publisher | 維護者已選定；實際檔案驗證與公開說明同步調整，保留其他 admission |
 
 SSL.com IV + eSigner 按目前一年憑證與年繳服務相加為 **US$309/年**，是網站
 標價試算，不是訂單或報價；稅費、資格、加購與 native 檔案簽署數量尚未核定。
@@ -51,7 +63,7 @@ Microsoft 的地區／個人身分條件以目前 quickstart 為準；本輪未�
 Windows 簽署以外，現行 Preview verifier、正式 inputs admission、乾淨機／reboot／
 跨登入／新手觀察亦各有門檻；完成付款不代表這些 gate 自動通過。
 
-## 需要維護者決定
+## 歷史選型提案（已由未簽署決策取代）
 
 若接受等待 OSS 申請，先決定 ClipAI 是否使用開源授權；若願意付費，確認
 發行者身分、可接受費用並由本人完成必要身分驗證／付款。若選擇未簽署，

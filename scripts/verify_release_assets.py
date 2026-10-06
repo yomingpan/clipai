@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -21,8 +22,28 @@ def _matches(path: Path, identity: dict) -> None:
         raise ValueError(f"asset identity mismatch: {path.name}")
 
 
+def _inspect_signature(setup: Path) -> dict:
+    """Inspect the final bytes rather than trusting a provenance label."""
+    with tempfile.TemporaryDirectory(prefix="clipai-signature-") as temporary:
+        report = Path(temporary) / "signature.json"
+        script = "$ErrorActionPreference='Stop'; $s=Get-AuthenticodeSignature -LiteralPath $args[0]; @{status=$s.Status.ToString(); publisher=$s.SignerCertificate.Subject; timestamp=$s.TimeStamperCertificate.Subject} | ConvertTo-Json -Compress | Set-Content -LiteralPath $args[1] -Encoding UTF8"
+        script_path = Path(temporary) / "verify.ps1"
+        script_path.write_text(script, encoding="utf-8")
+        # PowerShell 7 may export its module path to a Windows PowerShell 5.1
+        # child; use that child's own built-in modules for native inspection.
+        powershell_root = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/WindowsPowerShell/v1.0"
+        environment = dict(os.environ, PSModulePath=str(powershell_root / "Modules"))
+        subprocess.run([str(powershell_root / "powershell.exe"), "-NoProfile", "-File", str(script_path), str(setup.resolve()), str(report)], check=True, timeout=30, env=environment,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return json.loads(report.read_text(encoding="utf-8-sig"))
+
+
 def verify(assets: Path, *, require_release_ready: bool = False,
-           acceptance: Path | None = None, publisher: str | None = None) -> dict:
+           acceptance: Path | None = None, publisher: str | None = None,
+           publisher_policy: str = "signed") -> dict:
+    if publisher_policy not in ("signed", "unsigned"):
+        raise ValueError("unknown publisher policy")
+    signature = None
     proof = json.loads((assets / "provenance.json").read_text(encoding="utf-8"))
     release, = parse_catalog((assets / "catalog.json").read_bytes()).releases
     if proof["tag"] != "v" + release.version or proof["app_version"] != release.version:
@@ -65,25 +86,23 @@ def verify(assets: Path, *, require_release_ready: bool = False,
     if require_release_ready:
         if proof["technical_candidate"] or proof["distribution_admission"] != "approved":
             raise ValueError("technical/unadmitted candidate cannot be published")
-        if acceptance is None or not publisher:
+        if acceptance is None or (publisher_policy == "signed" and not publisher):
             raise ValueError("exact candidate acceptance and publisher identity are required")
         accepted = json.loads(acceptance.read_text(encoding="utf-8"))
+        if accepted.get("publisher_policy", "signed") != publisher_policy:
+            raise ValueError("acceptance publisher policy mismatch")
         if accepted["setup_sha256"] != proof["setup"]["sha256"] or accepted["bundle_sha256"] != release.bundle_sha256:
             raise ValueError("acceptance belongs to another candidate")
         if any(accepted["gates"].get(gate) != "passed" for gate in REQUIRED_GATES):
             raise ValueError("required release gates have not passed")
-        # Verify the final file itself; an evidence label is not a signature.
-        with tempfile.TemporaryDirectory(prefix="clipai-signature-") as temporary:
-            report = Path(temporary) / "signature.json"
-            script = "$s=Get-AuthenticodeSignature -LiteralPath $args[0]; @{status=$s.Status.ToString(); publisher=$s.SignerCertificate.Subject; timestamp=$s.TimeStamperCertificate.Subject} | ConvertTo-Json -Compress | Set-Content -LiteralPath $args[1] -Encoding UTF8"
-            script_path = Path(temporary) / "verify.ps1"
-            script_path.write_text(script, encoding="utf-8")
-            subprocess.run(["powershell.exe", "-NoProfile", "-File", str(script_path), str(setup), str(report)], check=True, timeout=30,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            signature = json.loads(report.read_text(encoding="utf-8-sig"))
-        if signature["status"] != "Valid" or signature["publisher"] != publisher or not signature["timestamp"]:
+        signature = _inspect_signature(setup)
+        if publisher_policy == "unsigned" and signature["status"] != "NotSigned":
+            raise ValueError("final Setup does not match explicit unsigned publisher policy")
+        if publisher_policy == "signed" and (signature["status"] != "Valid" or signature["publisher"] != publisher or not signature["timestamp"]):
             raise ValueError("final Setup publisher/timestamp verification failed")
-    return {"status": "passed", "release_ready": require_release_ready, "setup_sha256": proof["setup"]["sha256"], "bundle_sha256": release.bundle_sha256}
+    return {"status": "passed", "release_ready": require_release_ready,
+            "publisher_policy": publisher_policy, "authenticode": signature["status"] if signature else "unchecked",
+            "setup_sha256": proof["setup"]["sha256"], "bundle_sha256": release.bundle_sha256}
 
 
 def main() -> int:
@@ -92,9 +111,10 @@ def main() -> int:
     parser.add_argument("--require-release-ready", action="store_true")
     parser.add_argument("--acceptance", type=Path)
     parser.add_argument("--publisher")
+    parser.add_argument("--publisher-policy", choices=("signed", "unsigned"), default="signed")
     args = parser.parse_args()
     print(json.dumps(verify(args.assets.resolve(), require_release_ready=args.require_release_ready,
-                            acceptance=args.acceptance, publisher=args.publisher)))
+                            acceptance=args.acceptance, publisher=args.publisher, publisher_policy=args.publisher_policy)))
     return 0
 
 

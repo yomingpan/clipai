@@ -470,15 +470,20 @@ Candidate assets contain Setup, managed ZIP, catalog, public keyring, component
 notices, provenance and packaged/extraction evidence; CI additionally retains
 wheel, sdist and the lock. `verify_release_assets` rejects missing assets,
 substitutions and evidence bound to another Setup/bundle. Public promotion uses
-`--require-release-ready` with exact candidate acceptance and publisher identity:
+`--require-release-ready` with exact candidate acceptance and publisher policy:
 it rejects technical/unadmitted candidates and missing device gates, then checks
-the final Setup's actual Authenticode status, publisher and timestamp. Signing
+the final Setup's actual Authenticode status. Default signed policy requires a
+matching publisher and timestamp. The explicitly authorized 3.7.18 unsigned
+policy uses `--publisher-policy unsigned`, requires matching
+`publisher_policy: "unsigned"` in acceptance and actual `NotSigned` status;
+invalid or unexpected signatures are rejected. Managed content signatures and
+all other admission/device gates remain required. Signing
 changes bytes: reseal final hashes and repeat affected gates; unsigned candidate
 evidence cannot be relabeled as signed-file acceptance.
 
 Every external GitHub Action reference remains pinned to a full commit SHA.
 The current workflow intentionally builds isolated technical Setup until
-runtime/verifier/compiler distribution admission and signing are available.
+runtime/verifier/compiler distribution admission and the chosen publisher policy are verified.
 Moving to official packaging requires reviewed inputs, removal of technical mode
 and a fresh version/tag/commit, without changing the one-bundle/install ownership.
 

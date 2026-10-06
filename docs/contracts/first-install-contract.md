@@ -257,8 +257,13 @@ neither is clean-VM or reboot evidence.
 
 `distribution_admission=pending` blocks official packaging. The explicit
 technical-candidate mode preserves production signature/keyring validation but
-does not authorize public distribution. Native/license admission, publisher
-signature/timestamp, clean VM, first-use observation and direct publication
+does not authorize public distribution. Native/license admission, the explicitly
+selected publisher policy, clean VM, first-use observation and direct publication
 authorization remain independent gates. The current OpenSSH Preview input is
 not a production selection. Do not change the admission label without the
 component/license/security review described in the release runbook.
+
+For 3.7.18 the maintainer selected unsigned Windows Setup with no paid signing
+service. The release verifier requires explicit unsigned acceptance and actual
+`NotSigned` status of the final hash. This changes only publisher policy; official
+managed content signatures, native/license admission and device gates remain.

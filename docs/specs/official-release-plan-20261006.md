@@ -2,6 +2,14 @@
 
 日期：2026-10-06（Asia/Taipei）。狀態：正式候選準備；尚未公開發布。
 
+執行更新：維護者已授權自主完成 **3.7.18** 發行，並明確選擇未簽署 Windows
+Setup、不支付簽署費用。版本已改為 3.7.18；正式 managed key 設定存在，尚待
+tag CI 實際 self-verification。`release-validation/3.7.18` 已啟動隔離建置，
+沒有建立正式 tag 或公開 Release。以下原始計畫中的 publisher 簽署步驟由本段
+決策取代：採 `--publisher-policy unsigned`、exact-hash acceptance 記錄 unsigned，
+實際最終 Setup 必須 `NotSigned`，公開說明 Windows 未知 publisher 提示。
+其他正式信任鏈、inputs admission 及裝置驗收門檻保留。
+
 本輪使用者在下載並核對 r3 helper 後，以 `--timeout-seconds 600` 啟動，
 回報「成功了。可以準備發行正式版 規劃一下」。記為本輪 About 更新
 passed（使用者回報）；本次沒有另收集版本畫面、health receipt 或交易日誌。
@@ -29,7 +37,7 @@ passed（使用者回報）；本次沒有另收集版本畫面、health receipt
 | r3 封裝、簽章 admission、資產驗證 | 歷史證據 passed | 正式候選固定來源與最終 hashes 重新驗證 |
 | 正式 Setup／CI | builder 有正式模式；CI 仍用 technical mode | 正式 `ClipAI.Desktop` 身分、已審核 inputs、正式 signing |
 | 正式 managed signer | 可配置；本輪未確認可用性 | 正式 Ed25519 authority、舊 key 相容性與輪替責任 |
-| Windows publisher | pending | 最終 Setup Authenticode publisher／timestamp 與原生元件審核 |
+| Windows publisher | 已選擇 unsigned | 驗證最終 Setup `NotSigned`，公開揭露；原生元件審核獨立保留 |
 | 設定保留、reboot、移除重裝 | 本輪 pending；有先前人工證據 | 正式最終檔案的完整循環 |
 | 乾淨機 | 使用者先前 deferred | 準備工作照常進行；既有 release gate 仍未滿足 |
 | 瀏覽器下載、新手首個結果、跨登入 gate | 未有本輪最終證據 | 最終簽署檔案與真實裝置／使用者觀察 |

@@ -1,14 +1,16 @@
 # Release checklist
 
 Status (2026-10-04): candidate build tooling is implemented. Public release is
-**NO-GO** until input admission, final publisher signing and device/user gates pass.
+**NO-GO** until input admission, the selected publisher policy and device/user gates pass.
 See [readiness plan](specs/installer-release-readiness-plan.md),
 [runbook](testing/installer-release-readiness-runbook.md) and
 [evidence](evidence/installer-release-readiness-20261004.md).
 
 2026-10-06: r3 About acceptance passed by user report. Official candidate
 preparation is planned in [the current release plan](specs/official-release-plan-20261006.md).
-Official signing, input admission and final device/user gates remain outstanding.
+The maintainer explicitly selected unsigned Windows Setup for 3.7.18 on 2026-10-06.
+Managed content signatures remain required. Input admission and final device/user
+gates remain outstanding; no paid certificate or signing service is needed.
 
 1. Choose a new comparable app version; update `pyproject.toml` and release notes.
    Query the existing release/tag first. Never reuse or move a published tag, or
@@ -45,18 +47,21 @@ Official signing, input admission and final device/user gates remain outstanding
    promoted. After reviewed admission, use official mode and a fresh version,
    not a relabeled technical candidate. `build_setup_release` proves the actual
    Git tag/commit and complete first-party wheel/payload source correspondence.
-7. Use the legally available signer, validate upstream/final native admission
+7. Record the publisher policy in exact-hash acceptance. For 3.7.18 use
+   `publisher_policy: "unsigned"` and verify the final Setup is actually `NotSigned`.
+   Disclose unknown publisher / Windows prompts in the release notes. This policy
+   does not waive native/license admission or device gates. For a signed release,
+   use the legally available signer, validate upstream/final native admission
    including Python venv redirectors, then sign/timestamp final Setup. Reseal
    provenance/evidence for the changed final hashes; repeat compiled extraction
    and all affected VM/acceptance gates. Never send signing credentials or store
-   them in repository, logs or bundle. No signer means unsigned technical proof
-   only; do not mark a publisher gate passed.
+   them in repository, logs or bundle. Never label an unsigned file publisher-signed.
 8. Restore a clean Windows 11 x64 standard-user snapshot and execute A installation
    → offline launch after Setup/temp cleanup → reboot → explicit About update B
    (B actually newer) → reboot → retained-data uninstall/reinstall. Use an isolated
    HTTPS catalog via the existing composition seam, not production latest or a
    relaxed keyring. Record normal/fault, cross-logon gate and space/time evidence.
-9. Download the final signed hash through a browser; record Windows trust and
+9. Download the final hash through a browser; record Windows trust and
    first result observations from a few new users. No disabling protections or
    substituting an editable test, empty PATH or fixture for a clean VM.
 10. Retain the complete asset set: wheel/sdist, `ClipAI-Setup-{version}-windows-x64.exe`,
@@ -66,11 +71,13 @@ Official signing, input admission and final device/user gates remain outstanding
 11. Before any directly authorized public promotion, run:
 
     ```powershell
-    python -m scripts.verify_release_assets --assets <final-assets> --require-release-ready --acceptance <exact-hash-acceptance.json> --publisher "<exact certificate subject>"
+    python -m scripts.verify_release_assets --assets <final-assets> --require-release-ready --acceptance <exact-hash-acceptance.json> --publisher-policy unsigned
     ```
 
     All runbook gates must say passed for those exact Setup/bundle hashes, and
-    the tool checks the final file's real signature/publisher/timestamp. A missing
+    the tool checks the final file's real `NotSigned` status and the recorded
+    unsigned policy. Signed policy additionally requires `--publisher` and a
+    valid matching publisher/timestamp. A missing
     asset, wrong URL/version/hash or stale evidence rejects the candidate. A draft
     cannot serve ordinary About latest. Create a complete draft only after the
     gate, inspect it, and publish only with separate direct authorization. This

@@ -187,6 +187,63 @@ def test_unsigned_candidate_without_acceptance_cannot_pass_publication_gate(buil
         verify(candidate_assets(build_request), require_release_ready=True)
 
 
+def release_acceptance(assets, *, publisher_policy="unsigned"):
+    from scripts.verify_release_assets import REQUIRED_GATES
+    proof = json.loads((assets / "provenance.json").read_text())
+    acceptance = assets / "acceptance.json"
+    acceptance.write_text(json.dumps({
+        "setup_sha256": proof["setup"]["sha256"],
+        "bundle_sha256": proof["bundle"]["sha256"],
+        "publisher_policy": publisher_policy,
+        "gates": {gate: "passed" for gate in REQUIRED_GATES},
+    }))
+    return acceptance
+
+
+def test_explicit_unsigned_release_checks_real_signature_status_and_retains_other_gates(build_request, monkeypatch):
+    from scripts import verify_release_assets as verifier
+    assets = candidate_assets(build_request)
+    acceptance = release_acceptance(assets)
+    checked = []
+    def inspect(setup):
+        checked.append(setup)
+        return {"status": "NotSigned", "publisher": None, "timestamp": None}
+    monkeypatch.setattr(verifier, "_inspect_signature", inspect)
+    result = verifier.verify(assets, require_release_ready=True, acceptance=acceptance, publisher_policy="unsigned")
+    assert result["release_ready"] is True
+    assert result["publisher_policy"] == "unsigned"
+    assert result["authenticode"] == "NotSigned"
+    assert len(checked) == 1
+    payload = json.loads(acceptance.read_text())
+    payload["gates"]["native_admission"] = "pending"
+    acceptance.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="gates"):
+        verifier.verify(assets, require_release_ready=True, acceptance=acceptance, publisher_policy="unsigned")
+
+
+@pytest.mark.parametrize("status", ["HashMismatch", "NotTrusted", "UnknownError", "Valid"])
+def test_unsigned_policy_never_bypasses_invalid_or_unexpected_signature(build_request, monkeypatch, status):
+    from scripts import verify_release_assets as verifier
+    assets = candidate_assets(build_request)
+    monkeypatch.setattr(verifier, "_inspect_signature", lambda setup: {"status": status})
+    with pytest.raises(ValueError, match="unsigned"):
+        verifier.verify(assets, require_release_ready=True, acceptance=release_acceptance(assets), publisher_policy="unsigned")
+
+
+def test_unsigned_policy_requires_matching_recorded_acceptance(build_request):
+    from scripts.verify_release_assets import verify
+    assets = candidate_assets(build_request)
+    with pytest.raises(ValueError, match="policy"):
+        verify(assets, require_release_ready=True, acceptance=release_acceptance(assets, publisher_policy="signed"), publisher_policy="unsigned")
+
+
+def test_default_signed_policy_does_not_silently_allow_unsigned(build_request):
+    from scripts.verify_release_assets import verify
+    assets = candidate_assets(build_request)
+    with pytest.raises(ValueError, match="publisher"):
+        verify(assets, require_release_ready=True, acceptance=release_acceptance(assets))
+
+
 def test_runtime_symlink_is_rejected_before_extraction(tmp_path):
     archive = tmp_path / "linked.tar.gz"
     with tarfile.open(archive, "w:gz") as target:
