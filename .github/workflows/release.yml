@@ -186,6 +186,17 @@ jobs:
           python -m scripts.verify_release_assets --assets release/setup/output
           if ($LASTEXITCODE -ne 0) { throw "Candidate asset validation failed" }
 
+      - name: Exercise compiled installer and retained-data recovery
+        shell: pwsh
+        run: |
+          $product = if ($env:GITHUB_REF_TYPE -eq "tag") { "ClipAI" } else { "ClipAI Candidate" }
+          $setupName = if ($env:GITHUB_REF_TYPE -eq "tag") { "ClipAI-Setup" } else { "ClipAI-Candidate-Setup" }
+          python -m experiments.first_install.accept_preview `
+            --product $product --version $env:CLIPAI_VERSION `
+            --setup "release/setup/output/$setupName-$env:CLIPAI_VERSION-windows-x64.exe" `
+            --output release/setup/output/runner-install-cycle
+          if ($LASTEXITCODE -ne 0) { throw "Actual installer cycle failed" }
+
       - name: Upload auditable workflow artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

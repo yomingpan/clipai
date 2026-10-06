@@ -1,7 +1,8 @@
-"""Bounded local acceptance. Mutates only the explicitly selected candidate.
+"""Bounded local acceptance. Mutates only the explicitly selected product.
 
 Run on a Windows developer host, never claim clean-VM or public-release proof.
-Existing Preview roots/registration are rejected before starting.
+Existing roots/registration are rejected before starting. Formal ClipAI also
+requires an absent shared root; user data must not become test data.
 """
 from __future__ import annotations
 
@@ -20,15 +21,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--setup", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--product", choices=("ClipAI Preview", "ClipAI Candidate"), default="ClipAI Preview")
+    parser.add_argument("--product", choices=("ClipAI Preview", "ClipAI Candidate", "ClipAI"), default="ClipAI Preview")
     parser.add_argument("--version", default="3.7.8")
     args = parser.parse_args()
     setup = args.setup.resolve(strict=True)
     root = (Path(os.environ["LOCALAPPDATA"]) / "Programs" / args.product).resolve()
     shared = (Path(os.environ["LOCALAPPDATA"]) / args.product).resolve()
-    registry = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ClipAI.LocalAcceptance." + ("Candidate" if args.product == "ClipAI Candidate" else "Preview")
-    if args.product == "ClipAI Candidate" and shared.exists():
-        raise RuntimeError("Existing Candidate data must not be modified by acceptance")
+    product_id = "ClipAI.Desktop" if args.product == "ClipAI" else "ClipAI.LocalAcceptance." + ("Candidate" if args.product == "ClipAI Candidate" else "Preview")
+    registry = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + product_id
+    if args.product in ("ClipAI Candidate", "ClipAI") and shared.exists():
+        raise RuntimeError("Existing product data must not be modified by acceptance")
     if root.exists():
         raise RuntimeError("Existing Preview installation must not be modified by acceptance")
     try:
