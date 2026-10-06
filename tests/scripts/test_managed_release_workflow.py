@@ -37,6 +37,7 @@ def test_tag_workflow_builds_complete_candidate_without_publication() -> None:
         "scripts.verify_setup_extraction",
         "scripts.verify_release_assets",
         "--technical-candidate",
+        "--minimum-launcher-version 3.7.18",
         "if: always()",
     )
     for marker in required:
