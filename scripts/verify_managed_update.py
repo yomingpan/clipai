@@ -8,62 +8,40 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
+STAGES = ("fast", "synthetic", "loopback-http", "managed-bundle")
+INTEGRATION_TESTS = {
+    "loopback-http": "tests/e2e/test_managed_update_loopback_http.py",
+    "managed-bundle": "tests/e2e/test_managed_update_bundle.py",
+}
 
 
 def _run(arguments: list[str]) -> int:
     return subprocess.run(arguments, cwd=ROOT, check=False).returncode
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--python", type=Path, default=ROOT / ".venv" / "Scripts" / "python.exe")
     parser.add_argument(
         "--stage",
-        choices=("fast", "synthetic", "loopback-http", "managed-bundle"),
+        choices=STAGES,
         default="fast",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     python = args.python.resolve()
     if not python.is_file():
         parser.error(f"Python environment is unavailable: {python}")
-    fast_result = _run([str(python), str(ROOT / "scripts" / "run_unit_tests.py")])
-    if fast_result != 0 or args.stage == "fast":
-        return fast_result
-    synthetic_result = _run(
-        [
-            str(python),
-            str(ROOT / "scripts" / "run_unit_tests.py"),
-            "--",
-            "tests/e2e/test_managed_update_synthetic.py",
-            "-q",
-        ]
-    )
-    if synthetic_result != 0 or args.stage == "synthetic":
-        return synthetic_result
-    loopback_result = _run(
-        [
-            str(python),
-            str(ROOT / "scripts" / "run_unit_tests.py"),
-            "--",
-            "tests/e2e/test_managed_update_loopback_http.py",
-            "-m",
-            "integration",
-            "-q",
-        ]
-    )
-    if loopback_result != 0 or args.stage == "loopback-http":
-        return loopback_result
-    return _run(
-        [
-            str(python),
-            str(ROOT / "scripts" / "run_unit_tests.py"),
-            "--",
-            "tests/e2e/test_managed_update_bundle.py",
-            "-m",
-            "integration",
-            "-q",
-        ]
-    )
+    runner = [str(python), str(ROOT / "scripts" / "run_unit_tests.py")]
+    # The complete unit suite already includes the synthetic E2E. Keep each
+    # later stage separate so a failed loopback never starts bundle work.
+    result = _run(runner)
+    if result:
+        return result
+    for stage in STAGES[2:STAGES.index(args.stage) + 1]:
+        result = _run([*runner, "--", INTEGRATION_TESTS[stage], "-m", "integration", "-q"])
+        if result:
+            return result
+    return 0
 
 
 if __name__ == "__main__":

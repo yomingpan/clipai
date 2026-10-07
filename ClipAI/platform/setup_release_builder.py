@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Mapping
+import fnmatch
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -50,7 +51,8 @@ def _require_identity(path: Path, expected: dict) -> None:
 
 
 def _extract_runtime(archive: Path, root: Path) -> None:
-    # One fixed runtime archive profile, not another managed-bundle parser.
+    # Validate the entire fixed archive before filtering, including excluded
+    # members. Write the runtime once, directly into its final stage location.
     with tarfile.open(archive, "r:gz") as source:
         members = source.getmembers()
         seen: set[str] = set()
@@ -66,7 +68,11 @@ def _extract_runtime(archive: Path, root: Path) -> None:
             raise ValueError("runtime archive exceeds size limit")
         # Compatible with the project's Python 3.10 tooling as well as 3.12.
         for member in members:
-            target = root.joinpath(*PurePosixPath(member.name).parts)
+            parts = PurePosixPath(member.name).parts[1:]
+            if any(fnmatch.fnmatch(part, pattern) for part in parts
+                   for pattern in ("site-packages", "__pycache__", "*.pyc")):
+                continue
+            target = root.joinpath(*parts)
             if member.isdir():
                 target.mkdir(parents=True, exist_ok=True)
             else:
@@ -133,9 +139,7 @@ class SetupReleaseBuilder:
         adapter_identity = _identity(Path(__file__))
         stage = root / "stage"
         stage.mkdir()
-        _extract_runtime(request.runtime_archive, root / "runtime-source")
-        shutil.copytree(root / "runtime-source/python", stage / "runtime",
-                        ignore=shutil.ignore_patterns("site-packages", "__pycache__", "*.pyc"))
+        _extract_runtime(request.runtime_archive, stage / "runtime")
         environment = self._environment
         transaction = root / "admission"
         transaction.mkdir()

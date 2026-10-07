@@ -13,6 +13,13 @@ unknown fields. IDs are non-empty opaque ASCII strings (maximum 128 chars),
 versions are normalized PEP 440 strings, paths are absolute, and timestamps are
 UTC RFC 3339 strings.
 
+Managed installation eligibility proves distribution identity and absence of
+editable ClipAI metadata from one complete `site-packages` inventory per proof.
+Missing/ambiguous metadata, wrong name/version and editable metadata in any
+matching ClipAI dist-info directory remain ineligible. This is fresh evidence,
+not cached admission; the filesystem inventory's containment and redirected-file
+checks remain mandatory.
+
 ## Application paths and data ownership
 
 `ApplicationPaths` is resolved once in app composition and injected into the

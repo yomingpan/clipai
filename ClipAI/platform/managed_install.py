@@ -258,9 +258,8 @@ class ManagedInstallLayout:
         entrypoint = current_root.joinpath(*PurePosixPath(manifest.entrypoint).parts)
         if not native_path(entrypoint).is_file():
             raise ValueError("managed entrypoint is missing")
-        if self._installed_distribution_version(current_root) != version:
+        if self._prove_distribution(current_root) != version:
             raise ValueError("installed distribution version does not match")
-        self._reject_editable_install(current_root)
         return CandidateEnvironment(
             root=current_root,
             python=expected_python,
@@ -268,29 +267,26 @@ class ManagedInstallLayout:
             version=version,
         )
 
-    def _installed_distribution_version(self, current_root: Path) -> str:
+    def _prove_distribution(self, current_root: Path) -> str:
+        """Prove metadata and non-editable admission from one full inventory."""
         site_packages = current_root / ".venv" / "Lib" / "site-packages"
         metadata_paths = []
         for relative in regular_file_inventory(site_packages):
             parts = PurePosixPath(relative).parts
-            if len(parts) == 2 and parts[0].casefold().startswith("clipai-") and parts[0].casefold().endswith(".dist-info") and parts[1] == "METADATA":
+            if len(parts) != 2 or not parts[0].casefold().startswith("clipai-") or not parts[0].casefold().endswith(".dist-info"):
+                continue
+            if parts[1] == "METADATA":
                 metadata_paths.append(site_packages.joinpath(*parts))
+            elif parts[1] == "direct_url.json":
+                payload = read_json(site_packages.joinpath(*parts))
+                if isinstance(payload, dict) and isinstance(payload.get("dir_info"), dict) and payload["dir_info"].get("editable") is True:
+                    raise ValueError("editable install is not update eligible")
         if len(metadata_paths) != 1:
             raise ValueError("managed distribution metadata is missing or ambiguous")
         metadata = BytesParser(policy=compat32).parsebytes(read_bytes(metadata_paths[0], maximum_size=1024 * 1024))
         if metadata.get("Name", "").casefold() != "clipai":
             raise ValueError("managed distribution name does not match")
         return _version(metadata.get("Version"))
-
-    def _reject_editable_install(self, current_root: Path) -> None:
-        site_packages = current_root / ".venv" / "Lib" / "site-packages"
-        for relative in regular_file_inventory(site_packages):
-            parts = PurePosixPath(relative).parts
-            if len(parts) != 2 or not parts[0].casefold().startswith("clipai-") or not parts[0].casefold().endswith(".dist-info") or parts[1] != "direct_url.json":
-                continue
-            payload = read_json(site_packages.joinpath(*parts))
-            if isinstance(payload, dict) and isinstance(payload.get("dir_info"), dict) and payload["dir_info"].get("editable") is True:
-                raise ValueError("editable install is not update eligible")
 
     def _write_state(self, state: ManagedInstallState) -> None:
         atomic_write_json(self._state_path, {

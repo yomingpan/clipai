@@ -68,6 +68,12 @@ python scripts/run_unit_tests.py
 
 測試啟動器會在開始收集測試前建立可寫的、隔離的 pytest 暫存與快取目錄。它優先使用 `CLIPAI_TEST_TEMP_ROOT`；未設定時先嘗試系統暫存目錄，再嘗試工作樹內被 `.gitignore` 排除的 `.clipai-test-artifacts/`。兩者都不可寫時，它會以明確的測試環境錯誤停止，而不是讓每個使用 `tmp_path` 的 case 各自報錯。
 
+`scripts/verify_managed_update.py` 的 `fast` 與 `synthetic` stage 都執行完整
+unit suite 一次；suite 已包含 synthetic E2E，不重跑。`loopback-http` 再執行
+真實 loopback，`managed-bundle` 最後執行離線安裝／更新／回滾矩陣。每一階段
+失敗都傳回原 exit code，且不啟動後續階段。Harness tests 驗證 stage coverage、
+順序、失敗停止，以及 synthetic E2E 仍被預設 marker 收集。
+
 GitHub Windows CI 必須在 Python 3.10、3.11、3.12、3.13 執行 constrained clean install、compile、unit tests 與 architecture tests。排程工作另測未鎖定依賴，但不得影響正式安裝 constraints。
 
 Action Language Pack 的 machine gate 必須執行 strict loader/compiler、`zh-TW`

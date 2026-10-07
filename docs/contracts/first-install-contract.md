@@ -247,6 +247,13 @@ keyring hashes are compiled into candidate Setup and checked on actual extractio
 before installation. `/VERIFYONLY=1` requests payload proof only and cannot launch,
 install or remove an app; its visible completion says verification completed.
 
+Runtime packaging validates every pinned archive member and the total expanded
+size before writing, including members excluded from shipping. It extracts the
+`python/` contents directly into `stage/runtime`, excluding `site-packages`,
+`__pycache__` and `*.pyc` with the existing copy filter semantics. No intermediate
+runtime copy is needed. The old checkout-copying Preview builder is retired;
+new technical candidates and official Setup use this same packaging adapter.
+
 Provenance records source/tag, distinct app/launcher/runtime/verifier/compiler
 identities, wheel/lock/bundle/Setup hashes, wizard/packaging adapter hashes and
 the entire staged inventory. Unsigned provenance is build evidence, not a new

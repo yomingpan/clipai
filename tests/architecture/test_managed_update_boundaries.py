@@ -28,6 +28,12 @@ def test_release_builder_has_one_core_and_one_thin_cli():
     assert "ManagedReleaseBuilder(signer).build(" in cli
 
 
+def test_current_setup_packaging_has_no_parallel_preview_builder():
+    assert not (ROOT / "experiments/first_install/build_preview.py").exists()
+    pair = (ROOT / "experiments/first_install/prepare_acceptance_pair.py").read_text(encoding="utf-8")
+    assert '"scripts.build_setup_release"' in pair
+
+
 def test_client_install_identity_never_requires_a_publisher_private_key():
     layout = (ROOT / "ClipAI" / "platform" / "managed_install.py").read_text(encoding="utf-8")
     signature = (ROOT / "ClipAI" / "platform" / "update_signature.py").read_text(encoding="utf-8")

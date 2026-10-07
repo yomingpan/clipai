@@ -1,19 +1,27 @@
-# First-install experiments and local Preview build
+# First-install experiments and candidate acceptance
 
 These tools produce bounded developer-host evidence. An unsigned Preview is
 not an official release; public signing/admission and clean-VM gates remain in
 [the plan](../../docs/specs/first-install-installer-plan.md).
 
-`build_preview.py` consumes hash-pinned runtime/verifier archives, a local
-wheelhouse, a caller-supplied Python build backend and Inno Setup 6.7.3 ISCC.
-It builds the changed ClipAI wheel offline, seals an exact hashed lock/bundle
-with a fresh local manifest key, deletes the private key and compiles a Setup.
-Each build uses a fresh directory and emits build-evidence.json. No official
-keyring, publisher credentials or GitHub publishing is involved.
+The old `build_preview.py` was retired on 2026-10-07. It duplicated packaging
+and copied bootstrap code from the checkout while shipping the superseded
+OpenSSH runtime verifier. Historical Preview evidence and its wizard include
+remain available; they do not define the current packaging path.
+
+Build new isolated candidates using
+`python -m scripts.build_setup_release --technical-candidate` with the same fixed bundle/catalog/keyring and reviewed
+Setup inputs used by release CI. This consumes the existing signed bundle,
+extracts bootstrap code from its admitted wheels and does not rebuild or sign
+the application. See [the release checklist](../../docs/RELEASE_CHECKLIST.md)
+for the build order and proofs. `prepare_acceptance_pair.py` uses that same
+packaging path for source-bound A/B candidates sharing a disposable authority.
+Neither candidate mode grants publication authority.
 
 `accept_preview.py --setup <exe> --output <new-evidence-directory>` exercises the
-actual Setup against its default isolated per-user Preview root. It rejects an
-existing Preview installation/registration, preserves existing shared data,
+actual Setup against its default isolated per-user Preview root. Use
+`--product "ClipAI Candidate" --version <version>` for current technical
+candidates. It rejects an existing installation/registration, preserves existing shared data,
 uses empty PATH, checks identity and full dependencies, rejects duplicate
 installation and removal with its own private Python child, breaks the app venv
 and proves same-Setup retained-data uninstall/reinstall. It removes the test

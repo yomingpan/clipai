@@ -191,6 +191,47 @@ def test_source_checkout_and_editable_install_are_ineligible(tmp_path: Path):
     assert editable.value.code is FailureCode.IDENTITY_INELIGIBLE
 
 
+@pytest.mark.parametrize("fault", ["missing", "duplicate", "wrong-name", "wrong-version", "other-editable", "malformed-url"])
+def test_distribution_proof_rejects_invalid_or_ambiguous_evidence(tmp_path: Path, fault: str):
+    layout, _, request = _write_install(tmp_path)
+    packages = layout.version_root("1.0") / ".venv/Lib/site-packages"
+    metadata = packages / "clipai-1.0.dist-info/METADATA"
+    if fault == "missing":
+        metadata.unlink()
+    elif fault == "duplicate":
+        extra = packages / "clipai-other.dist-info/METADATA"
+        extra.parent.mkdir()
+        extra.write_bytes(metadata.read_bytes())
+    elif fault in {"wrong-name", "wrong-version"}:
+        metadata.write_text("Name: Other\nVersion: 1.0\n" if fault == "wrong-name" else "Name: ClipAI\nVersion: 2.0\n")
+    elif fault == "other-editable":
+        # The editable flag must be rejected even outside the selected metadata
+        # directory, as with the previous independent full-tree check.
+        atomic_write_json(packages / "clipai-other.dist-info/direct_url.json", {"dir_info": {"editable": True}})
+    else:
+        (packages / "clipai-1.0.dist-info/direct_url.json").write_text("invalid json")
+
+    with pytest.raises(ManagedUpdateFailure) as raised:
+        layout.assert_update_eligible(request)
+    assert raised.value.code is FailureCode.IDENTITY_INELIGIBLE
+
+
+def test_selfcheck_uses_one_complete_distribution_inventory(tmp_path: Path, monkeypatch):
+    from ClipAI.platform import managed_install as module
+    layout, _, _ = _write_install(tmp_path)
+    packages = layout.version_root("1.0") / ".venv/Lib/site-packages"
+    atomic_write_json(packages / "clipai-1.0.dist-info/direct_url.json", {"dir_info": {"editable": False}})
+    inventory = module.regular_file_inventory
+    calls = []
+    def scan(root):
+        calls.append(root)
+        return inventory(root)
+    monkeypatch.setattr(module, "regular_file_inventory", scan)
+
+    assert layout.prove_current_install().version == "1.0"
+    assert calls == [packages]
+
+
 def test_commit_and_rollback_atomically_advance_single_pointer_and_retain_old_version(tmp_path: Path):
     layout, _, request = _write_install(tmp_path)
     layout.assert_update_eligible(request)

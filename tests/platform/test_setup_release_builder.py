@@ -91,6 +91,8 @@ def test_setup_consumes_identical_bundle_and_wheel_bootstrap(build_request):
     setup = SetupReleaseBuilder(environment={}).build(build_request)
     root = build_request.output_root
     assert setup.is_file()
+    assert (root / "stage/runtime/python.exe").read_bytes() == b"fixture"
+    assert not (root / "runtime-source").exists()
     assert (root / "stage/bundle.zip").read_bytes() == build_request.bundle.read_bytes()
     assert (root / "stage/setup-engine/ClipAI/app/first_install_bootstrap.py").read_bytes() == b"wheel bootstrap fixture"
     proof = json.loads((root / "output/provenance.json").read_text())
@@ -301,6 +303,43 @@ def test_runtime_symlink_is_rejected_before_extraction(tmp_path):
         member.linkname = "../../user-file"
         target.addfile(member)
     destination = tmp_path / "extracted"
+    with pytest.raises(ValueError, match="unsafe runtime"):
+        module._extract_runtime(archive, destination)
+    assert not destination.exists()
+
+
+def test_runtime_is_filtered_directly_into_final_layout(tmp_path):
+    archive = tmp_path / "runtime.tar.gz"
+    keep = ("python.exe", "Lib/venv/scripts/nt/python.exe", "Lib/ensurepip/pip.whl",
+            "tcl/tk8.6/license.terms", "LICENSE.txt")
+    exclude = ("Lib/site-packages/untrusted.py", "Lib/__pycache__/cached.pyc",
+               "Lib/cached.pyc", "Lib/nested/__pycache__/data.txt")
+    with tarfile.open(archive, "w:gz") as target:
+        for name in (*keep, *exclude):
+            member = tarfile.TarInfo("python/" + name)
+            member.size = len(name.encode())
+            target.addfile(member, io.BytesIO(name.encode()))
+    destination = tmp_path / "stage/runtime"
+
+    module._extract_runtime(archive, destination)
+
+    assert {path.relative_to(destination).as_posix() for path in destination.rglob("*") if path.is_file()} == set(keep)
+    for name in keep:
+        assert (destination / name).read_bytes() == name.encode()
+
+
+def test_excluded_runtime_member_is_still_validated_before_any_write(tmp_path):
+    archive = tmp_path / "runtime.tar.gz"
+    with tarfile.open(archive, "w:gz") as target:
+        valid = tarfile.TarInfo("python/python.exe")
+        valid.size = 4
+        target.addfile(valid, io.BytesIO(b"safe"))
+        hidden_link = tarfile.TarInfo("python/Lib/site-packages/hidden.py")
+        hidden_link.type = tarfile.SYMTYPE
+        hidden_link.linkname = "../../../user-file"
+        target.addfile(hidden_link)
+    destination = tmp_path / "stage/runtime"
+
     with pytest.raises(ValueError, match="unsafe runtime"):
         module._extract_runtime(archive, destination)
     assert not destination.exists()
