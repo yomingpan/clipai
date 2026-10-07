@@ -51,3 +51,16 @@ and validates a Unicode shortcut, rejects different arguments without changing
 the file, and confirms temporary intent cleanup. The temporary workflow and
 harness have been removed; the release workflow retains this actual regression.
 The complete compiled installer cycle on the fixed adapter is still pending.
+
+Fresh-runner runs 37551811207 and 37552002633 failed the .NET automation
+replacement at Chinese TargetPath assignment with a range error. Supplying
+a real pythonw.exe and icon did not resolve it. This is a separate failure
+from the original 30-second timeout; no internal ANSI/codepage cause is claimed.
+
+The final adapter replaces its PowerShell child with a private isolated Python
+stdlib worker using IShellLinkW and IPersistFile. It keeps the same JSON intent,
+30-second bound, ownership readback and cleanup. Local Unicode creation,
+validation, changed-argument rejection and unchanged-file checks passed in
+1.58 seconds. The fresh-runner regression and final compiled cycle remain
+pending. A temporary fast diagnostic workflow is retained only until that
+regression passes and must be removed before the official tag.

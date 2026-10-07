@@ -3,8 +3,9 @@
 ## Judgment
 
 Yellow; local refactor inside the existing Windows adapter. Confidence is high
-that removing cmdlet/module discovery removes the observed delay; the internal
-Windows module-cache cause is not established. No installer workflow rebuild.
+that module discovery causes the observed delay and the automation path fails
+on Unicode targets in fresh English Windows runners; their internal causes
+are not established. No installer workflow rebuild.
 
 ## Triggering evidence
 
@@ -16,7 +17,9 @@ Module-path pinning still timed out. Explicit Utility import still took
 28.266/17.578/17.656 seconds. Run 37550519499 measured the original path at
 19.641/12.406/12.078 seconds; direct Windows .NET calls took
 3.703/0.281/0.266 seconds on another fresh runner. These are CI measurements,
-not Windows 11 user-device latency claims.
+not Windows 11 user-device latency claims. The .NET replacement then failed
+in runs 37551811207 and 37552002633 while assigning a Chinese TargetPath,
+even after supplying a real executable target.
 
 ## Protected capability
 
@@ -33,7 +36,9 @@ rejection, temporary request cleanup and the 30-second subprocess bound.
 3. Ambient PowerShell module discovery leaks host configuration/initialization
    into the installer. Contain that dependency in this platform adapter.
 4. A real Windows regression creates and validates a Unicode shortcut with
-   module autoload disabled, rejects changed arguments and preserves its bytes.
+   an empty PATH, rejects changed arguments and preserves its bytes.
+   Native execution uses IShellLinkW, including Unicode target and argument
+   readback; it does not resolve or launch the shortcut target.
    The existing compiled installer cycle remains the end-to-end safeguard.
 
 ## Debt multiplier
@@ -44,16 +49,20 @@ Keep native execution explicit rather than adding workaround state.
 
 ## Options
 
-Longer timeouts retain discovery and latency. A new ctypes COM implementation
-adds substantial native interface code. Direct .NET calls inside the current
-PowerShell adapter remove the observed discovery dependency with three local
-replacements; that is the selected option.
+Longer timeouts retain discovery and latency. Direct .NET calls remove
+cmdlet discovery but failed the fresh-runner Unicode regression. The selected
+stdlib worker uses the documented IShellLinkW and IPersistFile interfaces.
+Its native ABI cost is bounded within the Windows adapter and justified by
+both observed failures; no alternate shell fallback remains.
 
 ## Intervention and completion
 
-Use Windows .NET framework JSON parsing, COM activation and path handling;
-disable module autoload. No new bundled dependency, transport, platform branch,
-user-data owner or service contract. Complete only after the native regression,
+Replace the PowerShell child with the private Python executable in isolated
+mode and an absolute stdlib worker path. Keep the same owned JSON intent,
+30-second bound, bootstrap Job containment and finally cleanup. Balance COM
+apartment initialization and both interface references within that child.
+No new bundled dependency, parallel worker mechanism, user-data owner or
+service contract. Complete only after the native regression,
 source/architecture tests and original compiled installer cycle pass.
 
 ## Reversible sequence
@@ -65,9 +74,9 @@ Git history preserves the original adapter without retaining a live dual path.
 
 ## ADR
 
-Decision: first-install shortcut integration uses explicit Windows .NET APIs
-and cannot depend on automatic PowerShell module import. Alternatives above
-are rejected for remaining latency or unnecessary complexity. Review when a
+Decision: first-install shortcut integration uses explicit Unicode Windows
+Shell Link APIs and cannot depend on PowerShell module import or WScript
+automation. Alternatives above failed the observed latency or Unicode gates. Review when a
 second native operation needs this same shell boundary; extract a shared
 platform capability only when it removes actual coupling.
 

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import base64
 import ctypes
 from ctypes import wintypes
-import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 from ClipAI.platform.managed_process import _windows_process_functions
 from ClipAI.core.first_install import InstallationBusyError
@@ -151,29 +150,10 @@ class WindowsInstallationIntegration:
         atomic_write_json(request, {"path": str(path), "target": str(self.root / "runtime/pythonw.exe"),
                                     "arguments": subprocess.list2cmdline(self._arguments(action)),
                                     "icon": str(self.icon), "create": create})
-        code = r"""
-$ErrorActionPreference = 'Stop'
-# Bootstrap must not discover or load user/host PowerShell modules.
-$PSModuleAutoLoadingPreference = 'None'
-$taskAssembly = [Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
-$taskIntent = [System.Web.Script.Serialization.JavaScriptSerializer]::new().DeserializeObject([IO.File]::ReadAllText($env:CLIPAI_SHORTCUT_INTENT, [Text.Encoding]::UTF8))
-$taskShell = [Activator]::CreateInstance([Type]::GetTypeFromProgID('WScript.Shell'))
-$taskLink = $taskShell.CreateShortcut($taskIntent.path)
-if ($taskIntent.create) {
-  $taskLink.TargetPath = $taskIntent.target
-  $taskLink.Arguments = $taskIntent.arguments
-  $taskLink.IconLocation = $taskIntent.icon + ',0'
-  $taskLink.WorkingDirectory = [IO.Path]::GetDirectoryName($taskIntent.target)
-  $taskLink.Save()
-} elseif (($taskLink.TargetPath -ne $taskIntent.target) -or ($taskLink.Arguments -ne $taskIntent.arguments)) {
-  throw 'Shortcut ownership changed'
-}
-"""
         try:
-            shell = Path(self.environment["SYSTEMROOT"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
-            result = subprocess.run([str(shell), "-NoProfile", "-NonInteractive", "-EncodedCommand",
-                                     base64.b64encode(code.encode("utf-16-le")).decode()],
-                                    env={**self.environment, "CLIPAI_SHORTCUT_INTENT": str(request)},
+            worker = Path(__file__).with_name('windows_shell_link.py')
+            result = subprocess.run([sys.executable, '-I', str(worker), str(request)],
+                                    env=self.environment,
                                     capture_output=True, timeout=30, check=False,
                                     creationflags=subprocess.CREATE_NO_WINDOW)
             if result.returncode:

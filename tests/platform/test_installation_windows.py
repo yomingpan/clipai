@@ -89,8 +89,7 @@ def test_older_install_without_desktop_receipt_preserves_unowned_desktop_link(tm
 
 @pytest.mark.integration
 @pytest.mark.skipif(sys.platform != 'win32', reason='Windows shortcut adapter')
-def test_native_shortcut_roundtrip_without_module_autoload(tmp_path, monkeypatch):
-    import base64
+def test_native_unicode_shortcut_roundtrip_preserves_owned_arguments(tmp_path):
     import os
     import shutil
 
@@ -105,21 +104,6 @@ def test_native_shortcut_roundtrip_without_module_autoload(tmp_path, monkeypatch
     native = windows.WindowsInstallationIntegration(
         product='ClipAI Probe', registry_name='Probe', root=root, shared=root,
         install_id='probe', version='3.7.18', work_root=root, environment=environment)
-    original = windows.subprocess.run
-    call_count = 0
-
-    def no_autoload(command, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        code = base64.b64decode(command[-1]).decode('utf-16-le')
-        code = "$PSModuleAutoLoadingPreference = 'None'\n" + code
-        command = [*command[:-1], base64.b64encode(code.encode('utf-16-le')).decode()]
-        result = original(command, **kwargs)
-        if call_count <= 2:
-            assert result.returncode == 0, result.stderr.decode('utf-8', errors='replace')[-3000:]
-        return result
-
-    monkeypatch.setattr(windows.subprocess, 'run', no_autoload)
     path = root / '測試.lnk'
     native._shortcut(path, 'launch', create=True)
     assert path.is_file()
