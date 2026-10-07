@@ -92,9 +92,14 @@ def test_older_install_without_desktop_receipt_preserves_unowned_desktop_link(tm
 def test_native_shortcut_roundtrip_without_module_autoload(tmp_path, monkeypatch):
     import base64
     import os
+    import shutil
 
     root = tmp_path / '安裝 probe'
     root.mkdir()
+    (root / 'runtime').mkdir()
+    (root / 'setup-engine').mkdir()
+    shutil.copy2(Path(sys.base_prefix) / 'pythonw.exe', root / 'runtime/pythonw.exe')
+    shutil.copy2(Path(windows.__file__).resolve().parents[1] / 'ui/assets/clipai.ico', root / 'setup-engine/clipai.ico')
     environment = {key.upper(): value for key, value in os.environ.items()}
     environment['PATH'] = ''
     native = windows.WindowsInstallationIntegration(
