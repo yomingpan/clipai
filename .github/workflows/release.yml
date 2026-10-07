@@ -156,6 +156,9 @@ jobs:
           $python = (Get-Command python).Source
           python scripts\verify_managed_update.py --stage managed-bundle --python $python
 
+      - name: Verify native shortcut ownership without module discovery
+        run: python -m pytest tests/platform/test_installation_windows.py -m integration -q
+
       - name: Fetch pinned Setup inputs and compiler
         run: python -m scripts.fetch_setup_inputs --inputs packaging/windows/setup-inputs.json --output release/bootstrap --install-compiler
 

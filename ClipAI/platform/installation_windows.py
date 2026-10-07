@@ -153,14 +153,17 @@ class WindowsInstallationIntegration:
                                     "icon": str(self.icon), "create": create})
         code = r"""
 $ErrorActionPreference = 'Stop'
-$taskIntent = Get-Content -LiteralPath $env:CLIPAI_SHORTCUT_INTENT -Raw -Encoding UTF8 | ConvertFrom-Json
-$taskShell = New-Object -ComObject WScript.Shell
+# Bootstrap must not discover or load user/host PowerShell modules.
+$PSModuleAutoLoadingPreference = 'None'
+$taskAssembly = [Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+$taskIntent = [System.Web.Script.Serialization.JavaScriptSerializer]::new().DeserializeObject([IO.File]::ReadAllText($env:CLIPAI_SHORTCUT_INTENT, [Text.Encoding]::UTF8))
+$taskShell = [Activator]::CreateInstance([Type]::GetTypeFromProgID('WScript.Shell'))
 $taskLink = $taskShell.CreateShortcut($taskIntent.path)
 if ($taskIntent.create) {
   $taskLink.TargetPath = $taskIntent.target
   $taskLink.Arguments = $taskIntent.arguments
   $taskLink.IconLocation = $taskIntent.icon + ',0'
-  $taskLink.WorkingDirectory = Split-Path -Parent $taskIntent.target
+  $taskLink.WorkingDirectory = [IO.Path]::GetDirectoryName($taskIntent.target)
   $taskLink.Save()
 } elseif (($taskLink.TargetPath -ne $taskIntent.target) -or ($taskLink.Arguments -ne $taskIntent.arguments)) {
   throw 'Shortcut ownership changed'

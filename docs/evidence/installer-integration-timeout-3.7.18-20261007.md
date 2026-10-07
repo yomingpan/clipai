@@ -36,3 +36,18 @@ removal and final removal passed. Installed logical bytes were 292,165,309.
 This successful sample does not establish the timeout's cause. The temporary
 markers are removed for the next original-path run. Publication and tagging
 remain pending that run's result; no claim of a resolved root cause is made.
+
+The original-path run 37549396684 failed again after 85.42 seconds at the same
+integration timeout. Fresh-runner diagnosis 37550295604 isolated the stall
+before request parsing, before COM. Original/Utility-first calls took roughly
+17–29 seconds; pinning the native module path still timed out. Comparative run
+37550519499 measured original calls at 19.641/12.406/12.078 seconds and direct
+.NET calls without cmdlet discovery at 3.703/0.281/0.266 seconds. See the bounded
+architecture diagnosis in `docs/specs/shortcut-bootstrap-boundary-3.7.18.md`.
+
+A real Windows regression with module autoload disabled failed on the original
+adapter (1.91s), then passed after the bounded replacement (2.21s). It creates
+and validates a Unicode shortcut, rejects different arguments without changing
+the file, and confirms temporary intent cleanup. The temporary workflow and
+harness have been removed; the release workflow retains this actual regression.
+The complete compiled installer cycle on the fixed adapter is still pending.

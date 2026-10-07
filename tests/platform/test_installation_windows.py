@@ -85,3 +85,36 @@ def test_older_install_without_desktop_receipt_preserves_unowned_desktop_link(tm
     path = desktop / "ClipAI Preview.lnk"
     native.remove()
     assert path.exists()
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows shortcut adapter')
+def test_native_shortcut_roundtrip_without_module_autoload(tmp_path, monkeypatch):
+    import base64
+    import os
+
+    root = tmp_path / '安裝 probe'
+    root.mkdir()
+    environment = {key.upper(): value for key, value in os.environ.items()}
+    environment['PATH'] = ''
+    native = windows.WindowsInstallationIntegration(
+        product='ClipAI Probe', registry_name='Probe', root=root, shared=root,
+        install_id='probe', version='3.7.18', work_root=root, environment=environment)
+    original = windows.subprocess.run
+
+    def no_autoload(command, **kwargs):
+        code = base64.b64decode(command[-1]).decode('utf-16-le')
+        code = "$PSModuleAutoLoadingPreference = 'None'\n" + code
+        command = [*command[:-1], base64.b64encode(code.encode('utf-16-le')).decode()]
+        return original(command, **kwargs)
+
+    monkeypatch.setattr(windows.subprocess, 'run', no_autoload)
+    path = root / '測試.lnk'
+    native._shortcut(path, 'launch', create=True)
+    assert path.is_file()
+    native._shortcut(path, 'launch', create=False)
+    original_bytes = path.read_bytes()
+    with pytest.raises(RuntimeError, match='shortcut_integration_failed'):
+        native._shortcut(path, 'uninstall', create=False)
+    assert path.read_bytes() == original_bytes
+    assert not (root / 'shortcut-intent.json').exists()
