@@ -64,3 +64,8 @@ validation, changed-argument rejection and unchanged-file checks passed in
 1.58 seconds. The fresh-runner regression and final compiled cycle remain
 pending. A temporary fast diagnostic workflow is retained only until that
 regression passes and must be removed before the official tag.
+
+Fresh Windows regression run 37596835661 passed at
+75c649a048efd06e5b0cdc2072fb8a1a5cda2bfe. The temporary workflow is now
+removed; the same real Unicode regression remains in the permanent release
+workflow. The compiled installer cycle remains pending.
