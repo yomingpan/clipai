@@ -17,7 +17,7 @@ from ClipAI.platform.installation_windows import WindowsInstallationIntegration,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=('baseline', 'utility-first', 'native-module-path'), required=True)
+    parser.add_argument('--mode', choices=('baseline', 'utility-first', 'native-module-path', 'no-autoload'), required=True)
     args = parser.parse_args()
     root = Path.cwd() / 'release' / ('shortcut-probe-' + args.mode)
     root.mkdir(parents=True, exist_ok=False)
@@ -38,10 +38,16 @@ def main() -> int:
 
     def observed(command, **kwargs):
         code = base64.b64decode(command[-1]).decode('utf-16-le')
+        if args.mode == 'no-autoload':
+            code = code.replace("$taskIntent = Get-Content -LiteralPath $env:CLIPAI_SHORTCUT_INTENT -Raw -Encoding UTF8 | ConvertFrom-Json",
+                "$taskAssembly = [Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')\n"
+                "$taskIntent = [System.Web.Script.Serialization.JavaScriptSerializer]::new().DeserializeObject([IO.File]::ReadAllText($env:CLIPAI_SHORTCUT_INTENT, [Text.Encoding]::UTF8))")
+            code = code.replace("New-Object -ComObject WScript.Shell", "[Activator]::CreateInstance([Type]::GetTypeFromProgID('WScript.Shell'))")
+            code = code.replace("Split-Path -Parent $taskIntent.target", "[IO.Path]::GetDirectoryName($taskIntent.target)")
         # Console output does not invoke a PowerShell cmdlet or warm Utility.
         marker = lambda name: "[Console]::Out.WriteLine('[DEBUG-shortcut-3718] " + name + "')\n"
         code = marker('shell-ready') + code
-        code = code.replace('$taskShell = New-Object', marker('intent-read') + '$taskShell = New-Object')
+        code = code.replace('$taskShell = ', marker('intent-read') + '$taskShell = ')
         code = code.replace('$taskLink = $taskShell.CreateShortcut', marker('com-ready') + '$taskLink = $taskShell.CreateShortcut')
         code = code.replace('if ($taskIntent.create)', marker('link-open') + 'if ($taskIntent.create)')
         code = code.replace('$taskLink.Save()', '$taskLink.Save()\n' + marker('link-saved'))
