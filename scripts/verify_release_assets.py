@@ -6,11 +6,12 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
-from zipfile import ZipFile
 
 from ClipAI.platform.managed_update_fs import file_sha256
 from ClipAI.platform.update_catalog import parse_catalog
 from ClipAI.platform.trusted_release_keys import load_trusted_release_keyring
+from ClipAI.platform.update_signature import Ed25519ManifestVerifier
+from ClipAI.platform.verified_managed_bundle import VerifiedManagedBundleStager
 
 
 REQUIRED_GATES = ("clean_vm_cycle", "failure_recovery", "reboot", "cross_logon_gate",
@@ -57,25 +58,29 @@ def verify(assets: Path, *, require_release_ready: bool = False,
     setup = assets / setup_name
     bundle = assets / f"clipai-managed-{release.version}.zip"
     _matches(setup, proof["setup"])
-    _matches(bundle, proof["bundle"])
     _matches(assets / "catalog.json", proof["catalog"])
     _matches(assets / "managed-update-trusted-keys.json", proof["keyring"])
     keys = load_trusted_release_keyring(assets / "managed-update-trusted-keys.json").verification_keys()
-    if release.key_id not in keys or release.bundle_sha256 != file_sha256(bundle) or release.bundle_size != bundle.stat().st_size:
+    # Admission hashes the copied bytes once; provenance must name that same
+    # catalog identity instead of independently re-reading the archive here.
+    if release.key_id not in keys or proof["bundle"] != {"size": release.bundle_size, "sha256": release.bundle_sha256}:
         raise ValueError("catalog bundle/keyring mismatch")
     if release.manifest_sha256 != proof["manifest_sha256"]:
         raise ValueError("catalog manifest mismatch")
-    import hashlib
-    with ZipFile(bundle) as archive:
-        if hashlib.sha256(archive.read("clipai-managed-v1/install-manifest.json")).hexdigest() != release.manifest_sha256:
-            raise ValueError("manifest substitution")
-        lock = archive.read("clipai-managed-v1/requirements.lock")
-        if {"size": len(lock), "sha256": hashlib.sha256(lock).hexdigest()} != proof["requirements_lock"]:
-            raise ValueError("lock substitution")
-        for name, expected in proof["wheels"].items():
-            content = archive.read("clipai-managed-v1/wheelhouse/" + name)
-            if {"size": len(content), "sha256": hashlib.sha256(content).hexdigest()} != expected:
-                raise ValueError("wheel substitution")
+    manifest = VerifiedManagedBundleStager(
+        manifest_verifier=Ed25519ManifestVerifier(trusted_keys=keys),
+    ).verify_external(
+        bundle_path=bundle, bundle_size=release.bundle_size,
+        bundle_sha256=release.bundle_sha256, manifest_sha256=release.manifest_sha256,
+        expected_version=release.version, key_id=release.key_id,
+    )
+    lock, = (file for file in manifest.files if file.path == "requirements.lock")
+    if {"size": lock.size, "sha256": lock.sha256} != proof["requirements_lock"]:
+        raise ValueError("lock substitution")
+    wheels = {file.path.removeprefix("wheelhouse/"): {"size": file.size, "sha256": file.sha256}
+              for file in manifest.files if file.role == "wheel"}
+    if wheels != proof["wheels"]:
+        raise ValueError("wheel substitution or incomplete provenance")
     if not (assets / "notices").is_dir() or not any((assets / "notices").rglob("*")):
         raise ValueError("component notices are missing")
     for source in proof["inputs"].get("corresponding_sources", {}).values():

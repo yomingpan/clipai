@@ -459,8 +459,13 @@ once for that tag and combines it with pip-compile's hashed Windows/Python 3.12
 dependency lock. The wheelhouse is built with `pip wheel --require-hashes`, then
 sealed once into a signed managed bundle. No Setup-specific dependency resolution.
 
-Before emitting the catalog/public keyring, the existing CLI verifies the new
-manifest against the supplied production keyring. Reserved test keys remain
+Before emitting the catalog/public keyring, the existing CLI admits the complete
+bundle through `VerifiedManagedBundleStager`, including archive identity,
+signature/schema, release identity and exact file inventory. Final asset
+verification uses the same owner and requires complete wheel/lock provenance.
+External verification owns isolated scratch, returns only the immutable
+manifest and removes staging on acceptance or rejection; it never stages in
+the release asset directory. Reserved test keys remain
 forbidden. The catalog references the immutable tag bundle URL. The Setup CLI
 consumes those exact bytes using the existing stager; its wheel-derived bootstrap
 and installed-wheel smoke use the same release wheels/lock. See the

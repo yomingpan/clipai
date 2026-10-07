@@ -125,6 +125,14 @@ Shortcuts target the stable launcher. One Windows adapter owns the shortcut
 and uninstall registration receipts; Inno Setup's original file inventory
 cannot become the authority for dynamically added managed versions.
 
+The isolated Unicode Shell Link worker accepts a bounded homogeneous batch of
+one to three intents and validates every intent before any native operation.
+Start Menu creation settles before registry publication; desktop creation
+follows registry publication. Uninstall validates existing links in one worker
+before removing payload and performs a fresh worker validation immediately
+before native deletion. These two proofs cannot be cached or combined. A failed
+phase stops subsequent phases; batching is not an atomic native transaction.
+
 Uninstall acquires the same installation gate and re-proves install identity.
 An active updater makes uninstall busy; V1 offers retry instead of inventing
 forced cancellation across entry points. New launch admission cannot enter

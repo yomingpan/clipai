@@ -145,11 +145,18 @@ class WindowsInstallationIntegration:
         return ["-I", str(self.root / "setup-engine/entry.py"), action,
                 "--install-root", str(self.root), "--shared-root", str(self.shared)]
 
-    def _shortcut(self, path: Path, action: str, *, create: bool) -> None:
+    def _start_menu_shortcuts(self) -> tuple[tuple[Path, str], ...]:
+        return ((self.group / f"{self.product}.lnk", "launch"),
+                (self.group / "Uninstall.lnk", "uninstall"))
+
+    def _shortcuts(self, links: tuple[tuple[Path, str], ...], *, create: bool) -> None:
+        if not links:
+            return
         request = self.work_root / "shortcut-intent.json"
-        atomic_write_json(request, {"path": str(path), "target": str(self.root / "runtime/pythonw.exe"),
+        atomic_write_json(request, [{"path": str(path), "target": str(self.root / "runtime/pythonw.exe"),
                                     "arguments": subprocess.list2cmdline(self._arguments(action)),
-                                    "icon": str(self.icon), "create": create})
+                                    "icon": str(self.icon), "create": create}
+                                   for path, action in links])
         try:
             worker = Path(__file__).with_name('windows_shell_link.py')
             result = subprocess.run([sys.executable, '-I', str(worker), str(request)],
@@ -176,8 +183,7 @@ class WindowsInstallationIntegration:
         except FileNotFoundError:
             pass
         self.group.mkdir(parents=True)
-        self._shortcut(self.group / f"{self.product}.lnk", "launch", create=True)
-        self._shortcut(self.group / "Uninstall.lnk", "uninstall", create=True)
+        self._shortcuts(self._start_menu_shortcuts(), create=True)
         uninstall = subprocess.list2cmdline([str(self.root / "runtime/pythonw.exe"), *self._arguments("uninstall")])
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.registry) as key:
             for name, value in {"DisplayName": self.product, "DisplayVersion": self.version,
@@ -189,7 +195,7 @@ class WindowsInstallationIntegration:
                 winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
             for name in ("NoModify", "NoRepair"):
                 winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, 1)
-        self._shortcut(desktop, "launch", create=True)
+        self._shortcuts(((desktop, "launch"),), create=True)
 
     def validate_removal(self) -> None:
         """Prove native receipt ownership before deleting any program files."""
@@ -201,13 +207,11 @@ class WindowsInstallationIntegration:
                     raise RuntimeError("uninstall_registration_identity_changed")
         except FileNotFoundError:
             pass
-        for name, action in ((f"{self.product}.lnk", "launch"), ("Uninstall.lnk", "uninstall")):
-            path = self.group / name
-            if path.exists():
-                self._shortcut(path, action, create=False)
+        links = tuple((path, action) for path, action in self._start_menu_shortcuts() if path.exists())
         desktop = self._desktop_receipt()
         if desktop is not None and desktop.exists():
-            self._shortcut(desktop, "launch", create=False)
+            links += ((desktop, "launch"),)
+        self._shortcuts(links, create=False)
 
     def remove(self) -> None:
         import winreg
@@ -215,8 +219,7 @@ class WindowsInstallationIntegration:
         desktop = self._desktop_receipt()
         if desktop is not None and desktop.exists():
             desktop.unlink()
-        for name in (f"{self.product}.lnk", "Uninstall.lnk"):
-            path = self.group / name
+        for path, _action in self._start_menu_shortcuts():
             if path.exists():
                 path.unlink()
         try:

@@ -118,6 +118,22 @@ def test_full_removal_data_failure_preserves_retry_owner(removal_fixture, monkey
     assert not root.exists() and not shared.exists()
 
 
+def test_second_native_proof_failure_retains_owner_and_shared_data(removal_fixture, monkeypatch):
+    root, shared, environment, _, admission, integration = removal_fixture
+    calls = []
+    def prove(self):
+        calls.append((root / "runtime/owned.txt").exists())
+        if len(calls) == 2:
+            raise RuntimeError("ownership changed between proofs")
+    monkeypatch.setattr(integration, "validate_removal", prove)
+    with pytest.raises(RuntimeError, match="between proofs"):
+        backend.uninstall_owned_installation(root, shared, environment=environment, delete_user_data=True)
+    assert calls == [True, False]
+    assert (root / "first-install-owner.json").exists()
+    assert (shared / "config/.env").exists()
+    assert admission.closed and not integration.removed
+
+
 @pytest.mark.parametrize("invalid", ["root", "identity", "unknown_program_file", "other_installation"])
 def test_full_removal_refuses_ambiguous_ownership(removal_fixture, invalid):
     root, shared, environment, owner, _, _ = removal_fixture

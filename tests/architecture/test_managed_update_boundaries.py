@@ -153,3 +153,12 @@ def test_recovery_directory_enumeration_stays_in_managed_filesystem_owner():
     assert ".iterdir(" not in recovery
     assert "directory_names(" in recovery
     assert ".iterdir(" in filesystem
+
+
+def test_release_scripts_use_complete_bundle_admission():
+    for name in ("build_managed_release.py", "verify_release_assets.py"):
+        source = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+        assert "VerifiedManagedBundleStager" in source
+        assert ".verify_external(" in source
+        assert "extract_prefixed_zip" not in source
+        assert "ZipFile" not in source

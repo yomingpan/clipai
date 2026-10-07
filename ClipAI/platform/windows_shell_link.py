@@ -28,8 +28,7 @@ class _ShortcutIntent:
     create: bool
 
     @classmethod
-    def read(cls, request: Path) -> '_ShortcutIntent':
-        data = json.loads(request.read_text(encoding='utf-8'))
+    def parse(cls, data: object) -> '_ShortcutIntent':
         if not isinstance(data, dict) or set(data) != {'path', 'target', 'arguments', 'icon', 'create'}:
             raise ValueError('invalid shortcut request')
         if type(data['create']) is not bool or any(
@@ -40,6 +39,18 @@ class _ShortcutIntent:
         if not all(path.is_absolute() for path in paths):
             raise ValueError('shortcut paths must be absolute')
         return cls(paths[0], paths[1], data['arguments'], paths[2], data['create'])
+
+
+def _read_batch(request: Path) -> tuple[_ShortcutIntent, ...]:
+    data = json.loads(request.read_text(encoding='utf-8'))
+    if not isinstance(data, list) or not 1 <= len(data) <= 3:
+        raise ValueError('one bounded shortcut phase is required')
+    intents = tuple(_ShortcutIntent.parse(item) for item in data)
+    if len({intent.create for intent in intents}) != 1:
+        raise ValueError('shortcut phases must not be mixed')
+    if len({str(intent.path.resolve()).casefold() for intent in intents}) != len(intents):
+        raise ValueError('duplicate shortcut paths')
+    return intents
 
 
 class _ShellLink:
@@ -124,7 +135,9 @@ def main() -> int:
     if len(sys.argv) != 2:
         raise ValueError('one explicit shortcut request is required')
     try:
-        _apply(_ShortcutIntent.read(Path(sys.argv[1])))
+        # Admit the entire phase before any COM call or native mutation.
+        for intent in _read_batch(Path(sys.argv[1])):
+            _apply(intent)
     except Exception as error:
         # No paths, arguments, environment or request contents in diagnostics.
         print(f'shortcut_integration_failed:{type(error).__name__}', file=sys.stderr)

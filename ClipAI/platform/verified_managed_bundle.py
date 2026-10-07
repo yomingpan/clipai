@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 
 from ClipAI.core.managed_update import FailureCode, ManagedUpdateFailure
-from ClipAI.core.update_bundle import BundleAdmissionRequest, VerifiedManagedBundle
+from ClipAI.core.update_bundle import BundleAdmissionRequest, InstallManifest, VerifiedManagedBundle
 from ClipAI.platform.managed_install import DocumentVerifier
 from ClipAI.platform.managed_update_fs import (
     ManagedUpdateFileError,
+    copy_file_atomically,
     extract_prefixed_zip,
     file_sha256,
     native_path,
@@ -27,6 +29,21 @@ class VerifiedManagedBundleStager:
 
     def __init__(self, *, manifest_verifier: DocumentVerifier) -> None:
         self._manifest_verifier = manifest_verifier
+
+    def verify_external(
+        self, *, bundle_path: Path, bundle_size: int, bundle_sha256: str,
+        manifest_sha256: str, expected_version: str, key_id: str,
+    ) -> InstallManifest:
+        """Admit a release artifact without retaining staging or touching its directory."""
+        with tempfile.TemporaryDirectory(prefix="clipai-bundle-admission-") as temporary:
+            root = Path(temporary)
+            bundle = root / "bundle.zip"
+            copy_file_atomically(bundle_path, bundle, maximum_size=MAX_BUNDLE_SIZE)
+            return self.stage(BundleAdmissionRequest(
+                transaction_root=root, bundle_path=bundle, bundle_size=bundle_size,
+                bundle_sha256=bundle_sha256, manifest_sha256=manifest_sha256,
+                expected_version=expected_version, key_id=key_id,
+            )).manifest
 
     def stage(self, request: BundleAdmissionRequest) -> VerifiedManagedBundle:
         if request.bundle_size > MAX_BUNDLE_SIZE:

@@ -222,7 +222,8 @@ def test_asset_or_evidence_substitution_blocks_candidate(build_request, asset):
     proof = json.loads((assets / "provenance.json").read_text())
     name = proof["setup"]["filename"] if asset == "setup" else ("clipai-managed-3.7.8.zip" if asset == "bundle" else asset)
     (assets / name).write_bytes(b"{}")
-    with pytest.raises((ValueError, KeyError)):
+    rejection = ManagedUpdateFailure if asset == "bundle" else (ValueError, KeyError)
+    with pytest.raises(rejection):
         verify(assets)
 
 

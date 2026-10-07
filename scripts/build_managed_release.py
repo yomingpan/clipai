@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 import shutil
-import uuid
 
 from ClipAI.platform.managed_release_builder import (
     ManagedReleaseBuilder,
@@ -16,7 +15,7 @@ from ClipAI.platform.managed_release_builder import (
     write_offline_wheelhouse_lock,
     write_release_publication,
 )
-from ClipAI.platform.managed_update_fs import extract_prefixed_zip, file_sha256, remove_tree
+from ClipAI.platform.verified_managed_bundle import VerifiedManagedBundleStager
 from ClipAI.platform.trusted_release_keys import load_trusted_release_keyring
 from ClipAI.platform.update_signature import Ed25519ManifestVerifier
 
@@ -97,20 +96,14 @@ def main() -> int:
         python_requires=args.python_requires,
         key_id=key_id,
     )
-    verification_root = Path(work_root).resolve() / f"verify-{uuid.uuid4().hex[:8]}"
-    try:
-        extract_prefixed_zip(result.bundle_path, verification_root)
-        manifest_path = verification_root / "install-manifest.json"
-        if file_sha256(manifest_path) != result.manifest_sha256:
-            raise RuntimeError("built manifest digest does not match release result")
-        keyring = load_trusted_release_keyring(trusted_keyring)
-        Ed25519ManifestVerifier(trusted_keys=keyring.verification_keys()).verify(
-            manifest_path,
-            verification_root / "install-manifest.json.sig",
-            key_id=key_id,
-        )
-    finally:
-        remove_tree(verification_root)
+    keyring = load_trusted_release_keyring(trusted_keyring)
+    VerifiedManagedBundleStager(
+        manifest_verifier=Ed25519ManifestVerifier(trusted_keys=keyring.verification_keys()),
+    ).verify_external(
+        bundle_path=result.bundle_path, bundle_size=result.bundle_size,
+        bundle_sha256=result.bundle_sha256, manifest_sha256=result.manifest_sha256,
+        expected_version=app_version, key_id=key_id,
+    )
     publication = write_release_publication(
         result=result,
         catalog_path=catalog_output,
