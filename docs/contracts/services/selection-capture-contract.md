@@ -6,11 +6,37 @@
 
 - `begin_capture` performs only cheap native identity reads; it does not call UIA, mutate the clipboard, or move focus. `SelectionCaptureRequest` binds HWND, PID, and native focus. A failed binding remains unavailable; capture must not silently bind a new source.
 - Entry Panel binds before presenting its preparing view. Action and contextual-question runtime bind before creating their first Workflow projection. Retries retain the original source and get a fresh preparation-scoped capture identity.
-- UIA lives in a hidden child process, receives only source identity via stdin, and returns a typed result via stdout. The parent polls cancellation and enforces a two-second deadline, then terminates/reaps the actual worker process and closes redirected handles.
+- UIA lives in a hidden child process and exchanges newline-delimited, identity-only requests and typed results. One probe owns one healthy worker for a single top-level HWND/PID, serves requests sequentially, and retires it after 64 requests. Switching top-level source retires the old worker before reuse. Timeout, cancellation, malformed results and provider/restore failure retire and reap the worker immediately. An overlapping request uses an isolated one-request overflow process; there is no disposable worker pool.
+- `SelectionCaptureCoordinator` alone gates capture on physical `ctrl`, `alt`, and `shift` release. The fixed order is modifier release, current-source validation, then probe. Timeout returns `modifier_timeout`; cancellation returns `cancelled`; neither checks the source, probes UIA, or mutates the clipboard.
 - UIA focus must belong to the original top-level window. Search only its focused element's ancestry, not arbitrary desktop elements. Password controls are unavailable. Full document text, Name, and Value cannot substitute for selection.
 - UIA focus and selection ranges are checked again after reading. Original logical lines, indentation, and trailing whitespace survive; CR/CRLF are represented as LF. Disjoint ranges are joined with LF in provider order.
 
 ## Results
+
+### Worker lifecycle
+
+`WindowsSelectionProbe` owns all launched and launching processes, including
+overflow. `stop()` permanently closes admission, initiates cleanup concurrently,
+and waits at most two seconds total, including graceful exit, forced termination
+and exit confirmation. A subsequent `start()` does not reopen this owner.
+Unconfirmed cleanup raises `RuntimeError`; runtime teardown logs it and continues
+other cleanup. Failed or late-launch workers remain owned, and a late process
+still receives cleanup. Repeating `stop()` can confirm a completed late cleanup.
+No timeout is represented as confirmed process exit.
+
+The private native result carries explicit `worker_reusable` truth separately
+from the semantic selection outcome. Transport requires a boolean field and
+validates the response; diagnostic reason spelling never determines reuse.
+Provider, text retrieval and focus restoration failures explicitly reject reuse
+at their detection sites. Missing or malformed lifecycle evidence retires the
+worker. Lifecycle metadata stays in platform and does not enter core outcomes.
+
+Process launch and pipe I/O never hold the lifecycle admission lock. Retirement
+can interrupt an outstanding exchange; pipe cleanup is only confirmed after the
+process exits and exchange/close threads finish. OS launch/cleanup that cannot
+settle within the bound is reported rather than blocking shutdown indefinitely.
+
+### Semantic outcomes
 
 | Status | Meaning | Automatic clipboard fallback |
 |---|---|---|
@@ -22,17 +48,73 @@
 
 Positive selection evidence with failed text retrieval may use the existing controlled Ctrl+C transaction. A source-bound `copy_selection_only` capability may also permit that transaction: it means a verified adapter recognizes a source whose Copy command only copies selected content, not that a selection exists. Unsupported editors without this capability must not receive blind Ctrl+C: some copy the whole current line without a selection. Source checks precede clipboard mutation and copy and continue during polling. Copy timeout and empty copy never establish `none`, even for a verified source, and never permit automatic old-clipboard fallback.
 
-The first verified profile is Anki's main card WebView: process `anki`, Qt focused
-ancestry containing `MainWebView`, and exact top-level `AnkiQt` HWND/PID. Native
+The first verified profile is Anki's main card WebView: verified `anki.exe`, or
+the launcher layout `AnkiProgramFiles/python/cpython-<version>-windows-x86_64-none/pythonw.exe`,
+Qt focused ancestry containing `MainWebView`, and exact top-level `AnkiQt` HWND/PID. Native
 and virtual focus, source ancestry and password checks still apply. Toolbars,
 editors, unrelated Qt apps, siblings and arbitrary unsupported controls are not
 covered. `platform/selection_copy_profiles.py` owns this recognition; services
 consume only the typed capability and reuse the single clipboard transaction
 owner. See ADR-0015 for evidence, limitations and the review trigger.
 
+A verified Anki shell may authorize one narrower side effect when its card is
+gray/unfocused and focus remains on inert `QWidget`/`QObject` shell ancestry: the
+profile returns an immutable focus-repair plan, and the generic worker finds its
+target, calls `SetFocus` only on the inner card element, polls for bounded
+settlement, and rereads focused ancestry. Menu, editor, toolbar, sibling WebView,
+and arbitrary Qt ancestry are rejected before repair. It does
+not activate a top-level window, synthesize input, or touch the clipboard. The
+typed `focus_restored` flag requires the coordinator to recapture the same
+top-level HWND/PID before staleness validation. A missing/different source is
+`source_changed`. Copy trust is still granted only by the restored focused
+`MainWebView` ancestry; application identity alone never grants Copy.
+
 ## Entry Panel and consumer policy
 
-`PreparedInput` retains the selection outcome and a frozen clipboard fallback. A missing selection adapter uses that fallback automatically and the resolved document identifies `clipboard` as its source. Unknown selection disables selection-dependent Actions without erasing explicitly clipboard-only capabilities. `UseEntryPanelClipboard(panel_id)` applies only to the current Panel with prepared clipboard content, changes the source preview to clipboard, and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
+### Bounded external-window readiness
+
+Bare Alt Entry Panel gestures also require native menu masking. The platform
+hotkey dispatcher owns the consumed hold and whether its native release was seen;
+the Windows hook inserts a balanced unassigned `VK_E8` pair before forwarding that
+hold's physical Alt-up. This prevents Qt/Windows menu navigation from moving
+virtual focus off the selected control while the same HWND remains foreground.
+Short Alt, unclaimed chords and injected input are not masked. A native release
+seen before the hold deadline rejects the late timer even when pynput's semantic
+release is still queued. No new focus restoration or capture owner is introduced.
+The Anki copy profile and focus-repair plan reject menu-bar ancestry.
+
+Entry Panel input preparation passes an immutable `ExternalWindowWaitPolicy`
+through `ExternalWindowActivator`: 3 seconds of combined activation and
+post-capture confirmation time, with a waiting notice after 500 ms. Selection
+reading has its own cancellation/timeout and does not consume this focus budget.
+Runtime passes only the remaining budget to post-capture confirmation; retries
+explicitly requested by the user create a new preparation identity and budget.
+The native adapter returns immediately when the exact original target is ready,
+validates the original HWND/PID throughout waiting, and stops on cancellation or
+invalid source. It never substitutes the current foreground window. Native API
+calls and OS scheduling can delay observation beyond the deadline; the bound
+limits polling/retries, not the duration of a blocked OS call.
+
+Only actual native waiting emits `on_waiting`. The worker enqueues
+`EntryPanelInputPreparationProgress(panel_id, preparation_id, phase)` once per
+waiting episode; runtime accepts
+it only for the matching, still-preparing operation. The coordinator projects
+“正在等待原視窗就緒…（Esc 可取消）” in the existing neutral message area. No timer,
+extra capture, UI-thread native work, or focus request is introduced by the
+notice. Activation success returns the message to reading while selection is
+captured; a subsequent confirmation wait can report waiting again using the
+remaining notice threshold/budget. Completion clears it; timeout projects “等待原視窗就緒逾時，請重試。”;
+invalid-source guidance remains distinct. Esc closes/cancels preparation, and
+late notices cannot resurrect a closed, retried, failed, or completed operation.
+
+`target_focus_timeout` means foreground did not return within the bound;
+`target_changed` means source validation failed. Neither permits implicit
+clipboard fallback. Paste retains its existing default activation timing;
+the longer readiness policy is explicitly supplied by Entry Panel only.
+Activation, selection capture, and confirmation log separate elapsed times and
+operation identities without source/clipboard content.
+
+`PreparedInput` retains the selection outcome and a frozen clipboard fallback. A missing selection adapter uses that fallback automatically and the resolved document identifies `clipboard` as its source. For the Entry Panel only, an `unknown` selection with frozen clipboard text/image automatically applies `PreparedInput.use_clipboard()` and keeps the clipboard preview visible; unknown with no clipboard remains retryable. Direct Actions, contextual questions and global speech retain correctness-first `selection_unknown` behavior. `UseEntryPanelClipboard(panel_id)` remains an idempotent typed intent against current frozen input and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
 
 Direct visible Actions and Entry Panel both call `InputResolver.prepare_input` and
 consume immutable `PreparedInput.resolve(mode)`. Clipboard-only Actions skip the
@@ -69,11 +151,17 @@ an enabled recovery button.
 
 Diagnostics include operation identity, source token, status, reason, strategy,
 elapsed time, and restoration outcome, never selected text or clipboard content.
+The content-free probe hashes HWND/PID identity and never emits executable paths.
 
 ## Validation
 
 Simulated tests cover unknown versus none, stale source and late cancellation, timeout cleanup, provider ancestry/focus/range changes, exact whitespace preservation, unavailable clipboard, and explicit frozen clipboard choice. Architecture tests forbid the old string-only selection port and require native probe wiring with one clipboard transaction owner.
 
-Opt-in Windows test: `python -m pytest tests/platform/test_selection_uia_integration.py -m integration`. It opens an owned temporary RichTextBox and checks selected text, repeated identical selection, and caret-only state, then cleans up its host. Run on an interactive desktop. This is not a substitute for testing the user's specific apps, web pages, PDFs, and permission levels.
+Opt-in Windows test: `python -m pytest tests/platform/test_selection_uia_integration.py -m integration`. It opens an owned temporary RichTextBox and checks selected text, repeated identical selection, and caret-only state through one probe, then cleans up both probe and host in nested finally blocks. Run on an interactive desktop. This is not a substitute for testing the user's specific apps, web pages, PDFs, and permission levels.
+
+`tests/platform/test_selection_worker_lifecycle.py -m integration` uses controlled
+real subprocesses without UIA, clipboard or external source access. It verifies
+reuse, retirement, malformed replies, EOF, cancellation, concurrent overflow stop,
+terminal admission and late-launch cleanup against the public probe interface.
 
 Limitations: UIA is not an atomic snapshot at physical key-down; sources are bound at intent admission and verified around the subsequent read. Clipboard sequence changes do not provide cryptographic proof of the copy producer. Unsupported or incomplete providers require a separate verified adapter; screenshots are not silently substituted.

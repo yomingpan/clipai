@@ -30,6 +30,14 @@ After trigger-specific Workflow lookup and focus validation, both intents pass
 through the same visible-Workflow destination matrix. Separate shortcut-only
 and Popup-only private admission pipelines are not permitted.
 
+For the global shortcut, a retained visible-presentation record is an active
+capture destination only while it also owns semantic Foreground Workflow. An
+unpinned result retained after a dispatched Paste remains available for result
+history, but its withdrawn surface does not force the user to focus or close a
+window that is no longer shown; the shortcut may replace it with a fresh Voice
+Draft. Pinned Paste retains Foreground ownership and keeps the existing focus
+rules.
+
 UI reports an immutable `VoiceCaptureSurfaceContext` at explicit intent time.
 It carries the semantic Follow-up request and current Voice Draft selection;
 runtime does not read widget-visibility-named methods. The owner validates this

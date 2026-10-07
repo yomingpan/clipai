@@ -17,6 +17,7 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert bundle.providers.active == "gemini"
     assert bundle.runtime.maintenance_workers == 1
     assert bundle.voice_input.backend == "edge_webview2_browser_speech"
+    assert bundle.voice_input.webview2_runtime_major is None
     assert bundle.app.modifier_mode == "ctrl_alt"
     assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
@@ -61,6 +62,15 @@ def test_voice_input_config_rejects_unsupported_engine_paths() -> None:
         _parse_voice_input({"backend": "openai"})
     with pytest.raises(ConfigError, match="auto_start"):
         _parse_voice_input({"backend": "edge_webview2_browser_speech", "auto_start": True})
+
+
+def test_voice_input_config_accepts_an_optional_webview2_runtime_major() -> None:
+    assert _parse_voice_input({}).webview2_runtime_major is None
+    assert _parse_voice_input({"webview2_runtime_major": 152}).webview2_runtime_major == 152
+
+    for value in (0, -1, True, "152", 152.0):
+        with pytest.raises(ConfigError, match="webview2_runtime_major"):
+            _parse_voice_input({"webview2_runtime_major": value})
 
 
 def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input() -> None:
@@ -475,9 +485,10 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 27
+    assert len(start_actions) == 29
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
-        "voice_input": "ctrl+alt+w",
+            "voice_input": "ctrl+alt+w",
+            "inline_dictation": "ctrl+alt+m",
         "contextual_question": "ctrl+alt+r",
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -507,6 +518,8 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
             "personal_style_informal": "ctrl+alt+i",
             "personal_style_oral": "ctrl+alt+o",
             "personal_style_presentation": "ctrl+alt+p",
+            "advisory_board": "ctrl+alt+j",
+            "insight_engine": "ctrl+alt+k",
         }
     for shortcut in start_actions:
         for press_type in ("short", "long"):
@@ -517,10 +530,11 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
             assert resolved.feedback_contract.reasons[-1].id == "other"
             assert 4 <= len(resolved.feedback_contract.reasons) <= 5
 
-    non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
-    assert [(item["id"], item["command"]) for item in non_action] == [
-        ("voice_input", "push_to_talk"),
-        ("contextual_question", "open_contextual_question"),
+        non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
+        assert [(item["id"], item["command"]) for item in non_action] == [
+            ("voice_input", "push_to_talk"),
+            ("inline_dictation", "inline_dictation"),
+            ("contextual_question", "open_contextual_question"),
         ("speak_selection_or_clipboard", "speak_selection_or_clipboard")
     ]
     assert bundle.shortcuts.resolve("contextual_question", "short") == OpenContextualQuestion()

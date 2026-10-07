@@ -32,7 +32,7 @@ tests/              # Unit sims 與 integration tests
 - 禁止 global Event Bus。Event Bus 不得用來指揮 action pipeline 或修改 Workflow。
 - 每個 Workflow 只有一個 `WorkflowController`，由它擁有 snapshot、active invocation、cancellation、成功 step history 與 feedback projection。
 - `WorkflowRuntimeModule` 是 Workflow membership、semantic Foreground Workflow、visible/headless lifetime 與 captured provider binding 的唯一 owner。Window focus 只能提出 activation candidate，不得自行決定 Foreground Workflow。
-- `WorkflowRuntimeModule` 也是 global Voice shortcut 與 Popup microphone 共用的 Voice capture destination admission owner。UI 只能在明確 intent 當下回報 typed `VoiceCaptureSurfaceContext`（semantic Follow-up request 與 Voice Draft selection）；runtime 不得讀取 widget visibility，`VoiceInputRuntimeModule` 也不得重複 Workflow status／available-action destination matrix。
+- `WorkflowRuntimeModule` 也是 PTT Voice shortcut 與 Popup microphone 共用的 Workflow Voice capture destination admission owner。UI 只能在明確 intent 當下回報 typed `VoiceCaptureSurfaceContext`（semantic Follow-up request 與 Voice Draft selection）；runtime 不得讀取 widget visibility，`VoiceInputRuntimeModule` 也不得重複 Workflow status／available-action destination matrix。隨處聽寫使用獨立的非 Workflow target，生命週期由 `VoiceInputController` 擁有。
 - `Ctrl+Alt+R`「問這段」使用獨立 typed intent，不是 YAML Action。其 selection/clipboard source snapshot、capture identity、首次問題等待狀態與後續 step history 由既有 `WorkflowController` 擁有；首次送出前不得建立 provider invocation。來源擷取重用既有 `InputResolver` 與 container-scoped `ClipboardTransactionCoordinator`，不得建立平行 clipboard owner。
 - `ProviderExecutionModule` 是 provider async HTTP task、transport cancellation、settlement、shared connection pool 與 transport shutdown 的唯一 owner。Provider networking 不得占用 `TaskSupervisor`；`TaskSupervisor` 只執行非 provider 的 blocking work。
 - Hotkey callback 只能 enqueue command；worker 不得直接碰 Tkinter。
@@ -75,6 +75,10 @@ tests/              # Unit sims 與 integration tests
   `BaseResultSurface.render(model)` 是唯一 widget 投影 seam。Content 與 flash 不
   進入該 model。Baseline Action availability 不得覆寫 `PopupControl` 擁有的
   in-flight/ack enable 與 pulse。
+- Popup 內容由 services 的 Markdown parser 產生 canonical `PresentationDocument`，再由
+  Tk-free `ui/presentation_render.py` 建立 render plan 與 canonical selection segments；
+  `BaseResultSurface` 只 apply plan，不得擁有第二套 Markdown regex。可編輯 Voice Draft
+  永遠保存 canonical、零 display-hint 文字；display break hints 只存在於 read-only 呈現。
 - Entry Panel 的 `Esc` 永遠是 close/cancel-preparation；`EntryPanelBack` 才是
   More → scene → root 導覽，root no-op。Preparing 是 option-level neutral pending，
   不得偽裝成 policy disabled；真實 disabled reason 優先。UI lifecycle 更新只能
@@ -168,13 +172,27 @@ task-switcher 隱藏、activation、no-activate show、foreground ownership 與
 window icon handle。UI 只傳 toolkit child id；top-level native handle 的解析
 留在 Windows adapter。Headless adapter 回傳保守結果，兩者都不得向 contract
 外拋出 native failure。Pointer press 同樣由 platform adapter 透過
-`PointerPressReader` 注入。
+`PointerPressReader` 注入。程序工作列身分同樣由此介面宣告；容器在建立 Tk root
+前呼叫一次 `set_process_taskbar_identity("ClipAI.Desktop")`，adapter 建構本身沒有副作用。
 
 Windows top-level foreground activation 的 thread-input attachment、bring-to-top、
 activation 與 ownership verification 由 `platform.window_activation` 單一 primitive
 實作。`NativeWindowSurface` 負責解析 ClipAI toolkit shell，
 `ExternalWindowActivator` 負責驗證精確外部 HWND/PID 與有界重試；兩者不得各自複製
-另一套 `AttachThreadInput`／`SetForegroundWindow` 流程。
+另一套 `AttachThreadInput`／`SetForegroundWindow` 流程。該 primitive 必須在 activation
+前暫停 Windows foreground-lock timeout，並在反序 detach input queues 後於 `finally`
+還原原值；任何 native failure 都以 `False` fail closed。
+
+CJK IME composition font 的 `ImmGetContext`／`ImmSetCompositionFontW`／
+`ImmReleaseContext` 只由 `platform/native_window.py` 擁有。UI 只在 FocusIn 傳入 toolkit
+child id 與解析後的字型資料；Headless adapter 回傳 `False`，不得模擬 Windows 成功。
+
+Entry Panel 的 readiness policy 透過 immutable `ExternalWindowWaitPolicy`
+傳入既有 activator；runtime 協調擷取前後共用的剩餘等待額度，native adapter
+擁有 deadline polling 與實際 waiting 回報。Worker 只 enqueue 帶 Panel 與
+preparation identity 的 `EntryPanelInputPreparationProgress`；coordinator 投影
+neutral message，UI 不建立第二套等待 timer 或 focus policy。詳見
+`docs/contracts/services/selection-capture-contract.md`。
 
 不得放入：
 
@@ -226,13 +244,31 @@ activation 與 ownership verification 由 `platform.window_activation` 單一 pr
 
 Selection evidence follows `docs/contracts/services/selection-capture-contract.md`
 and ADR-0014. `SelectionCaptureCoordinator` owns source-bound typed captures;
-`InputResolver` owns automatic fallback from confirmed `none` or an unconfigured
-selection adapter. Resolved fallback documents explicitly identify `clipboard` as
-their source. Native UIA
-is isolated in `platform` and must not erase unknown/cancelled outcomes into an
-empty string. Entry Panel and Workflow runtime bind native source identity before
-first projection; UIA work stays off the UI thread. Explicit Panel clipboard
-choice is a typed intent against frozen prepared input.
+`InputResolver` owns shared fallback from confirmed `none` or an unconfigured
+selection adapter. `EntryPanelRuntimeModule` owns the sole surface-specific
+exception: unknown plus an available frozen clipboard automatically selects that
+frozen input; every direct consumer remains fail-closed. Resolved fallback
+documents explicitly identify `clipboard` as their source. Native UIA is isolated
+in `platform`; one source-bound worker is reused for at most 64 sequential requests,
+while overlap uses an isolated overflow process. The probe is an app-owned
+`background_components` RuntimeComponent. It must not erase unknown/cancelled
+outcomes into an empty string. Entry Panel and Workflow runtime bind native source
+identity before first projection; UIA work stays off the UI thread.
+
+The probe owns launching, reusable and overflow processes in one registry.
+Stopping closes admission permanently and shares a two-second cleanup deadline
+across all workers. Unconfirmed cleanup is reported and remains owned, including
+late process creation. Native detection emits explicit worker reuse evidence;
+transport must not infer lifecycle from diagnostic reason strings. This private
+platform metadata does not change the core selection outcome interface.
+
+`SelectionCaptureCoordinator` is the only owner of the physical modifier-release
+gate and enforces modifier-release → source-current → probe. A platform adapter
+may restore focus only inside a verified source and reports the immutable
+`focus_restored` capability; source-specific widget identity and focus target
+remain in a single platform profile decision, while the generic UIA worker only
+executes its immutable repair plan. Services re-baseline the same HWND/PID before
+staleness checks. UI, clipboard transactions and callers do not own this policy.
 
 Direct visible Actions share `InputResolver.prepare_input` and `PreparedInput`
 with Entry Panel. `WorkflowController` exclusively owns the waiting clipboard

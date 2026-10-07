@@ -9,6 +9,7 @@ from ClipAI.core.state import CancellationToken
 from ClipAI.providers.http_transport import HttpResponse, HttpTransport
 from ClipAI.providers.settings import GeminiSettings, ProviderCredential
 from ClipAI.providers.streaming import iter_json_events
+from ClipAI.providers.gemini_errors import raise_for_gemini_error
 
 
 class GeminiProvider:
@@ -29,7 +30,8 @@ class GeminiProvider:
             usage = LLMUsage()
             async with self._transport.stream_lines(
                 f"{self._settings.base_url.rstrip('/')}/v1beta/models/{request.model}:streamGenerateContent",
-                params={"key": api_key, "alt": "sse"},
+                headers={"x-goog-api-key": api_key},
+                params={"alt": "sse"},
                 json=self.to_payload(request),
                 timeout=self._settings.timeout_sec,
             ) as response:
@@ -52,7 +54,7 @@ class GeminiProvider:
             return
         response = await self._transport.post(
             f"{self._settings.base_url.rstrip('/')}/v1beta/models/{request.model}:generateContent",
-            params={"key": api_key},
+            headers={"x-goog-api-key": api_key},
             json=self.to_payload(request),
             timeout=self._settings.timeout_sec,
         )
@@ -130,12 +132,7 @@ def _raise_for_status(name: str, response: HttpResponse) -> None:
         if response.payload is None:
             raise ProviderResponseError(f"{name} returned invalid JSON")
         return
-    if response.status_code in {401, 403}:
-        raise ProviderAuthError(f"{name} rejected the API key")
-    detail = response.text.strip().replace("\n", " ")
-    if len(detail) > 200:
-        detail = f"{detail[:199]}..."
-    raise ProviderResponseError(f"{name} HTTP {response.status_code}: {detail or 'request failed'}")
+    raise_for_gemini_error(response)
 
 
 def _optional_int(value: Any) -> int | None:

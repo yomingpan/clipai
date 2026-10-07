@@ -1,0 +1,63 @@
+# ADR-0017: Managed update transaction
+
+Status: accepted, 2026-09-13.
+
+## Decision
+
+ClipAI managed updates use immutable side-by-side version directories, shared
+user data, and a stable launcher/updater outside every version directory. The
+services owner advances one transaction through `verify -> prepare -> shutdown
+-> commit -> launch -> health -> rollback | finalize`. Platform adapters own
+catalog transport, signature verification, filesystem artifacts, candidate
+environment construction, and process lifecycle. App is the only composition
+layer.
+
+The About surface starts updates only through a typed
+`CheckForManagedUpdate` intent. App runtime projects its identity-scoped
+pending/result state, schedules the existing handoff executor on maintenance
+capacity, and injects the stable GitHub Release `catalog.json` URL into the
+platform release source. UI never owns catalog, filesystem, process, or
+transaction work. Source installs remain visibly ineligible.
+
+`CandidateEnvironmentBuilder` and `ManagedApplicationLifecycle` are typed seams
+with production and test adapters. All low-level update paths, prefixed ZIP
+handling, containment checks, and atomic JSON writes go through
+`ClipAI.platform.managed_update_fs`.
+
+## Invariants
+
+- A request, handoff, launch receipt, startup health receipt, and result are
+  correlated by `TransactionId`; launch and health also require the exact
+  `LaunchAttemptId` and expected version.
+- Commit changes only the small current-version pointer. The previous version
+  remains intact until matching startup health succeeds.
+- Any failure after commit attempts rollback and relaunches the previous known
+  good version. Failure to prove a launchable old or new version is terminal.
+- The lifecycle adapter exclusively owns processes it starts. After a candidate
+  launch, rollback restores the known-good pointer before stopping that exact
+  launch identity, and must prove it exited before starting the previous
+  version. Inability to stop fails closed instead of running two versions
+  concurrently, while the durable pointer remains launchable.
+- Versioned payloads never own config overrides, secrets, state, logs, or
+  diagnostics. `ApplicationPaths` is injected before update code is composed.
+- Apply fails closed outside a proven managed installation.
+- The About intent is enabled only after managed launch composition re-proves
+  the signed current version and exact running executable; it never guesses
+  launcher paths from UI state.
+- The stable installer writes the local managed-install receipt only after
+  verifying the publisher-signed initial version manifest. Publisher private
+  keys never enter an installed launcher or updater.
+
+## Consequences and review trigger
+
+Release creation has one signing/manifest core and thin payload assembly; the
+managed CLI has one dispatcher. One verification harness grows through
+synthetic, loopback HTTP, and offline managed-bundle stages. Review this ADR if
+a second transaction owner, filesystem helper, release builder, managed entry
+shim, or user-data migration path is proposed.
+
+Production release publication reuses the single managed-release CLI for the
+hashed lock, signed bundle, catalog, and validated public keyring. CI private
+key material is temporary and never becomes an artifact. A GitHub Release is
+published only after all immutable tag assets and the complete managed-update
+gate are present.

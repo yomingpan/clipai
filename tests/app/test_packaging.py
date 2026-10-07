@@ -228,4 +228,6 @@ def test_release_workflow_parses_toml_and_verifies_tag_on_python_310() -> None:
     assert "import tomli" in workflow
     assert "import tomllib" not in workflow
     assert "['project']['version']" in workflow
-    assert '"v$version" -ne "${{ github.ref_name }}"' in workflow
+    assert '$env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne $tag' in workflow
+    assert 'throw "Tag must be $tag"' in workflow
+    assert '$env:GITHUB_REF_NAME.StartsWith("release-validation/")' in workflow

@@ -3,7 +3,7 @@ import pytest
 
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.provider_configuration import AppProviderConfigurationBackend
-from ClipAI.core.models import ProviderSettingsInput
+from ClipAI.core.models import ModelCatalogConnection, ProviderSettingsInput
 
 
 class Store:
@@ -33,6 +33,16 @@ class Catalog:
 
 class Transport:
     pass
+
+
+def test_model_refresh_uses_unsaved_gemini_key_without_persisting_it() -> None:
+    store, catalog = Store(), Catalog()
+    store.values["GEMINI_API_KEY"] = "old-rejected-key"
+    backend = AppProviderConfigurationBackend(load_config_bundle(), store, lambda: {}, Transport(), catalog)
+    asyncio.run(backend.discover_models("gemini", ModelCatalogConnection("", "new-valid-key", "")))
+    assert catalog.calls[-1][2] == "new-valid-key"
+    assert store.saved == []
+    assert store.values["GEMINI_API_KEY"] == "old-rejected-key"
 
 
 def test_backend_validates_before_persisting_provider_settings() -> None:

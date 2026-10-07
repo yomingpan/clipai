@@ -1,0 +1,21 @@
+{
+  "status": "experimental_inputs_not_approved_for_distribution",
+  "metadata_checked_at": "2026-09-30",
+  "runtime": {
+    "release": "https://github.com/astral-sh/python-build-standalone/releases/tag/20260901",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+    "size": 21980728,
+    "sha256": "7c45c9622400d578709a9b2cddbe8124cc21d382409d9f13406d706d28e31b14",
+    "format": "tar.gz",
+    "runtime_version": "3.12.14",
+    "flavor": "x86_64-pc-windows-msvc-install_only_stripped"
+  },
+  "verifier": {
+    "release": "https://github.com/PowerShell/Win32-OpenSSH/releases/tag/10.0.0.0p2-Preview",
+    "url": "https://github.com/PowerShell/Win32-OpenSSH/releases/download/10.0.0.0p2-Preview/OpenSSH-Win64.zip",
+    "size": 5704583,
+    "sha256": "23f50f3458c4c5d0b12217c6a5ddfde0137210a30fa870e98b29827f7b43aba5",
+    "format": "zip",
+    "release_status": "preview_only_not_a_production_selection"
+  }
+}

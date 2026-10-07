@@ -7,7 +7,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from ClipAI.core.models import ActionLanguagePackSelectionState, ApplicationStatus, GuidancePreferences, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
+from ClipAI.core.models import ActionLanguagePackSelectionState, ApplicationStatus, GuidancePreferences, InlineDictationPlacement, InlineDictationPlacementState, InlineInputMode, InlineInputModeState, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceLanguage, VoiceProjection
 
 logger = logging.getLogger("clipai.tray")
@@ -18,6 +18,18 @@ SPEECH_SPEED_LABELS: tuple[tuple[SpeechSpeed, str], ...] = (
     ("fast", "Fast"),
     ("super_fast", "Super Fast"),
 )
+VOICE_LANGUAGE_LABELS: tuple[tuple[VoiceLanguage, str], ...] = (
+    (VoiceLanguage("zh-TW"), "Traditional Chinese"),
+    (VoiceLanguage("en-US"), "English"),
+)
+INLINE_MODE_LABELS: dict[InlineInputMode, str] = {
+    "choice": "Full Choice",
+    "minimal": "Minimal Input",
+}
+INLINE_PLACEMENT_LABELS: dict[InlineDictationPlacement, str] = {
+    "cursor": "Follow Cursor",
+    "bottom_center": "Bottom Center",
+}
 
 STATUS_COLORS: dict[ApplicationStatus, tuple[int, int, int]] = {
     "idle": (0, 82, 184),
@@ -101,6 +113,10 @@ class TrayController:
         on_enable_voice: Callable[[], None] | None = None,
         on_disable_voice: Callable[[], None] | None = None,
         on_set_voice_language: Callable[[VoiceLanguage], None] | None = None,
+        inline_input_mode: InlineInputModeState | None = None,
+        on_set_inline_input_mode: Callable[[InlineInputMode], None] | None = None,
+        inline_dictation_placement: InlineDictationPlacementState | None = None,
+        on_set_inline_dictation_placement: Callable[[InlineDictationPlacement], None] | None = None,
         on_manage_voice_permission: Callable[[], None] | None = None,
         on_open_about: Callable[[], None] | None = None,
         application_version: str = "development",
@@ -129,6 +145,10 @@ class TrayController:
         self._on_enable_voice = on_enable_voice
         self._on_disable_voice = on_disable_voice
         self._on_set_voice_language = on_set_voice_language
+        self._inline_input_mode = inline_input_mode
+        self._on_set_inline_input_mode = on_set_inline_input_mode
+        self._inline_dictation_placement = inline_dictation_placement
+        self._on_set_inline_dictation_placement = on_set_inline_dictation_placement
         self._on_manage_voice_permission = on_manage_voice_permission
         self._on_open_about = on_open_about
         self._icon = None
@@ -165,6 +185,10 @@ class TrayController:
         voice_menu = self._build_voice_menu(pystray)
         if voice_menu is not None:
             menu_items.append(voice_menu)
+        inline_menu = self._build_inline_dictation_menu(pystray)
+        if inline_menu is not None:
+            menu_items.append(inline_menu)
+        if voice_menu is not None or inline_menu is not None:
             menu_items.append(pystray.Menu.SEPARATOR)
         support_items = []
         if self._on_show_last_error is not None:
@@ -351,12 +375,16 @@ class TrayController:
         if state is None:
             return "Speech Speed"
         if not state.available:
-            return "Speech Speed (unavailable)"
+            return f"Speech Speed: {self._speech_speed_name(state.selected_speed)} (Unavailable)"
         if state.pending_speed is not None:
-            return "Speech Speed (saving...)"
+            return f"Speech Speed: {self._speech_speed_name(state.selected_speed)} (Saving...)"
         if state.selected_speed is None:
-            return "Speech Speed (Custom)"
-        return "Speech Speed"
+            return "Speech Speed: Custom"
+        return f"Speech Speed: {self._speech_speed_name(state.selected_speed)}"
+
+    @staticmethod
+    def _speech_speed_name(speed: SpeechSpeed | None) -> str:
+        return next((label for value, label in SPEECH_SPEED_LABELS if value == speed), "Custom")
 
     def _speech_speed_action(self, speed: SpeechSpeed):
         def select(_icon, _item) -> None:
@@ -378,27 +406,32 @@ class TrayController:
             return None
         language_items = ()
         if self._on_set_voice_language is not None:
-            language_items = (
+            language_items = tuple(
                 pystray.MenuItem(
-                    "Traditional Chinese (zh-TW)",
-                    lambda _icon, _item: self._on_set_voice_language(VoiceLanguage("zh-TW")),
-                    checked=lambda _item: self._voice is not None and self._voice.language == "zh-TW",
-                    enabled=lambda _item: self._voice is not None and self._voice.capture_id is None,
-                ),
-                pystray.MenuItem(
-                    "English (en-US)",
-                    lambda _icon, _item: self._on_set_voice_language(VoiceLanguage("en-US")),
-                    checked=lambda _item: self._voice is not None and self._voice.language == "en-US",
-                    enabled=lambda _item: self._voice is not None and self._voice.capture_id is None,
-                ),
+                    label,
+                    self._voice_language_action(language),
+                    checked=lambda _item, chosen=language: self._voice is not None and self._voice.language == chosen,
+                    enabled=lambda _item, chosen=language: (
+                        self._voice is not None
+                        and self._voice.capture_id is None
+                        and self._voice.pending_language is None
+                        and self._voice.language != chosen
+                    ),
+                    radio=True,
+                ) for language, label in VOICE_LANGUAGE_LABELS
             )
         menu_items = [
-            pystray.MenuItem("Enable Voice Input", lambda _icon, _item: self._on_enable_voice(), enabled=lambda _item: self._voice_enable_available()),
-            pystray.MenuItem("Disable Voice Input", lambda _icon, _item: self._on_disable_voice(), enabled=lambda _item: self._voice_disable_available()),
+            pystray.MenuItem(
+                lambda _item: self._voice_toggle_label(),
+                lambda icon, item: self._toggle_voice(icon, item),
+                enabled=lambda _item: self._voice_enable_available() or self._voice_disable_available(),
+            ),
         ]
         if language_items:
-            menu_items.append(pystray.MenuItem("Language", pystray.Menu(*language_items)))
+            menu_items.append(pystray.Menu.SEPARATOR)
+            menu_items.extend(language_items)
         if self._on_manage_voice_permission is not None:
+            menu_items.append(pystray.Menu.SEPARATOR)
             menu_items.append(
                 pystray.MenuItem(
                     "Manage Microphone Permission",
@@ -413,10 +446,102 @@ class TrayController:
             pystray.Menu(*menu_items),
         )
 
+    def _voice_language_action(self, language: VoiceLanguage):
+        def select(_icon, _item) -> None:
+            voice = self._voice
+            if (
+                voice is not None
+                and self._on_set_voice_language is not None
+                and voice.capture_id is None
+                and voice.pending_language is None
+                and voice.language != language
+            ):
+                self._on_set_voice_language(language)
+        return select
+
+    def _voice_toggle_label(self) -> str:
+        voice = self._voice
+        if voice is not None:
+            if voice.capability is VoiceCapabilityPhase.REQUESTING_PERMISSION:
+                return "Enabling Voice Input..."
+            if voice.capability is VoiceCapabilityPhase.DISABLING:
+                return "Disabling Voice Input..."
+            if voice.capability in {VoiceCapabilityPhase.DISABLE_FAILED, VoiceCapabilityPhase.CLEANUP_UNCONFIRMED}:
+                return "Retry Disabling Voice Input"
+        return "Disable Voice Input" if self._voice_disable_available() else "Enable Voice Input"
+
+    def _toggle_voice(self, _icon, _item) -> None:
+        if self._voice_disable_available():
+            self._on_disable_voice()
+        elif self._voice_enable_available():
+            self._on_enable_voice()
+
+    def _build_inline_dictation_menu(self, pystray):
+        items = []
+        if self._inline_input_mode is not None and self._on_set_inline_input_mode is not None:
+            for mode, label in INLINE_MODE_LABELS.items():
+                items.append(pystray.MenuItem(
+                    label,
+                    self._inline_mode_action(mode),
+                    checked=lambda _item, chosen=mode: self._inline_input_mode is not None and self._inline_input_mode.selected_mode == chosen,
+                    enabled=lambda _item, chosen=mode: self._inline_input_mode is not None and not self._inline_input_mode.update_pending and self._inline_input_mode.selected_mode != chosen,
+                    radio=True,
+                ))
+        if self._inline_dictation_placement is not None and self._on_set_inline_dictation_placement is not None:
+            if items:
+                items.append(pystray.Menu.SEPARATOR)
+            for placement, label in INLINE_PLACEMENT_LABELS.items():
+                items.append(pystray.MenuItem(
+                    label,
+                    self._inline_placement_action(placement),
+                    checked=lambda _item, chosen=placement: self._inline_dictation_placement is not None and self._inline_dictation_placement.selected_placement == chosen,
+                    enabled=lambda _item, chosen=placement: self._inline_dictation_placement is not None and not self._inline_dictation_placement.update_pending and self._inline_dictation_placement.selected_placement != chosen,
+                    radio=True,
+                ))
+        return pystray.MenuItem(lambda _item: self._inline_dictation_label(), pystray.Menu(*items)) if items else None
+
+    def _inline_dictation_label(self) -> str:
+        state = self._inline_input_mode
+        if state is None:
+            return "Inline Dictation"
+        label = f"Inline Dictation: {INLINE_MODE_LABELS[state.selected_mode]}"
+        if state.update_pending or (
+            self._inline_dictation_placement is not None
+            and self._inline_dictation_placement.update_pending
+        ):
+            return f"{label} (Saving...)"
+        return label
+
+    def _inline_mode_action(self, mode: InlineInputMode):
+        def select(_icon, _item) -> None:
+            if (
+                self._on_set_inline_input_mode is not None
+                and self._inline_input_mode is not None
+                and not self._inline_input_mode.update_pending
+                and self._inline_input_mode.selected_mode != mode
+            ):
+                self._on_set_inline_input_mode(mode)
+        return select
+
+    def _inline_placement_action(self, placement: InlineDictationPlacement):
+        def select(_icon, _item) -> None:
+            if (
+                self._on_set_inline_dictation_placement is not None
+                and self._inline_dictation_placement is not None
+                and not self._inline_dictation_placement.update_pending
+                and self._inline_dictation_placement.selected_placement != placement
+            ):
+                self._on_set_inline_dictation_placement(placement)
+        return select
+
     def _voice_menu_label(self) -> str:
         voice = self._voice
-        phase = voice.capability.value.replace("_", " ") if voice is not None else "unavailable"
-        return f"Voice Input ({phase})"
+        if voice is None:
+            return "Voice Input: Unavailable"
+        language = next((label for value, label in VOICE_LANGUAGE_LABELS if value == voice.language), str(voice.language))
+        phase = voice.capability.value.replace("_", " ").title()
+        label = f"Voice Input: {phase} · {language}"
+        return f"{label} (Saving...)" if voice.pending_language is not None else label
 
     def _voice_enable_available(self) -> bool:
         voice = self._voice
@@ -424,11 +549,17 @@ class TrayController:
             VoiceCapabilityPhase.READY,
             VoiceCapabilityPhase.REQUESTING_PERMISSION,
             VoiceCapabilityPhase.DISABLING,
+            VoiceCapabilityPhase.CLEANUP_UNCONFIRMED,
+            VoiceCapabilityPhase.DISABLE_FAILED,
         }
 
     def _voice_disable_available(self) -> bool:
         voice = self._voice
-        return voice is not None and voice.capability is VoiceCapabilityPhase.READY
+        return voice is not None and voice.capability in {
+            VoiceCapabilityPhase.READY,
+            VoiceCapabilityPhase.DISABLE_FAILED,
+            VoiceCapabilityPhase.CLEANUP_UNCONFIRMED,
+        }
 
     def set_guidance_preferences(self, preferences: GuidancePreferences) -> None:
         self._guidance_preferences = preferences
@@ -440,6 +571,14 @@ class TrayController:
 
     def set_voice_projection(self, projection: VoiceProjection) -> None:
         self._voice = projection
+        self._refresh_menu()
+
+    def set_inline_input_mode(self, state: InlineInputModeState) -> None:
+        self._inline_input_mode = state
+        self._refresh_menu()
+
+    def set_inline_dictation_placement(self, state: InlineDictationPlacementState) -> None:
+        self._inline_dictation_placement = state
         self._refresh_menu()
 
     def set_action_language_selection(

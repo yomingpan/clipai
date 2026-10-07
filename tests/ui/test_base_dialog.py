@@ -53,11 +53,92 @@ from ClipAI.ui.base_dialog import (
     configure_tooltip_layer,
     compact_action_message,
     insert_display_text,
+    install_ime_halfwidth_punctuation_fix,
+    install_select_all_shortcut,
     paste_target_display_text,
+    word_selection_bounds,
+    paragraph_selection_bounds,
     _CanonicalSelectionSegment,
     _canonical_selection_text,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
+
+
+def test_ime_halfwidth_punctuation_fix_inserts_only_mismapped_printable_characters() -> None:
+    class Widget:
+        def __init__(self) -> None:
+            self.binding = None
+            self.insertions = []
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.binding = (sequence, callback, add)
+
+        def insert(self, index, text) -> None:
+            self.insertions.append((index, text))
+
+    widget = Widget()
+    install_ime_halfwidth_punctuation_fix(widget)
+    _, handler, add = widget.binding
+
+    assert handler(type("Event", (), {"char": ",", "keysym": "Left"})()) == "break"
+    assert handler(type("Event", (), {"char": "", "keysym": "Left"})()) is None
+    assert handler(type("Event", (), {"char": ".", "keysym": "period"})()) is None
+    assert widget.insertions == [("insert", ",")]
+    assert add == "+"
+
+
+@pytest.mark.parametrize(
+    ("text", "index", "expected"),
+    (
+        ("OK,有的時候projects is a good thing", 10, (7, 15)),
+        ("OK,有的時候projects is a good thing", 4, (3, 7)),
+        ("かなカナABC", 1, (0, 4)),
+        ("한글Latin", 1, (0, 2)),
+        ("hello world", 6, (6, 11)),
+        ("hello world", 5, (5, 6)),
+        ("", 0, (0, 0)),
+    ),
+)
+def test_word_selection_bounds_keep_adjacent_writing_systems_separate(text, index, expected) -> None:
+    assert word_selection_bounds(text, index) == expected
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    (
+        (2, (0, 11)),
+        (8, (0, 11)),
+        (12, (12, 16)),
+    ),
+)
+def test_paragraph_selection_keeps_single_newlines_and_stops_at_blank_lines(index, expected) -> None:
+    assert paragraph_selection_bounds("first\nnext\n\nlast", index) == expected
+
+
+def test_select_all_shortcut_overrides_tk_default_and_breaks_propagation() -> None:
+    class Entry:
+        def __init__(self) -> None:
+            self.bindings = {}
+            self.selection = None
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+        def winfo_class(self) -> str:
+            return "Entry"
+
+        def select_range(self, start, end) -> None:
+            self.selection = (start, end)
+
+        def icursor(self, index) -> None:
+            self.cursor = index
+
+    widget = Entry()
+    install_select_all_shortcut(widget)
+
+    assert widget.bindings["<Control-a>"](object()) == "break"
+    assert widget.selection == (0, "end")
+    assert widget.cursor == "end"
 
 
 def test_external_output_visibility_actions_are_mechanical() -> None:
@@ -794,6 +875,27 @@ def test_dialog_lifecycle_exposes_closed_state() -> None:
     assert lifecycle.is_closed is True
 
 
+def test_dialog_lifecycle_can_cancel_scheduled_work_without_closing_window() -> None:
+    class Root:
+        def __init__(self):
+            self.cancelled = []
+            self.destroyed = False
+        def after(self, _delay, _callback): return "job-1"
+        def after_cancel(self, job): self.cancelled.append(job)
+        def destroy(self): self.destroyed = True
+        def quit(self): pass
+
+    root = Root()
+    lifecycle = DialogLifecycle(root)
+    lifecycle.schedule(10, lambda: None)
+
+    lifecycle.cancel_scheduled()
+
+    assert root.cancelled == ["job-1"]
+    assert lifecycle.is_closed is False
+    assert root.destroyed is False
+
+
 def test_dialog_lifecycle_focus_reports_verified_toolkit_focus() -> None:
     class Root:
         def __init__(self) -> None:
@@ -904,12 +1006,22 @@ def test_base_dialog_delegates_drag_binding_to_shared_controller() -> None:
 
 
 def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
-    assert [spec.slot_id for spec in STANDARD_RESULT_ACTIONS] == ["speaker", "copy", "paste", "archive", "follow_up"]
+    assert [spec.slot_id for spec in STANDARD_RESULT_ACTIONS] == [
+        "speaker",
+        "copy",
+        "paste",
+        "archive",
+        "regenerate",
+        "refine",
+        "follow_up",
+    ]
     assert [spec.icon for spec in STANDARD_RESULT_ACTIONS] == [
         SPEAKER_ICON,
         COPY_ICON,
         PASTE_ICON,
         ARCHIVE_ICON,
+        "↻",
+        "\uE70F",
         FOLLOW_UP_ICON,
     ]
     assert [spec.tooltip for spec in STANDARD_RESULT_ACTIONS] == [
@@ -917,6 +1029,8 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         "Copy result (Ctrl+C)",
         "Paste result to target",
         "Archive result (Ctrl+S)",
+        "Regenerate result (Ctrl+R)",
+        "Refine dictation (Ctrl+P)",
         "Ask follow-up (Ctrl+/)",
     ]
     assert [spec.active_tooltip for spec in STANDARD_RESULT_ACTIONS] == [
@@ -924,6 +1038,8 @@ def test_standard_result_actions_expose_trusted_slots_in_order() -> None:
         "Copy accepted (Ctrl+C)",
         None,
         "Archive accepted (Ctrl+S)",
+        None,
+        None,
         "Close follow-up (Ctrl+/)",
     ]
 
@@ -1027,10 +1143,11 @@ def test_action_slot_selects_text_font_only_for_word_labels(monkeypatch) -> None
 
 
 def test_primary_and_overflow_action_placement_is_stable() -> None:
-    primary = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id not in {"paste", "archive"}]
-    overflow = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id in {"paste", "archive"}]
+    overflow_slots = {"paste", "archive", "regenerate", "refine"}
+    primary = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id not in overflow_slots]
+    overflow = [spec.slot_id for spec in STANDARD_RESULT_ACTIONS if spec.slot_id in overflow_slots]
     assert primary == ["speaker", "copy", "follow_up"]
-    assert overflow == ["paste", "archive"]
+    assert overflow == ["paste", "archive", "regenerate", "refine"]
 
 
 def test_presentation_tags_avoid_customtkinter_forbidden_font_option() -> None:
@@ -1249,6 +1366,37 @@ def test_presentation_surface_returns_canonical_markdown_for_rendered_selection(
     assert surface.selected_text() == "- **First** item\n- *Second*"
 
 
+def test_presentation_surface_records_whole_multiline_blocks_for_triple_click() -> None:
+    from ClipAI.services.presentation import MarkdownPresentationParser
+    from ClipAI.ui.text_layout import strip_display_break_hints
+
+    class Textbox:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def configure(self, **_kwargs) -> None:
+            pass
+
+        def delete(self, *_args) -> None:
+            self.text = ""
+
+        def insert(self, _index, text, _tags) -> None:
+            self.text += text
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._list_indent_prefixes = {}
+    surface.set_presentation_document(
+        MarkdownPresentationParser().parse("# Title\n\nfirst\nnext\n\n- item")
+    )
+
+    blocks = tuple(
+        strip_display_break_hints(surface.content_text.text[start:end]).strip()
+        for start, end in surface._selection_block_ranges
+    )
+    assert blocks == ("Title", "first\nnext", "• item")
+
+
 def test_presentation_surface_projects_double_clicked_word_without_partial_break_hints() -> None:
     class Textbox:
         def get(self, start, end) -> str:
@@ -1269,13 +1417,26 @@ def test_presentation_surface_projects_double_clicked_word_without_partial_break
     assert surface.selected_text() == "appetizer"
 
 
+def test_surface_selection_keeps_selected_boundary_whitespace() -> None:
+    class Textbox:
+        def get(self, start, end) -> str:
+            assert (start, end) == ("sel.first", "sel.last")
+            return " first line\n"
+
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Textbox()
+    surface._canonical_selection_segments = ()
+
+    assert surface.selected_text() == " first line\n"
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     (
         ("A I", "I"),
         (
             "- I went from [not doing X] to [basically doing Y].",
-            "I went from [not doing X] to [basically doing Y].",
+            " I went from [not doing X] to [basically doing Y].",
         ),
     ),
 )
@@ -1570,6 +1731,18 @@ def test_standard_result_action_active_styles_are_semantic() -> None:
     }
 
 
+def test_regenerate_action_is_an_overflow_control_with_ctrl_r_tooltip() -> None:
+    regenerate = next(
+        spec for spec in STANDARD_RESULT_ACTIONS if spec.slot_id == "regenerate"
+    )
+
+    assert regenerate.icon == "↻"
+    assert regenerate.tooltip == "Regenerate result (Ctrl+R)"
+    assert 'overflow=spec.slot_id in {"paste", "archive", "regenerate", "refine"}' in inspect.getsource(
+        StandardResultActions.__init__
+    )
+
+
 def test_popup_render_is_the_content_free_field_group_projection_seam() -> None:
     events: list[object] = []
     contract = ActionFeedbackContract(
@@ -1596,16 +1769,17 @@ def test_popup_render_is_the_content_free_field_group_projection_seam() -> None:
     surface.clipboard_choice_button = type("ChoiceButton", (), {"grid_remove": lambda self: None})()
     surface._feedback_submit = lambda *_args: None
     surface.set_pinned_state = lambda value: events.append(("pinned", value))
-    surface.set_title = lambda value: events.append(("title", value))
-    surface.set_source_preview = lambda value: events.append(("source", value))
-    surface.set_model = lambda value: events.append(("model", value))
-    surface.set_back_available = lambda value: events.append(("back", value))
-    surface.configure_action_contract = lambda value, source: events.append(("contract", value, source))
-    surface.set_available_actions = lambda value: events.append(("actions", value))
-    surface.set_speaker_active = lambda value: events.append(("speaking", value))
-    surface.show_action_guidance_hint = lambda: events.append("guidance")
-    surface.configure_feedback = lambda value, state, message, callback: events.append(("feedback", value, state, message, callback is not None))
-    surface.hide_feedback = lambda: events.append("feedback:hidden")
+    surface._set_title = lambda value: events.append(("title", value))
+    surface._set_source_preview = lambda value: events.append(("source", value))
+    surface._set_model = lambda value: events.append(("model", value))
+    surface._set_back_available = lambda value: events.append(("back", value))
+    surface._configure_action_contract = lambda value, source: events.append(("contract", value, source))
+    surface._set_available_actions = lambda value: events.append(("actions", value))
+    surface._set_speaker_active = lambda value: events.append(("speaking", value))
+    surface._show_action_guidance_hint = lambda: events.append("guidance")
+    surface._hide_action_guidance_hint = lambda: events.append("guidance:hidden")
+    surface._configure_feedback = lambda value, state, message, callback: events.append(("feedback", value, state, message, callback is not None))
+    surface._hide_feedback = lambda: events.append("feedback:hidden")
 
     surface.render(model)
     surface.render(model)
@@ -1842,7 +2016,7 @@ def test_action_contract_tooltip_explains_ai_scope_and_feedback_entry_points() -
     assert text == (
         "AI 幫你\n縮短內容\n\n"
         "AI 不做什麼\n不替你改變原本的立場與語氣\n\n"
-        "若結果不符合預期，可按右上角 ⓘ 或 Ctrl + R 回饋。"
+        "若結果不符合預期，可按右上角 ⓘ 回饋。"
     )
 
 

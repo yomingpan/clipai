@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Literal, NewType
+from typing import Literal, NewType, TypeAlias
 
 from ClipAI.core.errors import ActionLanguagePackErrorCode, PasteFailureReason
+from ClipAI.core.managed_update import FailureCode
 from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
@@ -12,6 +13,9 @@ ModifierHoldId = NewType("ModifierHoldId", int)
 EntryInputPreparationId = NewType("EntryInputPreparationId", str)
 ShortcutPressOutcome = Literal["released", "cancelled"]
 InterruptionScope = Literal["current", "all"]
+ManagedUpdatePhase = Literal[
+    "unavailable", "idle", "checking", "downloading", "preparing", "up_to_date", "restarting", "failed"
+]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
 MessageRole = Literal["system", "user", "assistant"]
 ImageSource = Literal["clipboard"]
@@ -22,6 +26,8 @@ PersonalStyleMode = Literal["formal", "informal"]
 ResultRoute = Literal["popup", "speech"]
 SpeechSpeed = Literal["slow", "normal", "fast", "super_fast"]
 VoiceLanguagePreference = Literal["zh-TW", "en-US"]
+InlineInputMode = Literal["choice", "minimal"]
+InlineDictationPlacement = Literal["cursor", "bottom_center"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
 OperationKind = Literal["llm", "tts", "copy", "paste", "archive"]
 FeedbackOutcome = Literal["helpful", "needs_adjustment", "not_applicable"]
@@ -33,6 +39,7 @@ ShortcutCommandKind = Literal[
     "open_contextual_question",
     "speak_selection_or_clipboard",
     "push_to_talk",
+    "inline_dictation",
 ]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal[
@@ -126,6 +133,8 @@ class EntryPanelOption:
     enabled: bool = True
     pending: bool = False
     disabled_reason: str = ""
+    long_action: EntryActionRef | None = None
+    long_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -232,6 +241,20 @@ class SpeechSpeedState:
 class VoicePreferencesState:
     enabled: bool = False
     language: VoiceLanguagePreference = "zh-TW"
+    update_pending: bool = False
+
+
+@dataclass(frozen=True)
+class InlineInputModeState:
+    selected_mode: InlineInputMode = "choice"
+    pending_mode: InlineInputMode | None = None
+    update_pending: bool = False
+
+
+@dataclass(frozen=True)
+class InlineDictationPlacementState:
+    selected_placement: InlineDictationPlacement = "cursor"
+    pending_placement: InlineDictationPlacement | None = None
     update_pending: bool = False
 
 
@@ -388,11 +411,25 @@ class UserFacingError:
 
 
 @dataclass(frozen=True)
+class WorkflowOrigin:
+    workflow_id: str
+
+
+@dataclass(frozen=True)
+class InlineOrigin:
+    interaction_id: str
+
+
+OutputOrigin: TypeAlias = WorkflowOrigin | InlineOrigin
+
+
+@dataclass(frozen=True)
 class OutputOperationIntent:
     operation_id: str
     workflow_id: str
     kind: OutputActionKind
     text: str
+    origin: OutputOrigin | None = None
 
 
 @dataclass(frozen=True)
@@ -404,6 +441,7 @@ class OutputOperationResult:
     error: UserFacingError | None = None
     message: str = ""
     reason: PasteFailureReason | None = None
+    origin: OutputOrigin | None = None
 
     def __post_init__(self) -> None:
         common_states = {"pending", "failed", "cancelled"}
@@ -612,6 +650,8 @@ class UserPreferences:
     voice_input_enabled: bool = False
     voice_language: VoiceLanguagePreference = "zh-TW"
     entry_panel_density: EntryPanelDensity = "detailed"
+    inline_input_mode: InlineInputMode = "choice"
+    inline_dictation_placement: InlineDictationPlacement = "cursor"
 
 
 @dataclass(frozen=True)
@@ -758,10 +798,14 @@ class SelectionCaptureOutcome:
     selection_detected: bool = False
     # Verified source capability, not evidence that a selection currently exists.
     copy_selection_only: bool = False
+    # A verified adapter restored focus only inside the bound top-level source.
+    focus_restored: bool = False
 
     def __post_init__(self) -> None:
         if type(self.copy_selection_only) is not bool:
             raise ValueError("copy_selection_only must be a boolean")
+        if type(self.focus_restored) is not bool:
+            raise ValueError("focus_restored must be a boolean")
         if self.status not in {"selected", "none", "unavailable", "unknown", "cancelled"}:
             raise ValueError("invalid selection status")
         if self.status == "selected" and not self.text:
@@ -821,6 +865,17 @@ class EntryPanelSource:
 
 
 @dataclass(frozen=True)
+class ExternalWindowWaitPolicy:
+    """One caller's remaining focus-wait budget; capture time is separate."""
+
+    timeout_sec: float = 3.0
+    notice_after_sec: float = 0.5
+
+
+EntryInputPreparationPhase = Literal["waiting_for_window", "reading"]
+
+
+@dataclass(frozen=True)
 class ExternalWindowActivationOutcome:
     state: ExternalWindowActivationState
     message: str = ""
@@ -867,6 +922,7 @@ class PasteRequest:
     workflow_id: str
     text: str
     target: PasteTarget
+    origin: OutputOrigin | None = None
 
 
 @dataclass(frozen=True)
@@ -919,6 +975,14 @@ class ReadinessIssue:
     code: str
     message: str
     feature: str
+
+
+@dataclass(frozen=True)
+class ManagedUpdatePresentation:
+    phase: ManagedUpdatePhase
+    message: str
+    enabled: bool
+    failure_code: FailureCode | None = None
 
 
 @dataclass(frozen=True)

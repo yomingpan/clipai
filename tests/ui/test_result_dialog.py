@@ -4,13 +4,152 @@ import queue
 import inspect
 from dataclasses import replace
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
-from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, PopupBounds, WorkflowAttention, WorkflowStep
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelInlineDictation, CloseSession, ConfirmInlineDictation, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteOutcome, PasteTarget, PopupBounds, WorkflowAttention, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.ui.base_dialog import BaseResultSurface, _VoiceWaveIndicator
+from ClipAI.ui.inline_dictation_owner import InlineDictationInterfaceOwner
 from ClipAI.ui.popup_control import PopupControlRegistered, PopupControlShown, PopupOwnedDialogOpened, ToolkitFocusEntered
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, _voice_status_word, workflow_render_patch
+
+
+def test_late_inline_refinement_cannot_close_a_newer_window() -> None:
+    class Window:
+        interaction_id = "inline-new"
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self, **_kwargs) -> None:
+            self.closed = True
+
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None)
+    window = Window()
+    presenter._window = window
+
+    presenter.close_inline_dictation(interaction_id="inline-old")
+
+    assert not window.closed
+    assert presenter._window is window
+
+
+def test_new_inline_interaction_retires_the_old_failure_notice(monkeypatch) -> None:
+    import ClipAI.ui.inline_dictation_owner as result_dialog
+
+    windows = []
+
+    class Window:
+        def __init__(self, _root, **kwargs) -> None:
+            self.interaction_id = kwargs["interaction_id"]
+            self.close_calls = []
+            windows.append(self)
+
+        def show(self) -> None:
+            pass
+
+        def close(self, **kwargs) -> None:
+            self.close_calls.append(kwargs)
+
+    monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None, native_window_surface=object())
+
+    presenter.open_inline_dictation("old")
+    presenter.close_inline_dictation(flash_failure=True, message="timed out", interaction_id="old")
+    assert presenter._window is windows[0]
+    assert windows[0].close_calls == [{"flash_failure": True, "message": "timed out"}]
+
+    presenter.open_inline_dictation("new")
+    assert windows[0].close_calls[-1] == {}
+    assert presenter._window is windows[1]
+    presenter.close_inline_dictation(interaction_id="old")
+    assert windows[1].close_calls == []
+
+
+def test_inline_result_only_updates_the_matching_interaction_window() -> None:
+    class Window:
+        interaction_id = "inline-new"
+
+        def __init__(self) -> None:
+            self.results = []
+
+        def show_paste_outcome(self, outcome, text) -> None:
+            self.results.append((outcome, text))
+
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None)
+    window = Window()
+    presenter._window = window
+    outcome = PasteOutcome("failed", "not_dispatched", "not_required")
+
+    presenter.present_inline_paste_outcome("inline-old", outcome, "old text")
+    presenter.present_inline_paste_outcome("inline-new", outcome, "new text")
+
+    assert window.results == [(outcome, "new text")]
+
+
+def test_inline_choice_only_updates_the_matching_interaction_window() -> None:
+    class Window:
+        interaction_id = "inline-new"
+
+        def __init__(self) -> None:
+            self.choices = []
+
+        def present_choice(self, text, allow_refine, message) -> None:
+            self.choices.append((text, allow_refine, message))
+
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None)
+    window = Window()
+    presenter._window = window
+
+    presenter.present_inline_choice("inline-old", "old text")
+    presenter.present_inline_choice("inline-new", "new text", False, "recover")
+
+    assert window.choices == [("new text", False, "recover")]
+
+
+def test_inline_dictation_receives_the_presenters_native_window_surface(monkeypatch) -> None:
+    import ClipAI.ui.inline_dictation_owner as result_dialog
+
+    created: list[tuple[object, str]] = []
+
+    class Window:
+        def __init__(self, _root, **kwargs) -> None:
+            created.append((kwargs["native_window_surface"], kwargs["interaction_id"]))
+
+        def show(self) -> None:
+            pass
+
+    monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None, native_window_surface=object())
+
+    presenter.open_inline_dictation("inline-1")
+
+    assert created == [(presenter._native_window_surface, "inline-1")]
+
+
+def test_inline_view_callbacks_keep_the_interaction_that_created_them(monkeypatch) -> None:
+    import ClipAI.ui.inline_dictation_owner as result_dialog
+
+    callbacks = {}
+
+    class Window:
+        def __init__(self, _root, **kwargs) -> None:
+            callbacks[kwargs["interaction_id"]] = kwargs
+
+        def show(self) -> None:
+            pass
+
+    monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
+    commands = []
+    presenter = InlineDictationInterfaceOwner(object(), commands.append, native_window_surface=object())
+
+    presenter.open_inline_dictation("old")
+    presenter._window = None
+    presenter.open_inline_dictation("new")
+    callbacks["old"]["on_confirm"](True)
+    callbacks["old"]["on_cancel"]()
+
+    assert commands == [ConfirmInlineDictation("old", True), CancelInlineDictation("old")]
 
 
 def test_voice_waveform_uses_canvas_and_packs_after_right_anchors() -> None:
@@ -320,6 +459,8 @@ class Surface:
         self.feedback_available = False
         self.header_double_click_callback = None
         self.voice_draft_paste_callback = None
+        self.copy_shortcut_callback = None
+        self.context_copy_callback = None
         self.focus_result = True
         self.follow_up_visible = False
         self.follow_entry = FollowUpEntry()
@@ -347,17 +488,27 @@ class Surface:
     def set_title(self, title: str) -> None:
         self.title = title
 
+    _set_title = set_title
+
     def set_source_preview(self, source_preview: str) -> None:
         self.source_preview = source_preview
+
+    _set_source_preview = set_source_preview
 
     def set_model(self, model: str) -> None:
         self.model = model
 
+    _set_model = set_model
+
     def set_back_available(self, enabled: bool) -> None:
         self.back_available = enabled
 
+    _set_back_available = set_back_available
+
     def set_available_actions(self, enabled_actions: tuple[str, ...]) -> None:
         self.enabled_actions = enabled_actions
+
+    _set_available_actions = set_available_actions
 
     def selected_text(self) -> str | None:
         return self.selected
@@ -380,6 +531,8 @@ class Surface:
     def set_speaker_active(self, active: bool) -> None:
         self.events.append(f"speaker:{active}")
 
+    _set_speaker_active = set_speaker_active
+
     def toggle_pin(self) -> bool:
         self.events.append("pin:toggled")
         return True
@@ -396,21 +549,38 @@ class Surface:
     def bind_voice_draft_paste(self, callback) -> None:
         self.voice_draft_paste_callback = callback
 
+    def bind_copy_shortcut(self, callback) -> None:
+        self.copy_shortcut_callback = callback
+
+    def bind_content_context_copy(self, callback) -> None:
+        self.context_copy_callback = callback
+
     def focus_content(self) -> bool:
         return self.focus_result
 
     def configure_action_contract(self, contract, input_source: str) -> None:
         self.events.append(("contract", contract, input_source))
 
+    _configure_action_contract = configure_action_contract
+
     def show_action_guidance_hint(self) -> None:
         self.events.append("guidance:shown")
+
+    _show_action_guidance_hint = show_action_guidance_hint
+
+    def _hide_action_guidance_hint(self) -> None:
+        self.events.append("guidance:hidden")
 
     def configure_feedback(self, contract, state, message, on_submit) -> None:
         self.feedback_submit = on_submit
         self.events.append(("feedback", state, message))
 
+    _configure_feedback = configure_feedback
+
     def hide_feedback(self) -> None:
         self.events.append("feedback:hidden")
+
+    _hide_feedback = hide_feedback
 
     def toggle_feedback_overlay(self) -> bool:
         self.events.append("feedback:toggled")
@@ -512,6 +682,22 @@ def test_copy_and_archive_wait_for_typed_acknowledgment() -> None:
     assert len(events) == 2
     assert isinstance(events[0], CopyResult) and events[0].text == "selected" and events[0].operation_id
     assert isinstance(events[1], ArchiveResult) and events[1].text == "selected" and events[1].operation_id
+
+
+def test_refine_voice_draft_emits_frozen_revision_and_selection() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.surface.selection_range = lambda: (2, 7)
+    view.last_snapshot = SessionSnapshot(
+        "s1", 8, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+        content="draft text",
+        voice_origin=VoiceOrigin(None, "draft text", 5),
+        available_actions=("copy", "paste", "follow_up", "refine"),
+    )
+
+    presenter._refine_voice_draft("s1")
+
+    assert events == [RefineVoiceDraftInPlace("s1", 5, 2, 7)]
 
 
 def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:
@@ -679,9 +865,9 @@ def test_voice_status_word_keeps_phase_semantics_in_the_presenter() -> None:
     for phase in (
         VoiceCapturePhase.STOP_REQUESTED,
         VoiceCapturePhase.FINALIZING,
-        VoiceCapturePhase.CANCEL_REQUESTED,
     ):
         assert _voice_status_word(phase, silence_detected=True) == "整理"
+    assert _voice_status_word(VoiceCapturePhase.CANCEL_REQUESTED, silence_detected=True) == "取消中"
 
 
 def test_voice_status_word_remains_stable_while_countdown_is_projected_elsewhere() -> None:
@@ -833,7 +1019,8 @@ def test_every_finalizing_phase_disables_the_control_and_overrides_silence() -> 
         presenter._configure_voice_control(snapshot, presenter._views["s1"])
         action = presenter._views["s1"].surface.voice_action
 
-        assert action["word"] == "整理"
+        assert action["word"] == ("取消中" if phase is VoiceCapturePhase.CANCEL_REQUESTED else "整理")
+        assert action["tooltip"] == ("Cancelling Voice Input" if phase is VoiceCapturePhase.CANCEL_REQUESTED else "Finalizing Voice Input")
         assert action["level"] == 0.7
         assert action["listening"] is False
         assert action["silence"] is True
@@ -1237,7 +1424,7 @@ def test_feedback_submission_is_a_typed_identified_command() -> None:
     assert command.save_case is True
 
 
-def test_ctrl_r_feedback_request_reports_unsupported_recipe() -> None:
+def test_feedback_button_reports_unsupported_recipe() -> None:
     presenter, events = presenter_with_selection(None)
 
     presenter._toggle_feedback("s1")
@@ -1245,13 +1432,37 @@ def test_ctrl_r_feedback_request_reports_unsupported_recipe() -> None:
     assert events == ["feedback:toggled", "message:此 Recipe 尚未啟用回饋:1000"]
 
 
-def test_ctrl_r_feedback_request_opens_supported_recipe_overlay() -> None:
+def test_feedback_button_opens_supported_recipe_overlay() -> None:
     presenter, events = presenter_with_selection(None)
     presenter._views["s1"].surface.feedback_available = True
 
     presenter._toggle_feedback("s1")
 
     assert events == ["feedback:toggled"]
+
+
+def test_ctrl_r_emits_regenerate_for_the_active_popup() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+
+    presenter._register_view("s1", view)
+    result = view.dialog.root.bindings["<Control-r>"](None)
+
+    assert result == "break"
+    assert events == [RegenerateResult("s1")]
 
 
 def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:
@@ -1697,6 +1908,30 @@ def test_voice_draft_intercepts_ctrl_v_before_the_text_widget_can_paste() -> Non
     assert events == ["paste:s1"]
 
 
+def test_popup_content_ctrl_c_uses_one_typed_copy_route() -> None:
+    class ShortcutRoot:
+        def bind(self, _sequence, _callback, add=None) -> None:
+            pass
+
+    class Lifecycle:
+        def schedule(self, _delay, _callback) -> None:
+            pass
+
+    presenter, events = presenter_with_selection("chosen")
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    presenter._copy = lambda session_id: events.append(f"copy:{session_id}")
+
+    presenter._register_view("s1", view)
+    result = view.surface.copy_shortcut_callback(
+        type("Event", (), {"state": 0x0004})()
+    )
+
+    assert result == "break"
+    assert events == ["copy:s1"]
+
+
 def test_voice_capture_surface_context_projects_semantic_follow_up_intent() -> None:
     presenter, _events = presenter_with_selection(None)
     view = presenter._views["s1"]
@@ -2020,10 +2255,10 @@ def test_native_close_request_immediately_excludes_popup_content_and_emits_close
 
 def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
     class Guide:
-        def show(self, _snapshot) -> None:
+        def show_shortcut_guide(self, _snapshot) -> None:
             events.append("guide:show")
 
-        def close(self) -> None:
+        def close_shortcut_guide(self) -> None:
             events.append("guide:close")
 
     class Lifecycle:
@@ -2037,7 +2272,7 @@ def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
     view.dialog.lifecycle = Lifecycle()
-    presenter._shortcut_guide_dialog = Guide()
+    presenter._modals = Guide()
     presenter._shortcut_guide_focus_return = None
 
     presenter.show_shortcut_guide(object())
@@ -2055,15 +2290,15 @@ def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
 
 def test_shortcut_guide_does_not_restore_a_popup_that_started_closing() -> None:
     class Guide:
-        def show(self, _snapshot) -> None:
+        def show_shortcut_guide(self, _snapshot) -> None:
             pass
 
-        def close(self) -> None:
+        def close_shortcut_guide(self) -> None:
             events.append("guide:close")
 
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
-    presenter._shortcut_guide_dialog = Guide()
+    presenter._modals = Guide()
     presenter._shortcut_guide_focus_return = None
 
     presenter.show_shortcut_guide(object())
@@ -2078,15 +2313,15 @@ def test_shortcut_guide_without_an_original_popup_does_not_force_focus() -> None
     events = []
 
     class Guide:
-        def show(self, _snapshot) -> None:
+        def show_shortcut_guide(self, _snapshot) -> None:
             events.append("guide:show")
 
-        def close(self) -> None:
+        def close_shortcut_guide(self) -> None:
             events.append("guide:close")
 
     presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
     presenter._views = {}
-    presenter._shortcut_guide_dialog = Guide()
+    presenter._modals = Guide()
     presenter._shortcut_guide_focus_hold_active = False
     presenter._shortcut_guide_focus_return = None
 

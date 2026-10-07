@@ -150,14 +150,27 @@ def _parse_tts(value: Any) -> TTSSettings:
 def _parse_voice_input(value: Any) -> VoiceInputSettings:
     path = "config.voice_input"
     data = _mapping(value, path, allow_none=True)
-    _reject_unknown(data, {"backend"}, path)
+    _reject_unknown(data, {"backend", "webview2_runtime_major"}, path)
     backend = _choice(
         data.get("backend"),
         f"{path}.backend",
         {"edge_webview2_browser_speech"},
         "edge_webview2_browser_speech",
     )
-    return VoiceInputSettings(backend=cast(Literal["edge_webview2_browser_speech"], backend))
+    runtime_major_value = data.get("webview2_runtime_major")
+    runtime_major = None
+    if runtime_major_value is not None:
+        runtime_major = _integer(
+            runtime_major_value,
+            f"{path}.webview2_runtime_major",
+            default=0,
+        )
+        if runtime_major < 1:
+            raise ConfigError(f"{path}.webview2_runtime_major must be at least 1")
+    return VoiceInputSettings(
+        backend=cast(Literal["edge_webview2_browser_speech"], backend),
+        webview2_runtime_major=runtime_major,
+    )
 
 
 def _parse_logging(value: Any) -> LoggingSettings:
@@ -197,7 +210,7 @@ def load_shortcut_catalog(path: str | Path, *, actions: ActionCatalog) -> Shortc
         _reject_unknown(data, {"id", "hotkey", "command", "action_id"}, shortcut_path)
         shortcut_id = _string(data.get("id"), f"{shortcut_path}.id")
         hotkey = _string(data.get("hotkey"), f"{shortcut_path}.hotkey").lower()
-        command = cast(ShortcutCommandKind, _choice(data.get("command"), f"{shortcut_path}.command", {"start_action", "open_contextual_question", "speak_selection_or_clipboard", "push_to_talk"}, "start_action"))
+        command = cast(ShortcutCommandKind, _choice(data.get("command"), f"{shortcut_path}.command", {"start_action", "open_contextual_question", "speak_selection_or_clipboard", "push_to_talk", "inline_dictation"}, "start_action"))
         action_id = _string(data.get("action_id"), f"{shortcut_path}.action_id", default="") or None
         if shortcut_id in ids:
             raise ConfigError(f"duplicate shortcut id: {shortcut_id}")
@@ -250,12 +263,12 @@ def load_entry_panel_catalog(
             label=_string(data.get("label"), f"{category_path}.label"),
             description=_string(data.get("description"), f"{category_path}.description"),
             flagship=tuple(
-                _entry_panel_candidate(action, presentations_by_action)
-                for action in flagship_refs
+                _entry_panel_candidate(action, long_action, presentations_by_action, actions)
+                for action, long_action in flagship_refs
             ),
             advanced=tuple(
-                _entry_panel_candidate(action, presentations_by_action)
-                for action in advanced_refs
+                _entry_panel_candidate(action, long_action, presentations_by_action, actions)
+                for action, long_action in advanced_refs
             ),
         ))
     configured_actions = tuple(
@@ -277,23 +290,34 @@ def load_entry_panel_catalog(
 def _parse_entry_panel_candidate_refs(
     value: Any,
     path: str,
-) -> tuple[EntryActionRef, ...]:
+) -> tuple[tuple[EntryActionRef, EntryActionRef | None], ...]:
     if not isinstance(value, list):
         raise ConfigError(f"{path} must be a list")
-    candidates: list[EntryActionRef] = []
+    candidates: list[tuple[EntryActionRef, EntryActionRef | None]] = []
     for index, item in enumerate(value):
         candidate_path = f"{path}[{index}]"
         data = _mapping(item, candidate_path)
-        _reject_unknown(data, {"action_id", "press_type"}, candidate_path)
+        _reject_unknown(data, {"action_id", "press_type", "long"}, candidate_path)
         action_id = _string(data.get("action_id"), f"{candidate_path}.action_id")
         press_type = cast(PressType, _choice(data.get("press_type"), f"{candidate_path}.press_type", {"short", "long"}, "short"))
-        candidates.append(EntryActionRef(action_id, press_type))
+        long_action = None
+        if data.get("long") is not None:
+            long_path = f"{candidate_path}.long"
+            long_data = _mapping(data.get("long"), long_path)
+            _reject_unknown(long_data, {"action_id", "press_type"}, long_path)
+            long_action = EntryActionRef(
+                _string(long_data.get("action_id"), f"{long_path}.action_id"),
+                cast(PressType, _choice(long_data.get("press_type"), f"{long_path}.press_type", {"short", "long"}, "long")),
+            )
+        candidates.append((EntryActionRef(action_id, press_type), long_action))
     return tuple(candidates)
 
 
 def _entry_panel_candidate(
     action: EntryActionRef,
+    long_action: EntryActionRef | None,
     presentations: dict[EntryActionRef, LocalizedEntryPanelCandidate],
+    actions: ActionCatalog,
 ) -> EntryPanelCandidate:
     try:
         presentation = presentations[action]
@@ -302,10 +326,20 @@ def _entry_panel_candidate(
             "entry panel localized candidate is missing: "
             f"{action.action_id}/{action.press_type}"
         ) from exc
+    long_label = ""
+    if long_action is not None:
+        try:
+            long_label = actions.resolve(long_action.action_id, long_action.press_type).name
+        except ValueError as exc:
+            raise ConfigError(
+                f"unknown entry action: {long_action.action_id}/{long_action.press_type}"
+            ) from exc
     return EntryPanelCandidate(
         action,
         presentation.label,
         presentation.description,
+        long_action,
+        long_label,
     )
 
 

@@ -73,6 +73,24 @@ class User32:
         return True
 
 
+class Imm32:
+    def __init__(self, context: int = 91) -> None:
+        self.context = context
+        self.fonts = []
+        self.released = []
+
+    def ImmGetContext(self, hwnd: int) -> int:
+        return self.context
+
+    def ImmSetCompositionFontW(self, context: int, font) -> bool:
+        self.fonts.append((context, font._obj))
+        return True
+
+    def ImmReleaseContext(self, hwnd: int, context: int) -> bool:
+        self.released.append((hwnd, context))
+        return True
+
+
 def test_windows_surface_resolves_top_level_and_hides_task_switcher_entry() -> None:
     user32 = User32()
     surface = WindowsNativeWindowSurface(user32=user32, kernel32=Kernel32())
@@ -100,12 +118,28 @@ def test_windows_surface_activates_and_verifies_foreground_ownership() -> None:
 
 def test_windows_surface_shows_without_activation_and_restores_external_foreground() -> None:
     user32 = User32()
+    original_show = user32.ShowWindow
+    def stealing_show(hwnd: int, command: int) -> bool:
+        original_show(hwnd, command)
+        user32.foreground = hwnd
+        return True
+    user32.ShowWindow = stealing_show
     surface = WindowsNativeWindowSurface(user32=user32, kernel32=Kernel32())
 
     assert surface.show_without_activation(10) is True
 
     assert user32.shown == [(20, 4)]
     assert user32.restored == [30]
+
+
+def test_windows_surface_does_not_reactivate_when_no_activate_show_preserves_foreground() -> None:
+    user32 = User32()
+    surface = WindowsNativeWindowSurface(user32=user32, kernel32=Kernel32())
+
+    assert surface.show_without_activation(10) is True
+
+    assert user32.shown == [(20, 4)]
+    assert user32.restored == []
 
 
 def test_windows_surface_owns_icon_handles_until_explicit_destroy() -> None:
@@ -121,13 +155,59 @@ def test_windows_surface_owns_icon_handles_until_explicit_destroy() -> None:
 
 
 def test_native_surface_adapters_never_raise_when_os_facts_are_unavailable() -> None:
-    broken = WindowsNativeWindowSurface(user32=object(), kernel32=object())
+    broken = WindowsNativeWindowSurface(user32=object(), kernel32=object(), shell32=object())
     headless = HeadlessNativeWindowSurface()
 
     for surface in (broken, headless):
+        assert surface.set_process_taskbar_identity("ClipAI.Desktop") is False
         assert surface.hide_from_task_switcher(10) is False
         assert surface.activate(10) is False
         assert surface.show_without_activation(10) is False
         assert surface.owns_foreground(10) is False
         assert surface.install_icon(10, Path("missing.ico")) == ()
+        assert surface.set_ime_composition_font(10, family="Test", height=-16, weight=400, italic=False) is False
         surface.destroy_icons((1, 2))
+
+
+def test_windows_surface_sets_process_taskbar_identity_only_when_requested() -> None:
+    class Shell32:
+        def __init__(self, result: int) -> None:
+            self.result = result
+            self.calls: list[str] = []
+
+        def SetCurrentProcessExplicitAppUserModelID(self, app_id: str) -> int:
+            self.calls.append(app_id)
+            return self.result
+
+    shell = Shell32(0)
+    surface = WindowsNativeWindowSurface(user32=User32(), kernel32=Kernel32(), shell32=shell)
+    assert shell.calls == []
+    assert surface.set_process_taskbar_identity("ClipAI.Desktop") is True
+    assert shell.calls == ["ClipAI.Desktop"]
+
+    failure = WindowsNativeWindowSurface(user32=User32(), kernel32=Kernel32(), shell32=Shell32(1))
+    assert failure.set_process_taskbar_identity("ClipAI.Desktop") is False
+
+
+def test_windows_surface_sets_ime_font_and_releases_context() -> None:
+    imm32 = Imm32()
+    surface = WindowsNativeWindowSurface(user32=User32(), kernel32=Kernel32(), imm32=imm32)
+
+    assert surface.set_ime_composition_font(
+        10, family="A" * 40, height=-18, weight=700, italic=True
+    ) is True
+
+    font = imm32.fonts[0][1]
+    assert (font.lfHeight, font.lfWeight, font.lfItalic) == (-18, 700, 1)
+    assert font.lfFaceName == "A" * 31
+    assert imm32.released == [(20, 91)]
+
+
+def test_windows_surface_does_not_set_ime_font_without_context() -> None:
+    imm32 = Imm32(context=0)
+    surface = WindowsNativeWindowSurface(user32=User32(), kernel32=Kernel32(), imm32=imm32)
+
+    assert surface.set_ime_composition_font(
+        10, family="Test", height=-16, weight=400, italic=False
+    ) is False
+    assert imm32.fonts == []

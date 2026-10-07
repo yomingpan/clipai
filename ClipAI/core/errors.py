@@ -29,6 +29,9 @@ PasteFailureReason = Literal[
 ]
 
 
+InlineRefinementFailureReason = Literal["timed_out", "unavailable", "cancelled", "failed"]
+
+
 PASTE_FAILURE_MESSAGES: dict[PasteFailureReason, str] = {
     "no_target_observed": "尚未觀測到可貼上的目標視窗。請先點選要貼入的視窗，再回到 ClipAI。",
     "target_gone": "原本的貼上目標已關閉或失效。",
