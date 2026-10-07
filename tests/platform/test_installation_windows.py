@@ -101,12 +101,18 @@ def test_native_shortcut_roundtrip_without_module_autoload(tmp_path, monkeypatch
         product='ClipAI Probe', registry_name='Probe', root=root, shared=root,
         install_id='probe', version='3.7.18', work_root=root, environment=environment)
     original = windows.subprocess.run
+    call_count = 0
 
     def no_autoload(command, **kwargs):
+        nonlocal call_count
+        call_count += 1
         code = base64.b64decode(command[-1]).decode('utf-16-le')
         code = "$PSModuleAutoLoadingPreference = 'None'\n" + code
         command = [*command[:-1], base64.b64encode(code.encode('utf-16-le')).decode()]
-        return original(command, **kwargs)
+        result = original(command, **kwargs)
+        if call_count <= 2:
+            assert result.returncode == 0, result.stderr.decode('utf-8', errors='replace')[-3000:]
+        return result
 
     monkeypatch.setattr(windows.subprocess, 'run', no_autoload)
     path = root / '測試.lnk'
