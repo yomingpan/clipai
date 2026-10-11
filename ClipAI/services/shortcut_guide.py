@@ -54,6 +54,16 @@ class ShortcutGuideCatalog:
                 "Hold to dictate; release to review before pasting.",
             )
 
+        if definition.command == "inline_dictation":
+            return ShortcutGuideItem(
+                definition.id,
+                hotkey,
+                display_hotkey(hotkey),
+                parse_hotkey_tokens(hotkey),
+                "隨處聽寫",
+                "按一次開始，再按一次收尾；選擇貼上原文或潤飾後貼上。",
+            )
+
         if definition.command == "open_contextual_question":
             return ShortcutGuideItem(
                 definition.id,

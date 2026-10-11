@@ -1,19 +1,19 @@
 schema_version: 1
 pack_id: zh-TW
 locale: zh-TW
-display_name: 繁體中文
+display_name: Traditional Chinese
 pack_version: 1.1.0
-feature_contract_hash: sha256:f842434df069c3bf2da9e17c6c708a30d288a5a667a3ca9029a2d8a1343203d3
+feature_contract_hash: sha256:b57fb7c13e7b890dae52a0f9daf4d66d69b683642086a72a5a8e9dd2c642eee3
 resources:
   app:
     path: app.yaml
-    sha256: 851c3573f5b8a2f6c91bb07756bec06b6ec5a357e1bded9a9b5312891c19b1d2
+    sha256: 01ef2431fefa14c83961350bf4ef6ce71eb3f3b4709eca0bc03f297710ab4dcd
   actions:
     path: actions.yaml
-    sha256: cf1b3e87cb5f225aae129c626fb5b6a823c985606585812a99a2ac47717da9b6
+    sha256: 9ee3bcfa10768d6248d846b30a72772c0ffe031e00fa79c5ea4742c99885e293
   output_profiles:
     path: output_profiles.yaml
-    sha256: d3edc7646e3ba82e9dd2f41f096f027f1e8cf0658cbbfdf35a222b39f2b2891c
+    sha256: 92158ebc2526a1593a7fef98e2a6995008ac68e449779f1c8ff43ef9ec8e95ca
   entry_panel:
     path: entry_panel.yaml
-    sha256: 2ed36ca37c22ce834d889a1ee285f803156188a3d033d63d75cfd2c249a2fc1c
+    sha256: 1fab31c81d2deb1525e0c109ce5069ad511ad2a3164a9c9a426d064955aa037e

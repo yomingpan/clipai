@@ -240,6 +240,9 @@ def main(*, test_page: Path | None = None, profile_root: Path | None = None) -> 
             traceback.print_exc(file=sys.stderr)
 
     def on_loaded() -> None:
+        if test_page is not None:
+            sys.stderr.write("Voice WebView test page loaded.\n")
+            sys.stderr.flush()
         try:
             _attach_microphone_permission_handler(
                 window,
@@ -247,10 +250,15 @@ def main(*, test_page: Path | None = None, profile_root: Path | None = None) -> 
                 permission_command,
             )
         except Exception:
+            traceback.print_exc(file=sys.stderr)
             return
 
         def wait_for_bridge() -> None:
             if not bridge_ready.wait(10):
+                sys.stderr.write("Voice WebView bridge did not become ready after page load.\n")
+                sys.stderr.flush()
+                if test_page is not None:
+                    api.emit({"kind": "test_bridge_timeout"})
                 return
             loaded.set()
             if test_page is not None:

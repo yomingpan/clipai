@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +20,50 @@ ICON_SMALL = 0
 ICON_BIG = 1
 IMAGE_ICON = 1
 LR_LOADFROMFILE = 0x0010
+DEFAULT_CHARSET = 1
+
+
+class _LOGFONTW(ctypes.Structure):
+    _fields_ = [
+        ("lfHeight", wintypes.LONG),
+        ("lfWidth", wintypes.LONG),
+        ("lfEscapement", wintypes.LONG),
+        ("lfOrientation", wintypes.LONG),
+        ("lfWeight", wintypes.LONG),
+        ("lfItalic", wintypes.BYTE),
+        ("lfUnderline", wintypes.BYTE),
+        ("lfStrikeOut", wintypes.BYTE),
+        ("lfCharSet", wintypes.BYTE),
+        ("lfOutPrecision", wintypes.BYTE),
+        ("lfClipPrecision", wintypes.BYTE),
+        ("lfQuality", wintypes.BYTE),
+        ("lfPitchAndFamily", wintypes.BYTE),
+        ("lfFaceName", wintypes.WCHAR * 32),
+    ]
 
 
 class WindowsNativeWindowSurface:
     """Conservative Windows adapter for native facts about toolkit windows."""
 
-    def __init__(self, *, user32: Any | None = None, kernel32: Any | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        user32: Any | None = None,
+        kernel32: Any | None = None,
+        imm32: Any | None = None,
+        shell32: Any | None = None,
+    ) -> None:
         self._user32 = user32 or ctypes.windll.user32
         self._kernel32 = kernel32 or ctypes.windll.kernel32
+        self._imm32 = imm32 or ctypes.windll.imm32
+        self._shell32 = shell32 or ctypes.windll.shell32
         configure_win32_api(self._user32, self._kernel32)
+
+    def set_process_taskbar_identity(self, app_id: str) -> bool:
+        try:
+            return int(self._shell32.SetCurrentProcessExplicitAppUserModelID(app_id)) == 0
+        except (AttributeError, OSError, TypeError, ValueError):
+            return False
 
     def hide_from_task_switcher(self, toolkit_child_id: int) -> bool:
         try:
@@ -71,7 +107,12 @@ class WindowsNativeWindowSurface:
             previous_foreground = int(self._user32.GetForegroundWindow())
             hwnd = self._top_level(toolkit_child_id)
             self._user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
-            if previous_foreground and previous_foreground != hwnd:
+            foreground_after_show = int(self._user32.GetForegroundWindow())
+            if (
+                previous_foreground
+                and previous_foreground != hwnd
+                and foreground_after_show == hwnd
+            ):
                 activate_top_level_window(
                     previous_foreground,
                     user32=self._user32,
@@ -90,6 +131,38 @@ class WindowsNativeWindowSurface:
             return int(self._user32.GetForegroundWindow()) == self._top_level(toolkit_child_id)
         except (AttributeError, OSError, TypeError, ValueError):
             return False
+
+    def set_ime_composition_font(
+        self,
+        toolkit_child_id: int,
+        *,
+        family: str,
+        height: int,
+        weight: int,
+        italic: bool,
+    ) -> bool:
+        context = 0
+        hwnd = 0
+        try:
+            hwnd = self._top_level(toolkit_child_id)
+            context = int(self._imm32.ImmGetContext(hwnd))
+            if not context:
+                return False
+            font = _LOGFONTW()
+            font.lfHeight = int(height)
+            font.lfWeight = int(weight)
+            font.lfItalic = 1 if italic else 0
+            font.lfCharSet = DEFAULT_CHARSET
+            font.lfFaceName = str(family)[:31]
+            return bool(self._imm32.ImmSetCompositionFontW(context, ctypes.byref(font)))
+        except (AttributeError, OSError, TypeError, ValueError):
+            return False
+        finally:
+            if context:
+                try:
+                    self._imm32.ImmReleaseContext(hwnd, context)
+                except (AttributeError, OSError, TypeError, ValueError):
+                    pass
 
     def install_icon(self, toolkit_child_id: int, icon_path: Path) -> tuple[int, ...]:
         small_icon = 0
@@ -124,6 +197,9 @@ class WindowsNativeWindowSurface:
 class HeadlessNativeWindowSurface:
     """Conservative adapter for environments with no native window system."""
 
+    def set_process_taskbar_identity(self, app_id: str) -> bool:
+        return False
+
     def hide_from_task_switcher(self, toolkit_child_id: int) -> bool:
         return False
 
@@ -134,6 +210,17 @@ class HeadlessNativeWindowSurface:
         return False
 
     def owns_foreground(self, toolkit_child_id: int) -> bool:
+        return False
+
+    def set_ime_composition_font(
+        self,
+        toolkit_child_id: int,
+        *,
+        family: str,
+        height: int,
+        weight: int,
+        italic: bool,
+    ) -> bool:
         return False
 
     def install_icon(self, toolkit_child_id: int, icon_path: Path) -> tuple[int, ...]:

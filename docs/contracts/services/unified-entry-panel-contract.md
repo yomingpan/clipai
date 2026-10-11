@@ -58,6 +58,10 @@ header control and `Ctrl+Z` navigate More → scene → root; Back at root is a
 no-op and never closes. Navigation preserves Panel lifecycle, source preview,
 density, pending/error projection and frozen input.
 
+The close control uses the same subdued × icon as the result Popup and retains
+the “Esc 關閉” tooltip. The Back control remains a distinct, subdued navigation
+action; icon styling does not change either typed intent or key binding.
+
 The Panel closes only after `ActionStartAdmission.accepted`. A rejected or
 blocked admission keeps the same Panel and projects the authoritative reason.
 An accepted admission identifies its Workflow. Runtime registers a visual
@@ -81,8 +85,10 @@ presentation actuation only and does not merge Panel navigation with
   occurs.
 - Otherwise the Panel captures one opaque external-window reference at open.
   After the Panel is projected, preparation restores and validates that exact
-  target, waits for modifiers to release, captures every supported input fact
-  through the existing `InputResolver`, then confirms the same target still owns
+  target and captures every supported input fact through the existing
+  `InputResolver`. Source-bound read-only UIA runs while modifiers may remain
+  held; only an authorized compatibility Copy path waits for release. Preparation
+  then confirms the same target still owns
   foreground. Confirmation may wait within a bounded, cancellation-aware window
   for the exact target to recover from an IME transient. Expiry fails closed and
   does not automatically repeat selection capture.
@@ -100,6 +106,14 @@ presentation actuation only and does not merge Panel navigation with
   membership/history; it never substitutes the current Foreground Workflow.
 - Cancellation and stale completion do not weaken the existing clipboard
   transaction restoration rules.
+- `allows_entry_panel_clipboard_fallback` owns the automatic frozen-input choice:
+  unknown, no modifier-release requirement, and frozen text/image available.
+  `modifier_timeout` projects “請先放開按鍵，再按重試。” without automatically
+  calling `use_clipboard()`. The current Panel may still receive the explicit
+  `UseEntryPanelClipboard` intent; stale Panel IDs do nothing and the chosen input
+  is the frozen clipboard, never a later live value. Other unknown outcomes retain
+  the existing automatic frozen-clipboard behavior. See
+  [ADR-0021](../../adr/0021-selection-modifier-release-scoped-to-copy-fallback.md).
 
 ## Catalog and numeric rules
 

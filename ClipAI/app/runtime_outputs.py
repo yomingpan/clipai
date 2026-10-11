@@ -7,22 +7,23 @@ import logging
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ArchiveResult, CopyResult, ExportDiagnostics, PasteOperationCompleted, PasteResult, SpeakSelectionOrClipboard, ToggleSpeech
+from ClipAI.core.commands import ArchiveResult, CopyResult, ExportDiagnostics, InlineDictationCopyCompleted, PasteOperationCompleted, PasteResult, SpeakSelectionOrClipboard, ToggleSpeech
 from ClipAI.core.errors import CancelledError, InputError, PASTE_FAILURE_MESSAGES, PasteFailure
-from ClipAI.core.models import OutputOperationIntent, OutputOperationResult, PasteOutcome, PasteRequest, PasteTarget
+from ClipAI.core.models import InlineOrigin, OutputOperationIntent, OutputOperationResult, PasteOutcome, PasteRequest, PasteTarget
 from ClipAI.core.ports import DiagnosticsExporter, OperationTracker, OutputOperationPresenter, UserNotifier
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.output_operation import OutputOperationCoordinator, paste_outcome_result
 from ClipAI.services.paste_target import PasteTargetCoordinator
 from ClipAI.services.paste_operation import PasteOperationCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
+from ClipAI.services.selection_feedback import selection_failure_guidance
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.services.user_control import UserControlCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime.outputs")
 
-ResultOutputRuntimeCommand: TypeAlias = CopyResult | PasteResult | PasteOperationCompleted | ArchiveResult | ToggleSpeech | SpeakSelectionOrClipboard | ExportDiagnostics
+ResultOutputRuntimeCommand: TypeAlias = CopyResult | PasteResult | PasteOperationCompleted | InlineDictationCopyCompleted | ArchiveResult | ToggleSpeech | SpeakSelectionOrClipboard | ExportDiagnostics
 
 
 class ResultOutputRuntimeModule:
@@ -43,6 +44,8 @@ class ResultOutputRuntimeModule:
         speech_coordinator: SpeechCoordinator | None = None,
         paste_targets: PasteTargetCoordinator | None = None,
         user_control: UserControlCoordinator | None = None,
+        inline_copy_completion_sink: Callable[[InlineDictationCopyCompleted], None] = lambda _command: None,
+        inline_paste_completion_sink: Callable[[PasteOperationCompleted], None] = lambda _command: None,
     ) -> None:
         self._output_actions = output_actions
         self._paste_operations = paste_operations
@@ -56,6 +59,8 @@ class ResultOutputRuntimeModule:
         self._paste_targets = paste_targets or PasteTargetCoordinator()
         self._operations = OutputOperationCoordinator(output_operation_presenter, operation_tracker)
         self._user_control = user_control
+        self._inline_copy_completion_sink = inline_copy_completion_sink
+        self._inline_paste_completion_sink = inline_paste_completion_sink
 
     def observe_paste_target(self, target: PasteTarget) -> None:
         self._paste_targets.observe(target)
@@ -76,6 +81,8 @@ class ResultOutputRuntimeModule:
             self._paste(command)
         elif isinstance(command, PasteOperationCompleted):
             self._paste_completed(command)
+        elif isinstance(command, InlineDictationCopyCompleted):
+            self._inline_copy_completed(command)
         elif isinstance(command, ArchiveResult):
             self._archive(command)
         elif isinstance(command, ToggleSpeech):
@@ -222,6 +229,78 @@ class ResultOutputRuntimeModule:
             self._paste_operations.fail_to_start(intent.operation_id, exc)
             logger.error("Could not schedule paste session_id=%s: %s", command.session_id, exc)
 
+    def paste_inline(self, text: str, target: PasteTarget, interaction_id: str, operation_id: str) -> None:
+        """Dispatch explicit dictation through the shared Paste Operation owner."""
+        if not text.strip():
+            self._inline_paste_completion_sink(PasteOperationCompleted(
+                operation_id, "", PasteOutcome("failed", "not_dispatched", "not_required", "No recognized text is available."), InlineOrigin(interaction_id)
+            ))
+            return
+        workflow_id = ""
+        origin = InlineOrigin(interaction_id)
+        intent = OutputOperationIntent(operation_id, workflow_id, "paste", text, origin)
+        begun = False
+        admitted = False
+        try:
+            self._operations.begin(intent)
+            begun = True
+            admitted = self._paste_operations.admit(
+                PasteRequest(operation_id, workflow_id, text, target, origin)
+            )
+            if not admitted:
+                logger.warning("Inline Paste Operation was not admitted")
+                return
+            self._supervisor.submit(
+                operation_id,
+                lambda: self._paste_operations.execute(operation_id),
+                lambda error: logger.error("Inline paste failed: %s", type(error).__name__),
+                task_class="interactive",
+                cancellation_hook=lambda: self._paste_operations.request_cancel(operation_id),
+            )
+        except BaseException as error:
+            if admitted:
+                self._paste_operations.fail_to_start(operation_id, error)
+            elif begun:
+                self._operations.fail(intent, error)
+            if not admitted:
+                self._inline_paste_completion_sink(PasteOperationCompleted(
+                    operation_id, "", PasteOutcome("failed", "not_dispatched", "not_required", type(error).__name__), origin
+                ))
+            logger.error("Could not dispatch inline paste: %s", type(error).__name__)
+
+    def copy_inline(self, text: str, interaction_id: str, operation_id: str) -> None:
+        intent = OutputOperationIntent(operation_id, "", "copy", text, InlineOrigin(interaction_id))
+        try:
+            self._operations.begin(intent)
+            self._supervisor.submit(
+                operation_id,
+                lambda: self._perform_inline_copy(intent),
+                lambda error: self._inline_copy_completion_sink(
+                    InlineDictationCopyCompleted(interaction_id, operation_id, type(error).__name__)
+                ),
+                task_class="interactive",
+            )
+        except BaseException as error:
+            self._inline_copy_completion_sink(
+                InlineDictationCopyCompleted(interaction_id, operation_id, type(error).__name__)
+            )
+
+    def _perform_inline_copy(self, intent: OutputOperationIntent) -> None:
+        self._output_actions.copy(intent.text)
+        assert isinstance(intent.origin, InlineOrigin)
+        self._inline_copy_completion_sink(
+            InlineDictationCopyCompleted(intent.origin.interaction_id, intent.operation_id)
+        )
+
+    def _inline_copy_completed(self, command: InlineDictationCopyCompleted) -> None:
+        intent = self._operations.active_intent(command.operation_id, "", "copy")
+        if intent is None or intent.origin != InlineOrigin(command.interaction_id):
+            return
+        if command.error:
+            self._operations.fail(intent, OSError(command.error))
+        else:
+            self._operations.settle(OutputOperationResult(command.operation_id, "", "copy", "succeeded", origin=intent.origin))
+
     def _reject_paste(
         self,
         operation_id: str,
@@ -277,7 +356,9 @@ class ResultOutputRuntimeModule:
         if intent is None:
             return
         result = paste_outcome_result(intent, command.outcome)
-        if result.state in {"failed", "cancelled"}:
+        if result.state in {"failed", "cancelled"} and not (
+            isinstance(intent.origin, InlineOrigin) and result.state == "cancelled"
+        ):
             preserved = self._preserve_failed_paste_content(intent, result)
             if preserved is None:
                 return
@@ -343,7 +424,7 @@ class ResultOutputRuntimeModule:
             return
         self._cancel_current_speech_projection()
         controller.set_speaking(True)
-        text = selected_text.strip() if selected_text and selected_text.strip() else controller.snapshot.content
+        text = selected_text if selected_text and selected_text.strip() else controller.snapshot.content
         operation_id = requested_operation_id or uuid.uuid4().hex
         intent = OutputOperationIntent(operation_id, session_id, "speech", text)
         job = self._speech_coordinator.create_text_job(operation_id=operation_id, workflow_id=session_id, text=text)
@@ -371,7 +452,10 @@ class ResultOutputRuntimeModule:
             if current and controller is not None:
                 controller.set_speaking(False)
             if current and intent.workflow_id == "global" and self._notifier is not None:
-                self._notifier.notify("ClipAI 朗讀", str(exc))
+                reason = getattr(exc, 'reason', '')
+                self._notifier.notify(
+                    "ClipAI 朗讀", selection_failure_guidance(reason) if reason else str(exc),
+                )
             logger.info("Speech input unavailable operation_id=%s reason=%s",
                         intent.operation_id, getattr(exc, "reason", exc.code))
             return
@@ -460,4 +544,4 @@ class ResultOutputRuntimeModule:
 
 
 def _selected_or_result(selected: str | None, controller: WorkflowController) -> str:
-    return selected.strip() if selected is not None else controller.snapshot.content
+    return selected if selected is not None else controller.snapshot.content

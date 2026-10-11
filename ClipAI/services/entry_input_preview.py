@@ -6,6 +6,16 @@ from ClipAI.core.models import EntryInputSourcePreview, PreparedInput
 _PREVIEW_LIMIT = 90
 
 
+def allows_entry_panel_clipboard_fallback(prepared: PreparedInput) -> bool:
+    outcome = prepared.selection_outcome
+    return (
+        outcome is not None
+        and outcome.status == 'unknown'
+        and not outcome.needs_modifier_release
+        and (prepared.clipboard_text_document is not None or prepared.clipboard_image is not None)
+    )
+
+
 def build_entry_input_preview(
     prepared: PreparedInput,
     *,
@@ -18,6 +28,17 @@ def build_entry_input_preview(
             _compact(workflow.text),
         )
     selection = prepared.selection_document
+    if (
+        prepared.selection_outcome is not None
+        and prepared.selection_outcome.needs_modifier_release
+        and not prepared.clipboard_override
+    ):
+        return EntryInputSourcePreview(
+            'failed', '請先放開按鍵，再按重試。',
+            clipboard_override_available=(
+                prepared.clipboard_text_document is not None or prepared.clipboard_image is not None
+            ),
+        )
     if (
         prepared.selection_outcome is not None
         and prepared.selection_outcome.status in {"unknown", "cancelled"}

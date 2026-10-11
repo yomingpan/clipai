@@ -7,10 +7,186 @@ import pytest
 
 from ClipAI.core.commands import InterruptionRequested, ShortcutKeyStateChanged, ShortcutPressInvoked, ShortcutPressStarted
 from ClipAI.platform.hotkey import (
+    _WindowsHotkeyEventFilter,
     create_hotkey_dispatcher,
     expand_hotkeys,
     register_hotkeys_with_long_press,
 )
+
+
+def test_inline_hotkey_m_is_suppressed_without_swallowing_normal_typing() -> None:
+    events = []
+    dispatcher = create_hotkey_dispatcher(
+        {"inline": {"hotkey": "ctrl+alt+m"}}, events.append,
+        modifier_mode="ctrl_alt", timer_factory=FakeTimer,
+    )
+    pressed = {"ctrl": False, "alt": False}
+    event_filter = _WindowsHotkeyEventFilter(
+        dispatcher, suppressible_m=True, key_is_pressed=lambda key: pressed[key],
+    )
+
+    class Suppressed(Exception):
+        pass
+
+    class Listener:
+        _WM_PROCESS = 0x410
+
+        def __init__(self) -> None:
+            self.posted = []
+            self._message_loop = SimpleNamespace(post=lambda *args: self.posted.append(args))
+
+        def suppress_event(self) -> None:
+            raise Suppressed
+
+    listener = Listener()
+    event_filter.bind_listener(listener)
+    down = SimpleNamespace(vkCode=0x4D, flags=0)
+    assert event_filter(0x0100, down) is True
+    assert listener.posted == []
+    pressed.update(ctrl=True, alt=True)
+    with pytest.raises(Suppressed):
+        event_filter(0x0100, down)
+    with pytest.raises(Suppressed):
+        event_filter(0x0100, down)  # repeat while held
+    pressed.update(ctrl=False, alt=False)
+    with pytest.raises(Suppressed):
+        event_filter(0x0101, down)
+    assert listener.posted == [
+        (0x410, 0x0100, 0x4D), (0x410, 0x0100, 0x4D), (0x410, 0x0101, 0x4D),
+    ]
+    assert event_filter(0x0100, down) is True
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    for _, message, vk in listener.posted:
+        (dispatcher.on_press if message == 0x0100 else dispatcher.on_release)(FakeKey(vk=vk))
+    assert len([event for event in events if isinstance(event, ShortcutPressStarted)]) == 1
+    assert len([event for event in events if isinstance(event, ShortcutPressInvoked)]) == 1
+    assert event_filter(0x0100, SimpleNamespace(vkCode=0x4D, flags=0x10)) is False
+
+
+def test_inline_hotkey_uses_native_alt_flag_when_async_alt_state_lags() -> None:
+    dispatcher = create_hotkey_dispatcher(
+        {"inline": {"hotkey": "ctrl+alt+m"}}, lambda _event: None,
+        modifier_mode="ctrl_alt", timer_factory=FakeTimer,
+    )
+    event_filter = _WindowsHotkeyEventFilter(
+        dispatcher, suppressible_m=True,
+        key_is_pressed=lambda key: key == "ctrl",
+    )
+
+    class Suppressed(Exception):
+        pass
+
+    listener = SimpleNamespace(
+        _WM_PROCESS=0x410,
+        _message_loop=SimpleNamespace(post=lambda *_args: None),
+        suppress_event=lambda: (_ for _ in ()).throw(Suppressed()),
+    )
+    event_filter.bind_listener(listener)
+    with pytest.raises(Suppressed):
+        event_filter(0x0104, SimpleNamespace(vkCode=0x4D, flags=0x20))
+
+
+def test_inline_escape_is_consumed_only_during_owned_interaction() -> None:
+    events = []
+    dispatcher = create_hotkey_dispatcher({}, events.append, timer_factory=FakeTimer)
+    owner = {"active": False}
+    modifiers = {"ctrl": False, "alt": False, "shift": False, "cmd": False}
+    event_filter = _WindowsHotkeyEventFilter(
+        dispatcher,
+        inline_escape_owner=lambda: owner["active"],
+        key_is_pressed=lambda key: modifiers[key],
+    )
+
+    class Suppressed(Exception):
+        pass
+
+    posted = []
+    event_filter.bind_listener(SimpleNamespace(
+        _WM_PROCESS=0x410,
+        _message_loop=SimpleNamespace(post=lambda *args: posted.append(args)),
+        suppress_event=lambda: (_ for _ in ()).throw(Suppressed()),
+    ))
+    escape = SimpleNamespace(vkCode=0x1B, flags=0)
+    assert event_filter(0x0100, escape) is True
+    owner["active"] = True
+    modifiers["ctrl"] = True
+    assert event_filter(0x0100, escape) is True
+    modifiers["ctrl"] = False
+    with pytest.raises(Suppressed):
+        event_filter(0x0100, escape)
+    owner["active"] = False  # cancellation can settle before physical release
+    with pytest.raises(Suppressed):
+        event_filter(0x0101, escape)
+    assert posted == [(0x410, 0x0100, 0x1B), (0x410, 0x0101, 0x1B)]
+    dispatcher.on_press(FakeKey(name="esc"))
+    dispatcher.on_release(FakeKey(name="esc"))
+    assert len([event for event in events if isinstance(event, InterruptionRequested)]) == 1
+    assert event_filter(0x0100, escape) is True
+
+
+def test_popup_escape_owner_suppresses_unmodified_press_and_matching_release() -> None:
+    events = []
+    dispatcher = create_hotkey_dispatcher({}, events.append, timer_factory=FakeTimer)
+    owner = {"active": False}
+    modifiers = {"ctrl": False, "alt": False, "shift": False, "cmd": False}
+    posted = []
+
+    class Suppressed(Exception):
+        pass
+
+    event_filter = _WindowsHotkeyEventFilter(
+        dispatcher,
+        popup_escape_owner=lambda: owner["active"],
+        key_is_pressed=lambda key: modifiers[key],
+    )
+    event_filter.bind_listener(SimpleNamespace(
+        _WM_PROCESS=0x410,
+        _message_loop=SimpleNamespace(post=lambda *args: posted.append(args)),
+        suppress_event=lambda: (_ for _ in ()).throw(Suppressed()),
+    ))
+    escape = SimpleNamespace(vkCode=0x1B, flags=0)
+    assert event_filter(0x0100, escape) is True
+    owner["active"] = True
+    modifiers["shift"] = True
+    assert event_filter(0x0100, escape) is True
+    modifiers["shift"] = False
+    with pytest.raises(Suppressed):
+        event_filter(0x0100, escape)
+    owner["active"] = False
+    with pytest.raises(Suppressed):
+        event_filter(0x0101, escape)
+    assert posted == [(0x410, 0x0100, 0x1B), (0x410, 0x0101, 0x1B)]
+    for _, message, _ in posted:
+        (dispatcher.on_press if message == 0x0100 else dispatcher.on_release)(FakeKey(name="esc"))
+    assert len([event for event in events if isinstance(event, InterruptionRequested)]) == 1
+
+
+def test_popup_escape_owner_does_not_consume_windows_chord_or_modified_repeat() -> None:
+    dispatcher = create_hotkey_dispatcher({}, lambda _event: None, timer_factory=FakeTimer)
+    modifiers = {"ctrl": False, "alt": False, "shift": False, "cmd": True}
+
+    class Suppressed(Exception):
+        pass
+
+    event_filter = _WindowsHotkeyEventFilter(
+        dispatcher, popup_escape_owner=lambda: True,
+        key_is_pressed=lambda key: modifiers[key],
+    )
+    event_filter.bind_listener(SimpleNamespace(
+        _WM_PROCESS=0x410,
+        _message_loop=SimpleNamespace(post=lambda *_args: None),
+        suppress_event=lambda: (_ for _ in ()).throw(Suppressed()),
+    ))
+    escape = SimpleNamespace(vkCode=0x1B, flags=0)
+    assert event_filter(0x0100, escape) is True
+    modifiers["cmd"] = False
+    with pytest.raises(Suppressed):
+        event_filter(0x0100, escape)
+    modifiers["shift"] = True
+    assert event_filter(0x0100, escape) is True
+    with pytest.raises(Suppressed):
+        event_filter(0x0101, escape)
 
 
 @dataclass
@@ -288,3 +464,50 @@ def test_registered_windows_listener_filters_injected_keys_before_dispatch(
     assert event_filter(0, SimpleNamespace(flags=0x10)) is False
     assert event_filter(0, SimpleNamespace(flags=0)) is True
     assert captured["started"] is True
+
+
+def test_registered_inline_listener_keeps_suppressed_m_hold_when_async_state_is_false(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+    events = []
+
+    class Listener:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def start(self) -> None:
+            pass
+
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr("pynput.keyboard.Listener", Listener)
+    monkeypatch.setattr(
+        "ClipAI.platform.hotkey.windows_key_is_pressed",
+        lambda token: False if token == "m" else True,
+    )
+    listener = register_hotkeys_with_long_press(
+        {"inline_dictation": {"hotkey": "ctrl+alt+m"}},
+        events.append,
+        modifier_mode="ctrl_alt",
+        long_press_sec=10,
+    )
+    try:
+        press = captured["on_press"]
+        release = captured["on_release"]
+        press(FakeKey(name="ctrl_l"))
+        press(FakeKey(name="alt_l"))
+        press(FakeKey(char="m", vk=0x4D))
+        for _ in range(5):
+            press(FakeKey(char="m", vk=0x4D))
+        state = listener._dispatcher._active["inline_dictation"]
+        state.timer.function()
+        release(FakeKey(char="m", vk=0x4D))
+    finally:
+        listener.stop()
+
+    invoked = [event for event in events if isinstance(event, ShortcutPressInvoked)]
+    assert [(event.shortcut_id, event.press_type) for event in invoked] == [
+        ("inline_dictation", "long"),
+    ]

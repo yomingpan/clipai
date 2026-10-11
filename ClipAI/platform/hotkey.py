@@ -9,6 +9,7 @@ from ClipAI.core.hotkeys import GRAVE_KEY_ALIASES, GRAVE_KEY_TOKEN, canonicalize
 from ClipAI.core.commands import EntryPanelDigitPressed, InterruptionRequested, OpenUnifiedEntryPanel, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted
 from ClipAI.core.models import ModifierHoldId, ShortcutObservationSnapshot, ShortcutPressId, ShortcutPressRef
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_key_is_pressed
+from ClipAI.platform.keyboard_menu import mask_alt_menu
 
 logger = logging.getLogger("clipai.hotkey")
 
@@ -34,6 +35,7 @@ _VK_ALPHA_MAP = {code: chr(code).lower() for code in range(65, 91)}
 _VK_OEM_3 = 192
 _ENTRY_PANEL_CONFLICT_KEYS = frozenset({"altgr", "cmd", "tab", "f4", "space"})
 _LLKHF_INJECTED = 0x10
+_ESCAPE_MODIFIER_KEYS = (*MODIFIER_KEYS, "cmd")
 
 
 def _describe_key(key) -> str:
@@ -49,6 +51,88 @@ def _allow_physical_windows_key(_message, data) -> bool:
     try:
         return not bool(int(data.flags) & _LLKHF_INJECTED)
     except (AttributeError, TypeError, ValueError):
+        return True
+
+
+class _WindowsHotkeyEventFilter:
+    """Mask native menu activation and consumed dictation trigger keys.
+
+    No second hold registry: the dispatcher owns whether this release belongs
+    to a consumed Entry Panel hold. Injected mask keys pass to Windows, but are
+    excluded from ClipAI intent processing by the existing injected-event gate.
+    """
+
+    def __init__(
+        self,
+        dispatcher: _HotkeyDispatcher,
+        mask_menu: Callable[[], None] = mask_alt_menu,
+        *,
+        suppressible_m: bool = False,
+        key_is_pressed: Callable[[str], bool | None] = windows_key_is_pressed,
+        inline_escape_owner: Callable[[], bool] = lambda: False,
+        popup_escape_owner: Callable[[], bool] = lambda: False,
+    ) -> None:
+        self._dispatcher = dispatcher
+        self._mask_menu = mask_menu
+        self._suppressible_m = suppressible_m
+        self._key_is_pressed = key_is_pressed
+        self._inline_escape_owner = inline_escape_owner
+        self._popup_escape_owner = popup_escape_owner
+        self._listener = None
+        self._m_suppressed = False
+        self._esc_suppressed = False
+
+    def bind_listener(self, listener) -> None:
+        self._listener = listener
+
+    def _suppress_trigger_event(self, message: int, vk: int) -> None:
+        listener = self._listener
+        if listener is None:
+            return
+        # Keep pynput's ordered semantic queue intact before the hook prevents
+        # the physical trigger from reaching the foreground application.
+        listener._message_loop.post(listener._WM_PROCESS, message, vk)
+        listener.suppress_event()
+
+    def __call__(self, message, data) -> bool:
+        if not _allow_physical_windows_key(message, data):
+            return False
+        vk = int(getattr(data, "vkCode", 0))
+        if vk == 0x1B:  # VK_ESCAPE
+            if message in (0x0100, 0x0104):
+                if (
+                    all(self._key_is_pressed(key) is False for key in _ESCAPE_MODIFIER_KEYS)
+                    and (self._esc_suppressed or self._inline_escape_owner() or self._popup_escape_owner())
+                ):
+                    self._esc_suppressed = True
+                    self._suppress_trigger_event(message, vk)
+            elif message in (0x0101, 0x0105) and self._esc_suppressed:
+                self._esc_suppressed = False
+                self._suppress_trigger_event(message, vk)
+        if self._suppressible_m and vk == 0x4D:
+            if message in (0x0100, 0x0104):  # WM_KEYDOWN / WM_SYSKEYDOWN
+                if self._m_suppressed or (
+                    self._key_is_pressed("ctrl") is True
+                    and (
+                        self._key_is_pressed("alt") is True
+                        or bool(int(data.flags) & 0x20)  # LLKHF_ALTDOWN
+                    )
+                ):
+                    self._m_suppressed = True
+                    self._suppress_trigger_event(message, vk)
+            elif message in (0x0101, 0x0105) and self._m_suppressed:
+                self._m_suppressed = False
+                self._suppress_trigger_event(message, vk)
+        if (
+            message in (0x0101, 0x0105)  # WM_KEYUP / WM_SYSKEYUP
+            and int(data.vkCode) in (0x12, 0xA4, 0xA5)
+            and self._dispatcher.consume_entry_alt_release()
+        ):
+            try:
+                self._mask_menu()
+            except Exception:
+                # Never lose physical Alt-up or stop the hook on injection failure.
+                logger.warning("[clipai] Alt menu mask failed", exc_info=True)
         return True
 
 
@@ -125,6 +209,7 @@ class _ModifierHoldState:
     hold_id: ModifierHoldId
     timer: threading.Timer | None = None
     opened: bool = False
+    native_release_seen: bool = False
 
 
 class _ShortcutObservationLease:
@@ -180,6 +265,7 @@ class _HotkeyDispatcher:
         timer_factory: Callable[..., threading.Timer] = threading.Timer,
         diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
         key_is_pressed: Callable[[str], bool | None] | None = None,
+        suppressed_trigger_tokens: frozenset[str] = frozenset(),
         entry_panel_enabled: bool = False,
         entry_panel_hold_sec: float = ENTRY_PANEL_HOLD_SEC,
     ) -> None:
@@ -189,6 +275,9 @@ class _HotkeyDispatcher:
         self._timer_factory = timer_factory
         self._diagnostics_enabled = diagnostics_enabled
         self._key_is_pressed = key_is_pressed
+        # A key consumed by the native hook may read as released through
+        # GetAsyncKeyState even while its physical press is still repeating.
+        self._suppressed_trigger_tokens = suppressed_trigger_tokens
         self._entry_panel_enabled = entry_panel_enabled
         self._entry_panel_hold_sec = entry_panel_hold_sec
         self._tracked_tokens = frozenset(
@@ -261,6 +350,15 @@ class _HotkeyDispatcher:
             self._pressed.discard("alt")
             self._report_key_state()
 
+    def consume_entry_alt_release(self) -> bool:
+        """Claim native cleanup once, before the queued semantic release."""
+        with self._lock:
+            state = self._entry_hold
+            if self._stopped or state is None or state.native_release_seen:
+                return False
+            state.native_release_seen = True
+            return state.opened
+
     def stop(self) -> None:
         with self._lock:
             if self._stopped:
@@ -323,6 +421,7 @@ class _HotkeyDispatcher:
                     or current is None
                     or current.hold_id != hold_id
                     or current.timer_generation != timer_generation
+                    or current.native_release_seen
                     or self._pressed != {"alt"}
                 ):
                     return
@@ -369,7 +468,8 @@ class _HotkeyDispatcher:
             released_tokens = {
                 token
                 for token in trigger_tokens
-                if self._key_is_pressed is not None
+                if token not in self._suppressed_trigger_tokens
+                and self._key_is_pressed is not None
                 and self._key_is_pressed(token) is False
             }
             if released_tokens:
@@ -398,13 +498,23 @@ class _HotkeyDispatcher:
         stale_tokens = {
             token
             for token in self._pressed
-            if self._key_is_pressed(token) is False
+            if token not in self._suppressed_trigger_tokens
+            and self._key_is_pressed(token) is False
         }
         # Windows can report Alt as released while its low-level hook is still
         # delivering the press lifecycle. A live Entry Panel hold therefore
         # owns Alt until the listener observes a semantic transition itself.
         if self._entry_hold is not None:
             stale_tokens.discard("alt")
+        # Once the chord's modifiers are gone, a missed suppressed-key release
+        # cannot be checked through GetAsyncKeyState. Drop it before the next
+        # genuine chord instead of leaving a permanently pressed trigger.
+        if self._pressed.isdisjoint(MODIFIER_KEYS):
+            stale_tokens.update(self._pressed & self._suppressed_trigger_tokens)
+        elif stale_tokens:
+            for state in self._active.values():
+                if not state.binding_tokens.isdisjoint(stale_tokens):
+                    stale_tokens.update(state.binding_tokens & self._suppressed_trigger_tokens)
         if not stale_tokens:
             return set()
 
@@ -441,6 +551,8 @@ class _HotkeyDispatcher:
         # Synthetic input must never become a ClipAI user intent or mutate the
         # physical-key state used to resolve short and long presses.
         if injected:
+            if _normalize_key(key) == "esc":
+                logger.info("[clipai] Escape press ignored: injected")
             if self._diagnostics_enabled("hotkey_raw_events"):
                 logger.debug("[clipai] Ignored injected key press: %s", _describe_key(key))
             return
@@ -472,6 +584,7 @@ class _HotkeyDispatcher:
                 return
             if token == "esc":
                 if self._pressed:
+                    logger.info("[clipai] Escape press ignored as chord: pressed=%s", sorted(self._pressed))
                     # Esc participates in native Alt/Ctrl/Shift combinations.
                     # Only exact Esc is ClipAI's progressive interruption
                     # gesture; observing a chord must remain passive.
@@ -479,6 +592,7 @@ class _HotkeyDispatcher:
                     self._report_key_state()
                     return
                 if self._escape is not None:
+                    logger.info("[clipai] Escape press ignored: repeated")
                     return
                 for state in tuple(self._active.values()):
                     if state.timer is not None:
@@ -517,6 +631,7 @@ class _HotkeyDispatcher:
                 state.timer.start()
                 self._escape = state
                 self._report_key_state()
+                logger.info("[clipai] Escape interruption requested: current")
                 self._emit(InterruptionRequested("current"))
                 return
             if token in self._pressed:
@@ -643,6 +758,7 @@ def create_hotkey_dispatcher(
     timer_factory: Callable[..., threading.Timer] = threading.Timer,
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
     key_is_pressed: Callable[[str], bool | None] | None = None,
+    suppressed_trigger_tokens: frozenset[str] = frozenset(),
     entry_panel_enabled: bool = False,
     entry_panel_hold_sec: float = ENTRY_PANEL_HOLD_SEC,
 ) -> _HotkeyDispatcher:
@@ -653,6 +769,7 @@ def create_hotkey_dispatcher(
         timer_factory=timer_factory,
         diagnostics_enabled=diagnostics_enabled,
         key_is_pressed=key_is_pressed,
+        suppressed_trigger_tokens=suppressed_trigger_tokens,
         entry_panel_enabled=entry_panel_enabled,
         entry_panel_hold_sec=entry_panel_hold_sec,
     )
@@ -666,6 +783,8 @@ def register_hotkeys_with_long_press(
     long_press_sec: float = LONG_PRESS_SEC,
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
     entry_panel_enabled: bool = False,
+    inline_escape_owner: Callable[[], bool] = lambda: False,
+    popup_escape_owner: Callable[[], bool] = lambda: False,
 ):
     try:
         from pynput import keyboard
@@ -678,18 +797,27 @@ def register_hotkeys_with_long_press(
 
     logger.info("[clipai] Hotkey listener modifier_mode=%s long_press_sec=%s", modifier_mode, long_press_sec)
 
+    suppressible_m = any(tokens == {"ctrl", "alt", "m"} for _, tokens in hotkeys)
     dispatcher = _HotkeyDispatcher(
         hotkeys,
         on_event,
         long_press_sec=long_press_sec,
         diagnostics_enabled=diagnostics_enabled,
         key_is_pressed=windows_key_is_pressed,
+        suppressed_trigger_tokens=frozenset({"m"}) if suppressible_m else frozenset(),
         entry_panel_enabled=entry_panel_enabled,
+    )
+    event_filter = _WindowsHotkeyEventFilter(
+        dispatcher,
+        suppressible_m=suppressible_m,
+        inline_escape_owner=inline_escape_owner,
+        popup_escape_owner=popup_escape_owner,
     )
     listener = keyboard.Listener(
         on_press=dispatcher.on_press,
         on_release=dispatcher.on_release,
-        win32_event_filter=_allow_physical_windows_key,
+        win32_event_filter=event_filter,
     )
+    event_filter.bind_listener(listener)
     listener.start()
     return HotkeyListener(listener, dispatcher)

@@ -11,22 +11,20 @@ import webbrowser
 
 import customtkinter as ctk
 
-from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
-from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, OutputOperationResult, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
+from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
+from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, InlineInputMode, ManagedUpdatePresentation, OutputOperationResult, PasteOutcome, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.popup_presentation import project_popup_presentation
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
 from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
+from ClipAI.ui.ime_composition import install_ime_composition_font
 from ClipAI.ui.popup_control import PopupControl, PopupControlRegistered, PopupControlShown, PopupForegroundPolled, PopupInsidePointerPressed, PopupOutsideFocusRequested, PopupOutsidePointerPressed, PopupOwnedDialogClosed, PopupOwnedDialogOpened, PopupProjectionContext, ToolkitFocusEntered
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease, PrimarySurfaceSpec
-from ClipAI.ui.provider_settings import ProviderSettingsDialog
-from ClipAI.ui.personal_styles import PersonalStylesDialog
-from ClipAI.ui.shortcut_guide import ShortcutGuideDialog
 from ClipAI.ui.unified_entry_panel import UnifiedEntryPanelDialog
-from ClipAI.ui.voice_setup import VoiceSetupDialog
-from ClipAI.ui.about import AboutDialog
+from ClipAI.ui.inline_dictation_owner import InlineDictationInterfaceOwner
+from ClipAI.ui.owned_modals import OwnedModalRegistry
 
 _LOGGER = logging.getLogger("clipai.ui.result_dialog")
 
@@ -41,10 +39,11 @@ def _voice_status_word(
     *,
     silence_detected: bool,
 ) -> str:
+    if phase is VoiceCapturePhase.CANCEL_REQUESTED:
+        return "取消中"
     if phase in {
         VoiceCapturePhase.STOP_REQUESTED,
         VoiceCapturePhase.FINALIZING,
-        VoiceCapturePhase.CANCEL_REQUESTED,
     }:
         return "整理"
     if phase is None:
@@ -72,6 +71,7 @@ class _SessionView:
     applied_voice_insertion_revision: int | None = None
     voice_draft_editing: bool = True
     applied_follow_up_capture_ids: set[str] = field(default_factory=set)
+    awaiting_initial_focus: bool = False
 
 
 @dataclass
@@ -141,21 +141,27 @@ class ResultDialogPresenter:
         self._pointer_press_reader = pointer_press_reader
         self._native_window_surface = native_window_surface
         self._focus_transition_diagnostics = focus_transition_diagnostics
-        self._provider_settings_dialog: ProviderSettingsDialog | None = None
-        self._personal_styles_dialog: PersonalStylesDialog | None = None
-        self._shortcut_guide_dialog: ShortcutGuideDialog | None = None
+        self._modals = OwnedModalRegistry(
+            self._root, lambda command: self._command_sink(command), native_window_surface,
+            version=application_version, github_url=github_url,
+        )
         self._entry_panel_dialog: UnifiedEntryPanelDialog | None = None
         self._primary_entry_surface: _PrimaryEntrySurface | None = None
         self._shortcut_guide_focus_hold_active = False
         self._shortcut_guide_focus_return: tuple[str, _SessionView] | None = None
-        self._voice_setup_dialog: VoiceSetupDialog | None = None
+        self._inline_presenter = InlineDictationInterfaceOwner(
+            self._root, lambda command: self._command_sink(command),
+            native_window_surface=native_window_surface,
+            display_metrics=display_metrics,
+        )
         self._voice_projection = voice_projection
-        self._application_version = application_version
-        self._github_url = github_url
-        self._about_dialog: AboutDialog | None = None
 
     def set_command_sink(self, sink: Callable[[object], None]) -> None:
         self._command_sink = sink
+
+    @property
+    def inline_presenter(self) -> InlineDictationInterfaceOwner:
+        return self._inline_presenter
 
     def workflow_context(self, workflow_id: str) -> ActiveWorkflowContext | None:
         view = self._interactive_view(workflow_id)
@@ -292,97 +298,55 @@ class ResultDialogPresenter:
             primary_entry.workflow_id = workflow_id
 
     def show_provider_settings(self, state: ProviderSettingsState) -> None:
-        if self._provider_settings_dialog is None:
-            if self._native_window_surface is None:
-                return
-            self._provider_settings_dialog = ProviderSettingsDialog(
-                self._root,
-                self._command_sink,
-                self._native_window_surface,
-            )
-        self._provider_settings_dialog.apply(state)
+        self._modals.show_provider_settings(state)
 
     def set_provider_settings(self, state: ProviderSettingsState) -> None:
-        if self._provider_settings_dialog is not None:
-            self._provider_settings_dialog.apply(state)
+        self._modals.set_provider_settings(state)
 
     def close_provider_settings(self) -> None:
-        if self._provider_settings_dialog is not None:
-            self._provider_settings_dialog.close()
+        self._modals.close_provider_settings()
 
     def show_personal_styles(self, state: PersonalStyleState) -> None:
-        if self._personal_styles_dialog is None:
-            if self._native_window_surface is None:
-                return
-            self._personal_styles_dialog = PersonalStylesDialog(
-                self._root,
-                self._command_sink,
-                self._native_window_surface,
-            )
-        self._personal_styles_dialog.apply(state)
+        self._modals.show_personal_styles(state)
 
     def set_personal_styles(self, state: PersonalStyleState) -> None:
-        if self._personal_styles_dialog is not None:
-            self._personal_styles_dialog.apply(state)
+        self._modals.set_personal_styles(state)
 
     def close_personal_styles(self) -> None:
-        if self._personal_styles_dialog is not None:
-            self._personal_styles_dialog.close()
+        self._modals.close_personal_styles()
 
     def show_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
         self._hold_focus_for_shortcut_guide()
-        if self._shortcut_guide_dialog is None:
-            if self._native_window_surface is None:
-                return
-            self._shortcut_guide_dialog = ShortcutGuideDialog(
-                self._root,
-                self._command_sink,
-                self._native_window_surface,
-            )
-        self._shortcut_guide_dialog.show(snapshot)
+        self._modals.show_shortcut_guide(snapshot)
 
     def set_shortcut_guide(self, snapshot: ShortcutGuideSnapshot) -> None:
-        if self._shortcut_guide_dialog is not None:
-            self._shortcut_guide_dialog.apply(snapshot)
+        self._modals.set_shortcut_guide(snapshot)
 
     def close_shortcut_guide(self) -> None:
-        if self._shortcut_guide_dialog is not None:
-            self._shortcut_guide_dialog.close()
+        self._modals.close_shortcut_guide()
         self._restore_focus_after_shortcut_guide()
 
     def show_voice_setup(self) -> None:
-        if self._voice_setup_dialog is None:
-            self._voice_setup_dialog = VoiceSetupDialog(self._root, self._command_sink)
-        self._voice_setup_dialog.show()
+        self._modals.show_voice_setup()
 
     def close_voice_setup(self) -> None:
-        if self._voice_setup_dialog is not None:
-            self._voice_setup_dialog.close()
+        self._modals.close_voice_setup()
 
     def show_about(self) -> None:
-        if self._native_window_surface is None:
-            return
-        if self._about_dialog is None:
-            self._about_dialog = AboutDialog(
-                self._root,
-                self._command_sink,
-                self._native_window_surface,
-                version=self._application_version,
-                github_url=self._github_url,
-            )
+        self._modals.show_about()
+
+    def set_managed_update(self, state: ManagedUpdatePresentation) -> None:
+        self._modals.set_managed_update(state)
 
     def close_about(self) -> None:
-        if self._about_dialog is not None:
-            self._about_dialog.close()
-            self._about_dialog = None
+        self._modals.close_about()
 
     def open_github(self, url: str) -> None:
         webbrowser.open(url)
 
     def set_voice_projection(self, projection: VoiceProjection) -> None:
         self._voice_projection = projection
-        if self._voice_setup_dialog is not None:
-            self._voice_setup_dialog.set_voice_projection(projection)
+        self._modals.set_voice_projection(projection)
         for view in self._views.values():
             if view.last_snapshot is not None:
                 self._configure_voice_control(view.last_snapshot, view)
@@ -487,15 +451,7 @@ class ResultDialogPresenter:
                 view.popup_control.dispose()
             view.dialog.close()
         self._views.clear()
-        if self._provider_settings_dialog is not None:
-            self._provider_settings_dialog.destroy()
-            self._provider_settings_dialog = None
-        if self._personal_styles_dialog is not None:
-            self._personal_styles_dialog.destroy()
-            self._personal_styles_dialog = None
-        if self._shortcut_guide_dialog is not None:
-            self._shortcut_guide_dialog.destroy()
-            self._shortcut_guide_dialog = None
+        self._modals.destroy()
         if self._entry_panel_dialog is not None:
             primary_entry = self._primary_entry_surface
             if primary_entry is not None:
@@ -522,8 +478,9 @@ class ResultDialogPresenter:
             if not view.dialog.is_alive():
                 self._close_dead_view(workflow_id, view)
                 continue
-            if view.dialog.is_visible():
+            if view.dialog.is_visible() and not self._in_active_voice_capture(view):
                 self._popup_control(workflow_id, view).observe_focus(PopupForegroundPolled())
+                self._recover_pending_initial_focus(workflow_id, view)
         point = self._pointer_press_reader.poll() if self._pointer_press_reader is not None else None
         if point is not None:
             self._handle_pointer_press(*point)
@@ -949,6 +906,25 @@ class ResultDialogPresenter:
         view.surface.toggle_pin()
         self._command_sink(TogglePin(session_id))
 
+    def _regenerate(self, session_id: str) -> None:
+        if self._interactive_view(session_id) is not None:
+            self._command_sink(RegenerateResult(session_id))
+
+    def _refine_voice_draft(self, session_id: str) -> None:
+        view = self._interactive_view(session_id)
+        if view is None or view.last_snapshot is None:
+            return
+        snapshot = view.last_snapshot
+        if snapshot.status is not SessionStatus.VOICE_REVIEW or snapshot.voice_origin is None:
+            return
+        start, end = view.surface.selection_range()
+        self._command_sink(RefineVoiceDraftInPlace(
+            session_id,
+            snapshot.voice_origin.revision,
+            start,
+            end,
+        ))
+
     def _submit_feedback(
         self,
         session_id: str,
@@ -1081,6 +1057,10 @@ class ResultDialogPresenter:
         )
         surface = BaseResultSurface(dialog)
         view = _SessionView(dialog=dialog, surface=surface)
+        for name in ("content_text", "follow_entry", "feedback_note"):
+            widget = getattr(surface, name, None)
+            if widget is not None:
+                install_ime_composition_font(widget, self._native_window_surface)
         surface.close_button.configure(
             command=lambda sid=session_id: self._request_close(sid)
         )
@@ -1098,6 +1078,8 @@ class ResultDialogPresenter:
             on_copy=lambda sid=session_id: self._copy(sid),
             on_paste=lambda sid=session_id: self._paste(sid),
             on_archive=lambda sid=session_id: self._archive(sid),
+            on_regenerate=lambda sid=session_id: self._regenerate(sid),
+            on_refine=lambda sid=session_id: self._refine_voice_draft(sid),
             on_follow_up=lambda sid=session_id: self._toggle_follow_up(sid),
         )
         surface.bind_feedback_submit(
@@ -1156,7 +1138,9 @@ class ResultDialogPresenter:
                 command=(lambda cid=capture_id: self._command_sink(StopVoiceCapture(cid))) if not finalizing else None,
                 enabled=not finalizing,
                 tooltip=(
-                    "Finalizing Voice Input"
+                    "Cancelling Voice Input"
+                    if phase is VoiceCapturePhase.CANCEL_REQUESTED
+                    else "Finalizing Voice Input"
                     if finalizing
                     else "No sound detected; click to stop Voice Input"
                     if silence_detected
@@ -1250,7 +1234,8 @@ class ResultDialogPresenter:
         dialog.root.bind("<Control-e>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_pin, sid), add="+")
         dialog.root.bind("<Control-c>", lambda event, sid=session_id: self._popup_shortcut(event, self._copy, sid), add="+")
         dialog.root.bind("<Control-s>", lambda event, sid=session_id: self._popup_shortcut(event, self._archive, sid), add="+")
-        dialog.root.bind("<Control-r>", lambda event, sid=session_id: self._popup_shortcut(event, self._toggle_feedback, sid), add="+")
+        dialog.root.bind("<Control-r>", lambda event, sid=session_id: self._popup_shortcut(event, self._regenerate, sid), add="+")
+        dialog.root.bind("<Control-p>", lambda event, sid=session_id: self._popup_shortcut(event, self._refine_voice_draft, sid), add="+")
         dialog.root.bind("<Control-v>", lambda event, sid=session_id: self._paste_shortcut(event, sid), add="+")
         dialog.root.bind("<Control-z>", navigate_back, add="+")
         dialog.root.bind("<Control-Return>", toggle_voice_draft_mode, add="+")
@@ -1262,20 +1247,51 @@ class ResultDialogPresenter:
         view.surface.bind_voice_draft_paste(
             lambda event, sid=session_id: self._paste_shortcut(event, sid)
         )
+        view.surface.bind_copy_shortcut(
+            lambda event, sid=session_id: self._popup_shortcut(event, self._copy, sid)
+        )
+        view.surface.bind_content_context_copy(lambda sid=session_id: self._copy(sid))
         if announce_shown:
             control.observe_focus(PopupControlShown())
             if focus_on_show:
                 self._schedule_initial_focus(session_id, view)
 
     def _schedule_initial_focus(self, session_id: str, view: _SessionView) -> None:
-        def establish_initial_focus() -> None:
-            control = self._popup_control(session_id, view)
-            if self._views.get(session_id) is not view or control.focused_inside:
-                return
-            view.surface.focus_content()
-            control.observe_focus(ToolkitFocusEntered())
+        view.awaiting_initial_focus = True
 
-        view.dialog.lifecycle.schedule(0, establish_initial_focus)
+        def attempt(remaining: int) -> None:
+            if self._views.get(session_id) is not view or not view.awaiting_initial_focus:
+                return
+            if self._attempt_initial_focus(session_id, view):
+                return
+            if remaining > 1:
+                view.dialog.lifecycle.schedule(32, lambda: attempt(remaining - 1))
+
+        view.dialog.lifecycle.schedule(0, lambda: attempt(5))
+
+    def _attempt_initial_focus(self, session_id: str, view: _SessionView) -> bool:
+        if self._views.get(session_id) is not view:
+            return False
+        view.surface.focus_content()
+        if not view.dialog.native_owns_foreground():
+            return False
+        view.awaiting_initial_focus = False
+        self._popup_control(session_id, view).observe_focus(ToolkitFocusEntered())
+        return True
+
+    def _recover_pending_initial_focus(self, session_id: str, view: _SessionView) -> None:
+        control = self._popup_control(session_id, view)
+        if (
+            not control.focused_inside
+            and view.awaiting_initial_focus
+            and view.dialog.native_owns_foreground()
+        ):
+            self._attempt_initial_focus(session_id, view)
+
+    @staticmethod
+    def _in_active_voice_capture(view: _SessionView) -> bool:
+        snapshot = view.last_snapshot
+        return snapshot is not None and snapshot.voice_capture_id is not None
 
     def _shortcut(self, action: Callable[[str], None], session_id: str) -> str | None:
         view = self._interactive_view(session_id)
@@ -1328,6 +1344,8 @@ class ResultDialogPresenter:
     def _close_if_outside(self, session_id: str) -> None:
         view = self._interactive_view(session_id)
         if view is None:
+            return
+        if self._in_active_voice_capture(view):
             return
         self._popup_control(session_id, view).observe_focus(PopupOutsideFocusRequested())
 

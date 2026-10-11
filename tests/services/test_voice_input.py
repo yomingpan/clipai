@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ClipAI.core.models import PasteTarget
+from ClipAI.core.models import PasteOutcome, PasteTarget
 from ClipAI.core.models import ShortcutPressId
 from ClipAI.core.voice import (
     VoiceCaptureId,
@@ -17,6 +17,7 @@ from ClipAI.core.voice import (
     VoiceEngineSetupReady,
     VoiceFollowUpTarget,
     VoiceLanguage,
+    VoiceInlineTarget,
     VoiceSetupId,
     VoiceTransportFailure,
 )
@@ -34,7 +35,336 @@ from ClipAI.services.voice_input import (
     ShutdownVoiceEngine,
     StopVoiceCapture,
     VoiceInputController,
+    PresentInlineChoice,
+    PasteInlineDictation,
+    DiscardInlineDictation,
+    CancelInlinePaste,
+    CancelInlineRefinement,
+    PresentInlinePasteOutcome,
+    PresentInlineRecovery,
+    PresentInlineCancelUnconfirmed,
+    CopyInlineText,
+    PresentInlineCopyState,
+    CloseInlineTerminal,
 )
+
+
+def test_inline_choice_preserves_text_and_blocks_another_capture_until_confirmed() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("inline-1")
+    inline = VoiceInlineTarget("inline-workflow", target().paste_target)
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineListening(capture))
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "hello"))
+    controller.request_stop(capture)
+
+    settled = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert settled.effects == (PresentInlineChoice("inline-workflow", "hello"),)
+    assert controller.request_capture(VoiceCaptureId("inline-2"), inline).ignored
+    refine_effect = controller.confirm_inline_settlement("inline-workflow", True).effects[0]
+    assert isinstance(refine_effect, PasteInlineDictation)
+    assert (refine_effect.text, refine_effect.target, refine_effect.refine, refine_effect.interaction_id) == (
+        "hello", inline.paste_target, True, "inline-workflow"
+    )
+    assert controller.request_capture(VoiceCaptureId("inline-2"), inline).ignored
+    assert controller.complete_inline_refinement("other", refine_effect.operation_id, "late").ignored
+    assert controller.complete_inline_refinement("inline-workflow", refine_effect.operation_id, error=True).effects == (
+        PresentInlineChoice("inline-workflow", "hello", allow_refine=False, message="Dictation could not be refined. Choose raw paste or discard."),
+    )
+    assert controller.confirm_inline_settlement("inline-workflow", True).ignored
+    assert controller.request_capture(VoiceCaptureId("inline-2"), inline).ignored
+    raw_effect = controller.confirm_inline_settlement("inline-workflow", False).effects[0]
+    assert isinstance(raw_effect, PasteInlineDictation)
+    assert (raw_effect.text, raw_effect.target, raw_effect.refine, raw_effect.interaction_id) == (
+        "hello", inline.paste_target, False, "inline-workflow"
+    )
+    operation_id = controller.inline_paste_operation_id("inline-workflow")
+    assert operation_id
+    assert controller.request_capture(VoiceCaptureId("inline-2"), inline).ignored
+    assert controller.complete_inline_paste("other", operation_id, PasteOutcome("failed", "not_dispatched", "not_required")).ignored
+    assert controller.complete_inline_paste("inline-workflow", "wrong-op", PasteOutcome("failed", "not_dispatched", "not_required")).ignored
+    outcome = PasteOutcome("dispatched_unconfirmed", "dispatched_unconfirmed", "restored")
+    assert controller.complete_inline_paste("inline-workflow", operation_id, outcome).effects == (
+        PresentInlinePasteOutcome("inline-workflow", outcome, "hello"),
+    )
+    assert controller.complete_inline_paste("inline-workflow", operation_id, outcome).ignored
+    assert controller.dismiss_inline_terminal("other").ignored
+    assert controller.dismiss_inline_terminal("inline-workflow").effects == (
+        CloseInlineTerminal("inline-workflow"),
+    )
+    assert not controller.request_capture(VoiceCaptureId("inline-2"), inline).ignored
+
+
+def test_inline_refinement_timeout_names_timeout_and_keeps_original_text() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("inline-timeout")
+    inline = VoiceInlineTarget("inline-timeout", target().paste_target, mode="minimal")
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineListening(capture))
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "original words"))
+    controller.request_stop(capture, inline_delivery=True)
+    refine = controller.observe_engine(VoiceEngineEnded(capture)).effects[0]
+
+    transition = controller.complete_inline_refinement(
+        "inline-timeout", refine.operation_id, error=True, failure_reason="timed_out"
+    )
+
+    assert transition.effects == (
+        PresentInlineChoice(
+            "inline-timeout", "original words", allow_refine=False,
+            message="Dictation refinement timed out. Original text is preserved. Choose raw paste, copy, or discard.",
+        ),
+    )
+    assert not any(isinstance(effect, PasteInlineDictation) for effect in transition.effects)
+
+
+def test_old_view_confirm_and_cancel_cannot_affect_a_new_inline_interaction() -> None:
+    controller = ready_controller()
+    first_capture = VoiceCaptureId("first-capture")
+    controller.request_capture(first_capture, VoiceInlineTarget("old-interaction", target().paste_target))
+    assert not controller.cancel_inline("old-interaction").ignored
+    controller.observe_engine(VoiceEngineEnded(first_capture))
+
+    second_capture = VoiceCaptureId("second-capture")
+    second_target = VoiceInlineTarget("new-interaction", target().paste_target)
+    controller.request_capture(second_capture, second_target)
+    controller.observe_engine(VoiceEngineFinalSegment(second_capture, 0, "new text"))
+    controller.request_stop(second_capture)
+    controller.observe_engine(VoiceEngineEnded(second_capture))
+
+    assert controller.confirm_inline_settlement("old-interaction").ignored
+    assert controller.cancel_inline("old-interaction").ignored
+    assert controller.inline_interaction_id() == "new-interaction"
+    assert controller.confirm_inline_settlement("new-interaction").effects[0].text == "new text"
+
+
+def test_refined_paste_failure_recovers_the_actual_delivery_text() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-refined")
+    inline = VoiceInlineTarget("inline-refined", target().paste_target)
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "original"))
+    controller.request_stop(capture)
+    controller.observe_engine(VoiceEngineEnded(capture))
+    refine = controller.confirm_inline_settlement("inline-refined", True).effects[0]
+    paste = controller.complete_inline_refinement("inline-refined", refine.operation_id, "refined").effects[0]
+    assert paste.text == "refined"
+    outcome = PasteOutcome("failed", "not_dispatched", "not_required")
+    assert controller.complete_inline_paste("inline-refined", paste.operation_id, outcome).effects == (
+        PresentInlinePasteOutcome("inline-refined", outcome, "refined"),
+    )
+    copy = controller.request_inline_copy("inline-refined").effects[1]
+    assert copy.text == "refined"
+
+
+def test_inline_escape_waits_for_matching_paste_terminal_and_never_claims_undo_after_dispatch() -> None:
+    controller = ready_controller()
+    inline = VoiceInlineTarget("inline-1", target().paste_target)
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "hello"))
+    controller.request_stop(capture)
+    controller.observe_engine(VoiceEngineEnded(capture))
+    controller.confirm_inline_settlement("inline-1")
+    operation_id = controller.inline_paste_operation_id("inline-1")
+    assert operation_id is not None
+
+    assert controller.cancel_inline().effects == (CancelInlinePaste(operation_id, "inline-1"),)
+    assert controller.request_capture(VoiceCaptureId("capture-2"), inline).ignored
+    dispatched = PasteOutcome("dispatched_unconfirmed", "dispatched_unconfirmed", "restored")
+    settled = controller.complete_inline_paste("inline-1", operation_id, dispatched)
+    assert settled.effects == (PresentInlinePasteOutcome("inline-1", dispatched, "hello"),)
+    assert "Check the original text field" in settled.projection.message
+
+
+def test_inline_refinement_discard_waits_for_provider_cancellation_admission() -> None:
+    controller = ready_controller()
+    inline = VoiceInlineTarget("inline-1", target().paste_target)
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "hello"))
+    controller.request_stop(capture)
+    controller.observe_engine(VoiceEngineEnded(capture))
+    refinement = controller.confirm_inline_settlement("inline-1", True).effects[0]
+    assert isinstance(refinement, PasteInlineDictation)
+
+    assert controller.cancel_inline().effects == (
+        CancelInlineRefinement("inline-1", refinement.operation_id),
+    )
+    assert controller.request_capture(VoiceCaptureId("capture-2"), inline).ignored
+    assert controller.accept_inline_refinement_cancellation("other", refinement.operation_id, True).ignored
+    assert controller.accept_inline_refinement_cancellation("inline-1", "stale", True).ignored
+    assert controller.accept_inline_refinement_cancellation("inline-1", refinement.operation_id, True).effects == (
+        DiscardInlineDictation("inline-1"),
+    )
+    assert controller.complete_inline_refinement("inline-1", refinement.operation_id, "late").ignored
+    assert not controller.request_capture(VoiceCaptureId("capture-2"), inline).ignored
+
+
+def test_refine_cancel_timeout_preserves_text_and_blocks_new_paste_until_settlement() -> None:
+    controller = ready_controller()
+    inline = VoiceInlineTarget("inline-1", target().paste_target)
+    capture = VoiceCaptureId("capture-1")
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "complete original"))
+    controller.request_stop(capture)
+    controller.observe_engine(VoiceEngineEnded(capture))
+    operation_id = controller.confirm_inline_settlement("inline-1", True).effects[0].operation_id
+    controller.cancel_inline()
+    controller.accept_inline_refinement_cancellation("inline-1", operation_id, False)
+
+    assert controller.note_inline_refinement_cancel_timeout("other", operation_id).ignored
+    assert controller.note_inline_refinement_cancel_timeout("inline-1", operation_id).effects == (
+        PresentInlineCancelUnconfirmed("inline-1", "complete original"),
+    )
+    assert controller.request_capture(VoiceCaptureId("capture-2"), inline).ignored
+    assert controller.confirm_inline_settlement("inline-1", False).ignored
+    assert controller.request_inline_copy("inline-1").effects[1].text == "complete original"
+    assert controller.cancel_inline().effects == (CancelInlineRefinement("inline-1", operation_id),)
+    assert controller.complete_inline_refinement("inline-1", operation_id, "late refined").effects == (
+        DiscardInlineDictation("inline-1"),
+    )
+    assert controller.note_inline_refinement_cancel_timeout("inline-1", operation_id).ignored
+
+
+def test_inline_without_target_preserves_complete_text_for_explicit_recovery() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("inline-1")
+    controller.request_capture(capture, VoiceInlineTarget("inline-workflow", None))
+    controller.request_stop(capture)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "hello"))
+
+    settled = controller.observe_engine(VoiceEngineEnded(capture))
+    assert settled.effects == (
+        PresentInlineRecovery("inline-workflow", "hello", "No paste target is available. Copy the text and paste it manually."),
+    )
+    assert controller.request_capture(VoiceCaptureId("inline-2"), VoiceInlineTarget("inline-2", None)).ignored
+    assert controller.confirm_inline_settlement("inline-workflow").ignored
+    copy_effects = controller.request_inline_copy("inline-workflow").effects
+    assert copy_effects[0] == PresentInlineCopyState("inline-workflow", "pending")
+    assert isinstance(copy_effects[1], CopyInlineText)
+    assert copy_effects[1].text == "hello"
+    assert controller.request_inline_copy("inline-workflow").ignored
+    assert controller.complete_inline_copy("other", copy_effects[1].operation_id).ignored
+    assert controller.complete_inline_copy("inline-workflow", copy_effects[1].operation_id).effects == (
+        PresentInlineCopyState("inline-workflow", "succeeded"),
+    )
+
+
+def test_minimal_inline_stop_gesture_decides_raw_or_refine_without_a_choice() -> None:
+    for refine in (False, True):
+        controller = ready_controller()
+        capture = VoiceCaptureId(f"minimal-{refine}")
+        inline = VoiceInlineTarget(str(capture), target().paste_target, "minimal")
+        controller.request_capture(capture, inline)
+        controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "hello"))
+        controller.request_stop(capture, inline_delivery=refine)
+
+        settled = controller.observe_engine(VoiceEngineEnded(capture))
+
+        assert len(settled.effects) == 1
+        effect = settled.effects[0]
+        assert isinstance(effect, PasteInlineDictation)
+        assert effect.refine is refine
+        assert effect.text == "hello"
+        assert effect.target == inline.paste_target
+        assert controller.request_capture(VoiceCaptureId("next"), inline).ignored
+
+
+def test_minimal_inline_timeout_does_not_infer_a_delivery_intent() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("minimal-timeout")
+    inline = VoiceInlineTarget(str(capture), target().paste_target, "minimal")
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "hello"))
+    controller.request_stop(capture)
+
+    assert controller.observe_engine(VoiceEngineEnded(capture)).effects == (
+        PresentInlineChoice("minimal-timeout", "hello"),
+    )
+
+
+def test_empty_voice_draft_restores_review_instead_of_finalizing_empty_text() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-empty")
+    controller.request_capture(capture, target())
+    controller.request_stop(capture)
+
+    settled = controller.observe_engine(VoiceEngineEnded(capture))
+
+    assert isinstance(settled.effects[0], RestoreVoiceReview)
+
+
+def test_no_progress_self_end_is_bounded_and_audio_resets_restart_count() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("restart-1")
+    controller.request_capture(capture, target())
+    controller.observe_engine(VoiceEngineListening(capture))
+    for _ in range(2):
+        assert controller.observe_engine(VoiceEngineEnded(capture)).effects == (
+            StartVoiceCapture(capture, "zh-TW", 0),
+        )
+        controller.observe_engine(VoiceEngineListening(capture))
+    controller.observe_engine(VoiceEngineAudioLevel(capture, 0.1))
+    controller.observe_engine(VoiceEngineEnded(capture))
+    controller.observe_engine(VoiceEngineListening(capture))
+    for _ in range(2):
+        assert isinstance(controller.observe_engine(VoiceEngineEnded(capture)).effects[0], StartVoiceCapture)
+        controller.observe_engine(VoiceEngineListening(capture))
+    settled = controller.observe_engine(VoiceEngineEnded(capture))
+    assert isinstance(settled.effects[0], RestoreVoiceReview)
+    assert settled.projection.capture_id is None
+
+
+def test_stop_watchdog_settles_as_retryable_timeout_without_ended() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("stalled-1")
+    controller.request_capture(capture, target())
+    controller.request_stop(capture)
+
+    settled = controller.force_settle_pending_stop(capture)
+
+    assert isinstance(settled.effects[0], RestoreVoiceReview)
+    assert "timed out" in settled.effects[0].message
+    assert controller.force_settle_pending_stop(capture).ignored
+
+
+def test_cancel_watchdog_discards_text_without_engine_acknowledgement() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("cancel-stalled")
+    controller.request_capture(capture, target())
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "must not insert"))
+    controller.request_cancel(capture)
+
+    settled = controller.force_settle_pending_stop(capture)
+
+    assert isinstance(settled.effects[0], RestoreVoiceReview)
+    assert settled.projection.capture_id is None
+
+
+def test_inline_capture_cancel_distinguishes_engine_acknowledgement_from_timeout() -> None:
+    for timed_out in (False, True):
+        controller = ready_controller()
+        capture = VoiceCaptureId(f"inline-cancel-{timed_out}")
+        inline = VoiceInlineTarget("interaction-cancel", target().paste_target)
+        controller.request_capture(capture, inline)
+        controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "discard me"))
+        controller.request_cancel(capture)
+
+        settled = (
+            controller.force_settle_pending_stop(capture)
+            if timed_out else controller.observe_engine(VoiceEngineEnded(capture))
+        )
+
+        assert settled.effects == (
+            DiscardInlineDictation(
+                "interaction-cancel",
+                "Voice Input cancellation timed out." if timed_out else "",
+            ),
+        )
+        assert settled.projection.capture_id is None
+        assert controller.force_settle_pending_stop(capture).ignored
 
 
 def target() -> VoiceDraftTarget:
@@ -178,6 +508,70 @@ def test_missing_microphone_returns_a_retriable_review_with_a_remedy() -> None:
     assert transition.projection.capability is VoiceCapabilityPhase.READY
     assert transition.effects == (
         RestoreVoiceReview(target(), "No microphone was detected. Connect one and try again."),
+    )
+
+
+def test_inline_network_failure_reports_recovery_without_paste() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-network")
+    inline = VoiceInlineTarget("inline-network", target().paste_target)
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineListening(capture))
+
+    transition = controller.observe_engine(VoiceEngineFailed(
+        capture, VoiceTransportFailure.UNAVAILABLE,
+        "Speech recognition could not reach its service. Check your connection and try again.",
+    ))
+
+    assert transition.effects == (
+        DiscardInlineDictation(
+            "inline-network",
+            "Speech recognition could not reach its service. Check your connection and try again.",
+        ),
+    )
+    assert not any(isinstance(effect, PasteInlineDictation) for effect in transition.effects)
+
+
+def test_inline_network_failure_with_partial_text_explains_recovery_without_paste() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-network-partial")
+    inline = VoiceInlineTarget("inline-network-partial", target().paste_target, mode="minimal")
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineListening(capture))
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "keep this"))
+
+    transition = controller.observe_engine(VoiceEngineFailed(
+        capture, VoiceTransportFailure.UNAVAILABLE,
+        "Speech recognition could not reach its service. Check your connection and try again.",
+    ))
+
+    assert transition.effects == (
+        PresentInlineChoice(
+            "inline-network-partial", "keep this",
+            message="Speech recognition could not reach its service. Check your connection and try again. Recognized content was preserved.",
+        ),
+    )
+    assert not any(isinstance(effect, PasteInlineDictation) for effect in transition.effects)
+
+
+def test_inline_network_failure_without_target_keeps_both_recovery_reasons() -> None:
+    controller = ready_controller()
+    capture = VoiceCaptureId("capture-network-no-target")
+    inline = VoiceInlineTarget("inline-network-no-target", None, mode="minimal")
+    controller.request_capture(capture, inline)
+    controller.observe_engine(VoiceEngineListening(capture))
+    controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "keep this"))
+
+    transition = controller.observe_engine(VoiceEngineFailed(
+        capture, VoiceTransportFailure.UNAVAILABLE,
+        "Speech recognition could not reach its service. Check your connection and try again.",
+    ))
+
+    assert transition.effects == (
+        PresentInlineRecovery(
+            "inline-network-no-target", "keep this",
+            "Speech recognition could not reach its service. Check your connection and try again. Recognized content was preserved. No paste target is available. Copy the text and paste it manually.",
+        ),
     )
 
 
@@ -379,7 +773,10 @@ def test_language_changes_apply_only_between_captures() -> None:
     change = VoiceLanguageChangeId("language-1")
     transition = controller.set_language(VoiceLanguage("en-US"), change)
     assert transition.effects == (PersistVoiceLanguage(change, "en-US"),)
+    assert transition.projection.language == "zh-TW"
+    assert transition.projection.pending_language == "en-US"
     assert controller.complete_language_save(change).projection.language == "en-US"
+    assert controller.projection.pending_language is None
     capture = VoiceCaptureId("capture-1")
     controller.request_capture(capture, target())
     assert controller.set_language(VoiceLanguage("zh-TW"), VoiceLanguageChangeId("language-2")).ignored is True

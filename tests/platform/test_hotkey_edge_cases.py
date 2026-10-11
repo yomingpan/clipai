@@ -385,6 +385,59 @@ def test_physical_or_unknown_key_state_preserves_active_lifecycle(
     assert events == [("shorten", "long")]
 
 
+def test_suppressed_inline_m_repeat_preserves_one_long_press_when_async_state_is_false() -> None:
+    events: list[tuple[str, str]] = []
+    dispatcher = create_hotkey_dispatcher(
+        {"inline_dictation": {"hotkey": "ctrl+alt+m"}},
+        semantic_recorder(events),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+        key_is_pressed=lambda token: False if token == "m" else True,
+        suppressed_trigger_tokens=frozenset({"m"}),
+    )
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="m", vk=0x4D))
+    first_timer = FakeTimer.timers[-1]
+    for _ in range(8):
+        dispatcher.on_press(FakeKey(char="m", vk=0x4D))
+
+    assert FakeTimer.timers[-1] is first_timer
+    first_timer.fire()
+    dispatcher.on_release(FakeKey(char="m", vk=0x4D))
+    assert events == [("inline_dictation", "long")]
+
+
+def test_missing_suppressed_m_release_is_cleared_before_next_chord() -> None:
+    events: list[tuple[str, str]] = []
+    physical = {"ctrl": True, "alt": True, "m": False}
+    dispatcher = create_hotkey_dispatcher(
+        {"inline_dictation": {"hotkey": "ctrl+alt+m"}},
+        semantic_recorder(events),
+        modifier_mode="ctrl_alt",
+        timer_factory=FakeTimer,
+        key_is_pressed=physical.get,
+        suppressed_trigger_tokens=frozenset({"m"}),
+    )
+
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="m", vk=0x4D))
+    physical["ctrl"] = False
+    physical["alt"] = False
+    dispatcher.on_press(FakeKey(char="b", vk=0x42))
+
+    physical["ctrl"] = True
+    physical["alt"] = True
+    dispatcher.on_press(FakeKey(name="ctrl_l"))
+    dispatcher.on_press(FakeKey(name="alt_l"))
+    dispatcher.on_press(FakeKey(char="m", vk=0x4D))
+    dispatcher.on_release(FakeKey(char="m", vk=0x4D))
+
+    assert events == [("inline_dictation", "short")]
+
+
 def test_listener_stop_calls_underlying_listener_and_marks_not_running() -> None:
     underlying = FakeListener()
     listener = HotkeyListener(underlying, make_dispatcher([]))

@@ -1,3 +1,5 @@
+import ctypes
+
 from ClipAI.platform.window_activation import activate_top_level_window
 
 
@@ -65,3 +67,38 @@ def test_activation_fails_closed_when_native_calls_are_unavailable() -> None:
         )
         is False
     )
+
+
+def test_activation_temporarily_suspends_and_restores_foreground_lock() -> None:
+    user32 = User32()
+    user32.lock_timeout = 200_000
+    user32.lock_events = []
+
+    def system_parameters_info(action, _param, value, flags):
+        if action == 0x2000:
+            ctypes.cast(value, ctypes.POINTER(ctypes.c_uint32))[0] = user32.lock_timeout
+            user32.lock_events.append(("get", user32.lock_timeout))
+            return True
+        previous = user32.lock_timeout
+        user32.lock_timeout = int(value.value or 0)
+        user32.lock_events.append(("set", previous, user32.lock_timeout, flags))
+        return True
+
+    original_set_foreground = user32.SetForegroundWindow
+
+    def locked_set_foreground(hwnd: int) -> bool:
+        if user32.lock_timeout:
+            return False
+        return original_set_foreground(hwnd)
+
+    user32.SystemParametersInfoW = system_parameters_info
+    user32.SetForegroundWindow = locked_set_foreground
+
+    assert activate_top_level_window(42, user32=user32, kernel32=Kernel32()) is True
+    assert user32.lock_timeout == 200_000
+    assert user32.lock_events == [
+        ("get", 200_000),
+        ("set", 200_000, 0, 2),
+        ("set", 0, 200_000, 2),
+    ]
+    assert user32.attached[-2:] == [(1, 3, False), (1, 2, False)]
