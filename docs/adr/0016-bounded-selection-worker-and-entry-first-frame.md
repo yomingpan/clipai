@@ -1,6 +1,8 @@
 # ADR-0016: Bounded selection worker and feedback-first Entry lifecycle
 
 Status: accepted, 2026-09-11.
+Modifier-gate ordering amended by
+[ADR-0021](0021-selection-modifier-release-scoped-to-copy-fallback.md), 2026-10-11.
 
 ## 1. Executive judgment
 
@@ -51,10 +53,13 @@ bounded source owner plus isolated overflow. The last is bounded and reversible.
 
 Reuse one healthy worker sequentially for the same HWND/PID, retire at 64 or on
 source change/timeout/cancel/malformed/failure, and isolate overlap in one-request
-processes. Gate modifiers before source/probe. Permit verified Anki inner-card
+processes. ~~Gate modifiers before source/probe.~~ **Superseded by ADR-0021:**
+validate the source and run read-only UIA first; gate modifiers only for an
+authorized compatibility Copy fallback. Permit verified Anki inner-card
 SetFocus without top-level activation and re-baseline in services. Preserve
 feedback-first Entry display; make frozen clipboard fallback automatic only
-there. Restore foreground after `SW_SHOWNOACTIVATE` only when it actually stole it.
+there, excluding outcomes requiring modifier release; those retain explicit
+frozen-clipboard choice. Restore foreground after `SW_SHOWNOACTIVATE` only when it actually stole it.
 
 ## 8. Reversible sequence
 

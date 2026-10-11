@@ -7,9 +7,27 @@
 - `begin_capture` performs only cheap native identity reads; it does not call UIA, mutate the clipboard, or move focus. `SelectionCaptureRequest` binds HWND, PID, and native focus. A failed binding remains unavailable; capture must not silently bind a new source.
 - Entry Panel binds before presenting its preparing view. Action and contextual-question runtime bind before creating their first Workflow projection. Retries retain the original source and get a fresh preparation-scoped capture identity.
 - UIA lives in a hidden child process and exchanges newline-delimited, identity-only requests and typed results. One probe owns one healthy worker for a single top-level HWND/PID, serves requests sequentially, and retires it after 64 requests. Switching top-level source retires the old worker before reuse. Timeout, cancellation, malformed results and provider/restore failure retire and reap the worker immediately. An overlapping request uses an isolated one-request overflow process; there is no disposable worker pool.
-- `SelectionCaptureCoordinator` alone gates capture on physical `ctrl`, `alt`, and `shift` release. The fixed order is modifier release, current-source validation, then probe. Timeout returns `modifier_timeout`; cancellation returns `cancelled`; neither checks the source, probes UIA, or mutates the clipboard.
+- `SelectionCaptureCoordinator` alone gates compatibility Copy on physical `ctrl`, `alt`, and `shift` release. Source validation and read-only UIA run immediately, including while modifiers remain held. The release gate runs only for an `unknown` outcome with positive `selection_detected` or verified `copy_selection_only` evidence; it retains the existing one-second deadline. Timeout returns `modifier_timeout`; cancellation returns `cancelled`; neither copies nor mutates the clipboard. See [ADR-0021](../../adr/0021-selection-modifier-release-scoped-to-copy-fallback.md).
 - UIA focus must belong to the original top-level window. Search only its focused element's ancestry, not arbitrary desktop elements. Password controls are unavailable. Full document text, Name, and Value cannot substitute for selection.
 - UIA focus and selection ranges are checked again after reading. Original logical lines, indentation, and trailing whitespace survive; CR/CRLF are represented as LF. Disjoint ranges are joined with LF in provider order.
+
+The capture order is fixed:
+
+0. Already cancelled: return `cancelled`.
+1. Missing bound source: return `source_unavailable`.
+2. Validate source-current #1; failure returns `source_changed` without probing.
+3. Probe the bound source without polling modifiers.
+4. Check cancellation after probing; a cancelled probe also terminates capture.
+5. If `focus_restored`, recapture against the original window. A missing or different HWND/PID returns `source_changed` with strategy `uia`; otherwise use the rebased source.
+6. Validate source-current #2; failure returns `source_changed` with strategy `uia`.
+7. Only an unknown outcome with positive selection evidence or verified selection-only Copy waits for modifiers. Timeout/cancellation terminates without Copy or clipboard writes.
+8. Validate source-current #3; failure returns `source_changed` with strategy `uia`, without Copy.
+9. Only the authorized Copy path calls `ClipboardTransactionCoordinator.capture_selection`, with the source-current callback retained throughout the transaction. Other paths return the UIA outcome.
+10. Exceptions return `capture_failed`. Finally emit the existing content-free log format unchanged:
+
+```text
+Selection capture operation_id=%s target=%s status=%s reason=%s strategy=%s focus_restored=%s elapsed_ms=%d
+```
 
 ## Results
 
@@ -23,6 +41,13 @@ Unconfirmed cleanup raises `RuntimeError`; runtime teardown logs it and continue
 other cleanup. Failed or late-launch workers remain owned, and a late process
 still receives cleanup. Repeating `stop()` can confirm a completed late cleanup.
 No timeout is represented as confirmed process exit.
+
+Retiring an unhealthy owned worker clears its reusable pointer, source and request
+count before cleanup. Unconfirmed retirement warns and retains that worker in the
+single registry, while the next capture may create a new owned worker. Cleanup
+failure still raises after stop closes admission. An empty/error response, or
+invalid response interrupted during retirement or cancellation, is `cancelled`
+rather than a worker fault.
 
 The private native result carries explicit `worker_reusable` truth separately
 from the semantic selection outcome. Transport requires a boolean field and
@@ -38,6 +63,14 @@ settle within the bound is reported rather than blocking shutdown indefinitely.
 
 ### Semantic outcomes
 
+Core owns the closed `SelectionReason` wire vocabulary and its complete
+`SelectionGuidanceCategory` mapping. `selection_guidance_category` treats empty
+or unknown reasons as `NO_SELECTION`. `SelectionCaptureOutcome.classification`
+prioritizes selected/cancelled status, then classifies the modifier category as
+`NEEDS_MODIFIER_RELEASE`; other unresolved outcomes are `UNRESOLVED`. Consumers
+use typed classification/category, never reason-string comparisons or a second
+reason collection. Reason spellings and the capture log remain compatible.
+
 | Status | Meaning | Automatic clipboard fallback |
 |---|---|---|
 | selected | Nonempty text from the validated selection | No |
@@ -46,7 +79,7 @@ settle within the bound is reported rather than blocking shutdown indefinitely.
 | unknown | Unsupported, absent ranges, timeout, source change, or read failure | No |
 | cancelled | Operation no longer wanted | No |
 
-Positive selection evidence with failed text retrieval may use the existing controlled Ctrl+C transaction. A source-bound `copy_selection_only` capability may also permit that transaction: it means a verified adapter recognizes a source whose Copy command only copies selected content, not that a selection exists. Unsupported editors without this capability must not receive blind Ctrl+C: some copy the whole current line without a selection. Source checks precede clipboard mutation and copy and continue during polling. Copy timeout and empty copy never establish `none`, even for a verified source, and never permit automatic old-clipboard fallback.
+Positive selection evidence with failed text retrieval may use the existing controlled Ctrl+C transaction. A source-bound `copy_selection_only` capability may also permit that transaction: it means a verified adapter recognizes a source whose Copy command only copies selected content, not that a selection exists. Unsupported editors without this capability must not receive blind Ctrl+C: some copy the whole current line without a selection. Source checks precede clipboard mutation and copy and continue during polling. Copy timeout and empty copy never establish `none`, even for a verified source, and do not permit shared-resolver or direct-consumer automatic old-clipboard fallback. The Entry-specific frozen-input exception is evaluated separately below.
 
 The first verified profile is Anki's main card WebView: verified `anki.exe`, or
 the launcher layout `AnkiProgramFiles/python/cpython-<version>-windows-x86_64-none/pythonw.exe`,
@@ -114,7 +147,7 @@ the longer readiness policy is explicitly supplied by Entry Panel only.
 Activation, selection capture, and confirmation log separate elapsed times and
 operation identities without source/clipboard content.
 
-`PreparedInput` retains the selection outcome and a frozen clipboard fallback. A missing selection adapter uses that fallback automatically and the resolved document identifies `clipboard` as its source. For the Entry Panel only, an `unknown` selection with frozen clipboard text/image automatically applies `PreparedInput.use_clipboard()` and keeps the clipboard preview visible; unknown with no clipboard remains retryable. Direct Actions, contextual questions and global speech retain correctness-first `selection_unknown` behavior. `UseEntryPanelClipboard(panel_id)` remains an idempotent typed intent against current frozen input and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
+`PreparedInput` retains the selection outcome and a frozen clipboard fallback. A missing selection adapter uses that fallback automatically and the resolved document identifies `clipboard` as its source. For the Entry Panel only, `allows_entry_panel_clipboard_fallback` is the sole automatic decision: unknown, not requiring modifier release, and frozen clipboard text/image available. Such outcomes apply `PreparedInput.use_clipboard()`; unknown with no clipboard remains retryable. `modifier_timeout` keeps a failed preview reading “請先放開按鍵，再按重試。” and exposes the explicit clipboard choice when frozen input is available. That branch precedes general unknown/cancelled guidance. Direct Actions, contextual questions and global speech retain correctness-first `selection_unknown` behavior. `UseEntryPanelClipboard(panel_id)` remains an idempotent typed intent against current frozen input and never rereads live clipboard state. A stale panel intent has no effect. Cancellation never creates prepared input.
 
 Direct visible Actions and Entry Panel both call `InputResolver.prepare_input` and
 consume immutable `PreparedInput.resolve(mode)`. Clipboard-only Actions skip the
@@ -130,6 +163,10 @@ Input failure settles the existing output operation as failed and notifies the
 user without creating a Popup or invoking TTS. Capture cancellation settles as
 cancelled without an error notification. Superseded jobs cannot notify or settle
 the replacement operation; a rejected worker submission releases its speech job.
+Global speech input errors with a reason use `selection_failure_guidance`, which
+maps core's engine/focus/modifier/no-selection category to problem-and-advice
+copy beginning “讀不到反白的文字：”. Engine failures suggest retry and restarting
+ClipAI if persistent. Errors without a reason retain their original message.
 
 `WorkflowController` owns direct Action input recovery in `AWAITING_INPUT_CHOICE`,
 including one recovery identity, the original resolved Action/press variant,
@@ -156,6 +193,30 @@ The content-free probe hashes HWND/PID identity and never emits executable paths
 ## Validation
 
 Simulated tests cover unknown versus none, stale source and late cancellation, timeout cleanup, provider ancestry/focus/range changes, exact whitespace preservation, unavailable clipboard, and explicit frozen clipboard choice. Architecture tests forbid the old string-only selection port and require native probe wiring with one clipboard transaction owner.
+
+`selection_reliability_gate.py --iterations 3` covers 27 scenarios with virtual
+monotonic/wait clocks, compares outcome fingerprints across iterations, and
+reports six invariants: policy, clipboard_dirty, unknown_as_none, blind_copy,
+copy_while_held and text_mismatch. An all-none mutation must fail. Simulation
+latency is not device evidence. Architecture tests enforce the core reason set,
+consumer classification and Tk-free canonical content ownership.
+
+`selection_desktop_loop.py` has separate auto and attended modes. Auto uses an
+owned WinForms RichTextBox, one unrecorded clipboard-verified warmup, and adapter
+modifier state; it never injects keys. Attended requires physical keys, matches
+fresh application log bytes to the owned window token, and waits for the human's
+“下一案” acknowledgement after releasing keys and closing the Panel. Capture-log
+waiting is bounded to 15 seconds per case. The host receives foreground focus
+before test selection is set. Use `--log logs/clipai.log` for this source checkout;
+the default is `%LOCALAPPDATA%/ClipAI/logs/clipai.log`.
+
+Exit codes are 0 pass, 1 failed, 2 invalid arguments and 3 environment blocked.
+Missing main application, elevated harness or noninteractive desktop blocks
+attended. For clipboard calls, only exact `OSError("Clipboard is busy")` is retried, at most 20 attempts
+with 0.25-second intervals; exhaustion blocks, other OSErrors propagate. Partial
+case counts and warmup failures remain explicit, and a blocked result cannot
+count as acceptance. Cleanup is probe stop, host shutdown/kill after two seconds,
+then conditional clipboard restoration. JSONL contains metadata/hashes only.
 
 Opt-in Windows test: `python -m pytest tests/platform/test_selection_uia_integration.py -m integration`. It opens an owned temporary RichTextBox and checks selected text, repeated identical selection, and caret-only state through one probe, then cleans up both probe and host in nested finally blocks. Run on an interactive desktop. This is not a substitute for testing the user's specific apps, web pages, PDFs, and permission levels.
 

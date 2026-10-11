@@ -462,11 +462,15 @@ Recipe 回饋與使用引導應測：
 
 Selection evidence 的回歸測試必須區分 confirmed-none、unsupported、timeout、
 source-changed、modifier-timeout 與 cancelled。Direct Action／朗讀的 unknown
-不得自動使用舊剪貼簿；Entry Panel 只在已有 frozen clipboard 時自動採用，空
+不得自動使用舊剪貼簿；Entry Panel 只在 unknown、不需放開修飾鍵、且已有 frozen
+clipboard 時自動採用。modifier_timeout 必須保持 failed/retry，auto use_clipboard
+零次；明確 UseEntryPanelClipboard 仍可採用凍結輸入，stale Panel ID 不生效。空
 clipboard 維持 retry。UIA worker 必須驗證同 HWND/PID 順序重用、64 次回收、
 換來源先退役、並發 overflow 隔離，以及逾時／取消／錯型／失敗後立即終止回收。
 原視窗 ancestry、virtual focus 與選取 range 變更必須丟棄結果。modifier gate
-必須證明在來源檢查與 probe 之前。Anki 灰卡測試須拒絕泛用 Python／寬鬆路徑，
+必須證明在來源檢查與唯讀 probe 之後，只保護有正面選取或 selection-only
+Copy 證據的相容路徑。none/selected 的 modifier 輪詢必須為零；held Copy
+逾時必須零 Copy、零 writes，放開後來源改變也不得 Copy。Anki 灰卡測試須拒絕泛用 Python／寬鬆路徑，
 且只在 inner card SetFocus 後的 MainWebView ancestry 授予 Copy。
 Entry Panel 必須驗證首次 projection 之前綁定來源，以及 frozen input 不被 live
 clipboard 變更取代。
@@ -479,9 +483,40 @@ RichTextBox 測試，涵蓋選取、重複相同選取與只有游標；不得�
 停止後拒絕新請求與晚到 process 清理；不讀取使用者來源或剪貼簿。
 停止的 2 秒是所有 worker 共用額度，必須涵蓋強制終止與退出確認；無法確認
 時回報失敗並保留 ownership，不得將 timeout 當成成功。
+退休失敗必須先解除 owned pointer，下一次 capture 使用新 worker；stop 仍回報
+失敗。retiring/cancelled 期間的空回應、例外與無效結果不得誤報引擎故障。
+AST 守門驗證 emit reasons 屬 core 封閉集合，app/UI/services 不比對 reason
+字串或維護第二個 reason 集合。朗讀通知須覆蓋四種 guidance 類別。
 
-`scripts/selection_reliability_gate.py` 每個 seed 執行 480 案 deterministic policy
-matrix 並輸出 JSONL；其延遲只屬 simulation，不得當作裝置證據。
+`scripts/selection_reliability_gate.py --iterations 3` 每個 seed 執行 480 案、
+27 場景 deterministic policy matrix，以 simulation monotonic/wait 取代真實
+sleep；跨次比較 outcome fingerprints，不同則 nondeterministic 並失敗。
+六項違規為 policy、clipboard_dirty、unknown_as_none、blind_copy、
+copy_while_held、text_mismatch；policy/exact rate 必須全對，六項皆零，p95
+小於 1 ms。all-none mutation 必須被拒絕且 unknown_as_none 大於零。
+`--cases` 不得小於 27。輸出只含 metadata/hash、reason_histogram 與計數；
+延遲只屬 simulation，不得當作裝置證據。必須先寫政策 oracle 的紅燈，再改 production。
+
+`scripts/selection_desktop_loop.py --mode auto --rounds 20` 是獨立装置證據：
+owned WinForms host 先取得前景焦點再設定選取，做一次不記錄、剪貼簿指紋不變的
+warmup，接著隨機輪替五狀態。held 只用 adapter modifier state，禁止合成按鍵。
+至少 100 案、held 全部 selected、剪貼簿全部保留、unknown_as_none 零次，
+p50 不超過 50 ms、p95 不超過 130 ms。
+`--mode attended --rounds 5` 才驗證實體 Alt 與主程式的熱鍵派送；四狀態含
+held_after_open，共 20 案。每案只讀 matching host window token 的新增 capture
+log bytes，15 秒內無紀錄就是失敗。實體操作後按 Esc，再點 host「下一案」；
+不得在尚未放開／關閉時自動換場景。使用本 checkout 的 `--log logs/clipai.log`，
+安裝版預設 `%LOCALAPPDATA%/ClipAI/logs/clipai.log`。Held 類全為 selected、
+no_capture_logged 零次、剪貼簿指紋不變才算通過。
+兩模式 exit 0/1/2/3 分別為 pass/fail/arguments/blocked；環境 blocked 不能算 pass。
+剪貼簿呼叫只有確切 Clipboard is busy 重試 20 次、間隔 0.25 秒，其他 OSError 冒泡；
+用盡回 blocked。finally 必須 probe.stop → host shutdown（兩秒後 kill）→
+restore_if_unchanged。所有 JSONL 必須拒絕三個測試 fixture 字串，保留失敗與部分
+案數，且不得記錄選取／剪貼簿原文。
+`scripts/branch_loop.ps1 -Step <step> [-Desktop]` 按階段保存 targeted、architecture、
+unit、policy 與可選 auto 結果，只追加 branch-loop.jsonl 並拒絕測試數下降。
+tracked selection-reliability.jsonl 只在最後階段更新。ADR-0021 的實測數字均連到
+已提交 JSONL，人工證據不能由 auto 代替。
 `scripts/selection_probe_content_free.py` 在互動桌面輸出 status/reason/capability/
 elapsed 與雜湊來源 identity，不記文字或 executable path。
 `scripts/popup_first_frame_benchmark.py` 建立 production Entry Panel／result Popup，
@@ -499,6 +534,11 @@ break hint、newline 與 canonical selection projection。Editable tests 必須�
 display hint、timer normalization 或重複 `<<Modified>>` binding；IME tests 必須驗證
 Headless false、zero context 與 native exception fail closed，並由 architecture test 阻止
 `ctypes`／`imm32` 外洩至 UI。
+`RenderedContent` 必須 immutable、Tk-free，from_plan 保留 segment canonical
+串接的尾端換行，無 plan 使用 fallback_text，appended 不保留舊 segments。
+唯讀 semantic_content 的 widget.get 必須可設為 pytest.fail；只有 Voice Draft
+editing callback 存在時可讀 widget 並 strip hints。Editing 切換不清 block ranges。
+Entry × 的實際 Tk smoke 驗證 Popup 同款樣式、Esc tooltip 與 close intent。
 
 `integration` marker 表示測試會碰真實外部世界，例如：
 

@@ -76,8 +76,13 @@ tests/              # Unit sims 與 integration tests
   進入該 model。Baseline Action availability 不得覆寫 `PopupControl` 擁有的
   in-flight/ack enable 與 pulse。
 - Popup 內容由 services 的 Markdown parser 產生 canonical `PresentationDocument`，再由
-  Tk-free `ui/presentation_render.py` 建立 render plan 與 canonical selection segments；
-  `BaseResultSurface` 只 apply plan，不得擁有第二套 Markdown regex。可編輯 Voice Draft
+  Tk-free `ui/presentation_render.py` 建立 render plan，再以 immutable `RenderedContent`
+  擁有 canonical text、selection segments 與 block ranges；`BaseResultSurface` 只持有
+  `_rendered_content` 並 apply plan，不得擁有第二套 Markdown regex 或平行內容欄位。
+  唯讀 semantic_content／Copy 不得從 widget 重建 canonical；只有
+  `_editable_content_changed` 存在的 Voice Draft 編輯路徑可讀 widget 並去除 display hints。
+  Plan 的 canonical 保留 segment 串接的尾端換行；fallback 使用 document.fallback_text。
+  append 回傳沒有舊 selection segments 的新內容模型。可編輯 Voice Draft
   永遠保存 canonical、零 display-hint 文字；display break hints 只存在於 read-only 呈現。
 - Entry Panel 的 `Esc` 永遠是 close/cancel-preparation；`EntryPanelBack` 才是
   More → scene → root 導覽，root no-op。Preparing 是 option-level neutral pending，
@@ -245,9 +250,11 @@ neutral message，UI 不建立第二套等待 timer 或 focus policy。詳見
 Selection evidence follows `docs/contracts/services/selection-capture-contract.md`
 and ADR-0014. `SelectionCaptureCoordinator` owns source-bound typed captures;
 `InputResolver` owns shared fallback from confirmed `none` or an unconfigured
-selection adapter. `EntryPanelRuntimeModule` owns the sole surface-specific
-exception: unknown plus an available frozen clipboard automatically selects that
-frozen input; every direct consumer remains fail-closed. Resolved fallback
+selection adapter. The sole Entry-specific exception is decided by
+`services.entry_input_preview.allows_entry_panel_clipboard_fallback`: unknown,
+not needing modifier release, and available frozen clipboard. Runtime applies
+that decision; `modifier_timeout` retains failed/retry feedback and an explicit
+clipboard intent. Every direct consumer remains fail-closed. Resolved fallback
 documents explicitly identify `clipboard` as their source. Native UIA is isolated
 in `platform`; one source-bound worker is reused for at most 64 sequential requests,
 while overlap uses an isolated overflow process. The probe is an app-owned
@@ -261,14 +268,27 @@ across all workers. Unconfirmed cleanup is reported and remains owned, including
 late process creation. Native detection emits explicit worker reuse evidence;
 transport must not infer lifecycle from diagnostic reason strings. This private
 platform metadata does not change the core selection outcome interface.
+Owned-worker retirement detaches the reusable pointer before attempting cleanup.
+An unconfirmed retired worker remains in that registry for stop, while a later
+capture can create a new worker. Stop still reports unconfirmed cleanup; replies
+interrupted during retirement/cancellation are cancelled rather than faults.
 
 `SelectionCaptureCoordinator` is the only owner of the physical modifier-release
-gate and enforces modifier-release → source-current → probe. A platform adapter
+gate and enforces source-current → read-only probe → source rebase/validation →
+authorized Copy's modifier-release gate → final source validation → clipboard
+transaction. Read-only selected/none/unsupported-without-Copy paths never poll
+modifiers. The gate's deadline is unchanged. A platform adapter
 may restore focus only inside a verified source and reports the immutable
 `focus_restored` capability; source-specific widget identity and focus target
 remain in a single platform profile decision, while the generic UIA worker only
 executes its immutable repair plan. Services re-baseline the same HWND/PID before
 staleness checks. UI, clipboard transactions and callers do not own this policy.
+
+Core alone owns `SelectionReason`, its full guidance-category mapping and
+`SelectionCaptureOutcome.classification`. Services derive Entry fallback and
+speech guidance from that typed policy; app/UI do not compare reason strings or
+duplicate reason collections. The existing wire strings and log format remain
+unchanged. See ADR-0021 and the selection-capture contract for the fixed order.
 
 Direct visible Actions share `InputResolver.prepare_input` and `PreparedInput`
 with Entry Panel. `WorkflowController` exclusively owns the waiting clipboard
