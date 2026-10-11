@@ -57,9 +57,6 @@ class SelectionCaptureCoordinator:
             source = bound.source
             if source is None:
                 return outcome
-            outcome = self._wait_for_modifier_release(cancellation)
-            if outcome is not None:
-                return outcome
             if not self._probe.source_is_current(source):
                 outcome = SelectionCaptureOutcome(reason="source_changed")
                 return outcome
@@ -67,7 +64,10 @@ class SelectionCaptureCoordinator:
             focus_restored = outcome.focus_restored
             if cancellation is not None and cancellation.is_cancelled:
                 outcome = SelectionCaptureOutcome(status="cancelled")
-            elif outcome.focus_restored:
+                return outcome
+            if outcome.status == 'cancelled':
+                return outcome
+            if outcome.focus_restored:
                 rebased = self._probe.capture_source(source.window)
                 if (
                     rebased is None
@@ -75,13 +75,24 @@ class SelectionCaptureCoordinator:
                     or rebased.window.process_id != source.window.process_id
                 ):
                     outcome = SelectionCaptureOutcome(reason="source_changed", strategy="uia")
+                    return outcome
                 else:
                     source = rebased
-            if outcome.status != "cancelled" and outcome.reason != "source_changed" and not self._probe.source_is_current(source):
+            if not self._probe.source_is_current(source):
                 outcome = SelectionCaptureOutcome(reason="source_changed", strategy="uia")
-            elif outcome.status == "unknown" and (
+                return outcome
+            copy_allowed = outcome.status == "unknown" and (
                 outcome.selection_detected or outcome.copy_selection_only
-            ):
+            )
+            if copy_allowed:
+                blocked = self._wait_for_modifier_release(cancellation)
+                if blocked is not None:
+                    outcome = blocked
+                    return outcome
+            if not self._probe.source_is_current(source):
+                outcome = SelectionCaptureOutcome(reason="source_changed", strategy="uia")
+                return outcome
+            if copy_allowed:
                 # An unsupported editor may copy its entire current line.
                 # Require positive selection evidence or a verified source whose
                 # Copy command cannot substitute unselected document/line text.
@@ -109,6 +120,8 @@ class SelectionCaptureCoordinator:
     ) -> SelectionCaptureOutcome | None:
         deadline = time.monotonic() + self._modifier_release_timeout_sec
         while True:
+            if cancellation is not None and cancellation.is_cancelled:
+                return SelectionCaptureOutcome(status="cancelled")
             pressed = tuple(
                 self._adapter.modifier_is_pressed(key) is True
                 for key in _MODIFIER_KEYS

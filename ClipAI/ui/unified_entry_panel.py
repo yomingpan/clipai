@@ -22,6 +22,7 @@ from ClipAI.ui.ime_composition import install_ime_composition_font
 from ClipAI.ui.base_dialog import (
     ACTION_COLOR,
     ACTION_HOVER_COLOR,
+    ACTION_ICON_FONT_FAMILY,
     CONTENT_COLOR,
     MODEL_COLOR,
     POPUP_FONT_SIZES,
@@ -190,7 +191,7 @@ class UnifiedEntryPanelDialog:
             corner_radius=7,
             fg_color="transparent",
             hover_color="#3A3A3A",
-            text_color=CONTENT_COLOR,
+            text_color='#8A8A8A',
             command=self._intent.back,
         )
         self._back_button.grid(row=0, column=0, padx=(0, 8), sticky="w")
@@ -219,22 +220,23 @@ class UnifiedEntryPanelDialog:
         )
         self._escape_button = ctk.CTkButton(
             header,
-            text="Esc 關閉",
-            width=74,
-            height=28,
-            corner_radius=7,
-            border_width=1,
-            border_color="#4A4A4A",
-            fg_color="transparent",
+            text='\u00d7',
+            width=18,
+            height=18,
+            corner_radius=9,
+            border_width=0,
+            fg_color=SURFACE_BG,
             hover_color="#3A3A3A",
-            text_color=CONTENT_COLOR,
+            text_color='#8A8A8A',
             font=ctk.CTkFont(
-                family=TC_FONT_FAMILY,
-                size=POPUP_FONT_SIZES["auxiliary"],
+                family=ACTION_ICON_FONT_FAMILY,
+                size=10,
+                weight='bold',
             ),
             command=self._intent.close,
         )
         self._escape_button.grid(row=0, column=3, sticky="e")
+        self._escape_tooltip = _Tooltip(self._escape_button, 'Esc 關閉', self._schedule_lifecycle)
 
         source_row = ctk.CTkFrame(self._shell, fg_color="transparent")
         source_row.grid(row=1, column=0, padx=16, pady=(0, 7), sticky="ew")
@@ -337,6 +339,7 @@ class UnifiedEntryPanelDialog:
     def close(self) -> None:
         self._cancel_key_hold()
         self._density_tooltip._hide()
+        self._escape_tooltip._hide()
         self._schedule_lifecycle.cancel_scheduled()
         self._snapshot = None
 

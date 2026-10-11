@@ -14,7 +14,7 @@ from ClipAI.core.popup_presentation import PopupPresentationModel
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
-from ClipAI.ui.presentation_render import RenderSelectionSegment, build_popup_render_plan, project_selection_text
+from ClipAI.ui.presentation_render import RenderedContent, RenderSelectionSegment, build_popup_render_plan, project_selection_text
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
 
 DialogState = Literal["idle", "success", "error", "warning"]
@@ -1570,10 +1570,10 @@ class BaseResultSurface:
         )
         install_ime_halfwidth_punctuation_fix(self.content_text)
         install_select_all_shortcut(self.content_text)
-        self._selection_block_ranges: tuple[tuple[int, int], ...] = ()
+        self._rendered_content = RenderedContent()
         install_script_aware_word_selection(
             self.content_text,
-            block_ranges=lambda: self._selection_block_ranges,
+            block_ranges=lambda: self._rendered_content.block_ranges,
         )
         self._install_content_context_menu()
         self.content_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 2))
@@ -2152,8 +2152,7 @@ class BaseResultSurface:
     def set_content_chunks(self, chunks: list[tuple[str, str]]) -> None:
         self._editable_content_changed = None
         self.content_text.unbind("<<Modified>>")
-        self._canonical_selection_segments = ()
-        self._selection_block_ranges = ()
+        self._rendered_content = RenderedContent.from_chunks(chunks)
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         for text, tag in chunks:
@@ -2168,8 +2167,7 @@ class BaseResultSurface:
         caret_offset: int | None = None,
     ) -> None:
         """Render canonical Voice draft text and apply explicit insertion placement."""
-        self._canonical_selection_segments = ()
-        self._selection_block_ranges = ()
+        self._rendered_content = RenderedContent.editable(text)
         self._editable_content_changed = on_changed
         self.content_text.unbind("<<Modified>>")
         self.content_text.configure(state="normal")
@@ -2208,14 +2206,12 @@ class BaseResultSurface:
         if editing:
             self.content_text.configure(state="normal")
             self._strip_break_hints_for_editing()
-            self._selection_block_ranges = ()
             if self._editable_content_changed is not None:
                 self.content_text.unbind("<<Modified>>")
                 self.content_text.bind("<<Modified>>", self._notify_editable_content_changed)
             return
         self.content_text.unbind("<<Modified>>")
         self._apply_break_hints_for_reading()
-        self._selection_block_ranges = ()
         self.content_text.configure(state="disabled")
 
     def _strip_break_hints_for_editing(self) -> None:
@@ -2245,6 +2241,8 @@ class BaseResultSurface:
             return
 
     def semantic_content(self) -> str:
+        if getattr(self, '_editable_content_changed', None) is None:
+            return getattr(self, '_rendered_content', RenderedContent()).canonical_text
         try:
             return strip_display_break_hints(self.content_text.get("1.0", "end-1c"))
         except (tk.TclError, AttributeError):
@@ -2277,13 +2275,14 @@ class BaseResultSurface:
             pass
         callback = self._editable_content_changed
         if callback is not None:
-            callback(self.semantic_content())
+            text = self.semantic_content()
+            self._rendered_content = RenderedContent.editable(text)
+            callback(text)
 
     def append_content_text(self, text: str, tag: str = "body") -> None:
         if not text:
             return
-        self._canonical_selection_segments = ()
-        self._selection_block_ranges = ()
+        self._rendered_content = getattr(self, '_rendered_content', RenderedContent()).appended(text)
         try:
             at_bottom = self.content_text.yview()[1] >= 0.999
         except (tk.TclError, AttributeError, IndexError):
@@ -2298,6 +2297,7 @@ class BaseResultSurface:
                 pass
 
     def set_presentation_document(self, document: PresentationDocument) -> None:
+        self._editable_content_changed = None
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         self._list_indent_prefixes.clear()
@@ -2306,21 +2306,13 @@ class BaseResultSurface:
             for tag, prefix in plan.indent_prefixes:
                 self._list_indent_prefixes[tag] = prefix
                 configure_hanging_indent(self.content_text, tag, prefix)
-            block_start = 0
-            widget_offset = 0
-            block_ranges: list[tuple[int, int]] = []
             for step in plan.steps:
                 self.content_text.insert("end", step.text, step.tags)
-                widget_offset += len(step.text)
-                if step.kind == "newline":
-                    block_ranges.append((block_start, widget_offset))
-                    block_start = widget_offset
         except (tk.TclError, ValueError):
             plan = None
             self.content_text.delete("1.0", "end")
             insert_display_text(self.content_text, "end", document.fallback_text, "body")
-        self._canonical_selection_segments = () if plan is None else plan.selection_segments
-        self._selection_block_ranges = () if plan is None else tuple(block_ranges)
+        self._rendered_content = RenderedContent.from_plan(document, plan)
         self.content_text.configure(state="disabled")
 
     def _reapply_list_indents(self) -> None:
@@ -2334,14 +2326,13 @@ class BaseResultSurface:
                 leading=True,
                 trailing=True,
             )
-            segments = getattr(self, "_canonical_selection_segments", ())
-            if segments:
+            content = getattr(self, '_rendered_content', RenderedContent())
+            if content.selection_segments:
                 before_selection = strip_display_break_hint_boundaries(
                     self.content_text.get("1.0", "sel.first"),
                     trailing=True,
                 )
-                selected = project_selection_text(
-                    segments,
+                selected = content.project_selection(
                     len(before_selection),
                     len(before_selection) + len(selected_display),
                 )

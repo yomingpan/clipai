@@ -1624,8 +1624,17 @@ def test_global_speech_command_is_supervised_without_creating_session() -> None:
     assert speech.calls == ["run"]
 
 
-@pytest.mark.parametrize("reason", ["unsupported", "timeout", "source_changed", "cancelled"])
-def test_global_speech_unknown_selection_reports_failure_without_breaking_pump(reason) -> None:
+@pytest.mark.parametrize('reason,advice', [
+    ('uia_unsupported', '請先反白一段文字，或改用剪貼簿。'),
+    ('uia_timeout', '建議重新開啟 ClipAI。'),
+    ('uia_text_failed', '建議重新開啟 ClipAI。'),
+    ('uia_provider_failed', '建議重新開啟 ClipAI。'),
+    ('uia_focus_restore_failed', '建議重新開啟 ClipAI。'),
+    ('source_changed', '請點回原本的視窗後再試一次。'),
+    ('modifier_timeout', '請先放開 Ctrl／Alt 等按鍵，再試一次。'),
+    ('cancelled', ''),
+])
+def test_global_speech_unknown_selection_reports_failure_without_breaking_pump(reason, advice) -> None:
     from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest
     from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
 
@@ -1667,7 +1676,8 @@ def test_global_speech_unknown_selection_reports_failure_without_breaking_pump(r
         assert notifier.messages == []
     else:
         assert "無法確認反白內容" in view.output_results[-1].error.message
-        assert "無法確認反白內容" in notifier.messages[-1][1]
+        assert notifier.messages[-1][1].startswith('讀不到反白的文字：')
+        assert advice in notifier.messages[-1][1]
     assert speech.current_identity is None
     assert view.snapshots == []
 

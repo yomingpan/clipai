@@ -80,6 +80,14 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         )
         master.update()
 
+        assert dialog._escape_button.cget('text') == '\u00d7'
+        assert dialog._escape_button.cget('width') == dialog._escape_button.cget('height') == 18
+        assert dialog._escape_button.cget('corner_radius') == 9
+        assert dialog._escape_button.cget('border_width') == 0
+        assert dialog._escape_button.cget('text_color') == '#8A8A8A'
+        assert dialog._back_button.cget('text_color') == '#8A8A8A'
+        assert dialog._escape_tooltip.text == 'Esc 關閉'
+
         assert dialog._use_clipboard_button.winfo_ismapped()
         assert (
             dialog._use_clipboard_button.winfo_rootx() + dialog._use_clipboard_button.winfo_width()
@@ -687,11 +695,14 @@ def test_reclaim_cancels_only_panel_scheduled_work_without_closing_shared_host()
         (),
         {"_hide": lambda _self: events.append("tooltip-hidden")},
     )()
+    dialog._escape_tooltip = type(
+        'Tooltip', (), {'_hide': lambda _self: events.append('escape-tooltip-hidden')}
+    )()
 
     dialog.close()
 
     assert dialog._snapshot is None
-    assert events == ["tooltip-hidden", "panel-jobs-cancelled"]
+    assert events == ["tooltip-hidden", 'escape-tooltip-hidden', "panel-jobs-cancelled"]
 
 
 def test_close_releases_projection_without_destroying_shared_host() -> None:
@@ -714,9 +725,12 @@ def test_close_releases_projection_without_destroying_shared_host() -> None:
     dialog._density_tooltip = type(
         "Tooltip", (), {"_hide": lambda _self: events.append("tooltip-hidden")}
     )()
+    dialog._escape_tooltip = type(
+        'Tooltip', (), {'_hide': lambda _self: events.append('escape-tooltip-hidden')}
+    )()
     dialog._snapshot = object()
 
     dialog.close()
 
-    assert events == ["tooltip-hidden", "cancelled"]
+    assert events == ["tooltip-hidden", 'escape-tooltip-hidden', "cancelled"]
     assert dialog._snapshot is None

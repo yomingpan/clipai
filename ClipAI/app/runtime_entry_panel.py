@@ -33,7 +33,7 @@ from ClipAI.core.ports import EntryPanelPresenter, ExternalWindowActivator
 from ClipAI.core.state import CancellationToken
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.entry_panel import EntryPanelCoordinator
-from ClipAI.services.entry_input_preview import build_entry_input_preview
+from ClipAI.services.entry_input_preview import build_entry_input_preview, allows_entry_panel_clipboard_fallback
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.input_target_resolver import InputTargetResolver
 from ClipAI.services.recent_actions import RecentActionHistory
@@ -335,14 +335,7 @@ class EntryPanelRuntimeModule:
             return
         self._task_id = None
         prepared = command.prepared_input
-        if (
-            prepared.selection_outcome is not None
-            and prepared.selection_outcome.status == "unknown"
-            and (
-                prepared.clipboard_text_document is not None
-                or prepared.clipboard_image is not None
-            )
-        ):
+        if allows_entry_panel_clipboard_fallback(prepared):
             prepared = prepared.use_clipboard()
         self._prepared_input = prepared
         self._coordinator.complete_input_preparation(

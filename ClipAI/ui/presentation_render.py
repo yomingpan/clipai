@@ -35,6 +35,45 @@ class PopupRenderPlan:
     indent_prefixes: tuple[tuple[str, str], ...]
 
 
+@dataclass(frozen=True)
+class RenderedContent:
+    """Canonical content plus immutable read-only selection projections."""
+
+    canonical_text: str = ''
+    selection_segments: tuple[RenderSelectionSegment, ...] = ()
+    block_ranges: tuple[tuple[int, int], ...] = ()
+
+    @classmethod
+    def from_chunks(cls, chunks: list[tuple[str, str]]) -> RenderedContent:
+        return cls(''.join(text for text, _tag in chunks))
+
+    @classmethod
+    def from_plan(cls, document: PresentationDocument, plan: PopupRenderPlan | None) -> RenderedContent:
+        if plan is None:
+            return cls(document.fallback_text)
+        start = offset = 0
+        ranges = []
+        for step in plan.steps:
+            offset += len(step.text)
+            if step.kind == 'newline':
+                ranges.append((start, offset))
+                start = offset
+        return cls(
+            ''.join(segment.canonical_text for segment in plan.selection_segments),
+            plan.selection_segments, tuple(ranges),
+        )
+
+    @classmethod
+    def editable(cls, text: str) -> RenderedContent:
+        return cls(text)
+
+    def appended(self, text: str) -> RenderedContent:
+        return RenderedContent(self.canonical_text + text)
+
+    def project_selection(self, start: int, end: int) -> str:
+        return project_selection_text(self.selection_segments, start, end)
+
+
 def build_popup_render_plan(document: PresentationDocument) -> PopupRenderPlan:
     steps: list[RenderStep] = []
     segments: list[RenderSelectionSegment] = []

@@ -6,7 +6,30 @@ import pytest
 
 from ClipAI.core.models import SelectionCaptureOutcome, ImageContent, InputDocument, PreparedInput
 from ClipAI.services.input_resolver import InputResolver
-from ClipAI.services.entry_input_preview import build_entry_input_preview
+from ClipAI.services.entry_input_preview import build_entry_input_preview, allows_entry_panel_clipboard_fallback
+
+
+@pytest.mark.parametrize('reason,allowed', [('uia_unsupported', True), ('uia_no_ranges', True), ('source_changed', True), ('modifier_timeout', False)])
+@pytest.mark.parametrize('kind', ['text', 'image', 'empty'])
+def test_entry_fallback_requires_frozen_content_and_no_modifier_release(reason, allowed, kind):
+    prepared = PreparedInput(selection_outcome=SelectionCaptureOutcome(reason=reason),
+        clipboard_text_document=InputDocument('original', 'clipboard') if kind == 'text' else None,
+        clipboard_image=ImageContent(b'png', 'image/png') if kind == 'image' else None)
+    assert allows_entry_panel_clipboard_fallback(prepared) is (allowed and kind != 'empty')
+    if reason == 'modifier_timeout':
+        preview = build_entry_input_preview(prepared)
+        assert preview.kind == 'failed'
+        assert preview.summary == '請先放開按鍵，再按重試。'
+        assert preview.clipboard_override_available is (kind != 'empty')
+        if kind != 'empty':
+            assert build_entry_input_preview(prepared.use_clipboard()).kind == 'clipboard_' + kind
+
+
+@pytest.mark.parametrize('status', ['none', 'unavailable', 'cancelled', 'selected'])
+def test_entry_unknown_exception_never_changes_other_statuses(status):
+    outcome = SelectionCaptureOutcome('selected' if status == 'selected' else '', status)
+    prepared = PreparedInput(selection_outcome=outcome, clipboard_text_document=InputDocument('old', 'clipboard'))
+    assert allows_entry_panel_clipboard_fallback(prepared) is False
 
 
 class Clipboard:

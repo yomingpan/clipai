@@ -62,6 +62,43 @@ from ClipAI.ui.base_dialog import (
     _canonical_selection_text,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
+from ClipAI.ui.presentation_render import RenderedContent
+
+
+def test_read_only_semantic_content_never_reconstructs_from_widget():
+    from ClipAI.ui.presentation_render import RenderedContent
+    class Widget:
+        def get(self, *args):
+            pytest.fail('read-only canonical content must not read widget')
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Widget()
+    surface._rendered_content = RenderedContent.from_chunks([('# Canonical\n', 'body')])
+    surface._editable_content_changed = None
+    assert surface.semantic_content() == '# Canonical\n'
+
+
+def test_editable_semantic_content_reads_live_widget_and_strips_hints():
+    class Widget:
+        def get(self, *args):
+            return 'live' + DISPLAY_BREAK_HINT + ' draft'
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Widget()
+    surface._editable_content_changed = lambda _: None
+    assert surface.semantic_content() == 'live draft'
+
+
+def test_editing_toggle_preserves_rendered_block_ranges():
+    from ClipAI.ui.presentation_render import RenderedContent
+    class Widget:
+        def configure(self, **kwargs): pass
+        def unbind(self, *args): pass
+    surface = BaseResultSurface.__new__(BaseResultSurface)
+    surface.content_text = Widget()
+    surface._editable_content_changed = None
+    surface._rendered_content = RenderedContent('original', block_ranges=((0, 8),))
+    surface.set_voice_draft_editing(True)
+    surface.set_voice_draft_editing(False)
+    assert surface._rendered_content.block_ranges == ((0, 8),)
 
 
 def test_ime_halfwidth_punctuation_fix_inserts_only_mismapped_printable_characters() -> None:
@@ -506,7 +543,7 @@ def test_voice_draft_content_refresh_preserves_the_current_caret() -> None:
 
     surface = BaseResultSurface.__new__(BaseResultSurface)
     surface.content_text = ContentText()
-    surface._canonical_selection_segments = ()
+    surface._rendered_content = RenderedContent()
 
     surface.set_editable_content("new authoritative draft", lambda _text: None)
 
@@ -551,7 +588,7 @@ def test_finalized_voice_insertion_moves_caret_to_inserted_text_end() -> None:
 
     surface = BaseResultSurface.__new__(BaseResultSurface)
     surface.content_text = ContentText()
-    surface._canonical_selection_segments = ()
+    surface._rendered_content = RenderedContent()
 
     surface.set_editable_content(
         "first second",
@@ -1392,7 +1429,7 @@ def test_presentation_surface_records_whole_multiline_blocks_for_triple_click() 
 
     blocks = tuple(
         strip_display_break_hints(surface.content_text.text[start:end]).strip()
-        for start, end in surface._selection_block_ranges
+        for start, end in surface._rendered_content.block_ranges
     )
     assert blocks == ("Title", "first\nnext", "• item")
 
@@ -1410,9 +1447,9 @@ def test_presentation_surface_projects_double_clicked_word_without_partial_break
 
     surface = BaseResultSurface.__new__(BaseResultSurface)
     surface.content_text = Textbox()
-    surface._canonical_selection_segments = (
+    surface._rendered_content = RenderedContent(selection_segments=(
         _CanonicalSelectionSegment(0, "prefix appetizer pronunciation", "prefix appetizer pronunciation"),
-    )
+    ))
 
     assert surface.selected_text() == "appetizer"
 
@@ -1425,7 +1462,7 @@ def test_surface_selection_keeps_selected_boundary_whitespace() -> None:
 
     surface = BaseResultSurface.__new__(BaseResultSurface)
     surface.content_text = Textbox()
-    surface._canonical_selection_segments = ()
+    surface._rendered_content = RenderedContent()
 
     assert surface.selected_text() == " first line\n"
 

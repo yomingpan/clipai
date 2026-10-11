@@ -366,10 +366,11 @@ def test_entry_panel_action_trace_links_panel_to_admitted_workflow(caplog) -> No
     assert "press_type=short" in trace
 
 
-def test_unknown_capture_auto_uses_frozen_clipboard_only_in_entry_panel():
+@pytest.mark.parametrize('reason', ['uia_unsupported', 'uia_no_ranges', 'source_changed'])
+def test_unknown_capture_auto_uses_frozen_clipboard_only_in_entry_panel(reason):
     inputs = Inputs(PreparedInput(
         clipboard_text_document=InputDocument("original clipboard", "clipboard"),
-        selection_outcome=SelectionCaptureOutcome(reason="uia_unsupported"),
+        selection_outcome=SelectionCaptureOutcome(reason=reason),
     ))
     module, coordinator, presenter, supervisor, workflows, activator, _, commands, _ = make_module(input_resolver=inputs)
     panel_id = module.open().panel_id
@@ -381,6 +382,37 @@ def test_unknown_capture_auto_uses_frozen_clipboard_only_in_entry_panel():
     inputs.prepared = PreparedInput(clipboard_text_document=InputDocument("changed", "clipboard"))
     module.select_action(EntryActionRef("shorten_content", "short"))
     assert workflows.starts[-1][3].document.text == "original clipboard"
+    assert inputs.calls == 1
+
+
+def test_modifier_timeout_requires_explicit_frozen_clipboard_intent(monkeypatch):
+    prepared = PreparedInput(
+        clipboard_text_document=InputDocument('original clipboard', 'clipboard'),
+        selection_outcome=SelectionCaptureOutcome(reason='modifier_timeout'))
+    choices = []
+    original = PreparedInput.use_clipboard
+    def choose(value):
+        choices.append(value)
+        return original(value)
+    monkeypatch.setattr(PreparedInput, 'use_clipboard', choose)
+    inputs = Inputs(prepared)
+    module, coordinator, _, supervisor, workflows, _, _, commands, _ = make_module(input_resolver=inputs)
+    panel_id = module.open().panel_id
+    complete_external_preparation(module, supervisor, commands)
+    preview = coordinator.snapshot.source_preview
+    assert preview.kind == 'failed'
+    assert preview.summary == '請先放開按鍵，再按重試。'
+    assert preview.clipboard_override_available
+    assert choices == []
+    module.handle(UseEntryPanelClipboard('stale-panel'))
+    assert choices == []
+    assert coordinator.snapshot.source_preview == preview
+    inputs.prepared = PreparedInput(clipboard_text_document=InputDocument('changed', 'clipboard'))
+    module.handle(UseEntryPanelClipboard(panel_id))
+    assert choices == [prepared]
+    assert coordinator.snapshot.source_preview.kind == 'clipboard_text'
+    module.select_action(EntryActionRef('shorten_content', 'short'))
+    assert workflows.starts[-1][3].document.text == 'original clipboard'
     assert inputs.calls == 1
 
 

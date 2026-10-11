@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -15,6 +16,9 @@ from typing import Any
 from ClipAI.core.models import ExternalWindowRef, SelectionCaptureOutcome, SelectionSource
 from ClipAI.core.state import CancellationToken
 from ClipAI.platform.win32_api import configure_win32_api
+
+
+logger = logging.getLogger('clipai.selection')
 
 
 class _GuiThreadInfo(ctypes.Structure):
@@ -176,18 +180,21 @@ class WindowsSelectionProbe:
             text=True, encoding="utf-8", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
 
-    def _retire_worker(self, worker: _WorkerProcess) -> None:
+    def _retire_worker(self, worker: _WorkerProcess) -> bool:
         if not worker.retire(time.monotonic() + 2.0):
-            raise RuntimeError("Selection worker cleanup could not confirm process exit")
+            logger.warning("Selection worker cleanup could not confirm process exit")
+            return False
         with self._lifecycle_lock:
             self._workers.discard(worker)
+        return True
 
     def _retire_owned(self) -> None:
-        if self._owned_worker is not None:
-            self._retire_worker(self._owned_worker)
+        worker = self._owned_worker
         self._owned_worker = None
         self._owned_source = None
         self._owned_requests = 0
+        if worker is not None and not self._retire_worker(worker) and self._stopped.is_set():
+            raise RuntimeError("Selection worker cleanup could not confirm process exit")
 
 
 def _request_payload(source: SelectionSource) -> str:
@@ -256,6 +263,8 @@ class _WorkerProcess:
                 except queue.Empty:
                     continue
                 if isinstance(response, Exception) or not response:
+                    if self._retiring.is_set() or (cancellation is not None and cancellation.is_cancelled):
+                        return SelectionCaptureOutcome(status="cancelled", strategy="uia"), False
                     return SelectionCaptureOutcome(reason="uia_worker_failed", strategy="uia"), False
                 payload = json.loads(response)
                 break
@@ -280,6 +289,8 @@ class _WorkerProcess:
                 return SelectionCaptureOutcome(status="cancelled", strategy="uia"), False
             return outcome, payload["worker_reusable"]
         except Exception:
+            if self._retiring.is_set() or (cancellation is not None and cancellation.is_cancelled):
+                return SelectionCaptureOutcome(status="cancelled", strategy="uia"), False
             return SelectionCaptureOutcome(reason="uia_invalid_result", strategy="uia"), False
 
     def begin_retirement(self) -> None:

@@ -19,6 +19,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from ClipAI.services.presentation import MarkdownPresentationParser
+from ClipAI.ui.presentation_render import RenderedContent
 from ClipAI.ui.base_dialog import (
     BaseResultSurface,
     _PresentationTextbox,
@@ -81,7 +82,7 @@ def _run_case(root: ctk.CTk, case: str, mode: str, repeat: int, start: int) -> V
         surface = BaseResultSurface.__new__(BaseResultSurface)
         widget = _new_textbox(root, "alpha beta", mode)
         surface.content_text = widget
-        surface._canonical_selection_segments = ()
+        surface._rendered_content = RenderedContent()
         surface._install_content_context_menu()
         copied: list[str] = []
         surface.bind_content_context_copy(lambda: copied.append(surface.selected_text() or ""))
@@ -126,10 +127,10 @@ def _run_case(root: ctk.CTk, case: str, mode: str, repeat: int, start: int) -> V
         passed = events == ["typed_copy"]
     elif case == "rendered_block":
         surface = BaseResultSurface.__new__(BaseResultSurface)
-        surface._selection_block_ranges = ()
+        surface._rendered_content = RenderedContent()
         widget = _new_textbox(
             root, "", "normal",
-            block_ranges=lambda: surface._selection_block_ranges,
+            block_ranges=lambda: surface._rendered_content.block_ranges,
         )
         surface.content_text = widget
         surface._list_indent_prefixes = {}
@@ -146,8 +147,7 @@ def _run_case(root: ctk.CTk, case: str, mode: str, repeat: int, start: int) -> V
         passed = actual == expected
     elif case == "voice_mode_transition":
         surface = BaseResultSurface.__new__(BaseResultSurface)
-        surface._canonical_selection_segments = ()
-        surface._selection_block_ranges = ()
+        surface._rendered_content = RenderedContent()
         widget = _new_textbox(root, "", "normal")
         surface.content_text = widget
         surface.set_editable_content(

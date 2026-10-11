@@ -16,6 +16,7 @@ from ClipAI.services.output_operation import OutputOperationCoordinator, paste_o
 from ClipAI.services.paste_target import PasteTargetCoordinator
 from ClipAI.services.paste_operation import PasteOperationCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
+from ClipAI.services.selection_feedback import selection_failure_guidance
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.services.user_control import UserControlCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
@@ -451,7 +452,10 @@ class ResultOutputRuntimeModule:
             if current and controller is not None:
                 controller.set_speaking(False)
             if current and intent.workflow_id == "global" and self._notifier is not None:
-                self._notifier.notify("ClipAI 朗讀", str(exc))
+                reason = getattr(exc, 'reason', '')
+                self._notifier.notify(
+                    "ClipAI 朗讀", selection_failure_guidance(reason) if reason else str(exc),
+                )
             logger.info("Speech input unavailable operation_id=%s reason=%s",
                         intent.operation_id, getattr(exc, "reason", exc.code))
             return

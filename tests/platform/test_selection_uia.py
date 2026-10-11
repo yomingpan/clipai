@@ -19,6 +19,102 @@ from ClipAI.platform import selection_uia_worker as worker
 SOURCE = SelectionSource(ExternalWindowRef("hwnd:1", 42, 0), "hwnd:2")
 
 
+def test_unconfirmed_retirement_detaches_dead_worker_and_next_capture_spawns(monkeypatch, caplog):
+    from ClipAI.platform.selection_uia import _WorkerProcess
+    processes = []
+    def launch(*args, **kwargs):
+        process = Process({'status': 'none', 'worker_reusable': bool(processes)})
+        processes.append(process)
+        return process
+    original_retire = _WorkerProcess.retire
+    def retire(worker, deadline):
+        # Simulate an OS cleanup that cannot confirm exit; no real processes.
+        if worker._process is processes[0]:
+            return False
+        return original_retire(worker, deadline)
+    monkeypatch.setattr(_WorkerProcess, 'retire', retire)
+    probe = WindowsSelectionProbe(process_factory=launch)
+    try:
+        assert probe.probe(SOURCE, None).status == 'none'
+        assert probe._owned_worker is None
+        assert len(probe._workers) == 1
+        old_worker = next(iter(probe._workers))
+        assert probe.probe(SOURCE, None).status == 'none'
+        assert len(processes) == 2
+        assert probe._owned_worker is not None
+        assert probe._owned_worker is not old_worker
+        assert old_worker in probe._workers
+        assert len(probe._workers) == 2
+        assert 'could not confirm' in caplog.text
+        with pytest.raises(RuntimeError, match='cleanup'):
+            probe.stop()
+        assert probe.probe(SOURCE, None).status == 'cancelled'
+    finally:
+        monkeypatch.setattr(_WorkerProcess, 'retire', original_retire)
+        probe.stop()
+
+
+def test_retirement_failure_during_stop_remains_an_error(monkeypatch):
+    from ClipAI.platform.selection_uia import _WorkerProcess
+    entered, release = threading.Event(), threading.Event()
+    process = Process(blocked=True)
+    original_retire = _WorkerProcess.retire
+    def retire(worker, deadline):
+        entered.set()
+        release.wait(1)
+        return False
+    monkeypatch.setattr(_WorkerProcess, 'retire', retire)
+    probe = WindowsSelectionProbe(timeout_sec=.01, process_factory=lambda *a, **k: process)
+    failures = []
+    def capture():
+        try:
+            probe.probe(SOURCE, None)
+        except RuntimeError as error:
+            failures.append(error)
+    thread = threading.Thread(target=capture)
+    thread.start()
+    try:
+        assert entered.wait(1)
+        # Close admission before the owned cleanup returns its failure.
+        probe._stopped.set()
+        release.set()
+        thread.join(1)
+        assert len(failures) == 1
+        assert probe._owned_worker is None
+    finally:
+        release.set()
+        thread.join(1)
+        monkeypatch.setattr(_WorkerProcess, 'retire', original_retire)
+        probe.stop()
+
+
+@pytest.mark.parametrize('interruption', ['retiring', 'cancelled'])
+@pytest.mark.parametrize('response', ['', OSError('pipe closed')])
+def test_interrupted_response_during_retirement_or_cancel_is_cancelled(monkeypatch, interruption, response):
+    from ClipAI.platform.selection_uia import _WorkerProcess
+    import queue
+    token = CancellationToken()
+    worker = _WorkerProcess(lambda: Process())
+    original_get = queue.Queue.get
+    def get(responses, *args, **kwargs):
+        # Establish the race after the request's pre-wait interruption check.
+        original_get(responses, *args, **kwargs)
+        if interruption == 'retiring':
+            worker._retiring.set()
+        else:
+            token.cancel()
+        return response
+    monkeypatch.setattr(queue.Queue, 'get', get)
+    try:
+        outcome, healthy = worker.request('{}', token, 1)
+        assert outcome.status == 'cancelled'
+        assert healthy is False
+    finally:
+        # Reset only the simulated event so real fake-pipe cleanup can start.
+        worker._retiring.clear()
+        assert worker.retire(time.monotonic() + 1)
+
+
 class Process:
     def __init__(self, payload=None, *, blocked=False):
         self.payload = {"worker_reusable": True, **(payload or {"status": "none"})}
@@ -68,7 +164,9 @@ def test_hung_provider_is_terminated_and_reaped(cancel):
             daemon=True,
         )
         canceller.start()
-    probe = WindowsSelectionProbe(timeout_sec=0.05, process_factory=lambda *a, **kw: process)
+    # Cancellation is driven by the reader handshake, not a race against the
+    # timeout case's 50 ms budget while the OS schedules launch/reader threads.
+    probe = WindowsSelectionProbe(timeout_sec=1.0 if cancel else 0.05, process_factory=lambda *a, **kw: process)
     result = probe.probe(SOURCE, token)
     if canceller is not None:
         canceller.join(1)

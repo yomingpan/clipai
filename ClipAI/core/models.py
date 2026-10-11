@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from typing import Literal, NewType, TypeAlias
 
 from ClipAI.core.errors import ActionLanguagePackErrorCode, PasteFailureReason
@@ -789,6 +790,88 @@ class PreparedInput:
         )
 
 
+class SelectionGuidanceCategory(str, Enum):
+    ENGINE = "engine"
+    FOCUS = "focus"
+    MODIFIER = "modifier"
+    NO_SELECTION = "no_selection"
+
+
+class SelectionReason(str, Enum):
+    UIA_TIMEOUT = "uia_timeout"
+    UIA_UNAVAILABLE = "uia_unavailable"
+    UIA_WORKER_FAILED = "uia_worker_failed"
+    UIA_INVALID_RESULT = "uia_invalid_result"
+    UIA_INVALID_REQUEST = "uia_invalid_request"
+    UIA_PROVIDER_FAILED = "uia_provider_failed"
+    UIA_FOCUS_RESTORE_FAILED = "uia_focus_restore_failed"
+    UIA_TEXT_FAILED = "uia_text_failed"
+    UIA_SELECTED_TEXT_UNAVAILABLE = "uia_selected_text_unavailable"
+    CAPTURE_FAILED = "capture_failed"
+    COPY_TIMEOUT = "copy_timeout"
+    COPY_FAILED = "copy_failed"
+    SNAPSHOT_FAILED = "snapshot_failed"
+    CLIPBOARD_CHANGED = "clipboard_changed"
+    SOURCE_CHANGED = "source_changed"
+    SOURCE_UNAVAILABLE = "source_unavailable"
+    UIA_SOURCE_MISMATCH = "uia_source_mismatch"
+    UIA_FOCUS_CHANGED = "uia_focus_changed"
+    UIA_SELECTION_CHANGED = "uia_selection_changed"
+    MODIFIER_TIMEOUT = "modifier_timeout"
+    UIA_UNSUPPORTED = "uia_unsupported"
+    UIA_NO_RANGES = "uia_no_ranges"
+    UIA_CARET_ONLY = "uia_caret_only"
+    COPY_EMPTY = "copy_empty"
+    SELECTION_UNAVAILABLE = "selection_unavailable"
+    SELECTION_ONLY_COPY_AVAILABLE = "selection_only_copy_available"
+    UIA_PROTECTED_OR_UNAVAILABLE = "uia_protected_or_unavailable"
+
+
+_REASON_GUIDANCE = {
+    SelectionReason.UIA_TIMEOUT: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_UNAVAILABLE: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_WORKER_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_INVALID_RESULT: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_INVALID_REQUEST: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_PROVIDER_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_FOCUS_RESTORE_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_TEXT_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_SELECTED_TEXT_UNAVAILABLE: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.CAPTURE_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.COPY_TIMEOUT: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.COPY_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.SNAPSHOT_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.CLIPBOARD_CHANGED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.SOURCE_CHANGED: SelectionGuidanceCategory.FOCUS,
+    SelectionReason.SOURCE_UNAVAILABLE: SelectionGuidanceCategory.FOCUS,
+    SelectionReason.UIA_SOURCE_MISMATCH: SelectionGuidanceCategory.FOCUS,
+    SelectionReason.UIA_FOCUS_CHANGED: SelectionGuidanceCategory.FOCUS,
+    SelectionReason.UIA_SELECTION_CHANGED: SelectionGuidanceCategory.FOCUS,
+    SelectionReason.MODIFIER_TIMEOUT: SelectionGuidanceCategory.MODIFIER,
+    SelectionReason.UIA_UNSUPPORTED: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.UIA_NO_RANGES: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.UIA_CARET_ONLY: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.COPY_EMPTY: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.SELECTION_UNAVAILABLE: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.SELECTION_ONLY_COPY_AVAILABLE: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.UIA_PROTECTED_OR_UNAVAILABLE: SelectionGuidanceCategory.NO_SELECTION,
+}
+
+
+def selection_guidance_category(reason: str) -> SelectionGuidanceCategory:
+    try:
+        return _REASON_GUIDANCE[SelectionReason(reason)]
+    except ValueError:
+        return SelectionGuidanceCategory.NO_SELECTION
+
+
+class SelectionOutcomeClass(str, Enum):
+    SELECTED = "selected"
+    CANCELLED = "cancelled"
+    NEEDS_MODIFIER_RELEASE = "needs_modifier_release"
+    UNRESOLVED = "unresolved"
+
+
 @dataclass(frozen=True)
 class SelectionCaptureOutcome:
     text: str = field(default="", repr=False)
@@ -800,6 +883,20 @@ class SelectionCaptureOutcome:
     copy_selection_only: bool = False
     # A verified adapter restored focus only inside the bound top-level source.
     focus_restored: bool = False
+
+    @property
+    def classification(self) -> SelectionOutcomeClass:
+        if self.status == "selected":
+            return SelectionOutcomeClass.SELECTED
+        if self.status == "cancelled":
+            return SelectionOutcomeClass.CANCELLED
+        if selection_guidance_category(self.reason) is SelectionGuidanceCategory.MODIFIER:
+            return SelectionOutcomeClass.NEEDS_MODIFIER_RELEASE
+        return SelectionOutcomeClass.UNRESOLVED
+
+    @property
+    def needs_modifier_release(self) -> bool:
+        return self.classification is SelectionOutcomeClass.NEEDS_MODIFIER_RELEASE
 
     def __post_init__(self) -> None:
         if type(self.copy_selection_only) is not bool:
