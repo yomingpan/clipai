@@ -47,7 +47,7 @@ with visible feedback. A new capture is admitted only after the preceding
 interaction reaches a settled, dismissible terminal phase.
 The Inline window freezes its placement at interaction start. `cursor` uses
 the starting pointer position; `bottom_center` uses the work area's bottom
-center. Content expansion and Copy state may re-clamp the frozen position to
+center and is the default for both Full Choice and Minimal Input. Content expansion and Copy state may re-clamp the frozen position to
 keep the resized window inside the work area, but never read the live pointer
 again. Placement is saved atomically through the shared preference gate; invalid
 or unchanged values do not write. The Tray offers the two modes and both

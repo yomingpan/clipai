@@ -24,7 +24,7 @@ class InlineDictationInterfaceOwner:
         self._display_metrics = display_metrics
         self._window: InlineDictationWindow | None = None
 
-    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice", placement: InlineDictationPlacement = "cursor") -> None:
+    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice", placement: InlineDictationPlacement = "bottom_center") -> None:
         previous = self._window
         if previous is not None:
             if previous.interaction_id == interaction_id:

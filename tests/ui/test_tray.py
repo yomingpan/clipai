@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from ClipAI.core.models import ActionLanguagePackDescriptor, ActionLanguagePackIdentity, ActionLanguagePackRecovery, ActionLanguagePackSelectionState, GuidancePreferences, InlineDictationPlacementState, InlineInputModeState, ModelSelectionState, ProviderOption, ProviderSelectionState, SpeechSpeedState
+from ClipAI.core.models import ActionLanguagePackDescriptor, ActionLanguagePackIdentity, ActionLanguagePackRecovery, ActionLanguagePackSelectionState, GuidancePreferences, InlineDictationPlacementState, InlineInputModeState, ModelSelectionState, PopupPlacementState, ProviderOption, ProviderSelectionState, SpeechSpeedState
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceProjection
 from ClipAI.ui.tray import SHORTCUT_GUIDE_MENU_LABEL, STATUS_COLORS, TrayController, create_tray_image
 
@@ -84,7 +84,7 @@ def test_tray_inline_placement_radio_reflects_saved_and_pending_state() -> None:
         on_disable_voice=lambda: None,
         inline_input_mode=InlineInputModeState(),
         on_set_inline_input_mode=lambda _mode: None,
-        inline_dictation_placement=InlineDictationPlacementState(),
+        inline_dictation_placement=InlineDictationPlacementState("cursor"),
         on_set_inline_dictation_placement=selected.append,
     )
     menu = tray._build_inline_dictation_menu(Pystray)
@@ -105,6 +105,44 @@ class NotificationIcon:
 
     def notify(self, message: str, title: str) -> None:
         self.notifications.append((message, title))
+
+
+def test_popup_position_menu_follows_inline_and_projects_only_saved_selection(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "pystray", Pystray)
+    selected = []
+    tray = TrayController(
+        lambda: None,
+        inline_input_mode=InlineInputModeState(),
+        on_set_inline_input_mode=lambda _mode: None,
+        inline_dictation_placement=InlineDictationPlacementState(),
+        on_set_inline_dictation_placement=lambda _placement: None,
+        popup_placement=PopupPlacementState(),
+        on_set_popup_placement=selected.append,
+    )
+    tray.start()
+    try:
+        items = tray._icon.menu.items
+        index = next(i for i, item in enumerate(items) if callable(getattr(item, "text", None)) and item.text(None).startswith("Inline Dictation"))
+        menu = items[index + 1]
+        assert menu.text(None) == "Popup Window Position: Bottom Center"
+        cursor, bottom = menu.action.items
+        assert cursor.text == "Follow Cursor" and bottom.text == "Bottom Center"
+        assert cursor.radio and bottom.radio
+        assert bottom.checked(None) and not cursor.checked(None)
+        assert not bottom.enabled(None) and cursor.enabled(None)
+        cursor.action(None, None)
+        assert selected == ["cursor"]
+        assert bottom.checked(None)
+        tray.set_popup_placement(PopupPlacementState("bottom_center", "cursor", True))
+        assert menu.text(None).endswith("(Saving...)")
+        assert bottom.checked(None) and not cursor.enabled(None)
+        cursor.action(None, None)
+        assert selected == ["cursor"]
+        tray.set_popup_placement(PopupPlacementState("cursor"))
+        assert cursor.checked(None) and not bottom.checked(None)
+        assert menu.text(None) == "Popup Window Position: Follow Cursor"
+    finally:
+        tray.stop()
 
 
 def test_tray_image_uses_requested_size_and_status_palette() -> None:

@@ -47,7 +47,7 @@ class InlineDictationWindow:
         display_metrics: DisplayMetricsReader | None = None,
         interaction_id: str = "",
         mode: InlineInputMode = "choice",
-        placement: InlineDictationPlacement = "cursor",
+        placement: InlineDictationPlacement = "bottom_center",
     ) -> None:
         self._window = tk.Toplevel(root)
         self._window.withdraw()

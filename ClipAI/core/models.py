@@ -29,6 +29,7 @@ SpeechSpeed = Literal["slow", "normal", "fast", "super_fast"]
 VoiceLanguagePreference = Literal["zh-TW", "en-US"]
 InlineInputMode = Literal["choice", "minimal"]
 InlineDictationPlacement = Literal["cursor", "bottom_center"]
+PopupPlacement = Literal["cursor", "bottom_center"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
 OperationKind = Literal["llm", "tts", "copy", "paste", "archive"]
 FeedbackOutcome = Literal["helpful", "needs_adjustment", "not_applicable"]
@@ -254,8 +255,15 @@ class InlineInputModeState:
 
 @dataclass(frozen=True)
 class InlineDictationPlacementState:
-    selected_placement: InlineDictationPlacement = "cursor"
+    selected_placement: InlineDictationPlacement = "bottom_center"
     pending_placement: InlineDictationPlacement | None = None
+    update_pending: bool = False
+
+
+@dataclass(frozen=True)
+class PopupPlacementState:
+    selected_placement: PopupPlacement = "bottom_center"
+    pending_placement: PopupPlacement | None = None
     update_pending: bool = False
 
 
@@ -652,7 +660,8 @@ class UserPreferences:
     voice_language: VoiceLanguagePreference = "zh-TW"
     entry_panel_density: EntryPanelDensity = "detailed"
     inline_input_mode: InlineInputMode = "choice"
-    inline_dictation_placement: InlineDictationPlacement = "cursor"
+    inline_dictation_placement: InlineDictationPlacement = "bottom_center"
+    popup_placement: PopupPlacement = "bottom_center"
 
 
 @dataclass(frozen=True)

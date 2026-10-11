@@ -27,7 +27,8 @@ def test_bottom_center_position_uses_work_area_instead_of_pointer() -> None:
 
 
 @pytest.mark.integration
-def test_inline_copy_state_keeps_start_anchor_when_pointer_moves() -> None:
+@pytest.mark.parametrize("placement", ["cursor", "bottom_center"])
+def test_inline_copy_state_keeps_start_anchor_when_pointer_moves(placement) -> None:
     root = tk.Tk()
     root.withdraw()
     pointer = [100, 100]
@@ -36,10 +37,11 @@ def test_inline_copy_state_keeps_start_anchor_when_pointer_moves() -> None:
         def current(self) -> DisplayMetrics:
             return DisplayMetrics(1.0, 0, 0, 1200, 800, *pointer)
 
-    window = InlineDictationWindow(root, on_confirm=lambda _refine: None, on_cancel=lambda: None, display_metrics=Reader())
+    window = InlineDictationWindow(root, on_confirm=lambda _refine: None, on_cancel=lambda: None, display_metrics=Reader(), placement=placement)
     try:
         window.show()
         window.present_choice("recognized words")
+        window.show_copy_state("pending")
         root.update()
         before = (window._window.winfo_rootx(), window._window.winfo_rooty())
         pointer[:] = [900, 600]

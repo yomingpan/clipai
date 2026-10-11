@@ -54,7 +54,7 @@ class VoiceInputRuntimeModule:
         workflows: WorkflowRuntimeModule,
         paste_target_reader: Callable[[], PasteTarget | None],
         inline_input_mode_reader: Callable[[], InlineInputMode] = lambda: "choice",
-        inline_dictation_placement_reader: Callable[[], InlineDictationPlacement] = lambda: "cursor",
+        inline_dictation_placement_reader: Callable[[], InlineDictationPlacement] = lambda: "bottom_center",
         capture_external_target: Callable[[], PasteTarget | None] | None = None,
         persist_enabled: Callable[[str], None] = lambda _setup_id: None,
         persist_disabled: Callable[[str], None] = lambda _disable_id: None,

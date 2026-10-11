@@ -178,6 +178,12 @@ Integration 應測：
 
 ## Popup 測試重點
 
+Experimental placement tests cover Bottom Center defaults, independent Popup
+and Inline preference persistence, legacy/invalid defaults, shared save-gate
+pending/failure/stale completion, and Tray menu order/radio truth. Layout tests
+cover physical bounds at multiple DPI scales and negative monitor origins;
+primary-surface tests keep existing shell/replacement bounds unchanged.
+
 Popup 是另一個穩定性重點。
 
 Unit / Sims 應測：

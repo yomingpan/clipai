@@ -32,7 +32,7 @@ from ClipAI.app.runtime_workflows import WorkflowRuntimeModule
 from ClipAI.app.speech_execution import SupervisedSpeechResultSink
 from ClipAI.core.commands import DisableVoiceInput, ExportDiagnostics, ExternalForegroundChanged, OpenAbout, OpenPersonalStyles, OpenProviderSettings, OpenShortcutGuide, OpenVoicePermissionSettings, OpenVoiceSetup, ResetFirstUseHints, SelectActionLanguagePack, SetFirstUseHintsEnabled, SetSpeechSpeed, SetVoiceLanguage, ShortcutInputEvent, ShutdownApplication, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved
 from ClipAI.core.commands import InlineDictationRefineSettled
-from ClipAI.core.commands import SetInlineDictationPlacement, SetInlineInputMode
+from ClipAI.core.commands import SetPopupPlacement, SetInlineDictationPlacement, SetInlineInputMode
 from ClipAI.core.models import ModelSelectionState, ProviderSelectionState
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.ports import LLMProvider, ShortcutInput
@@ -85,6 +85,7 @@ from ClipAI.services.user_control import UserControlCoordinator
 from ClipAI.services.voice_input import VoiceInputController
 from ClipAI.services.prompt_builder import PromptBuilder
 from ClipAI.services.result_processor import ResultProcessor
+from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.result_dialog import ResultDialogPresenter
 from ClipAI.ui.tray import TrayController
 from ClipAI.app.runtime_personal_styles import PersonalStyleRuntimeModule
@@ -171,6 +172,8 @@ def build_runtime(
         on_set_voice_language=lambda language: runtime_holder[0].enqueue(SetVoiceLanguage(language)),
         inline_input_mode=user_preferences.inline_input_mode_state,
         on_set_inline_input_mode=lambda mode: runtime_holder[0].enqueue(SetInlineInputMode(mode, uuid.uuid4().hex)),
+        popup_placement=user_preferences.popup_placement_state,
+        on_set_popup_placement=lambda placement: runtime_holder[0].enqueue(SetPopupPlacement(placement, uuid.uuid4().hex)),
         inline_dictation_placement=user_preferences.inline_dictation_placement_state,
         on_set_inline_dictation_placement=lambda placement: runtime_holder[0].enqueue(SetInlineDictationPlacement(placement, uuid.uuid4().hex)),
         on_manage_voice_permission=lambda: runtime_holder[0].enqueue(OpenVoicePermissionSettings()),
@@ -182,6 +185,7 @@ def build_runtime(
     native_window_surface.set_process_taskbar_identity("ClipAI.Desktop")
     view = ResultDialogPresenter(
         display_metrics=WindowsDisplayMetricsReader(),
+        layout_policy=PopupLayoutPolicy(lambda: user_preferences.popup_placement),
         pointer_press_reader=WindowsPointerPressReader(),
         native_window_surface=native_window_surface,
         focus_transition_diagnostics=bundle.logging.diagnostics.enabled("focus_transitions"),
@@ -367,6 +371,7 @@ def build_runtime(
         speech_speed_presenter=tray,
         inline_input_mode_presenter=tray,
         inline_dictation_placement_presenter=tray,
+        popup_placement_presenter=tray,
         operation_tracker=operation_tracker,
         notifier=tray,
     )

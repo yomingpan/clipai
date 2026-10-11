@@ -4,8 +4,8 @@ from ClipAI.core.commands import InlineDictationPlacementPreferencesCompleted, S
 from ClipAI.core.models import InlineDictationPlacementState, UserPreferences
 
 
-def test_inline_dictation_placement_contract_defaults_to_cursor() -> None:
-    assert UserPreferences().inline_dictation_placement == "cursor"
-    assert InlineDictationPlacementState().selected_placement == "cursor"
+def test_inline_dictation_placement_contract_defaults_to_bottom_center() -> None:
+    assert UserPreferences().inline_dictation_placement == "bottom_center"
+    assert InlineDictationPlacementState().selected_placement == "bottom_center"
     assert SetInlineDictationPlacement("bottom_center").operation_id == ""
     assert InlineDictationPlacementPreferencesCompleted("operation-1").error == ""

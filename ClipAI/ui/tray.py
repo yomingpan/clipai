@@ -7,7 +7,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from ClipAI.core.models import ActionLanguagePackSelectionState, ApplicationStatus, GuidancePreferences, InlineDictationPlacement, InlineDictationPlacementState, InlineInputMode, InlineInputModeState, ModelSelectionState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
+from ClipAI.core.models import ActionLanguagePackSelectionState, ApplicationStatus, GuidancePreferences, InlineDictationPlacement, InlineDictationPlacementState, InlineInputMode, InlineInputModeState, ModelSelectionState, PopupPlacement, PopupPlacementState, ProviderSelectionState, SpeechSpeed, SpeechSpeedState
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceLanguage, VoiceProjection
 
 logger = logging.getLogger("clipai.tray")
@@ -27,6 +27,10 @@ INLINE_MODE_LABELS: dict[InlineInputMode, str] = {
     "minimal": "Minimal Input",
 }
 INLINE_PLACEMENT_LABELS: dict[InlineDictationPlacement, str] = {
+    "cursor": "Follow Cursor",
+    "bottom_center": "Bottom Center",
+}
+POPUP_PLACEMENT_LABELS: dict[PopupPlacement, str] = {
     "cursor": "Follow Cursor",
     "bottom_center": "Bottom Center",
 }
@@ -117,6 +121,8 @@ class TrayController:
         on_set_inline_input_mode: Callable[[InlineInputMode], None] | None = None,
         inline_dictation_placement: InlineDictationPlacementState | None = None,
         on_set_inline_dictation_placement: Callable[[InlineDictationPlacement], None] | None = None,
+        popup_placement: PopupPlacementState | None = None,
+        on_set_popup_placement: Callable[[PopupPlacement], None] | None = None,
         on_manage_voice_permission: Callable[[], None] | None = None,
         on_open_about: Callable[[], None] | None = None,
         application_version: str = "development",
@@ -149,6 +155,8 @@ class TrayController:
         self._on_set_inline_input_mode = on_set_inline_input_mode
         self._inline_dictation_placement = inline_dictation_placement
         self._on_set_inline_dictation_placement = on_set_inline_dictation_placement
+        self._popup_placement = popup_placement
+        self._on_set_popup_placement = on_set_popup_placement
         self._on_manage_voice_permission = on_manage_voice_permission
         self._on_open_about = on_open_about
         self._icon = None
@@ -188,7 +196,10 @@ class TrayController:
         inline_menu = self._build_inline_dictation_menu(pystray)
         if inline_menu is not None:
             menu_items.append(inline_menu)
-        if voice_menu is not None or inline_menu is not None:
+        position_menu = self._build_popup_placement_menu(pystray)
+        if position_menu is not None:
+            menu_items.append(position_menu)
+        if voice_menu is not None or inline_menu is not None or position_menu is not None:
             menu_items.append(pystray.Menu.SEPARATOR)
         support_items = []
         if self._on_show_last_error is not None:
@@ -512,6 +523,40 @@ class TrayController:
             return f"{label} (Saving...)"
         return label
 
+    def _build_popup_placement_menu(self, pystray):
+        if self._popup_placement is None or self._on_set_popup_placement is None:
+            return None
+        items = [
+            pystray.MenuItem(
+                label,
+                self._popup_placement_action(placement),
+                checked=lambda _item, chosen=placement: self._popup_placement is not None and self._popup_placement.selected_placement == chosen,
+                enabled=lambda _item, chosen=placement: self._popup_placement is not None and not self._popup_placement.update_pending and self._popup_placement.selected_placement != chosen,
+                radio=True,
+            )
+            for placement, label in POPUP_PLACEMENT_LABELS.items()
+        ]
+        return pystray.MenuItem(lambda _item: self._popup_placement_label(), pystray.Menu(*items))
+
+    def _popup_placement_label(self) -> str:
+        state = self._popup_placement
+        if state is None:
+            return "Popup Window Position"
+        label = f"Popup Window Position: {POPUP_PLACEMENT_LABELS[state.selected_placement]}"
+        return f"{label} (Saving...)" if state.update_pending else label
+
+    def _popup_placement_action(self, placement: PopupPlacement):
+        def select(_icon, _item) -> None:
+            state = self._popup_placement
+            if (
+                self._on_set_popup_placement is not None
+                and state is not None
+                and not state.update_pending
+                and state.selected_placement != placement
+            ):
+                self._on_set_popup_placement(placement)
+        return select
+
     def _inline_mode_action(self, mode: InlineInputMode):
         def select(_icon, _item) -> None:
             if (
@@ -579,6 +624,10 @@ class TrayController:
 
     def set_inline_dictation_placement(self, state: InlineDictationPlacementState) -> None:
         self._inline_dictation_placement = state
+        self._refresh_menu()
+
+    def set_popup_placement(self, state: PopupPlacementState) -> None:
+        self._popup_placement = state
         self._refresh_menu()
 
     def set_action_language_selection(
