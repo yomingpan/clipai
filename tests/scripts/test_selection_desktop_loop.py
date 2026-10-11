@@ -173,5 +173,55 @@ def test_failed_warmup_is_unrecorded_and_cleanup_order_is_guaranteed(tmp_path, m
     else:
         summary = loop.run_loop('auto', 20, 17, tmp_path / 'log', emitted.append)
         assert summary['cases'] == 0 and not summary['warmup_verified']
+        assert summary['status'] == 'failed' and summary['reason'] == 'warmup_failed'
+        assert summary['warmup_result']['status'] == 'none'
+        assert summary['warmup_result']['clipboard_preserved'] is True
     assert emitted == []
     assert events == ['probe_stop', 'host_close', 'restore']
+
+
+def test_attended_waits_for_physical_case_ack_before_advancing(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from ClipAI.core.models import SelectionCaptureOutcome
+    events, emitted, preparation = [], [], []
+    state = ['selected']
+    class Clipboard:
+        writes, last_owned_sequence = 0, None
+        def snapshot(self): return SimpleNamespace(formats=())
+        def sequence_number(self): return 7
+        def restore_if_unchanged(self, *args): return True
+    class Host:
+        def configure(self, control, instruction=''):
+            preparation.append(('configure', control))
+            state[0] = instruction.split(':', 1)[0].split()[-1] if instruction else control
+            if instruction: events.append(('prepare', state[0]))
+            return {'window_token': 'hwnd:1', 'process_id': 1, 'selected_sha256': loop._text_sha256('text')}
+        def wait_for_ack(self): events.append(('ack', state[0]))
+        def close(self): pass
+    class Coordinator:
+        def __init__(self, *args): pass
+        def begin_capture(self, target):
+            preparation.append(('bind', state[0]))
+            return object()
+        def capture(self, **kwargs): return SelectionCaptureOutcome('text', 'selected')
+    monkeypatch.setattr(loop, '_RetryingClipboard', Clipboard)
+    monkeypatch.setattr(loop, '_OwnedHost', Host)
+    monkeypatch.setattr(loop, 'WindowsSelectionProbe', lambda: SimpleNamespace(stop=lambda: None))
+    monkeypatch.setattr(loop, 'SelectionCaptureCoordinator', Coordinator)
+    def activate(*args):
+        preparation.append(('activate', ''))
+        return SimpleNamespace(activated=True)
+    monkeypatch.setattr(loop, 'SystemExternalWindowActivator', lambda **kwargs:
+        SimpleNamespace(activate=activate))
+    monkeypatch.setattr(loop, 'read_attended_capture', lambda *args:
+        (loop.CaptureRecord(*loop.expected_for_state(state[0]), 'uia', False, 20), 0))
+    result = loop.run_loop('attended', 1, 17, tmp_path / 'log', emitted.append)
+    assert result['passed']
+    assert events == [(event, state) for state in loop.ATTENDED_STATES for event in ('prepare', 'ack')]
+    assert len(emitted) == 4
+    assert all(record['physical_case_acknowledged'] for record in emitted)
+    assert preparation[:4] == [
+        ('configure', 'focus_moved'), ('activate', ''),
+        ('configure', 'selected'), ('bind', 'selected'),
+    ]
+    assert len(preparation) == 20  # Warmup plus four cases, one source bind each.

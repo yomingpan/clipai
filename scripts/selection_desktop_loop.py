@@ -35,10 +35,10 @@ ROOT = Path(__file__).resolve().parents[1]
 AUTO_STATES = ('selected', 'modifier_held', 'caret_only', 'focus_moved', 'unsupported_control')
 ATTENDED_STATES = ('selected', 'modifier_held', 'held_after_open', 'caret_only')
 _DIRECTIONS = {
-    'selected': 'Press physical Alt for 0.5 seconds, then release. Close the panel with Esc.',
-    'modifier_held': 'Hold physical Alt for at least 2 seconds. Then release and close with Esc.',
-    'held_after_open': 'Hold physical Alt until the panel opens, keep holding another 2 seconds, then release and close with Esc.',
-    'caret_only': 'No text is selected. Hold physical Alt for 0.5 seconds, then release and close with Esc.',
+    'selected': '按住實體 Alt 約 0.5 秒後放開。Panel 出現後按 Esc 關閉，再點「下一案」。',
+    'modifier_held': '按住實體 Alt 至少 2 秒再放開。按 Esc 關閉 Panel，再點「下一案」。',
+    'held_after_open': '按住實體 Alt 至 Panel 開啟，再持續按住 2 秒。放開後按 Esc 關閉，再點「下一案」。',
+    'caret_only': '此案未選取文字。按住實體 Alt 約 0.5 秒後放開。按 Esc 關閉 Panel，再點「下一案」。',
 }
 _CAPTURE_LOG = re.compile(
     r'Selection capture operation_id=\S+ target=(\S+) status=(\S+) reason=(.*?) '
@@ -272,6 +272,25 @@ class _OwnedHost:
             time.sleep(.01)
         raise EnvironmentBlockedError('host_not_ready')
 
+    def wait_for_ack(self):
+        """Let the human finish release/close before changing the owned source."""
+        ack = self.directory / f'ack-{self.sequence}.json'
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            if self.process.poll() is not None:
+                raise EnvironmentBlockedError('host_exited')
+            try:
+                payload = json.loads(ack.read_text(encoding='utf-8'))
+                if payload.get('sequence') == self.sequence and payload.get('acknowledged') is True:
+                    return
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass
+            except PermissionError as error:
+                if error.errno != errno.EACCES or error.filename != str(ack):
+                    raise
+            time.sleep(.05)
+        raise EnvironmentBlockedError('physical_case_ack_timeout')
+
     def close(self):
         if self.process.poll() is None:
             self.sequence += 1
@@ -309,10 +328,14 @@ def run_loop(mode, rounds, seed, log_path, emit):
         coordinator = SelectionCaptureCoordinator(ClipboardTransactionCoordinator(clipboard), adapter, probe)
         activator = SystemExternalWindowActivator(modifier_is_pressed=lambda _: False)
         def prepare(state, instruction=''):
-            payload = host.configure(state, instruction)
+            # Establish real foreground focus before setting RichTextBox ranges.
+            # WinForms can expose a stale caret-only UIA range when selection was
+            # established before the form received its first foreground focus.
+            payload = host.configure('focus_moved')
             target = ExternalWindowRef(payload['window_token'], payload['process_id'], 0)
             if not activator.activate(target, CancellationToken()).activated:
                 raise EnvironmentBlockedError('host_focus_unavailable')
+            payload = host.configure(state, instruction)
             return payload, coordinator.begin_capture(target)
         # One unrecorded warm-up, including before/after clipboard verification.
         before = fingerprint(clipboard.snapshot())
@@ -321,7 +344,14 @@ def run_loop(mode, rounds, seed, log_path, emit):
         warmup_verified = (warmup.status == 'selected' and _text_sha256(warmup.text) == payload['selected_sha256']
             and before == fingerprint(clipboard.snapshot()) and clipboard.writes == 0)
         if not warmup_verified:
-            return summarize(mode, records, rounds, warmup_verified=False)
+            summary = summarize(mode, records, rounds, warmup_verified=False)
+            summary.update({'status': 'failed', 'reason': 'warmup_failed', 'warmup_result': {
+                'status': warmup.status, 'reason': warmup.reason, 'strategy': warmup.strategy,
+                'text_match': _text_sha256(warmup.text) == payload['selected_sha256'],
+                'clipboard_preserved': before == fingerprint(clipboard.snapshot()),
+                'clipboard_writes': clipboard.writes,
+            }})
+            return summary
         rng = random.Random(seed)
         offset = log_path.stat().st_size if mode == 'attended' and log_path.exists() else 0
         for round_number in range(1, rounds + 1):
@@ -348,9 +378,12 @@ def run_loop(mode, rounds, seed, log_path, emit):
                     print(instruction, flush=True)
                     capture, offset = read_attended_capture(log_path, offset, payload['window_token'])
                     text_match = None  # App logs deliberately contain no selected text.
+                    host.wait_for_ack()
                 record = case_record(state, capture, before=before, after=fingerprint(clipboard.snapshot()),
                     text_match=text_match, writes=clipboard.writes - writes_before)
                 record['round'] = round_number
+                if mode == 'attended':
+                    record['physical_case_acknowledged'] = True
                 record['source_sha256'] = hashlib.sha256(f"{payload['window_token']}:{payload['process_id']}".encode()).hexdigest()
                 records.append(record)
                 emit(record)
@@ -377,16 +410,26 @@ def _host(command, ready):
     form = Form()
     form.Text = 'ClipAI controlled selection evidence'
     form.Width, form.Height = 660, 310
-    box, button, directions = RichTextBox(), Button(), Label()
+    box, button, directions, next_button = RichTextBox(), Button(), Label(), Button()
     box.Dock, button.Dock, directions.Dock = DockStyle.Fill, DockStyle.Bottom, DockStyle.Top
-    directions.Height, button.Height = 60, 28
+    directions.Height, button.Height = 80, 28
+    next_button.Dock, next_button.Height = DockStyle.Bottom, 32
+    next_button.Text = '已放開按鍵並關閉 Panel → 下一案'
+    next_button.Visible = False
     button.Text = 'Controlled unsupported control'
     form.Controls.Add(box)
     form.Controls.Add(button)
+    form.Controls.Add(next_button)
     form.Controls.Add(directions)
     current = [0]
     text = 'prefix\nClipAI selection loop sample\nsuffix'
     selected = 'ClipAI selection loop sample'
+    def acknowledge(_sender, _event):
+        if next_button.Enabled and current[0]:
+            _atomic_json(command.parent / f'ack-{current[0]}.json',
+                {'sequence': current[0], 'acknowledged': True})
+            next_button.Enabled = False
+    next_button.Click += acknowledge
     def tick(_sender, _event):
         try:
             payload = json.loads(command.with_name(f'command-{current[0] + 1}.json').read_text(encoding='utf-8'))
@@ -402,7 +445,9 @@ def _host(command, ready):
         if state == 'shutdown':
             form.Close()
             return
-        directions.Text = payload.get('instruction', '')
+        instruction = payload.get('instruction', '')
+        directions.Text = instruction or '準備中，請先不要按鍵；正式指示出現後再開始。'
+        next_button.Visible = next_button.Enabled = bool(instruction)
         box.Text = text
         form.Activate()
         if state in ('unsupported_control', 'focus_moved'):
