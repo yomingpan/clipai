@@ -28,11 +28,13 @@ class PillLayout:
 
 def resolve_pill_layout(metrics: DisplayMetrics, placement: InlineDictationPlacement) -> PillLayout:
     scale = max(.1, metrics.scale)
-    width, height = round(visuals.CANVAS_WIDTH*scale), round(visuals.CANVAS_HEIGHT*scale)
+    width = round(visuals.CANVAS_WIDTH*scale)
+    pill_height, strip_height, panel_height = (round(value*scale) for value in (visuals.BASE_HEIGHT, visuals.STRIP_HEIGHT, visuals.PANEL_HEIGHT))
+    height = pill_height+strip_height+panel_height
     margin = round(visuals.MARGIN*scale)
     pill_x = round((visuals.CANVAS_WIDTH-visuals.BASE_WIDTH)*scale/2)
     above = placement == "bottom_center" or metrics.cursor_y > metrics.work_y+metrics.work_height/2
-    pill_y = round(182*scale) if above else 0
+    pill_y = panel_height+strip_height if above else 0
     requested_x = metrics.work_x+(metrics.work_width-width)//2 if placement == "bottom_center" else metrics.cursor_x+round(14*scale)-pill_x
     requested_y = metrics.work_y+metrics.work_height-margin-height if placement == "bottom_center" else metrics.cursor_y+round(18*scale)-pill_y
     left, top = metrics.work_x+margin, metrics.work_y+margin
@@ -123,7 +125,7 @@ class InlinePill:
             return
         width, height = round(visuals.BASE_WIDTH*layout.scale), round(visuals.BASE_HEIGHT*layout.scale)
         backdrop = self._backdrop.crop((layout.pill_x, layout.pill_y, layout.pill_x+width, layout.pill_y+height)) if self._backdrop is not None else None
-        bitmap = visuals.draw_pill(self._view, scale=layout.scale, frame=self._frame, backdrop=backdrop)
+        bitmap = visuals.draw_pill(self._view, scale=layout.scale, frame=self._frame, backdrop=backdrop, hover=self._hover)
         self._photo = ImageTk.PhotoImage(bitmap, master=self._window)
         self._canvas.delete("pill")
         self._canvas.create_image(layout.pill_x, layout.pill_y, image=self._photo, anchor="nw", tags="pill")
@@ -133,7 +135,7 @@ class InlinePill:
         self._status.place(x=layout.width//2, y=strip_y, anchor="n", height=round(visuals.STRIP_HEIGHT*layout.scale))
         if visual.center_text:
             self._center.configure(text=visual.center_text, fg=visuals.AMBER if self._view.countdown_seconds is not None else visuals.MUTED, font=("Microsoft JhengHei", -max(1, round(9*layout.scale))))
-            self._center.place(x=layout.pill_x+round(53*layout.scale), y=layout.pill_y+round(13*layout.scale), anchor="center", width=round(43*layout.scale), height=round(16*layout.scale))
+            self._center.place(x=layout.pill_x+round(visuals.WAVE_CENTER*layout.scale), y=layout.pill_y+round(visuals.CENTER_Y*layout.scale), anchor="center", width=round(visuals.WAVE_WIDTH*layout.scale), height=round(16*layout.scale))
         else:
             self._center.place_forget()
         self._sync_panel(visual)
@@ -152,7 +154,7 @@ class InlinePill:
             self._panel_signature = signature
             if visible:
                 scale = layout.scale
-                top = 0 if layout.panel_above else round((visuals.BASE_HEIGHT+visuals.STRIP_HEIGHT)*scale)
+                top = 0 if layout.panel_above else round(visuals.BASE_HEIGHT*scale)+round(visuals.STRIP_HEIGHT*scale)
                 height = round(visuals.PANEL_HEIGHT*scale)
                 backdrop = self._backdrop.crop((0, top, layout.width, top+height)) if self._backdrop is not None else None
                 self._panel_photo = ImageTk.PhotoImage(visuals.draw_panel(scale=scale, backdrop=backdrop), master=self._window)
@@ -203,10 +205,11 @@ class InlinePill:
         if layout is None:
             return ""
         x, y = (x-layout.pill_x)/layout.scale, (y-layout.pill_y)/layout.scale
-        if not -visuals.HIT_PADDING <= y <= visuals.BASE_HEIGHT+visuals.HIT_PADDING:
+        radius = visuals.REFINE_DIAMETER/2+visuals.HIT_PADDING
+        if abs(y-visuals.CENTER_Y) > radius:
             return ""
-        for kind, center in (("cancel", 13), ("refine", 94), ("raw", 119)):
-            if abs(x-center) <= visuals.REFINE_DIAMETER/2+visuals.HIT_PADDING:
+        for kind, center in visuals.BUTTON_CENTERS:
+            if abs(x-center) <= radius:
                 return kind
         return ""
 

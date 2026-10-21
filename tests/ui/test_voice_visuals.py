@@ -1,5 +1,5 @@
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops
 
 from ClipAI.core.voice import InlineDictationView
 from ClipAI.ui.voice_visuals import project_inline_visuals
@@ -73,9 +73,9 @@ def test_waveform_uses_real_level_and_is_flat_when_silent_or_inactive():
 
 def test_raster_edges_blend_with_backdrop_and_keep_fully_transparent_pixels_keyed():
     from ClipAI.ui.voice_visuals import draw_pill
-    background = Image.new("RGB", (132, 26), (210, 220, 230))
+    background = Image.new("RGB", (160, 36), (210, 220, 230))
     bitmap = draw_pill(InlineDictationView("i", "awaiting"), backdrop=background)
-    assert bitmap.size == (132, 26)
+    assert bitmap.size == (160, 36)
     assert bitmap.getpixel((0, 0)) == (1, 2, 3)
     assert (0, 0, 0) not in list(bitmap.getdata())
     # A rounded edge includes blended pixels, distinct from both solid fills.
@@ -116,3 +116,38 @@ def test_popup_voice_capsule_shares_dark_body_and_real_wave_with_pill():
     assert idle.tobytes() != active.tobytes()
     silent = draw_voice_capsule(width=82, height=22, level=.8, listening=True, silence=True)
     assert silent.tobytes() == draw_voice_capsule(width=82, height=22, level=0, listening=True, silence=True).tobytes()
+
+
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5, 1.75, 2])
+def test_refine_light_moves_only_around_button_perimeter_and_loops_in_1600ms(scale):
+    from ClipAI.ui.voice_visuals import draw_pill, FRAME_MS, REFINE_RING_FRAMES
+    view = InlineDictationView("i", "refining", chosen="refine")
+    first = draw_pill(view, scale=scale, frame=0)
+    quarter = draw_pill(view, scale=scale, frame=5)
+    assert first.size == (round(160*scale), round(36*scale))
+    assert FRAME_MS*REFINE_RING_FRAMES == 1600
+    assert first.tobytes() == draw_pill(view, scale=scale, frame=REFINE_RING_FRAMES).tobytes()
+    difference = ImageChops.difference(first, quarter)
+    assert difference.getbbox() is not None
+    # The sparkle, its surrounding center, and every other control stay still.
+    center = tuple(round(value*scale) for value in (104, 12, 116, 24))
+    assert difference.crop(center).getbbox() is None
+    bounds = difference.getbbox()
+    assert bounds[0] >= round(95*scale) and bounds[2] <= round(125*scale)
+    assert bounds[1] >= round(3*scale) and bounds[3] <= round(33*scale)
+    # Once provider work ends, the refine perimeter stops animating.
+    pasting = InlineDictationView("i", "pasting", chosen="refine")
+    box = tuple(round(value*scale) for value in (95, 3, 125, 33))
+    assert draw_pill(pasting, scale=scale, frame=0).crop(box).tobytes() == draw_pill(pasting, scale=scale, frame=5).crop(box).tobytes()
+
+
+def test_hover_changes_only_the_enabled_button_without_moving_its_glyph():
+    from ClipAI.ui.voice_visuals import draw_pill
+    view = InlineDictationView("i", "awaiting")
+    difference = ImageChops.difference(draw_pill(view), draw_pill(view, hover="refine"))
+    assert difference.getbbox() is not None
+    left, top, right, bottom = difference.getbbox()
+    assert 95 <= left < right <= 125 and 3 <= top < bottom <= 33
+    assert difference.getpixel((110, 18)) == (0, 0, 0)
+    disabled = InlineDictationView("i", "awaiting", allow_refine=False)
+    assert draw_pill(disabled).tobytes() == draw_pill(disabled, hover="refine").tobytes()

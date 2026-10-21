@@ -21,16 +21,26 @@ MUTED = "#7A7D82"
 WHITE = "#FFFFFF"
 SILENCE_WORD = "無聲"
 SUPERSAMPLE = 4
-BASE_WIDTH = 132
-BASE_HEIGHT = 26
+BASE_WIDTH = 160
+BASE_HEIGHT = 36
 STRIP_HEIGHT = 18
 CANVAS_WIDTH = 300
-CANVAS_HEIGHT = 208
 PANEL_HEIGHT = 164
+CANVAS_HEIGHT = PANEL_HEIGHT + STRIP_HEIGHT + BASE_HEIGHT
 PANEL_RADIUS = 10
 BUTTON_RADIUS = 9
 HIT_PADDING = 3
-REFINE_DIAMETER = 22
+REFINE_DIAMETER = 24
+BUTTON_CENTERS = (("cancel", 18), ("refine", 110), ("raw", 142))
+CENTER_Y = BASE_HEIGHT / 2
+WAVE_LEFT = 43
+WAVE_WIDTH = 41
+WAVE_CENTER = WAVE_LEFT + WAVE_WIDTH / 2
+SHELL_OUTLINE = "#34363C"
+SHELL_HIGHLIGHT = "#41434A"
+REFINE_ACTIVE = "#4B426C"
+REFINE_LIGHT = "#B7A5F5"
+REFINE_RING_FRAMES = 20
 WAVE_BARS = 9
 FRAME_MS = 80
 MARGIN = 8
@@ -169,27 +179,73 @@ def _wave(draw: ImageDraw.ImageDraw, left: float, cy: float, width: float, unit:
         _line(draw, [(x, cy-half), (x, cy+half)], color, 1.5*unit)
 
 
-def _pill_layer(scale, border, refine_fill, raw_fill, spinner, heights, wave_color, allow_refine, frame):
+def _blend(first: str, second: str, amount: float) -> tuple[int, int, int]:
+    return tuple(round(int(first[i:i+2], 16)*(1-amount) + int(second[i:i+2], 16)*amount) for i in (1, 3, 5))
+
+
+@lru_cache(maxsize=1)
+def _button_perimeter() -> tuple[tuple[float, float], ...]:
+    """Uniform-distance clockwise samples on the button's inset border."""
+    half, radius = REFINE_DIAMETER/2-.75, BUTTON_RADIUS-.75
+    straight = 2*(half-radius)
+    arc = math.pi*radius/2
+    quadrant = straight+arc
+    points = []
+    for index in range(160):
+        distance = index*4*quadrant/160
+        side = int(distance/quadrant)
+        offset = distance-side*quadrant
+        if offset < straight:
+            x, y = -half+radius+offset, -half
+        else:
+            angle = -math.pi/2+(offset-straight)/radius
+            x = half-radius+radius*math.cos(angle)
+            y = -half+radius+radius*math.sin(angle)
+        for _ in range(side):
+            x, y = -y, x
+        points.append((x, y))
+    return tuple(points)
+
+
+def _refine_ring(draw, cx, cy, unit, frame, fill):
+    points = _button_perimeter()
+    head = (frame % REFINE_RING_FRAMES)*len(points)//REFINE_RING_FRAMES
+    length = len(points)//4
+    for step in range(length):
+        start = points[(head-length+step) % len(points)]
+        end = points[(head-length+step+1) % len(points)]
+        color = _blend(fill, REFINE_LIGHT, (step+1)/length)
+        draw.line([(cx+start[0]*unit, cy+start[1]*unit), (cx+end[0]*unit, cy+end[1]*unit)], fill=color, width=max(1, round(1.5*unit)))
+
+
+def _pill_layer(scale, border, refine_fill, raw_fill, spinner, heights, wave_color, allow_refine, frame, hover):
     size = (round(BASE_WIDTH*scale), round(BASE_HEIGHT*scale))
     unit = scale * SUPERSAMPLE
     layer = Image.new("RGBA", (size[0]*SUPERSAMPLE, size[1]*SUPERSAMPLE))
     draw = ImageDraw.Draw(layer)
-    draw.rounded_rectangle((0, 0, layer.width-1, layer.height-1), radius=13*unit, fill=BODY, outline=border, width=max(1, round(unit)))
+    draw.rounded_rectangle((0, 0, layer.width-1, layer.height-1), radius=CENTER_Y*unit, fill=BODY, outline=SHELL_OUTLINE if border == OUTLINE else border, width=max(1, round(unit)))
+    if border == OUTLINE:
+        draw.line([(CENTER_Y*unit, unit), ((BASE_WIDTH-CENTER_Y)*unit, unit)], fill=SHELL_HIGHLIGHT, width=max(1, round(.5*unit)))
+    centers = dict(BUTTON_CENTERS)
     for kind, cx, fill, foreground in (
-        ("cancel", 13, BODY, CONFIRM),
-        ("refine", 94, refine_fill, WHITE if refine_fill == REFINE else MUTED if not allow_refine else CONFIRM),
-        ("raw", 119, raw_fill, WHITE if raw_fill == GREEN else BODY if raw_fill == CONFIRM else MUTED),
+        ("cancel", centers["cancel"], BODY, CONFIRM),
+        ("refine", centers["refine"], REFINE_ACTIVE if refine_fill == REFINE else refine_fill, WHITE if refine_fill == REFINE else MUTED if not allow_refine else CONFIRM),
+        ("raw", centers["raw"], raw_fill, WHITE if raw_fill == GREEN else BODY if raw_fill == CONFIRM else MUTED),
     ):
-        radius = 11 * unit
-        draw.rounded_rectangle(((cx*unit)-radius, 2*unit, (cx*unit)+radius, 24*unit), radius=BUTTON_RADIUS*unit, fill=fill)
-        if spinner == kind:
-            _spinner(draw, cx*unit, 13*unit, unit, frame, foreground)
+        radius = REFINE_DIAMETER/2 * unit
+        button_fill = _blend(fill, WHITE, .07) if hover == kind else fill
+        draw.rounded_rectangle(((cx*unit)-radius, CENTER_Y*unit-radius, (cx*unit)+radius, CENTER_Y*unit+radius), radius=BUTTON_RADIUS*unit, fill=button_fill)
+        if spinner == kind and kind != "refine":
+            _spinner(draw, cx*unit, CENTER_Y*unit, unit, frame, foreground)
         else:
-            _icon(draw, kind, cx*unit, 13*unit, unit, foreground)
+            _icon(draw, kind, cx*unit, CENTER_Y*unit, unit, foreground)
+        if spinner == kind == "refine":
+            # The glyph stays still; only the perimeter conveys pending work.
+            _refine_ring(draw, cx*unit, CENTER_Y*unit, unit, frame, fill)
     if spinner == "wave":
-        _spinner(draw, 53*unit, 13*unit, unit, frame, CONFIRM)
+        _spinner(draw, WAVE_CENTER*unit, CENTER_Y*unit, unit, frame, CONFIRM)
     else:
-        _wave(draw, 31*unit, 13*unit, 42*unit, unit, heights, wave_color)
+        _wave(draw, WAVE_LEFT*unit, CENTER_Y*unit, WAVE_WIDTH*unit, unit, heights, wave_color)
     return layer.resize(size, Image.Resampling.LANCZOS)
 
 
@@ -198,13 +254,14 @@ def _pill_layer(scale, border, refine_fill, raw_fill, spinner, heights, wave_col
 _static_pill_layer = lru_cache(maxsize=16)(_pill_layer)
 
 
-def draw_pill(view: InlineDictationView, *, scale: float = 1.0, frame: int = 0, backdrop: Image.Image | None = None) -> Image.Image:
+def draw_pill(view: InlineDictationView, *, scale: float = 1.0, frame: int = 0, backdrop: Image.Image | None = None, hover: str = "") -> Image.Image:
     visual = project_inline_visuals(view)
     heights = wave_heights(view.audio_level, frame=frame, listening=view.phase == "listening", silence=view.silence_detected)
     wave_color = MUTED if view.phase in {"starting", "cancelling"} or view.silence_detected else WHITE
     animated = visual.spinner is not None or any(heights)
     render = _pill_layer if animated else _static_pill_layer
-    layer = render(scale, visual.border, visual.refine_fill, visual.raw_fill, visual.spinner, heights, wave_color, view.allow_refine, frame if animated else 0)
+    interactive_hover = hover if view.phase in {"starting", "listening", "awaiting"} and (hover != "refine" or view.allow_refine) else ""
+    layer = render(scale, visual.border, visual.refine_fill, visual.raw_fill, visual.spinner, heights, wave_color, view.allow_refine, frame if animated else 0, interactive_hover)
     return composite_backdrop(layer, backdrop)
 
 

@@ -82,7 +82,7 @@ the matching engine terminal event or six-second watchdog settles it. A normal
 cancel closes without a failure flash; a watchdog timeout reports the missing
 acknowledgement before closing.
 
-The Pill is 132×26 logical pixels on a 300-wide reserved canvas, with an
+The Pill is 160×36 logical pixels on a 300-wide reserved canvas, with an
 18-pixel status strip and an 8-pixel scaled work-area margin. The same window
 holds a 300-wide, padding-10, radius-10 review panel, complete scrollable text
 and a 44×20 Copy button. UI does not bind Enter or Ctrl+P here. A first explicit
@@ -98,6 +98,14 @@ muted line at silence/zero, and show 無聲 where required. Static phases schedu
 no frames; active animation uses 80 ms. Golden colors, copy/status strings,
 chosen/spinner mapping and border states are in `tests/ui/test_voice_visuals.py`;
 `tests/architecture/test_voice_visuals_contract.py` prevents duplicated visuals.
+Buttons are 24×24 with six logical pixels of shell clearance; the two delivery
+buttons have an eight-pixel gap. Hover brightens an enabled button without
+moving its geometry. The shell uses a subdued outline and a fine upper highlight.
+During refinement, the fixed sparkle is surrounded by a 1.5-pixel fading purple
+quarter-perimeter light, moving clockwise once per 1600 ms. It stops when the
+real refinement phase ends; paste status continues to reflect its own lifecycle.
+This visual revision supersedes the original 132×26 dimensions; historical
+latency and focus evidence in ADR-0022 describes that original geometry.
 
 Native display order is anchor/DPI → place → capture → draw → deiconify →
 show_without_activation → prevent_click_activation → animation. Mapping must

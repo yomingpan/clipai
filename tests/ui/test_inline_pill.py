@@ -8,7 +8,7 @@ from ClipAI.core.voice import InlineDictationView
 from ClipAI.ui.inline_pill import InlinePill, resolve_pill_layout
 
 
-@pytest.mark.parametrize("scale", [1, 1.5, 2])
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5, 2])
 @pytest.mark.parametrize("pointer", [(0, 0), (1279, 719), (600, 300)])
 def test_pill_and_future_panel_fit_work_area_with_scaled_margin(scale, pointer):
     metrics = DisplayMetrics(scale, 0, 0, 1280, 720, *pointer)
@@ -20,9 +20,32 @@ def test_pill_and_future_panel_fit_work_area_with_scaled_margin(scale, pointer):
     assert layout.scale == scale
 
 
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5, 1.75, 2])
+def test_scaled_regions_fit_without_independent_rounding_clipping(scale):
+    from ClipAI.ui import voice_visuals as visuals
+    metrics = DisplayMetrics(scale, 0, 0, 1600, 1000, 0, 0)
+    layout = resolve_pill_layout(metrics, "bottom_center")
+    assert layout.pill_y+round(visuals.BASE_HEIGHT*scale) == layout.height
+    assert layout.pill_y-round(visuals.STRIP_HEIGHT*scale) == round(visuals.PANEL_HEIGHT*scale)
+
+
 def test_bottom_center_placement_does_not_follow_pointer():
     metrics = DisplayMetrics(1, 100, 50, 1000, 700, 130, 70)
     assert resolve_pill_layout(metrics, "bottom_center") == resolve_pill_layout(replace(metrics, cursor_x=1000, cursor_y=700), "bottom_center")
+
+
+@pytest.mark.parametrize("scale", [1, 1.5, 2])
+def test_button_targets_follow_spaced_geometry_and_leave_shell_and_gap_inactive(scale):
+    pill = object.__new__(InlinePill)
+    pill._layout = layout = resolve_pill_layout(DisplayMetrics(scale, 0, 0, 1600, 1000, 0, 0), "bottom_center")
+    def hit(x, y):
+        return pill._hit(layout.pill_x+x*scale, layout.pill_y+y*scale)
+    assert hit(18, 18) == "cancel"
+    assert hit(110, 18) == "refine"
+    assert hit(142, 18) == "raw"
+    assert hit(126, 18) == ""
+    assert hit(110, 0) == hit(110, 36) == ""
+    assert hit(0, 18) == hit(160, 18) == ""
 
 
 @pytest.fixture(scope="module")
@@ -95,7 +118,7 @@ def test_idle_has_no_animation_and_click_lock_resets_only_on_phase_change(root):
         root.update()
         assert pill._frame_job is None
         layout = pill._layout
-        x, y = layout.pill_x+round(119*layout.scale), layout.pill_y+round(13*layout.scale)
+        x, y = layout.pill_x+round(142*layout.scale), layout.pill_y+round(18*layout.scale)
         for _ in range(2):
             pill._canvas.event_generate("<Button-1>", x=x, y=y)
         assert confirmations == [False]
@@ -136,14 +159,14 @@ def test_each_new_pill_samples_display_dpi_and_keeps_frozen_bounds_during_copy(r
         scale = 1
         def current(self): return DisplayMetrics(self.scale, 0, 0, 1600, 1000, 1590, 990)
     reader = Reader()
-    for scale in (1, 1.5, 2):
+    for scale in (1, 1.25, 1.5, 1.75, 2):
         reader.scale = scale
         pill = InlinePill(root, interaction_id="i", on_confirm=lambda _: None, on_cancel=lambda: None, display_metrics=reader)
         try:
             pill.show()
             layout = pill._layout
-            assert pill._photo.width() == round(132*scale)
-            assert pill._photo.height() == round(26*scale)
+            assert pill._photo.width() == round(160*scale)
+            assert pill._photo.height() == round(36*scale)
             pill.present(InlineDictationView("i", "recovery", text="full text", copy_state="failed"))
             root.update()
             assert pill._layout == layout
