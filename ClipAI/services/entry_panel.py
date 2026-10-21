@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from ClipAI.core.models import EntryInputPreparationPhase
 from ClipAI.core.models import EntryActionRef, EntryInputSourcePreview, EntryPanelDecision, EntryPanelDensity, EntryPanelOption, EntryPanelSnapshot
 from ClipAI.services.action_catalog import ActionCatalog
 
@@ -11,6 +12,8 @@ class EntryPanelCandidate:
     action: EntryActionRef
     label: str
     description: str
+    long_action: EntryActionRef | None = None
+    long_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -35,11 +38,12 @@ class EntryPanelCatalog:
         category_ids: set[str] = set()
         category_slots: set[int] = set()
         candidates: dict[EntryActionRef, EntryPanelCandidate] = {}
+        candidate_references: set[EntryActionRef] = set()
         categories_by_id: dict[str, EntryPanelCategory] = {}
         categories_by_slot: dict[int, EntryPanelCategory] = {}
         for category in categories:
-            if category.slot not in {3, 4, 5, 6}:
-                raise ValueError("entry panel category slot must be one of: 3, 4, 5, 6")
+            if category.slot not in {4, 5, 6, 7}:
+                raise ValueError("entry panel category slot must be one of: 4, 5, 6, 7")
             if category.slot in category_slots:
                 raise ValueError(f"duplicate category slot: {category.slot}")
             if category.category_id in category_ids:
@@ -60,12 +64,29 @@ class EntryPanelCatalog:
                         "unknown entry action: "
                         f"{candidate.action.action_id}/{candidate.action.press_type}"
                     )
-                if candidate.action in candidates:
+                if candidate.action in candidate_references:
                     raise ValueError(
                         "duplicate entry action: "
                         f"{candidate.action.action_id}/{candidate.action.press_type}"
                     )
+                candidate_references.add(candidate.action)
                 candidates[candidate.action] = candidate
+                if candidate.long_action is not None:
+                    if candidate.long_action.press_type not in {"short", "long"}:
+                        raise ValueError(
+                            f"unknown entry action press type: {candidate.long_action.press_type}"
+                        )
+                    if not actions.contains(candidate.long_action.action_id):
+                        raise ValueError(
+                            "unknown entry action: "
+                            f"{candidate.long_action.action_id}/{candidate.long_action.press_type}"
+                        )
+                    if candidate.long_action in candidate_references:
+                        raise ValueError(
+                            "duplicate entry action: "
+                            f"{candidate.long_action.action_id}/{candidate.long_action.press_type}"
+                        )
+                    candidate_references.add(candidate.long_action)
         self._categories = categories
         self._categories_by_id = categories_by_id
         self._categories_by_slot = categories_by_slot
@@ -152,6 +173,7 @@ class EntryPanelCoordinator:
         disabled: dict[EntryActionRef, str] | None = None,
         preparing: bool = False,
         source_preview: EntryInputSourcePreview | None = None,
+        numeric_hint: bool = False,
     ) -> EntryPanelSnapshot:
         recent_candidates = tuple(
             candidate
@@ -164,7 +186,7 @@ class EntryPanelCoordinator:
         self._pending = preparing
         recent_options = tuple(
             self._action_option(index, candidate)
-            for index, candidate in enumerate(recent_candidates)
+            for index, candidate in enumerate(recent_candidates, start=1)
         )
         self._snapshot = EntryPanelSnapshot(
             panel_id,
@@ -182,6 +204,7 @@ class EntryPanelCoordinator:
             status="preparing" if preparing else "idle",
             message="正在讀取來源內容…" if preparing else "",
             source_preview=source_preview,
+            header_hint="數字已改:1–3 最近、4–7 分類" if numeric_hint else "",
         )
         return self._snapshot
 
@@ -263,6 +286,15 @@ class EntryPanelCoordinator:
         )
         return self._snapshot
 
+    def show_input_progress(self, phase: EntryInputPreparationPhase) -> EntryPanelSnapshot:
+        if self._snapshot is None or self._snapshot.status != "preparing":
+            raise RuntimeError("entry input preparation is not active")
+        self._snapshot = replace(
+            self._snapshot,
+            message=("正在等待原視窗就緒…（Esc 可取消）" if phase == "waiting_for_window" else "正在讀取來源內容…"),
+        )
+        return self._snapshot
+
     def close(self) -> None:
         self._pending = False
         self._snapshot = None
@@ -329,6 +361,7 @@ class EntryPanelCoordinator:
                 status=previous.status,
                 message=previous.message,
                 source_preview=previous.source_preview,
+                header_hint=previous.header_hint,
             )
             return self._snapshot
         return self._snapshot
@@ -339,6 +372,9 @@ class EntryPanelCoordinator:
         if not digit.isdigit():
             return EntryPanelDecision(self._snapshot)
         slot = int(digit)
+        if self._snapshot.page == "root" and slot == 0:
+            self._snapshot = replace(self._snapshot, message="最近使用改為 1–3")
+            return EntryPanelDecision(self._snapshot)
         option = next((item for item in self._snapshot.options if item.slot == slot), None)
         if (
             option is not None
@@ -375,6 +411,8 @@ class EntryPanelCoordinator:
             enabled=not reason,
             pending=self._pending and not reason,
             disabled_reason=reason,
+            long_action=candidate.long_action,
+            long_label=candidate.long_label,
         )
 
     def _project_option_lifecycle(

@@ -10,11 +10,65 @@ def coordinator() -> EntryPanelCoordinator:
     return EntryPanelCoordinator(load_config_bundle().entry_panel)
 
 
+def test_root_numeric_migration_reserves_zero_for_visible_feedback_only():
+    panel = coordinator()
+    root = panel.open("migration", recent=(EntryActionRef("shorten_content", "short"),))
+    assert tuple(option.slot for option in root.options) == (1, 4, 5, 6, 7)
+    decision = panel.select_digit("0")
+    assert decision.action is None
+    assert decision.snapshot.message == "最近使用改為 1–3"
+    assert decision.snapshot.page == "root"
+
+
+def test_numeric_hint_is_separate_from_input_lifecycle_feedback():
+    panel = coordinator()
+    root = panel.open("migration", preparing=True, numeric_hint=True)
+    assert root.header_hint == "數字已改:1–3 最近、4–7 分類"
+    assert root.message == "正在讀取來源內容…"
+    ready = panel.complete_input_preparation(EntryInputSourcePreview("selection_text", "captured"))
+    assert ready.header_hint == root.header_hint
+    assert ready.message == ""
+    assert panel.open("after-five").header_hint == ""
+
+
+def test_catalog_projects_a_validated_long_candidate() -> None:
+    bundle = load_config_bundle()
+    candidate = EntryPanelCandidate(
+        EntryActionRef("name_idea", "short"),
+        "Name",
+        "Describe",
+        EntryActionRef("critical_thinking", "long"),
+        "Critique deeply",
+    )
+    catalog = EntryPanelCatalog(
+        (EntryPanelCategory("test", 4, "Test", "Test", (candidate,), ()),),
+        actions=bundle.actions,
+    )
+
+    scene = EntryPanelCoordinator(catalog)
+    scene.open("panel")
+    option = scene.select_digit("4").snapshot.options[0]
+    assert option.long_action == EntryActionRef("critical_thinking", "long")
+    assert option.long_label == "Critique deeply"
+
+
+def test_catalog_rejects_duplicate_long_candidate_reference() -> None:
+    bundle = load_config_bundle()
+    duplicated = EntryActionRef("name_idea", "short")
+    candidate = EntryPanelCandidate(duplicated, "Name", "Describe", duplicated, "Again")
+
+    with pytest.raises(ValueError, match="duplicate entry action"):
+        EntryPanelCatalog(
+            (EntryPanelCategory("test", 4, "Test", "Test", (candidate,), ()),),
+            actions=bundle.actions,
+        )
+
+
 def test_root_digit_opens_configured_scene_with_flagship_slots() -> None:
     panel = coordinator()
     root = panel.open("panel-1")
 
-    scene_decision = panel.select_digit("3")
+    scene_decision = panel.select_digit("4")
     action_decision = panel.select_digit("1")
     scene = scene_decision.snapshot
 
@@ -27,7 +81,7 @@ def test_root_digit_opens_configured_scene_with_flagship_slots() -> None:
     assert action_decision.snapshot == scene
 
 
-def test_root_projects_only_available_recent_actions_into_zero_based_slots() -> None:
+def test_root_projects_only_available_recent_actions_into_one_based_slots() -> None:
     panel = coordinator()
 
     root = panel.open(
@@ -39,7 +93,7 @@ def test_root_projects_only_available_recent_actions_into_zero_based_slots() -> 
     )
 
     recent = tuple(option for option in root.options if option.action is not None)
-    assert tuple(option.slot for option in recent) == (0, 1)
+    assert tuple(option.slot for option in recent) == (1, 2)
     assert tuple(option.action.action_id for option in recent) == (
         "shorten_content",
         "english_companion",
@@ -75,7 +129,7 @@ def test_root_ignores_a_stale_recent_reference_instead_of_crashing() -> None:
 def test_more_and_back_follow_the_progressive_navigation_stack_without_closing_root() -> None:
     panel = coordinator()
     panel.open("panel-1")
-    scene = panel.select_digit("5").snapshot
+    scene = panel.select_digit("6").snapshot
 
     more = panel.open_more()
     returned_scene = panel.back()
@@ -101,7 +155,7 @@ def test_preparing_actions_remain_capable_but_are_pending_and_unselectable() -> 
         disabled={policy_blocked: "Provider unavailable"},
     )
 
-    scene = panel.select_digit("4").snapshot
+    scene = panel.select_digit("5").snapshot
     blocked = next(option for option in scene.options if option.action == policy_blocked)
     available = next(option for option in scene.options if option.action != policy_blocked)
 
@@ -116,7 +170,7 @@ def test_preparing_actions_remain_capable_but_are_pending_and_unselectable() -> 
 def test_search_filters_only_the_current_more_page() -> None:
     panel = coordinator()
     panel.open("panel-1")
-    panel.select_digit("5")
+    panel.select_digit("6")
     panel.open_more()
 
     filtered = panel.set_search("MECE")
@@ -131,7 +185,7 @@ def test_search_filters_only_the_current_more_page() -> None:
 def test_density_toggle_preserves_page_search_and_action_order() -> None:
     panel = coordinator()
     panel.open("panel-1")
-    panel.select_digit("5")
+    panel.select_digit("6")
     panel.open_more()
     detailed = panel.set_search("name")
 
@@ -166,7 +220,7 @@ def test_disabled_action_stays_visible_with_reason_and_cannot_be_selected() -> N
         "panel-1",
         disabled={action: "請先完成 Personal Style 設定"},
     )
-    scene = panel.select_digit("4").snapshot
+    scene = panel.select_digit("5").snapshot
 
     decision = panel.select_digit("1")
 
@@ -183,7 +237,7 @@ def test_input_lifecycle_projection_survives_navigation_and_density_changes() ->
         preparing=True,
         source_preview=preview,
     )
-    scene = panel.select_digit("5").snapshot
+    scene = panel.select_digit("6").snapshot
     more = panel.open_more()
     compact = panel.toggle_density()
 
@@ -212,7 +266,7 @@ def test_input_completion_and_failure_are_truthful_projection_transitions() -> N
 
 
 def test_catalog_rejects_semantically_invalid_categories_without_yaml_loader() -> None:
-    with pytest.raises(ValueError, match="slot must be one of: 3, 4, 5, 6"):
+    with pytest.raises(ValueError, match="slot must be one of: 4, 5, 6, 7"):
         EntryPanelCatalog(
             (
                 EntryPanelCategory(
@@ -234,7 +288,7 @@ def test_catalog_rejects_unknown_action_without_yaml_loader() -> None:
             (
                 EntryPanelCategory(
                     "understand",
-                    3,
+                    4,
                     "Understand",
                     "Understand",
                     (EntryPanelCandidate(EntryActionRef("unknown", "short"), "Unknown", ""),),

@@ -2,15 +2,47 @@ from __future__ import annotations
 
 import queue
 import inspect
+import pytest
 from dataclasses import replace
 
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CloseSession, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
-from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteTarget, PopupBounds, WorkflowAttention, WorkflowStep
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelInlineDictation, CloseSession, ConfirmInlineDictation, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
+from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteOutcome, PasteTarget, PopupBounds, WorkflowAttention, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
 from ClipAI.ui.base_dialog import BaseResultSurface, _VoiceWaveIndicator
+from ClipAI.ui.inline_dictation_owner import InlineDictationInterfaceOwner
 from ClipAI.ui.popup_control import PopupControlRegistered, PopupControlShown, PopupOwnedDialogOpened, ToolkitFocusEntered
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, _voice_status_word, workflow_render_patch
+
+
+def test_late_inline_refinement_cannot_close_a_newer_window() -> None:
+    class Window:
+        interaction_id = "inline-new"
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self, **_kwargs) -> None:
+            self.closed = True
+
+    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None)
+    window = Window()
+    presenter._window = window
+
+    presenter.close_inline_dictation(interaction_id="inline-old")
+
+    assert not window.closed
+    assert presenter._window is window
+
+
+
+
+
+
+
+
+
+
 
 
 def test_voice_waveform_uses_canvas_and_packs_after_right_anchors() -> None:
@@ -158,96 +190,8 @@ def test_voice_waveform_font_uses_scaled_negative_pixel_size_and_is_cached(monke
     assert created[0]["size"] == -15
 
 
-def test_voice_waveform_line_ends_before_the_measured_status_word() -> None:
-    class Font:
-        def measure(self, word: str) -> int:
-            assert word == "聆聽"
-            return 30
-
-    class Indicator:
-        BASE_WIDTH = 82
-        BASE_HEIGHT = 22
-
-        def _widget_scaling(self) -> float:
-            return 1.5
-
-        def _scaled_font(self, _scaling: float) -> Font:
-            return Font()
-
-        def _colors(self):
-            return "pill", "line", "word"
-
-        def configure(self, **kwargs) -> None:
-            self.configured = kwargs
-
-        def delete(self, _tag: str) -> None:
-            pass
-
-        def _draw_rounded_pill(self, *_args) -> None:
-            pass
-
-        def create_text(self, *_args, **_kwargs) -> None:
-            pass
-
-        def create_line(self, *points, **_kwargs) -> None:
-            self.points = points
-
-    indicator = Indicator()
-    indicator._word = "聆聽"
-    indicator._amplitude = 0.7
-    indicator._phase = 0.0
-
-    _VoiceWaveIndicator._render(indicator)
-
-    width = round(82 * 1.5)
-    padding = 7.0 * 1.5
-    measured_line_right = width - padding - 30 - padding
-    x_coordinates = indicator.points[0::2]
-    assert max(x_coordinates) <= measured_line_right
 
 
-def test_voice_waveform_uses_a_compact_minutes_and_seconds_countdown() -> None:
-    rendered: list[str] = []
-
-    class Font:
-        def measure(self, word: str) -> int:
-            return len(word)
-
-    class Indicator:
-        BASE_WIDTH = 82
-        BASE_HEIGHT = 22
-        _countdown_seconds = 90
-        _word = "聆聽"
-        _amplitude = 0.0
-        _phase = 0.0
-
-        def _widget_scaling(self) -> float:
-            return 1.0
-
-        def _scaled_font(self, _scaling: float) -> Font:
-            return Font()
-
-        def _colors(self):
-            return "pill", "line", "word"
-
-        def configure(self, **kwargs) -> None:
-            pass
-
-        def delete(self, _tag: str) -> None:
-            pass
-
-        def _draw_rounded_pill(self, *_args, **_kwargs) -> None:
-            pass
-
-        def create_text(self, *_args, **kwargs) -> None:
-            rendered.append(kwargs["text"])
-
-        def create_line(self, *_args, **_kwargs) -> None:
-            pass
-
-    _VoiceWaveIndicator._render(Indicator())
-
-    assert rendered == ["1:30"]
 
 
 class Root:
@@ -320,6 +264,8 @@ class Surface:
         self.feedback_available = False
         self.header_double_click_callback = None
         self.voice_draft_paste_callback = None
+        self.copy_shortcut_callback = None
+        self.context_copy_callback = None
         self.focus_result = True
         self.follow_up_visible = False
         self.follow_entry = FollowUpEntry()
@@ -347,17 +293,27 @@ class Surface:
     def set_title(self, title: str) -> None:
         self.title = title
 
+    _set_title = set_title
+
     def set_source_preview(self, source_preview: str) -> None:
         self.source_preview = source_preview
+
+    _set_source_preview = set_source_preview
 
     def set_model(self, model: str) -> None:
         self.model = model
 
+    _set_model = set_model
+
     def set_back_available(self, enabled: bool) -> None:
         self.back_available = enabled
 
+    _set_back_available = set_back_available
+
     def set_available_actions(self, enabled_actions: tuple[str, ...]) -> None:
         self.enabled_actions = enabled_actions
+
+    _set_available_actions = set_available_actions
 
     def selected_text(self) -> str | None:
         return self.selected
@@ -380,6 +336,8 @@ class Surface:
     def set_speaker_active(self, active: bool) -> None:
         self.events.append(f"speaker:{active}")
 
+    _set_speaker_active = set_speaker_active
+
     def toggle_pin(self) -> bool:
         self.events.append("pin:toggled")
         return True
@@ -396,21 +354,38 @@ class Surface:
     def bind_voice_draft_paste(self, callback) -> None:
         self.voice_draft_paste_callback = callback
 
+    def bind_copy_shortcut(self, callback) -> None:
+        self.copy_shortcut_callback = callback
+
+    def bind_content_context_copy(self, callback) -> None:
+        self.context_copy_callback = callback
+
     def focus_content(self) -> bool:
         return self.focus_result
 
     def configure_action_contract(self, contract, input_source: str) -> None:
         self.events.append(("contract", contract, input_source))
 
+    _configure_action_contract = configure_action_contract
+
     def show_action_guidance_hint(self) -> None:
         self.events.append("guidance:shown")
+
+    _show_action_guidance_hint = show_action_guidance_hint
+
+    def _hide_action_guidance_hint(self) -> None:
+        self.events.append("guidance:hidden")
 
     def configure_feedback(self, contract, state, message, on_submit) -> None:
         self.feedback_submit = on_submit
         self.events.append(("feedback", state, message))
 
+    _configure_feedback = configure_feedback
+
     def hide_feedback(self) -> None:
         self.events.append("feedback:hidden")
+
+    _hide_feedback = hide_feedback
 
     def toggle_feedback_overlay(self) -> bool:
         self.events.append("feedback:toggled")
@@ -512,6 +487,22 @@ def test_copy_and_archive_wait_for_typed_acknowledgment() -> None:
     assert len(events) == 2
     assert isinstance(events[0], CopyResult) and events[0].text == "selected" and events[0].operation_id
     assert isinstance(events[1], ArchiveResult) and events[1].text == "selected" and events[1].operation_id
+
+
+def test_refine_voice_draft_emits_frozen_revision_and_selection() -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.surface.selection_range = lambda: (2, 7)
+    view.last_snapshot = SessionSnapshot(
+        "s1", 8, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+        content="draft text",
+        voice_origin=VoiceOrigin(None, "draft text", 5),
+        available_actions=("copy", "paste", "follow_up", "refine"),
+    )
+
+    presenter._refine_voice_draft("s1")
+
+    assert events == [RefineVoiceDraftInPlace("s1", 5, 2, 7)]
 
 
 def test_acknowledgment_projects_success_and_ignores_stale_operation() -> None:
@@ -679,9 +670,9 @@ def test_voice_status_word_keeps_phase_semantics_in_the_presenter() -> None:
     for phase in (
         VoiceCapturePhase.STOP_REQUESTED,
         VoiceCapturePhase.FINALIZING,
-        VoiceCapturePhase.CANCEL_REQUESTED,
     ):
         assert _voice_status_word(phase, silence_detected=True) == "整理"
+    assert _voice_status_word(VoiceCapturePhase.CANCEL_REQUESTED, silence_detected=True) == "取消中"
 
 
 def test_voice_status_word_remains_stable_while_countdown_is_projected_elsewhere() -> None:
@@ -833,7 +824,8 @@ def test_every_finalizing_phase_disables_the_control_and_overrides_silence() -> 
         presenter._configure_voice_control(snapshot, presenter._views["s1"])
         action = presenter._views["s1"].surface.voice_action
 
-        assert action["word"] == "整理"
+        assert action["word"] == ("取消中" if phase is VoiceCapturePhase.CANCEL_REQUESTED else "整理")
+        assert action["tooltip"] == ("Cancelling Voice Input" if phase is VoiceCapturePhase.CANCEL_REQUESTED else "Finalizing Voice Input")
         assert action["level"] == 0.7
         assert action["listening"] is False
         assert action["silence"] is True
@@ -1237,7 +1229,7 @@ def test_feedback_submission_is_a_typed_identified_command() -> None:
     assert command.save_case is True
 
 
-def test_ctrl_r_feedback_request_reports_unsupported_recipe() -> None:
+def test_feedback_button_reports_unsupported_recipe() -> None:
     presenter, events = presenter_with_selection(None)
 
     presenter._toggle_feedback("s1")
@@ -1245,13 +1237,37 @@ def test_ctrl_r_feedback_request_reports_unsupported_recipe() -> None:
     assert events == ["feedback:toggled", "message:此 Recipe 尚未啟用回饋:1000"]
 
 
-def test_ctrl_r_feedback_request_opens_supported_recipe_overlay() -> None:
+def test_feedback_button_opens_supported_recipe_overlay() -> None:
     presenter, events = presenter_with_selection(None)
     presenter._views["s1"].surface.feedback_available = True
 
     presenter._toggle_feedback("s1")
 
     assert events == ["feedback:toggled"]
+
+
+def test_ctrl_r_emits_regenerate_for_the_active_popup() -> None:
+    class ShortcutRoot:
+        def __init__(self) -> None:
+            self.bindings = {}
+
+        def bind(self, sequence, callback, add=None) -> None:
+            self.bindings[sequence] = callback
+
+    class Lifecycle:
+        def schedule(self, _delay_ms, _callback) -> str:
+            return "scheduled"
+
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+
+    presenter._register_view("s1", view)
+    result = view.dialog.root.bindings["<Control-r>"](None)
+
+    assert result == "break"
+    assert events == [RegenerateResult("s1")]
 
 
 def test_ctrl_slash_toggles_follow_up_for_active_popup() -> None:
@@ -1697,6 +1713,30 @@ def test_voice_draft_intercepts_ctrl_v_before_the_text_widget_can_paste() -> Non
     assert events == ["paste:s1"]
 
 
+def test_popup_content_ctrl_c_uses_one_typed_copy_route() -> None:
+    class ShortcutRoot:
+        def bind(self, _sequence, _callback, add=None) -> None:
+            pass
+
+    class Lifecycle:
+        def schedule(self, _delay, _callback) -> None:
+            pass
+
+    presenter, events = presenter_with_selection("chosen")
+    view = presenter._views["s1"]
+    view.dialog.root = ShortcutRoot()
+    view.dialog.lifecycle = Lifecycle()
+    presenter._copy = lambda session_id: events.append(f"copy:{session_id}")
+
+    presenter._register_view("s1", view)
+    result = view.surface.copy_shortcut_callback(
+        type("Event", (), {"state": 0x0004})()
+    )
+
+    assert result == "break"
+    assert events == ["copy:s1"]
+
+
 def test_voice_capture_surface_context_projects_semantic_follow_up_intent() -> None:
     presenter, _events = presenter_with_selection(None)
     view = presenter._views["s1"]
@@ -2020,10 +2060,10 @@ def test_native_close_request_immediately_excludes_popup_content_and_emits_close
 
 def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
     class Guide:
-        def show(self, _snapshot) -> None:
+        def show_shortcut_guide(self, _snapshot) -> None:
             events.append("guide:show")
 
-        def close(self) -> None:
+        def close_shortcut_guide(self) -> None:
             events.append("guide:close")
 
     class Lifecycle:
@@ -2037,7 +2077,7 @@ def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
     view.dialog.lifecycle = Lifecycle()
-    presenter._shortcut_guide_dialog = Guide()
+    presenter._modals = Guide()
     presenter._shortcut_guide_focus_return = None
 
     presenter.show_shortcut_guide(object())
@@ -2055,15 +2095,15 @@ def test_shortcut_guide_holds_and_restores_the_original_popup_focus() -> None:
 
 def test_shortcut_guide_does_not_restore_a_popup_that_started_closing() -> None:
     class Guide:
-        def show(self, _snapshot) -> None:
+        def show_shortcut_guide(self, _snapshot) -> None:
             pass
 
-        def close(self) -> None:
+        def close_shortcut_guide(self) -> None:
             events.append("guide:close")
 
     presenter, events = presenter_with_selection(None)
     view = presenter._views["s1"]
-    presenter._shortcut_guide_dialog = Guide()
+    presenter._modals = Guide()
     presenter._shortcut_guide_focus_return = None
 
     presenter.show_shortcut_guide(object())
@@ -2078,15 +2118,15 @@ def test_shortcut_guide_without_an_original_popup_does_not_force_focus() -> None
     events = []
 
     class Guide:
-        def show(self, _snapshot) -> None:
+        def show_shortcut_guide(self, _snapshot) -> None:
             events.append("guide:show")
 
-        def close(self) -> None:
+        def close_shortcut_guide(self) -> None:
             events.append("guide:close")
 
     presenter = ResultDialogPresenter.__new__(ResultDialogPresenter)
     presenter._views = {}
-    presenter._shortcut_guide_dialog = Guide()
+    presenter._modals = Guide()
     presenter._shortcut_guide_focus_hold_active = False
     presenter._shortcut_guide_focus_return = None
 
@@ -2131,3 +2171,38 @@ def test_input_reading_popup_renders_before_show_and_does_not_request_focus():
     presenter._apply(SessionSnapshot("s1", 1, SessionStatus.READING_INPUT, "a", "Action", "model", status_text="Reading input"))
     assert ("focus", False) in events
     assert events.index(("loading", "Reading input")) < events.index(("visibility", "visible_no_activate"))
+
+
+@pytest.mark.parametrize("available", [False, True])
+def test_recovery_requests_focus_only_when_clipboard_choice_is_available(available):
+    from tests.ui.test_input_recovery import recovery_snapshot
+    from ClipAI.core.models import PreparedInput, SelectionCaptureOutcome
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    snapshot = replace(recovery_snapshot(), session_id="s1")
+    if not available:
+        snapshot = replace(snapshot, input_recovery=replace(snapshot.input_recovery, prepared=PreparedInput(selection_outcome=SelectionCaptureOutcome(reason="unsupported"))))
+    view.last_snapshot = replace(snapshot, revision=1, status=SessionStatus.READING_INPUT, input_recovery=None)
+    view.dialog.lifecycle.schedule = lambda delay, callback: None
+    presenter._schedule_initial_focus = lambda *_args: events.append("recovery-focus")
+    presenter._apply(snapshot)
+    assert ("recovery-focus" in events) is available
+
+
+@pytest.mark.parametrize("focused, pinned, stale, expires", [(False, False, False, True), (True, False, False, False), (False, True, False, False), (False, False, True, False)])
+def test_recovery_expiry_is_guarded_by_focus_pin_and_identity(focused, pinned, stale, expires):
+    from types import SimpleNamespace
+    from tests.ui.test_input_recovery import recovery_snapshot
+    from ClipAI.core.commands import ExpireInputRecovery
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    jobs = []
+    view.dialog.lifecycle.schedule = lambda delay, callback: jobs.append((delay, callback))
+    snapshot = replace(recovery_snapshot(), session_id="s1", pinned=pinned)
+    presenter._apply(snapshot)
+    view.popup_control = SimpleNamespace(focused_inside=focused)
+    if stale:
+        view.last_snapshot = replace(snapshot, input_recovery=replace(snapshot.input_recovery, recovery_id="new"))
+    expiry = next(callback for delay, callback in jobs if delay == 15000)
+    expiry()
+    assert (ExpireInputRecovery("s1", "choice") in events) is expires

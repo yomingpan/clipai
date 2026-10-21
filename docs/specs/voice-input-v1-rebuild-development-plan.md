@@ -221,6 +221,20 @@ without presenting new evidence that makes the plan unsafe or impossible.
   identities and has not received the typed release/abandon event from the
   Shortcut owner. The engine adapter never reads keyboard state or autonomously
   chooses to restart.
+- A Web Speech `network` error ends the current capture through the existing
+  typed `unavailable` failure with a connection remedy. It is not treated as
+  no-speech and cannot trigger the natural-end restart path, including when it
+  arrives after Stop. Cancel keeps its discard decision. Finalized content
+  already accepted by the controller is preserved for explicit recovery.
+- Inline refinement has a 75-second operation deadline covering provider
+  transport startup and response. If it expires, the Provider Execution owner
+  cancels that operation and reports failure through the typed settlement;
+  Inline Dictation retains the original text for an explicit raw-paste or
+  discard decision. Settlement does not wait for a provider coroutine to
+  cooperate with cancellation; any late result is quarantined. It must not
+  remain in the refining state indefinitely. The typed settlement distinguishes
+  `timed_out`, `unavailable`, `cancelled`, and other failures; timeout and
+  unavailable recovery name the cause without exposing provider response text.
 - Release, Stop, Cancel, Popup close, Disable, listener shutdown, and application
   shutdown create an irreversible stop gate. No subsequent event can restart
   microphone use for that capture.

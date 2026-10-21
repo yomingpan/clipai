@@ -191,10 +191,25 @@ when an action/variant is unknown, repeated across a location, a category is
 invalid, or a flagship limit is exceeded. The digit assignments are structural
 rather than duplicated configuration:
 
-- Recent: 0–2.
-- Top-level categories: 3–6 as defined by the PRD navigation scheme.
+- Recent: 1–3.
+- Top-level categories: 4–7 as defined by the PRD navigation scheme.
 - Scene flagship actions: 1–4.
 - More: no numeric mapping; use search, Tab, arrows, Enter or click.
+
+Root 0 only projects 最近使用改為 1–3; the first five Panel openings show
+數字已改:1–3 最近、4–7 分類 through the shared preferences gate. Three recent
+cards use equal columns, height 66, minimum width 60, padding 10, badge 16,
+two-line ellipsis and hover/focus tooltips. Clipboard choice keeps width 136,
+takes initial focus and forwards nested Enter to the first invoke without the
+Popup keyboard gate. These changes retain shell bounds. Evidence:
+`tests/services/test_entry_panel.py`, `tests/ui/test_unified_entry_panel.py`,
+`tests/ui/test_text_layout.py` and [ADR-0022](../adr/0022-right-alt-inline-pill-and-input-recovery.md).
+
+The validated zh-TW/ja-JP manifests bind these category slots and the solo
+Right Alt shortcut with feature_contract_hash
+`sha256:aae0f0ae6fead53f431584baf546887dfb9c631d7ced234143216b62791cf92f`.
+`tests/app/test_language_pack_loader.py` and `test_official_action_language_packs.py`
+verify the active configuration; hashes were updated atomically with YAML.
 
 Known unavailable actions remain visible and disabled with a reason. Actions
 whose input/OCR viability is only knowable at execution are not pre-probed.

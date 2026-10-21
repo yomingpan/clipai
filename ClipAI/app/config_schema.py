@@ -22,6 +22,7 @@ class AppSettings:
     modifier_mode: ModifierMode
     system_prompt: str
     entry_panel_enabled: bool = False
+    selection_uia_standby: bool = True
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class VoiceInputSettings:
     """V1 has one deliberate engine path: controlled Edge WebView2 Browser Speech."""
 
     backend: Literal["edge_webview2_browser_speech"]
+    webview2_runtime_major: int | None = None
 
 
 @dataclass(frozen=True)

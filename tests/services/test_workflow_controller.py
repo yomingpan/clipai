@@ -126,6 +126,8 @@ def test_history_back_does_not_execute_work_and_preserves_steps() -> None:
     assert workflow.snapshot.content == "result-one"
     assert len(workflow.snapshot.steps) == 2
     assert workflow.snapshot.revision == revision + 1
+    assert workflow.snapshot.can_regenerate is False
+    assert workflow.prepare_retry() is None
 
 
 def test_new_success_from_historical_step_truncates_forward_history() -> None:
@@ -158,6 +160,36 @@ def test_late_completion_from_replaced_invocation_is_ignored() -> None:
     assert workflow.complete(old, resolved, old.input_target.document, "late", ()) is None
     workflow.complete(new, resolved, new.input_target.document, "current", ())
     assert workflow.snapshot.content == "current"
+
+
+def test_regeneration_reuses_frozen_input_and_replaces_the_displayed_step() -> None:
+    workflow = controller()
+    original = ActionInvocation(
+        "original",
+        "a",
+        "short",
+        InputTarget("external_text"),
+        workflow_id="w1",
+    )
+    resolved = action()
+    frozen = InputDocument("trigger-time selection", "selection")
+    workflow.begin_invocation(original, resolved)
+
+    assert workflow.bind_retry_input("original", frozen) is True
+    workflow.complete(original, resolved, frozen, "first result", ("copy",))
+
+    source_id, retry, retry_action = workflow.prepare_retry()
+    assert source_id == "original"
+    assert retry.invocation_id != "original"
+    assert retry.input_target.document is frozen
+    assert retry.input_target.selection_request is None
+    assert retry_action is resolved
+
+    workflow.begin_invocation(retry, retry_action)
+    workflow.complete(retry, retry_action, frozen, "new result", ("copy",))
+
+    assert [step.result_text for step in workflow.snapshot.steps] == ["new result"]
+    assert workflow.snapshot.can_regenerate is True
 
 
 def test_provider_delta_is_identity_scoped_and_marks_partial_content() -> None:

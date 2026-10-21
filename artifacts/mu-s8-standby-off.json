@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "gate": "uia-standby-new-source",
+  "standby": false,
+  "new_source_cases": 50,
+  "selected_cases": 50,
+  "latency_ms": {
+    "p50": 755.903,
+    "p95": 855.851,
+    "max": 891.163
+  },
+  "over_1000_ms": 0,
+  "unknown_as_none": 0,
+  "worker_private_mb": [
+    48.098,
+    47.984
+  ],
+  "max_workers": 1,
+  "workers_after_stop": 0,
+  "resource_passed": true,
+  "performance_passed": false,
+  "content_recorded": false,
+  "passed": false,
+  "stop_ms": 20.457,
+  "cleanup_failed": false,
+  "clipboard_preserved": true,
+  "interval_ms": 1000,
+  "device_evidence": true
+}

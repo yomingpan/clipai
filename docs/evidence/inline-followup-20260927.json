@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-27",
+  "scope": "post_hotkey_fix_single_windows_desktop_followup",
+  "source_commit": "dde9df2",
+  "desktop_observation": {
+    "line_hotkey_m_leak": "not_observed_by_operator",
+    "line_escape_window_close_during_inline": "not_observed_by_operator",
+    "observer": "attended_operator_report",
+    "independent_hid_or_window_trace": false
+  },
+  "validation": {
+    "fast": {"status": "pass", "passed": 378},
+    "tk_agent": {
+      "status": "blocked",
+      "reason_code": "tcl_initialization_failed",
+      "passed": 12,
+      "failed_at_tcl_init": 2,
+      "artifact": "artifacts/inline-validation-tcl-classification-20260927/manifest.json"
+    },
+    "tk_direct_after_ui_fix": {"status": "pass", "passed": 11, "skipped": 1},
+    "unit_non_integration": {"status": "pass", "passed": 1763},
+    "architecture": {"status": "pass", "passed": 53},
+    "full_components_20260928": {
+      "status": "pass",
+      "fast_passed": 420,
+      "tk_passed": 14,
+      "webview_passed": 4,
+      "artifact": "artifacts/inline-validation-full-components-escalated-20260928/manifest.json"
+    },
+    "profile_permission_classification_20260928": {
+      "status": "blocked",
+      "fast_passed": 422,
+      "tk_passed": 13,
+      "tk_skipped": 1,
+      "webview_profile_permission_errors": 4,
+      "artifact": "artifacts/inline-validation-profile-blocked-20260928/manifest.json"
+    }
+  },
+  "suppressed_trigger_hold_fix": {
+    "first_failed_run": "artifacts/inline-controlled-audio-refine-minimal-1/report.json",
+    "second_failed_run": "artifacts/inline-controlled-audio-refine-minimal-2/report.json",
+    "observed_stop_outcome": "short_in_both_runs_despite_operator_held_m",
+    "observed_hotkey_log": "repeated_stale_m_reset_during_hold",
+    "diagnosis": "docs/evidence/inline-suppressed-trigger-state-20260927.md",
+    "non_integration_tests": {"status": "pass", "passed": 1770},
+    "inline_fast_tests": {
+      "status": "pass",
+      "passed": 417,
+      "artifact": "artifacts/inline-validation-longpress-gate-20260927/manifest.json"
+    },
+    "post_fix_physical_long_press": "pass",
+    "post_fix_run": "artifacts/inline-controlled-audio-refine-minimal-3/report.json",
+    "post_fix_validation": "artifacts/inline-validation-audio-refine-fixed-20260927/manifest.json",
+    "post_fix_observed_stop_outcome": "long",
+    "post_fix_refine_settled": "completed",
+    "post_fix_controlled_target_paste_count": 1,
+    "post_fix_clipboard_restored": true,
+    "post_fix_audio_timing": "pass",
+    "post_fix_exploratory_stage_ms": {
+      "first_press_to_listening": 657,
+      "stop_to_recognition": 156,
+      "refine_to_result": 1187,
+      "paste_to_terminal": 329,
+      "stop_to_terminal": 1672
+    }
+  },
+  "audio_environment": {
+    "available_endpoint_classes": ["built_in_speakers", "built_in_microphone_array"],
+    "virtual_or_loopback_input_observed": false,
+    "second_windows_device_available": false,
+    "synthetic_wav_fixtures": {
+      "status": "generated_and_wave_header_verified",
+      "languages": ["zh-TW", "en-US"],
+      "artifact": "artifacts/inline-audio-fixtures-20260927/manifest.json",
+      "microphone_chain_test": "first_acoustic_replay_app_recognition_content_available_but_target_readback_failed",
+      "first_run_artifact": "artifacts/inline-controlled-audio-minimal-2/report.json",
+      "first_run_target_paste_count": 0,
+      "first_run_clipboard_restored": true,
+      "repeat_with_background_playback": "pass",
+      "repeat_run_artifact": "artifacts/inline-controlled-audio-minimal-3/report.json",
+      "repeat_target_readback": "pass",
+      "repeat_app_trace": "pass",
+      "repeat_wav_sha256_matches_fixture": true,
+      "repeat_playback_within_capture": "not_covered_by_original_report",
+      "repeat_target_paste_count": 1,
+      "repeat_clipboard_restored": true,
+      "repeat_content_accuracy": "not_machine_verified",
+      "timed_replay_artifact": "artifacts/inline-controlled-audio-minimal-4/report.json",
+      "timed_replay_validation": "artifacts/inline-validation-audio-timed-user-20260927/manifest.json",
+      "timed_replay_status": "pass",
+      "timed_replay_within_same_capture": "pass",
+      "timed_replay_target_readback": "pass",
+      "timed_replay_clipboard_restored": true,
+      "timed_replay_content_accuracy": "not_machine_verified",
+      "timed_replay_exploratory_stage_ms": {
+        "first_press_to_listening": 719,
+        "stop_to_recognition": 78,
+        "paste_to_terminal": 343,
+        "stop_to_terminal": 421
+      }
+    },
+    "replayable_audio_capture": "single_attended_acoustic_replay_observed_without_independent_microphone_input_confirmation"
+  },
+  "baseline_status": "not_established",
+  "baseline_reason": "one_device_and_one_exploratory_acoustic_replay_without_independent_microphone_input_or_first_frame_observer",
+  "current_seven_run_matrix": {
+    "artifact": "artifacts/inline-validation-current-matrix-20260928/manifest.json",
+    "scope": "selected_successful_regression_cases_not_all_attempts",
+    "reassessed_from_raw_evidence": true,
+    "attended_runs": 7,
+    "passed": 7,
+    "fixed_wav_runs_with_playback_timing": 2,
+    "representative_baseline": false
+  },
+  "literal_quality_probe": {
+    "scope": "future_fixed_wav_raw_attended_runs_only",
+    "reference": "sha256_matched_public_fixture_manifest",
+    "metric": "bounded_unicode_codepoint_edit_distance_and_character_error_rate",
+    "raw_transcript_exported": false,
+    "target_tk_integration": {"status": "pass", "passed": 2},
+    "inline_fast": {
+      "status": "pass",
+      "passed": 420,
+      "artifact": "artifacts/inline-validation-literal-quality-final-20260928/manifest.json"
+    },
+    "attended_result": "not_covered"
+  },
+  "prior_attended_evidence": "docs/evidence/inline-attended-20260927.json",
+  "notes": [
+    "Operator confirmation of the LINE hotkey behavior is physical desktop evidence but has no independent HID trace.",
+    "Tk Tcl initialization failures were classified as blocked; no failing UI assertion was reclassified.",
+    "Existing stage samples remain exploratory and cannot support representative percentiles or before-and-after latency claims.",
+    "The original acoustic replay report lacks playback start and end timestamps; the subsequent attended report verifies that speaker playback falls between Listening and Stop."
+  ]
+}

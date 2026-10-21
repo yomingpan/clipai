@@ -20,6 +20,29 @@ class MemoryStore:
         self.saved.append(preferences)
 
 
+def test_entry_numeric_migration_counts_five_displays_through_shared_gate():
+    store = MemoryStore()
+    coordinator = UserPreferencesCoordinator(store)
+    for index in range(5):
+        assert coordinator.entry_numeric_hint_available
+        update = coordinator.begin_entry_numeric_hint(str(index))
+        assert update.work is not None
+        assert coordinator.begin_set_inline_input_mode("minimal", "competing").ignored
+        assert coordinator.execute(update.work) == ""
+        coordinator.complete(str(index))
+    assert not coordinator.entry_numeric_hint_available
+    assert coordinator.begin_entry_numeric_hint("sixth").ignored
+    assert store.preferences.entry_numeric_hint_count == 5
+
+
+def test_failed_entry_numeric_hint_save_does_not_consume_display_allowance():
+    coordinator = UserPreferencesCoordinator(MemoryStore(fail=True))
+    update = coordinator.begin_entry_numeric_hint("failed")
+    assert coordinator.execute(update.work)
+    coordinator.complete("failed", "save failed")
+    assert coordinator.entry_numeric_hint_available
+
+
 def test_missing_speed_uses_normal_without_rewriting_preferences() -> None:
     store = MemoryStore()
     coordinator = UserPreferencesCoordinator(store, base_speech_rate="+0%")
@@ -30,6 +53,98 @@ def test_missing_speed_uses_normal_without_rewriting_preferences() -> None:
     assert coordinator.current_speech_rate() == "+0%"
     assert update.ignored is True
     assert store.saved == []
+
+
+def test_inline_mode_becomes_active_only_after_successful_atomic_save() -> None:
+    store = MemoryStore()
+    coordinator = UserPreferencesCoordinator(store)
+    update = coordinator.begin_set_inline_input_mode("minimal", "mode-1")
+
+    assert update.inline_input_mode.selected_mode == "choice"
+    assert update.inline_input_mode.pending_mode == "minimal"
+    assert coordinator.inline_input_mode == "choice"
+    assert coordinator.execute(update.work) == ""
+    assert coordinator.inline_input_mode == "minimal"
+    assert coordinator.complete("mode-1").inline_input_mode.selected_mode == "minimal"
+
+
+def test_inline_placement_rejects_invalid_or_unchanged_values_without_saving() -> None:
+    store = MemoryStore()
+    coordinator = UserPreferencesCoordinator(store)
+    assert coordinator.begin_set_inline_dictation_placement("invalid", "bad").ignored is True
+    assert coordinator.begin_set_inline_dictation_placement("bottom_center", "same").ignored is True
+    assert store.saved == []
+    assert coordinator.inline_dictation_placement_state.update_pending is False
+
+
+def test_inline_placement_projects_pending_and_commits_only_after_save() -> None:
+    store = MemoryStore(UserPreferences(inline_dictation_placement="cursor"))
+    coordinator = UserPreferencesCoordinator(store)
+    update = coordinator.begin_set_inline_dictation_placement("bottom_center", "placement-1")
+    assert update.inline_dictation_placement.selected_placement == "cursor"
+    assert update.inline_dictation_placement.pending_placement == "bottom_center"
+    assert update.inline_dictation_placement.update_pending is True
+    assert coordinator.inline_dictation_placement == "cursor"
+    assert coordinator.execute(update.work) == ""
+    assert coordinator.inline_dictation_placement == "bottom_center"
+    completed = coordinator.complete("placement-1")
+    assert completed.inline_dictation_placement.selected_placement == "bottom_center"
+    assert completed.inline_dictation_placement.update_pending is False
+
+
+def test_inline_placement_save_failure_preserves_previous_selection() -> None:
+    coordinator = UserPreferencesCoordinator(MemoryStore(UserPreferences(inline_dictation_placement="cursor"), fail=True))
+    update = coordinator.begin_set_inline_dictation_placement("bottom_center", "placement-1")
+    error = coordinator.execute(update.work)
+    assert error == "Could not save Inline Dictation placement. The previous placement remains active."
+    assert coordinator.complete("placement-1", error).inline_dictation_placement.selected_placement == "cursor"
+
+
+def test_failed_inline_mode_save_keeps_choice_and_clears_pending_on_completion() -> None:
+    store = MemoryStore(fail=True)
+    coordinator = UserPreferencesCoordinator(store)
+    update = coordinator.begin_set_inline_input_mode("minimal", "mode-1")
+    error = coordinator.execute(update.work)
+
+    assert error
+    assert coordinator.inline_input_mode == "choice"
+    completed = coordinator.complete("mode-1", error)
+    assert completed.inline_input_mode.selected_mode == "choice"
+    assert completed.inline_input_mode.pending_mode is None
+
+
+def test_popup_placement_defaults_and_shared_save_gate() -> None:
+    store = MemoryStore()
+    coordinator = UserPreferencesCoordinator(store)
+    assert coordinator.popup_placement == "bottom_center"
+    assert coordinator.inline_dictation_placement == "bottom_center"
+    assert coordinator.begin_set_popup_placement("bottom_center", "same").ignored
+    assert coordinator.begin_set_popup_placement("invalid", "bad").ignored
+    assert store.saved == []
+
+    update = coordinator.begin_set_popup_placement("cursor", "popup-1")
+    assert update.popup_placement.selected_placement == "bottom_center"
+    assert update.popup_placement.pending_placement == "cursor"
+    assert update.popup_placement.update_pending
+    assert coordinator.popup_placement == "bottom_center"
+    assert coordinator.begin_set_inline_dictation_placement("cursor", "inline-1").ignored
+    assert coordinator.complete("old").ignored
+    assert coordinator.execute(update.work) == ""
+    completed = coordinator.complete("popup-1")
+    assert completed.popup_placement.selected_placement == "cursor"
+    assert not completed.popup_placement.update_pending
+    assert coordinator.inline_dictation_placement == "bottom_center"
+
+
+def test_popup_placement_failed_save_retains_previous_position_and_clears_pending() -> None:
+    coordinator = UserPreferencesCoordinator(MemoryStore(fail=True))
+    update = coordinator.begin_set_popup_placement("cursor", "popup-1")
+    error = coordinator.execute(update.work)
+    assert error == "Could not save Popup Window position. The previous position remains active."
+    completed = coordinator.complete("popup-1", error)
+    assert completed.popup_placement.selected_placement == "bottom_center"
+    assert completed.popup_placement.pending_placement is None
+    assert not completed.popup_placement.update_pending
 
 
 def test_custom_legacy_rate_is_preserved_until_a_preset_is_saved() -> None:

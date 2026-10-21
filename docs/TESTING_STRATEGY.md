@@ -68,6 +68,12 @@ python scripts/run_unit_tests.py
 
 測試啟動器會在開始收集測試前建立可寫的、隔離的 pytest 暫存與快取目錄。它優先使用 `CLIPAI_TEST_TEMP_ROOT`；未設定時先嘗試系統暫存目錄，再嘗試工作樹內被 `.gitignore` 排除的 `.clipai-test-artifacts/`。兩者都不可寫時，它會以明確的測試環境錯誤停止，而不是讓每個使用 `tmp_path` 的 case 各自報錯。
 
+`scripts/verify_managed_update.py` 的 `fast` 與 `synthetic` stage 都執行完整
+unit suite 一次；suite 已包含 synthetic E2E，不重跑。`loopback-http` 再執行
+真實 loopback，`managed-bundle` 最後執行離線安裝／更新／回滾矩陣。每一階段
+失敗都傳回原 exit code，且不啟動後續階段。Harness tests 驗證 stage coverage、
+順序、失敗停止，以及 synthetic E2E 仍被預設 marker 收集。
+
 GitHub Windows CI 必須在 Python 3.10、3.11、3.12、3.13 執行 constrained clean install、compile、unit tests 與 architecture tests。排程工作另測未鎖定依賴，但不得影響正式安裝 constraints。
 
 Action Language Pack 的 machine gate 必須執行 strict loader/compiler、`zh-TW`
@@ -172,6 +178,12 @@ Integration 應測：
 
 ## Popup 測試重點
 
+Experimental placement tests cover Bottom Center defaults, independent Popup
+and Inline preference persistence, legacy/invalid defaults, shared save-gate
+pending/failure/stale completion, and Tray menu order/radio truth. Layout tests
+cover physical bounds at multiple DPI scales and negative monitor origins;
+primary-surface tests keep existing shell/replacement bounds unchanged.
+
 Popup 是另一個穩定性重點。
 
 Unit / Sims 應測：
@@ -255,7 +267,16 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 - Recovery 保留原 Workflow 的 provider binding 與 Action variant。15 秒 expiry
   只關閉 matching、未聚焦、未 pin 的等待視窗，不得關閉已接續的 Action。
 - `tests/ui/test_input_recovery.py -m integration` 驗證真實 Tk 按鈕 pending、
-  唯讀內容與同一 surface 的 recovery → request 投影。
+  唯讀內容、真實 Return press/release 與同一 surface 的 recovery → request 投影。
+- `tests/ui/test_keyboard_confirm_gate.py` 鎖住 300 ms settle、held-elsewhere、
+  auto-repeat、modifier、失焦、隱藏選項與每 recovery 最多一次；
+  `tests/ui/test_result_dialog.py` 鎖住只有 CREATED/READING_INPUT →
+  AWAITING_INPUT_CHOICE 且有 clipboard choice 才 request focus。
+- Held-elsewhere 的真實模式不得先呼叫 gate.press 假裝外部事件能送到 Popup。
+  聚焦時透過注入的 `KeyboardStateReader` 取樣 held／unknown，等超過 settle
+  才送第一個 repeat，再 release；兩者不得確認，下一次 fresh press/release 才可。
+  `test_input_recovery.py` 以真實 Tk focus/Return 路徑驗證四個 integration 案例，
+  `test_keyboard_state.py` 驗證共用平台 adapter 的 VK_RETURN 映射。
 
 - 直接 Shortcut 的外部 text-capable Action 在 trigger time 擷取 selection；Unified
   Entry Panel 則在 Panel open intent 凍結 selection／clipboard，Action 選取不得
@@ -278,6 +299,17 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 
 ### Physical-key release 測試
 
+- 已成立的單按 Alt 長按必須在 Windows hook 轉交原生 Alt-up 前執行一次
+  menu mask；不得等到 pynput queued on_release。短按、Alt+Tab／其他未成立
+  chord、injected input、已停止或已結束 hold 不執行 mask。原生 release 先於
+  deadline 時，即使 semantic release 尚未處理，late timer 也不得開 Panel。
+- Mask 使用 balanced unassigned VK_E8，不送文字、Ctrl、Esc 或替代 Alt-up；
+  SendInput 失敗仍須轉交 physical release，且不得污染 pynput 的 ctypes signature。
+  `tests/platform/test_anki_alt_menu_integration.py -m integration` 在明確設定
+  `CLIPAI_TEST_ANKI_TARGET=hwnd:HEX,PID` 後，驗證真實 Anki 卡片的五次長按與
+  短按選單切換。此測試僅在測試 listener 接受合成 Alt；production injected gate
+  保持啟用。測試不呼叫 provider，也不變更剪貼簿。
+
 - 每個完整 shortcut match 建立獨立 press identity，直到 non-modifier
   function key release 或明確 cancellation 才結束。
 - Release 必須能以 physical／virtual-key identity 對應原 press；modifier
@@ -297,11 +329,81 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
   取樣目標行程全部 visible top-level windows；每個候選策略至少四次，記錄
   samples、visible frames、opaque frames 與最終 layered/visibility 狀態。
 
+### Inline Dictation 受控量測與目前範圍
+
+固定驗證可執行 `python scripts/run_inline_dictation_validation.py --output-dir artifacts/inline-validation-<run>`；互動式 Windows 桌面另加 `--tk --webview`。腳本輸出 JUnit XML 與不含口述內容的 `manifest.json`，將快速模擬、Tk 視窗與 WebView2 分層。Tk 層使用 pytest 的 `sys` capture，避免 Windows 上 Tcl 讀取 `init.tcl` 受 FD capture 影響；manifest 記錄各層的 capture 模式。桌面層的 pytest 暫存放在 `%LOCALAPPDATA%/ClipAI/InlineValidation`；WebView2 profile 與測試頁面另外建立在 `%LOCALAPPDATA%/ClipAI/InlineValidationProfiles`，繼承目錄 ACL，避免 pytest 的受限 `tmp_path` 權限阻止瀏覽器子行程使用 profile。必要桌面案例若因無法取得 foreground 而 skip，該層標為 `blocked`，不能由其餘 Tk 通過案例推論焦點已驗證。自動化多目標矩陣、獨立實體快捷鍵／音源觀察及裝置基線維持 `not_covered` 或 `blocked`。模擬與 pytest 時間不可當成裝置延遲。
+
+已保存的單輪受控桌面案例可重複指定 --attended-report <path> 交給固定 runner；它會由 target.jsonl 和 inline-trace.log 重新判定後列入 manifest 的 attended_smoke。未覆蓋的自動化多目標矩陣仍獨立標示。單輪探索性結果見 docs/evidence/inline-attended-20260927.json，不能當正式裝置基線。
+
+新建的取消案例在 `inline-trace.log` 同時保存內容安全的 App Esc 接收記錄；驗收要求該記錄介於聆聽與取消請求之間，且外部目標沒有收到 Esc。潤稿成功案例必須有 `refine_settled=completed`；Provider 失敗後明確選擇貼原文屬恢復路徑，不能計為潤稿成功。舊案例缺少 App Esc 記錄時仍標為 blocked，除非能從同一輪原始 App log 重新取得。判定依據見 `docs/evidence/inline-attended-oracle-20260928.md`。
+
+若 WebView2 host 在 `test_loaded` 前逾時，先於同一桌面執行 `python scripts/probe_pywebview_bridge.py --visible --timeout 20`。探針只載入固定的純 HTML，檢查 JavaScript `ping` 能否到 Python，並求值固定的 JSON 算式；不使用麥克風、快捷鍵或剪貼簿。輸出 `page_loaded`、`bridge_ready`、`script_eval` 與例外類型。探針失敗可縮小基礎 pywebview／WebView2 鏈路的調查範圍，但不得將產品整合案例改判為通過。
+
+已有受控桌面的內容安全日誌後，可執行 `python scripts/report_inline_dictation_baseline.py <log> --device-cohort <cohort> --evidence controlled_desktop --output <report.json>` 彙整單調時鐘的階段間隔。報表按模式、原文／潤稿與終態分組，缺少終態時記為 `not_observable`；應由外部 observer 補上實際畫面與受控目標讀回，不能由 ClipAI 日誌推論文字已插入。
+同一裝置與條件下的兩份報表可用 `python scripts/compare_inline_dictation_baselines.py <before.json> <after.json> --output <comparison.json>` 比較；工具拒絕模擬時鐘與不同裝置分組，並保留樣本數與終態分布。
+
+Inline 的階段、指標、裝置矩陣、隱私界線與工具順序見
+[`docs/specs/inline-dictation-measurement-plan.md`](specs/inline-dictation-measurement-plan.md)。
+可重播使用者旅程、故障注入、受控桌面目標與發版 gate 見
+[`docs/specs/inline-dictation-autonomous-validation-plan.md`](specs/inline-dictation-autonomous-validation-plan.md)。
+Right Alt 的本機 Minimal/raw/zh-TW/controlled-Tk cohort 已有 S0 與 S8 各 20 次
+唯一貼上配對：first-frame p95 47 → 47 ms，stop→dispatch p95 547 → 516 ms。
+[S8 gate](../artifacts/mu-s8-release.jsonl) 與
+[比較](../artifacts/mu-s8-final-comparison.json) 保存實測。
+起點是 shortcut admission，畫面 observer 為 Tk viewable + DwmFlush；不能當作
+精確 HID 或像素時間，也不外推到 refine、其他裝置或 Teams。PTT 的 Voice V1
+目標不是這個 cohort 的量測結果。
+
+`scripts/mu_loop.ps1 -Step <step>` 在每一步跑 targeted、architecture、unit、
+selection policy gate，拒絕測試數下降或 content leak。S8 的最後程式回歸為
+535 / 64 / 2341 通過，另有 9 個真實 Tk integration；
+[ADR-0022](adr/0022-right-alt-inline-pill-and-input-recovery.md) 列出測試與桌面證據。
+測試中的 slot 字面值必須是最近 1–3／分類 4–7；root 0 只提示、不得產生 Action。
+右 Alt solo/chord/注入/滑鼠/mask/threshold 預覽由 platform 測試鎖住；
+guide practice 的 threshold 也必須留在同一 captured press 的 quarantine。
+trace stages、JSONL/報表欄位與實體提示不可單獨改名，應同步 golden/report/compare。
+視覺的 palette/status/spinner/copy 文案只由 voice_visuals golden 與架構測試維護。
+S9 補上 held-elsewhere 的聚焦鍵狀態快照後，最終回歸為 547 / 64 / 2343，
+recovery integration 4 個通過；見 [最終 gate](../artifacts/mu-final-release.jsonl)
+與 [組裝啟停 smoke](../artifacts/mu-s9-composition-smoke.json)。
+
+桌面工具依序執行，不與單元測試或另一個桌面工具同時跑：
+
+1. `probe_inline_pill_focus.py`：實體點擊 Notepad/Word/Edge textarea 的 ✓/✦，
+   要求 6/6 show/click foreground、focused control、intent 全通過。
+2. `probe_inline_pixel_presence.py`：實際桌面 body 與 fractional-alpha 邊緣，
+   黑邊必須為 0；圖片僅在記憶體。樣本須先完成 Tk 映射再讀取。
+3. `probe_uia_standby.py --standby on|off --cases 50`：交替 owned source；
+   on 要求 p50≤300、p95≤1000 ms、>1000≤2%、unknown_as_none=0，
+   worker 最多 2、private≤60 MB、stop 後 0。off 是對照，可能不通過 on 的延遲預算。
+4. `run_inline_measurement_app.py` 配合受控 target 與實體快捷鍵；report/compare
+   要求同 cohort、兩個固定 interval 各至少 20 次、p95 退化≤10%，並另驗證貼上配對。
+
+快速連續顯示會低估 idle 後的成本，presentation microbenchmark 預設每輪停
+250 ms，仍不能取代第四步。Tk 映射可更換 native wrapper，必須驗證後續事件
+後 WS_EX_NOACTIVATE 仍在；僅測 show 保留焦點不足以證明 click 不搶焦點。
+上述回歸由 `tests/ui/test_inline_pill.py` 與 S8 focus probe 覆蓋。
+
+- 以同一個非 Workflow interaction identity 串起快捷鍵、capture、choice、
+  provider invocation、Paste Operation 與終端顯示；各 operation identity 仍獨立。
+  缺少的階段標示 `not_observable`，不得補零或把視窗關閉當成 Paste 完成。
+- 同時驗證 UI 首次可見回應、分階段 p50/p95 與失敗率、目標文字實際接收、
+  剪貼簿還原、取消後無晚到副作用。`dispatched_unconfirmed` 不可計為已插入成功。
+- 虛擬時間／故障注入測排序與歸屬；真實互動式 Windows 測延遲、焦點與貼上。
+  兩類結果分開報告，並按裝置、冷暖啟動、語言、raw/refine、負載與目標程式分層。
+- 一般 trace 不保存音訊、轉錄、prompt、結果文字、剪貼簿內容或視窗標題；
+  品質語料需獨立取得明確同意。量測本身的耗時亦須驗證。
+- 完整選擇與極簡輸入共用同一個非 Workflow interaction owner；模式在首次
+  快捷鍵接受時凍結。極簡模式的第二次短按形成原文貼上意圖，第二次長按形成
+  潤稿意圖；正常流程只顯示不搶焦點的狀態，失敗才顯示可操作恢復介面。
+  潤稿失敗不得默默貼原文；舊終態通知不得關閉新互動。發版 gate 中錯目標、
+  丟棄後貼上、重複貼上、未處理的剪貼簿／麥克風清理與虛假成功不可豁免。
+
 Recipe 回饋與使用引導應測：
 
 - Popup 原始尺寸與結果區高度不因契約、回饋或 coachmark 縮小。
-- `ⓘ` Tooltip 固定呈現「AI 幫你」與「AI 不做什麼」，並提示結果不符合預期時可按右上角 `ⓘ` 或 `Ctrl+R` 回饋。
-- Ctrl+R 僅作用於聚焦的 Popup；不支援的 Recipe 必須顯示明確狀態。
+- `ⓘ` Tooltip 固定呈現「AI 幫你」與「AI 不做什麼」，並提示結果不符合預期時可按右上角 `ⓘ` 回饋；回饋不綁定快捷鍵。
+- `Ctrl+R` 僅作用於聚焦的 Popup，使用原 invocation 已凍結的輸入與 provider binding 重新產生結果；進行中的舊 invocation 必須先依 identity 取消，晚到結果不得覆寫新 invocation。重新產生按鈕只出現在延伸操作區，不支援的 Workflow 必須維持 disabled。
 - 正負案例都只有在使用者明確勾選時保存原文與結果。
 - 回饋 pending、成功、失敗與重試反映真實 operation identity。
 - 每個 `start_action` Shortcut 的短按與長按 resolved Action 都必須有完整回饋契約；非 Action Shortcut 必須明確列為例外。
@@ -350,7 +452,16 @@ Recipe 回饋與使用引導應測：
 
 ### Unified Entry Panel
 
-- Catalog tests 以 PRD literal 驗證 `0`–`2` recent、`3`–`6` root category、
+- External readiness 使用虛擬時鐘驗證 480/540 ms、2.8 秒恢復、3 秒逾時、
+  來源失效與取消；activation 與 capture 後 confirmation 共用 3 秒額度，
+  selection reading 不計入焦點等待。累積等待超過 500 ms 才送 typed
+  waiting notice，每段等待最多一次，回到擷取時切回 reading，UI 維持 neutral
+  preparing；成功清除，逾時與來源失效須區分。
+  close/reopen/retry/terminal 後的舊 notice 不得改變投影。真實 Tk smoke 驗證
+  提示原地更新、card 不重建與 Esc close intent。公司負載下的實際延遲仍需以
+  activation/capture/confirmation elapsed_ms 分段日誌驗證。
+
+- Catalog tests 以 PRD literal 驗證 `1`–`3` recent、`4`–`7` root category、
   `1`–`4` flagship 與 More 無數字；未知 Action/press type、重複候選、重複 slot、
   多於四個 flagship 與未知欄位都必須 fail closed。
 - Language Pack tests 必須驗證每個 canonical `action_id + press_type` 都有 exact、
@@ -400,13 +511,84 @@ Recipe 回饋與使用引導應測：
 ## Marker 規則
 
 Selection evidence 的回歸測試必須區分 confirmed-none、unsupported、timeout、
-source-changed 與 cancelled；unknown 不得自動使用舊剪貼簿。UIA worker 必須有
-逾時／取消後終止及回收的測試，原視窗 ancestry、virtual focus 與選取 range
-變更必須丟棄結果。Entry Panel 必須驗證首次 projection 之前綁定來源，以及
-明確「使用剪貼簿」只使用 frozen input、拒絕過時 Panel intent。
+source-changed、modifier-timeout 與 cancelled。Direct Action／朗讀的 unknown
+不得自動使用舊剪貼簿；Entry Panel 只在 unknown、不需放開修飾鍵、且已有 frozen
+clipboard 時自動採用。modifier_timeout 必須保持 failed/retry，auto use_clipboard
+零次；明確 UseEntryPanelClipboard 仍可採用凍結輸入，stale Panel ID 不生效。空
+clipboard 維持 retry。UIA worker 必須驗證同 HWND/PID 順序重用、64 次回收、
+換來源先退役、並發 overflow 隔離，以及逾時／取消／錯型／失敗後立即終止回收。
+原視窗 ancestry、virtual focus 與選取 range 變更必須丟棄結果。modifier gate
+必須證明在來源檢查與唯讀 probe 之後，只保護有正面選取或 selection-only
+Copy 證據的相容路徑。none/selected 的 modifier 輪詢必須為零；held Copy
+逾時必須零 Copy、零 writes，放開後來源改變也不得 Copy。Anki 灰卡測試須拒絕泛用 Python／寬鬆路徑，
+且只在 inner card SetFocus 後的 MainWebView ancestry 授予 Copy。
+Entry Panel 必須驗證首次 projection 之前綁定來源，以及 frozen input 不被 live
+clipboard 變更取代。
 `tests/platform/test_selection_uia_integration.py` 是另行啟用的 Windows 真實
 RichTextBox 測試，涵蓋選取、重複相同選取與只有游標；不得將其當成所有 app
 皆受支援的證據。
+同一 probe 必須跨三次讀取重用，finally 同時清理 probe 與 UI host。
+`tests/platform/test_selection_worker_lifecycle.py -m integration` 使用受控真實
+子行程驗證 reuse、retirement、EOF、malformed response、取消、overflow 並行停止、
+停止後拒絕新請求與晚到 process 清理；不讀取使用者來源或剪貼簿。
+停止的 2 秒是所有 worker 共用額度，必須涵蓋強制終止與退出確認；無法確認
+時回報失敗並保留 ownership，不得將 timeout 當成成功。
+退休失敗必須先解除 owned pointer，下一次 capture 使用新 worker；stop 仍回報
+失敗。retiring/cancelled 期間的空回應、例外與無效結果不得誤報引擎故障。
+AST 守門驗證 emit reasons 屬 core 封閉集合，app/UI/services 不比對 reason
+字串或維護第二個 reason 集合。朗讀通知須覆蓋四種 guidance 類別。
+
+`scripts/selection_reliability_gate.py --iterations 3` 每個 seed 執行 480 案、
+27 場景 deterministic policy matrix，以 simulation monotonic/wait 取代真實
+sleep；跨次比較 outcome fingerprints，不同則 nondeterministic 並失敗。
+六項違規為 policy、clipboard_dirty、unknown_as_none、blind_copy、
+copy_while_held、text_mismatch；policy/exact rate 必須全對，六項皆零，p95
+小於 1 ms。all-none mutation 必須被拒絕且 unknown_as_none 大於零。
+`--cases` 不得小於 27。輸出只含 metadata/hash、reason_histogram 與計數；
+延遲只屬 simulation，不得當作裝置證據。必須先寫政策 oracle 的紅燈，再改 production。
+
+`scripts/selection_desktop_loop.py --mode auto --rounds 20` 是獨立装置證據：
+owned WinForms host 先取得前景焦點再設定選取，做一次不記錄、剪貼簿指紋不變的
+warmup，接著隨機輪替五狀態。held 只用 adapter modifier state，禁止合成按鍵。
+至少 100 案、held 全部 selected、剪貼簿全部保留、unknown_as_none 零次，
+p50 不超過 50 ms、p95 不超過 130 ms。
+`--mode attended --rounds 5` 才驗證實體 Alt 與主程式的熱鍵派送；四狀態含
+held_after_open，共 20 案。每案只讀 matching host window token 的新增 capture
+log bytes，15 秒內無紀錄就是失敗。實體操作後按 Esc，再點 host「下一案」；
+不得在尚未放開／關閉時自動換場景。使用本 checkout 的 `--log logs/clipai.log`，
+安裝版預設 `%LOCALAPPDATA%/ClipAI/logs/clipai.log`。Held 類全為 selected、
+no_capture_logged 零次、剪貼簿指紋不變才算通過。
+兩模式 exit 0/1/2/3 分別為 pass/fail/arguments/blocked；環境 blocked 不能算 pass。
+剪貼簿呼叫只有確切 Clipboard is busy 重試 20 次、間隔 0.25 秒，其他 OSError 冒泡；
+用盡回 blocked。finally 必須 probe.stop → host shutdown（兩秒後 kill）→
+restore_if_unchanged。所有 JSONL 必須拒絕三個測試 fixture 字串，保留失敗與部分
+案數，且不得記錄選取／剪貼簿原文。
+`scripts/branch_loop.ps1 -Step <step> [-Desktop]` 按階段保存 targeted、architecture、
+unit、policy 與可選 auto 結果，只追加 branch-loop.jsonl 並拒絕測試數下降。
+tracked selection-reliability.jsonl 只在最後階段更新。ADR-0021 的實測數字均連到
+已提交 JSONL，人工證據不能由 auto 代替。
+`scripts/selection_probe_content_free.py` 在互動桌面輸出 status/reason/capability/
+elapsed 與雜湊來源 identity，不記文字或 executable path。
+`scripts/popup_first_frame_benchmark.py` 建立 production Entry Panel／result Popup，
+處理真實 Tk idle layout/paint，驗證 surface 可見，再以 `DwmFlush` 等待 Windows compositor
+settlement；它量測 first frame 與同 host Entry Panel → Popup reclaim，預設 p95
+門檻 150 ms，結果以 JSONL 保存。Synthetic frame construction 不得標示為此 gate。
+
+`scripts/voice_focus_reliability_gate.py` 每個 seed 執行 480 案 deterministic
+foreground-lock simulation；必須驗證 focus acquisition、lock timeout 還原與 input queue
+反序 detach 全數成功，p95 不超過 0.05ms。輸出只含 aggregate metrics，且每筆固定
+`content_recorded=false`、`device_evidence=false`。
+
+Presentation unit tests 必須在未建立 Tk widget 時覆蓋 heading、list、ordered、spacer、
+break hint、newline 與 canonical selection projection。Editable tests 必須拒絕任何
+display hint、timer normalization 或重複 `<<Modified>>` binding；IME tests 必須驗證
+Headless false、zero context 與 native exception fail closed，並由 architecture test 阻止
+`ctypes`／`imm32` 外洩至 UI。
+`RenderedContent` 必須 immutable、Tk-free，from_plan 保留 segment canonical
+串接的尾端換行，無 plan 使用 fallback_text，appended 不保留舊 segments。
+唯讀 semantic_content 的 widget.get 必須可設為 pytest.fail；只有 Voice Draft
+editing callback 存在時可讀 widget 並 strip hints。Editing 切換不清 block ranges。
+Entry × 的實際 Tk smoke 驗證 Popup 同款樣式、Esc tooltip 與 close intent。
 
 `integration` marker 表示測試會碰真實外部世界，例如：
 

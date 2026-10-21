@@ -50,6 +50,7 @@ class PasteOperationCoordinator:
                         str(failure),
                         failure.reason,
                     ),
+                    request.origin,
                 )
             else:
                 self._active = _ActivePaste(request)
@@ -216,6 +217,7 @@ class PasteOperationCoordinator:
             active.request.operation_id,
             active.request.workflow_id,
             outcome,
+            active.request.origin,
         )
         with self._lock:
             active.state = "completed"

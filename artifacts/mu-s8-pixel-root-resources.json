@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-10-21T13:37:10.063338+00:00",
+  "scope": "controlled_inline_onscreen_pixel_presence",
+  "status": "pass",
+  "edge_pixels_checked": 236,
+  "black_fringe_pixels": 0,
+  "edge_passed": true,
+  "body_pixels_observed": 2154,
+  "matching_pixels": 5156,
+  "geometry_matches": true,
+  "iterations_per_mode": 3,
+  "observed_runs": 6,
+  "pixel_presence_upper_bound_ms": {
+    "minimal": {
+      "count": 3,
+      "median_ms": 131.782,
+      "p95_ms": 151.874,
+      "max_ms": 151.874
+    },
+    "choice": {
+      "count": 3,
+      "median_ms": 83.413,
+      "p95_ms": 112.896,
+      "max_ms": 112.896
+    }
+  },
+  "screen_grab_ms": {
+    "count": 6,
+    "median_ms": 61.03,
+    "p95_ms": 92.629,
+    "max_ms": 92.629
+  },
+  "samples_until_observed": {
+    "min": 1,
+    "median": 1.0,
+    "max": 1
+  },
+  "failures": [],
+  "pixel_data_saved": false,
+  "limits": "8x8 body patch plus fractional-alpha edges on controlled light background; sampling delay included; no physical HID, microphone, Provider, Paste, or target insertion."
+}
