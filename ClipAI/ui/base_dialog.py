@@ -1010,7 +1010,7 @@ class BaseDialog:
 
 
 class _Tooltip:
-    def __init__(self, widget, text: str, lifecycle: DialogLifecycle, delay_ms: int = 350) -> None:
+    def __init__(self, widget, text: str, lifecycle: DialogLifecycle, delay_ms: int = 350, *, show_on_focus: bool = True) -> None:
         self.widget = widget
         self.text = text
         self.lifecycle = lifecycle
@@ -1019,8 +1019,9 @@ class _Tooltip:
         self._job: str | None = None
         widget.bind("<Enter>", self._schedule, add="+")
         widget.bind("<Leave>", self._hide, add="+")
-        widget.bind("<FocusIn>", self._schedule, add="+")
-        widget.bind("<FocusOut>", self._hide, add="+")
+        if show_on_focus:
+            widget.bind("<FocusIn>", self._schedule, add="+")
+            widget.bind("<FocusOut>", self._hide, add="+")
         widget.bind("<ButtonPress>", self._hide, add="+")
 
     def _schedule(self, _event=None) -> None:

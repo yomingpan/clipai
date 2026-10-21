@@ -14,7 +14,7 @@ from ClipAI.core.commands import (
     UseEntryPanelClipboard,
 )
 from ClipAI.core.models import DisplayMetrics, EntryActionRef, EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
-from ClipAI.ui.base_dialog import ACTION_HOVER_COLOR
+from ClipAI.ui.base_dialog import ACTION_COLOR, ACTION_HOVER_COLOR, MODEL_COLOR
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
 from ClipAI.ui.unified_entry_panel import EntryPanelIntentAdapter, UnifiedEntryPanelDialog, _body_render_key, _source_preview_text
 from ClipAI.services.entry_panel import EntryPanelCoordinator
@@ -98,6 +98,12 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         )
         master.update()
 
+        assert not dialog._numeric_hint_label.winfo_ismapped()
+        assert (
+            dialog._source_preview_label.winfo_rooty()
+            - (title_label.winfo_rooty() + title_label.winfo_height())
+            < 24
+        )
         assert dialog._escape_button.cget('text') == '\u00d7'
         assert dialog._escape_button.cget('width') == dialog._escape_button.cget('height') == 18
         assert dialog._escape_button.cget('corner_radius') == 9
@@ -175,23 +181,70 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         assert dialog._window.geometry() == bounds_before
         assert dialog._numeric_hint_label.cget("text") == "數字已改:1–3 最近、4–7 分類"
         recent_cards = dialog._option_buttons[:3]
-        assert all(card.cget("height") == 66 for card in recent_cards)
+        assert dialog._numeric_hint_label.winfo_ismapped()
+        assert all(card.cget("height") == 80 for card in recent_cards)
         assert max(card.winfo_width() for card in recent_cards)-min(card.winfo_width() for card in recent_cards) <= 1
+        assert len({card.winfo_y() for card in recent_cards}) == 1
+        assert [card.winfo_x() for card in recent_cards] == sorted(card.winfo_x() for card in recent_cards)
+        assert len({card._recent_title.winfo_y() for card in recent_cards}) == 1
+        assert all(card._recent_title.cget("anchor") == "nw" for card in recent_cards)
+        recent_cards[0].focus_set()
+        master.update()
+        assert recent_cards[0]._recent_tooltip._job is None
+        assert recent_cards[0]._recent_tooltip._window is None
+        assert recent_cards[0].cget("border_color") == "#454545"
+        navigation_key = tk.Event()
+        navigation_key.keysym = "Tab"
+        navigation_key.char = ""
+        dialog._on_key(navigation_key)
+        recent_cards[1].focus_set()
+        master.update()
+        assert recent_cards[1].cget("border_color") == ACTION_COLOR
         for card, title in zip(recent_cards, titles):
             assert card.winfo_width() >= 60
-            assert card._recent_badge.cget("width") == 16
+            assert card._recent_badge.cget("width") == 14
+            assert card._recent_badge.cget("fg_color") == "transparent"
+            assert card._recent_badge.cget("text_color") == ACTION_COLOR
+            assert card._recent_badge.winfo_x() < card.winfo_width() / 8
+            assert card._recent_long_hint.winfo_y() == card._recent_badge.winfo_y()
+            assert card._recent_long_hint.winfo_x() > card._recent_badge.winfo_x()
+            assert card._recent_title.winfo_y() >= card._recent_badge.winfo_y() + card._recent_badge.winfo_height()
+            assert card._recent_title.winfo_x() < card.winfo_width() / 8
             assert card._recent_title.cget("text").endswith("…")
             assert len(card._recent_title.cget("text").splitlines()) <= 2
             assert card._recent_long_hint.cget("text") == "長按"
             assert card._recent_tooltip.text.startswith(title+"\n")
             card.focus_set()
             master.update()
-            assert card._recent_tooltip._job is not None
-            card._recent_tooltip._hide()
+            assert card._recent_tooltip._job is None
+            assert card._recent_tooltip._window is None
             card._canvas.event_generate("<Enter>")
             assert card._recent_tooltip._job is not None
             card._recent_tooltip._hide()
             assert dialog._window.geometry() == bounds_before
+        dialog._hold_controllers[1]["begin"]()
+        dialog._hold_controllers[1]["cancel"]()
+        assert recent_cards[0]._recent_title.cget("text").endswith("…")
+        dialog.apply(replace(root_snapshot, header_hint=""))
+        master.update_idletasks()
+        assert not dialog._numeric_hint_label.winfo_ismapped()
+        recent_heading = next(child for child in dialog._body.winfo_children() if isinstance(child, ctk.CTkLabel) and child.cget("text") == "最近使用")
+        title_to_source = dialog._source_preview_label.winfo_rooty() - (title_label.winfo_rooty() + title_label.winfo_height())
+        source_to_recent = recent_heading.winfo_rooty() - (dialog._source_preview_label.winfo_rooty() + dialog._source_preview_label.winfo_height())
+        assert 0 <= title_to_source <= 8
+        assert 8 <= source_to_recent <= 24
+        assert source_to_recent > title_to_source
+        long_preview = EntryInputSourcePreview("selection_text", "很長的選取文字" * 30)
+        dialog.apply(replace(root_snapshot, header_hint="", source_preview=long_preview))
+        master.update_idletasks()
+        source_label = dialog._source_preview_label
+        assert source_label.winfo_rootx() + source_label.winfo_width() <= dialog._shell.winfo_rootx() + dialog._shell.winfo_width() - 12
+        assert source_label.cget("text").endswith("…")
+        assert "\n" not in source_label.cget("text")
+        dialog.apply(replace(root_snapshot, header_hint="", source_preview=EntryInputSourcePreview("failed", "來源錯誤" * 30, True)))
+        master.update_idletasks()
+        assert source_label.winfo_rootx() + source_label.winfo_width() < dialog._retry_input_button.winfo_rootx()
+        assert source_label.cget("text").endswith("…")
         divider = next(
             child
             for child in dialog._body.winfo_children()
@@ -211,6 +264,7 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         )
         dialog.apply(preparing)
         cards = tuple(dialog._option_buttons)
+        assert all(card._recent_badge.cget("text_color") == MODEL_COLOR for card in cards[:3])
         dialog.apply(replace(preparing, message=waiting_message))
         master.update_idletasks()
         assert tuple(dialog._option_buttons) == cards

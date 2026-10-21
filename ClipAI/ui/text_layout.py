@@ -19,11 +19,35 @@ _LATIN_ISLAND = re.compile(r"[A-Za-z0-9]+(?:[ \t]+[A-Za-z0-9]+)*")
 def fit_tile_title(text: str, *, width: float, measure: Callable[[str], float]) -> str:
     """Fit display copy into two measured lines without changing canonical text."""
     clusters: list[str] = []
-    for char in text.replace("\n", " "):
+    for char in text.replace("\n", " ").strip():
         if clusters and _joins_grapheme(clusters[-1][-1], char):
             clusters[-1] += char
         else:
             clusters.append(char)
+    if not clusters:
+        return ""
+    full_title = "".join(clusters)
+    full_width = measure(full_title)
+    if full_width <= width:
+        return full_title
+
+    balanced_lines: list[tuple[float, str, str]] = []
+    if full_width <= width * 2 + measure(" "):
+        for index in range(1, len(clusters)):
+            left_edge, right_edge = clusters[index - 1][-1], clusters[index][0]
+            if _is_ascii_token_char(left_edge) and _is_ascii_token_char(right_edge):
+                continue
+            first = "".join(clusters[:index]).rstrip()
+            second = "".join(clusters[index:]).lstrip()
+            if not first or not second:
+                continue
+            first_width, second_width = measure(first), measure(second)
+            if first_width <= width and second_width <= width:
+                balanced_lines.append((abs(first_width - second_width), first, second))
+    if balanced_lines:
+        _, first, second = min(balanced_lines, key=lambda candidate: candidate[0])
+        return f"{first}\n{second}"
+
     lines = []
     for index in range(2):
         remaining = "".join(clusters)
@@ -37,6 +61,30 @@ def fit_tile_title(text: str, *, width: float, measure: Callable[[str], float]) 
         lines.append("".join(clusters[:count]).rstrip()+suffix)
         clusters = clusters[count:]
     return "\n".join(lines)
+
+
+def fit_single_line_text(text: str, *, width: float, measure: Callable[[str], float]) -> str:
+    """Keep a display-only preview within one measured line."""
+    single_line = " ".join(text.split())
+    if measure(single_line) <= width:
+        return single_line
+    if measure("…") > width:
+        return ""
+
+    clusters: list[str] = []
+    for char in single_line:
+        if clusters and _joins_grapheme(clusters[-1][-1], char):
+            clusters[-1] += char
+        else:
+            clusters.append(char)
+    low, high = 0, len(clusters)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if measure("".join(clusters[:middle]) + "…") <= width:
+            low = middle
+        else:
+            high = middle - 1
+    return "".join(clusters[:low]).rstrip() + "…"
 
 
 def strip_display_break_hints(text: str) -> str:

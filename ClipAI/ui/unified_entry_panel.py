@@ -35,7 +35,7 @@ from ClipAI.ui.base_dialog import (
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
-from ClipAI.ui.text_layout import fit_tile_title
+from ClipAI.ui.text_layout import fit_single_line_text, fit_tile_title
 
 
 def recent_tile_tooltip(option: EntryPanelOption) -> str:
@@ -50,6 +50,7 @@ _TRANSPARENT_WINDOW_BACKGROUND = "#111111"
 _CARD_BACKGROUND = "#252525"
 _CARD_HOVER_BACKGROUND = "#303030"
 _CARD_BORDER = "#454545"
+_PANEL_SECONDARY_TEXT = "#9B9FA3"
 _HOLD_SEC = 0.5
 _HOLD_STEPS = 12
 _KEY_RELEASE_DEBOUNCE_MS = 30
@@ -152,6 +153,7 @@ class UnifiedEntryPanelDialog:
         self._search_guard = False
         self._option_buttons: list[tk.Misc] = []
         self._option_updaters: list[Callable[[EntryPanelOption], None]] = []
+        self._keyboard_navigation_active = False
         self._hold_controllers: dict[int, dict[str, Callable]] = {}
         self._key_hold: dict[str, object] | None = None
         self._key_release_job: object | None = None
@@ -191,7 +193,7 @@ class UnifiedEntryPanelDialog:
         self._shell.grid_rowconfigure(2, weight=1)
 
         header = ctk.CTkFrame(self._shell, fg_color="transparent")
-        header.grid(row=0, column=0, padx=16, pady=(14, 8), sticky="ew")
+        header.grid(row=0, column=0, padx=16, pady=(14, 0), sticky="ew")
         header.grid_columnconfigure(1, weight=1)
         self._back_button = ctk.CTkButton(
             header,
@@ -218,6 +220,7 @@ class UnifiedEntryPanelDialog:
         title_label.grid(row=0, column=1, sticky="w")
         self._numeric_hint_label = ctk.CTkLabel(header, text="", height=16, anchor="w", text_color=MODEL_COLOR, font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10))
         self._numeric_hint_label.grid(row=1, column=0, columnspan=4, sticky="ew")
+        self._numeric_hint_label.grid_remove()
         self._density = ctk.CTkSwitch(
             header,
             text="",
@@ -251,20 +254,23 @@ class UnifiedEntryPanelDialog:
         self._escape_tooltip = _Tooltip(self._escape_button, 'Esc 關閉', self._schedule_lifecycle)
 
         source_row = ctk.CTkFrame(self._shell, fg_color="transparent")
-        source_row.grid(row=1, column=0, padx=16, pady=(0, 7), sticky="ew")
+        source_row.grid(row=1, column=0, padx=16, pady=(0, 10), sticky="ew")
         source_row.grid_columnconfigure(0, weight=1)
         self._source_preview_label = ctk.CTkLabel(
             source_row,
             text="",
+            width=1,
+            height=18,
             anchor="w",
             justify="left",
-            text_color=MODEL_COLOR,
+            text_color=_PANEL_SECONDARY_TEXT,
             font=ctk.CTkFont(
                 family=TC_FONT_FAMILY,
                 size=POPUP_FONT_SIZES["auxiliary"],
             ),
         )
         self._source_preview_label.grid(row=0, column=0, sticky="ew")
+        tk.Misc.bind(self._source_preview_label, "<Configure>", self._fit_source_preview_text, add="+")
         self._retry_input_button = ctk.CTkButton(
             source_row,
             text="重試",
@@ -302,6 +308,10 @@ class UnifiedEntryPanelDialog:
         hint = getattr(self, "_numeric_hint_label", None)
         if hint is not None:
             hint.configure(text=snapshot.header_hint)
+            if snapshot.header_hint:
+                hint.grid()
+            else:
+                hint.grid_remove()
         self._render_source_preview(snapshot.source_preview)
         if snapshot.page == "root":
             self._back_button.grid_remove()
@@ -468,7 +478,8 @@ class UnifiedEntryPanelDialog:
                         size=POPUP_FONT_SIZES["interface"],
                         weight="bold",
                     ),
-                ).grid(row=row, column=0, padx=2, pady=(0, 5), sticky="ew")
+                    height=20,
+                ).grid(row=row, column=0, padx=2, pady=(0, 4), sticky="ew")
                 row += 1
                 recent_frame = ctk.CTkFrame(self._body, fg_color="transparent")
                 recent_frame.grid(row=row, column=0, sticky="ew")
@@ -560,18 +571,31 @@ class UnifiedEntryPanelDialog:
                 clipboard.grid_forget()
         if label is not None:
             label.configure(
-                text=_source_preview_text(preview),
                 text_color=(
                     "#F6A9A9"
                     if preview is not None and preview.kind == "failed"
-                    else MODEL_COLOR
+                    else _PANEL_SECONDARY_TEXT
                 ),
             )
+            self._fit_source_preview_text()
         if retry is not None:
             if preview is not None and preview.kind == "failed":
                 retry.grid(row=0, column=1, padx=(8, 0), sticky="e")
             else:
                 retry.grid_forget()
+
+    def _fit_source_preview_text(self, _event=None) -> None:
+        label = self._source_preview_label
+        preview = self._snapshot.source_preview if self._snapshot is not None else None
+        scale = max(.1, ScalingTracker.get_widget_scaling(label))
+        available = max(0, label.winfo_width() / scale - 8)
+        rendered = fit_single_line_text(
+            _source_preview_text(preview),
+            width=available,
+            measure=label.cget("font").measure,
+        )
+        if label.cget("text") != rendered:
+            label.configure(text=rendered)
 
     @staticmethod
     def _split_root_options(
@@ -601,7 +625,7 @@ class UnifiedEntryPanelDialog:
         card.grid_columnconfigure(0, weight=1)
         card.grid_columnconfigure(1, weight=0)
         if recent:
-            card.configure(width=60, height=66)
+            card.configure(width=60, height=80)
             card.grid_propagate(False)
         if option.slot is None:
             title = option.label
@@ -636,7 +660,7 @@ class UnifiedEntryPanelDialog:
                         fg_color=_CARD_HOVER_BACKGROUND,
                         border_color=ACTION_HOVER_COLOR,
                     )
-                elif focused:
+                elif focused and self._keyboard_navigation_active:
                     card.configure(
                         fg_color=_CARD_BACKGROUND,
                         border_color=ACTION_COLOR,
@@ -706,8 +730,8 @@ class UnifiedEntryPanelDialog:
             ),
         )
         if recent:
-            title_label.configure(height=30, font=ctk.CTkFont(family=TC_FONT_FAMILY, size=11, weight="bold"), justify="left")
-            title_label.place(x=32, y=9)
+            title_label.configure(height=34, anchor="nw", font=ctk.CTkFont(family=TC_FONT_FAMILY, size=11, weight="bold"), justify="left")
+            title_label.place(x=12, y=29)
         else:
             title_label.grid(row=0, column=0, padx=12, pady=7, sticky="ew")
         interactive_widgets = [card, title_label]
@@ -737,14 +761,25 @@ class UnifiedEntryPanelDialog:
         interactive_widgets.append(long_hint_label)
         tile_tooltip = None
         if recent:
-            badge = ctk.CTkLabel(card, text=str(option.slot), width=16, height=16, corner_radius=8, fg_color=ACTION_COLOR, text_color=CONTENT_COLOR, font=ctk.CTkFont(size=10))
-            badge.place(x=10, y=10)
+            badge = ctk.CTkLabel(
+                card,
+                text=str(option.slot),
+                width=14,
+                height=18,
+                fg_color="transparent",
+                text_color=ACTION_COLOR,
+                font=ctk.CTkFont(family=TC_FONT_FAMILY, size=12),
+            )
+            badge.place(x=12, y=7)
             interactive_widgets.append(badge)
-            long_hint_label.configure(height=13)
-            long_hint_label.place(x=32, y=43)
-            tile_tooltip = _Tooltip(card, recent_tile_tooltip(option), self._schedule_lifecycle)
-            tk.Misc.bind(card, "<FocusIn>", tile_tooltip._schedule, add="+")
-            tk.Misc.bind(card, "<FocusOut>", tile_tooltip._hide, add="+")
+            long_hint_label.configure(height=18)
+            long_hint_label.place(relx=1, x=-10, y=7, anchor="ne")
+            tile_tooltip = _Tooltip(
+                card,
+                recent_tile_tooltip(option),
+                self._schedule_lifecycle,
+                show_on_focus=False,
+            )
             card._recent_badge = badge
             card._recent_title = title_label
             card._recent_long_hint = long_hint_label
@@ -752,8 +787,13 @@ class UnifiedEntryPanelDialog:
 
             def resize_title(_event=None):
                 scale = max(.1, ScalingTracker.get_widget_scaling(card))
-                available = max(1, card.winfo_width()/scale-42)
-                title_label.configure(width=available, text=fit_tile_title(latest_option.label, width=available, measure=title_label.cget("font").measure))
+                available = max(1, card.winfo_width()/scale-24)
+                display_title = (
+                    latest_option.long_label
+                    if hold["reached"] and latest_option.long_label
+                    else latest_option.label
+                )
+                title_label.configure(width=available, text=fit_tile_title(display_title, width=available, measure=title_label.cget("font").measure))
             card.bind("<Configure>", resize_title, add="+")
             card.bind("<Destroy>", tile_tooltip._hide, add="+")
 
@@ -772,9 +812,12 @@ class UnifiedEntryPanelDialog:
                     pass
             hold.update(job=None, reached=False, bar=None, progress=0, started=False)
             title_label.configure(
-                text=option_title(latest_option),
-                text_color=CONTENT_COLOR,
+                text_color=CONTENT_COLOR if latest_option.enabled and not latest_option.pending else MODEL_COLOR,
             )
+            if recent:
+                resize_title()
+            else:
+                title_label.configure(text=option_title(latest_option))
 
         def step() -> None:
             hold["job"] = None
@@ -787,10 +830,11 @@ class UnifiedEntryPanelDialog:
                 bar.place_configure(relwidth=min(1.0, progress / _HOLD_STEPS))
             if progress >= _HOLD_STEPS:
                 hold["reached"] = True
-                title_label.configure(
-                    text=latest_option.long_label or option_title(latest_option),
-                    text_color=ACTION_COLOR,
-                )
+                if recent:
+                    resize_title()
+                else:
+                    title_label.configure(text=latest_option.long_label or option_title(latest_option))
+                title_label.configure(text_color=ACTION_COLOR)
                 return
             hold["job"] = card.after(
                 round(_HOLD_SEC * 1000 / _HOLD_STEPS),
@@ -843,7 +887,10 @@ class UnifiedEntryPanelDialog:
             latest_option = updated
             if recent:
                 tile_tooltip.set_text(recent_tile_tooltip(updated))
-                badge.configure(text=str(updated.slot))
+                badge.configure(
+                    text=str(updated.slot),
+                    text_color=ACTION_COLOR if updated.enabled and not updated.pending else MODEL_COLOR,
+                )
                 long_hint_label.configure(text="長按" if updated.long_action is not None else "")
                 title_label.configure(text_color=CONTENT_COLOR if updated.enabled and not updated.pending else MODEL_COLOR)
                 resize_title()
@@ -998,6 +1045,8 @@ class UnifiedEntryPanelDialog:
     def _on_key(self, event) -> str | None:
         if not self.is_primary_content_mounted():
             return None
+        if getattr(event, "keysym", "") in {"Tab", "ISO_Left_Tab", "Up", "Down"}:
+            self._keyboard_navigation_active = True
         digit = self._event_digit(event)
         if digit is None:
             return None
@@ -1068,6 +1117,7 @@ class UnifiedEntryPanelDialog:
     def _move_focus(self, event, forward: bool) -> str:
         if not self.is_primary_content_mounted():
             return "break"
+        self._keyboard_navigation_active = True
         target = event.widget.tk_focusNext() if forward else event.widget.tk_focusPrev()
         if target is not None:
             target.focus_set()
