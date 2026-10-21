@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from ClipAI.core.commands import ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted
+from ClipAI.core.commands import ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShortcutPressThresholdReached
 from ClipAI.core.hotkeys import MODIFIER_KEYS, canonicalize_hotkey, display_hotkey, parse_hotkey_tokens
 from ClipAI.core.models import ShortcutGuideItem, ShortcutGuidePhase, ShortcutGuideSnapshot, ShortcutObservationSnapshot, ShortcutPressId
 from ClipAI.services.action_catalog import ActionCatalog
@@ -61,7 +61,7 @@ class ShortcutGuideCatalog:
                 display_hotkey(hotkey),
                 parse_hotkey_tokens(hotkey),
                 "隨處聽寫",
-                "按一次開始，再按一次收尾；選擇貼上原文或潤飾後貼上。",
+                "單獨按一下開始；再按一次收尾：短按直接貼上，長按潤飾後貼上。\n預設 Right Alt 已取代 Ctrl+Alt+M。AltGr 鍵盤配置請改用 chord，於 config/shortcuts.yaml 設定。",
             )
 
         if definition.command == "open_contextual_question":
@@ -159,6 +159,9 @@ class ShortcutGuideCoordinator:
 
     def handle(self, event: ShortcutInputEvent) -> ShortcutGuideDecision:
         snapshot = self._snapshot
+        if isinstance(event, ShortcutPressThresholdReached):
+            captured = event.press_id in self._captured_presses
+            return ShortcutGuideDecision(captured, snapshot if captured else None)
         if isinstance(event, ShortcutPressStarted):
             if snapshot is None:
                 return ShortcutGuideDecision(False)

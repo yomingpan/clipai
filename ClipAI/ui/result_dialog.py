@@ -13,7 +13,7 @@ import customtkinter as ctk
 
 from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ArchiveResult, CloseSession, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, UpdateVoiceDraft, WorkflowAttentionCompleted
 from ClipAI.core.models import ActiveWorkflowContext, EntryPanelSnapshot, FeedbackOutcome, InlineInputMode, ManagedUpdatePresentation, OutputOperationResult, PasteOutcome, PasteTarget, PersonalStyleState, PopupBounds, ProviderSettingsState, ShortcutGuideSnapshot, WorkflowAttention
-from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface, PointerPressReader
+from ClipAI.core.ports import DisplayMetricsReader, KeyboardStateReader, NativeWindowSurface, PointerPressReader
 from ClipAI.core.popup_presentation import project_popup_presentation
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceProjection
@@ -24,6 +24,7 @@ from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease, PrimarySurfaceSpec
 from ClipAI.ui.unified_entry_panel import UnifiedEntryPanelDialog
 from ClipAI.ui.inline_dictation_owner import InlineDictationInterfaceOwner
+from ClipAI.ui.raster_resources import TkRasterResources
 from ClipAI.ui.owned_modals import OwnedModalRegistry
 
 _LOGGER = logging.getLogger("clipai.ui.result_dialog")
@@ -119,6 +120,7 @@ class ResultDialogPresenter:
         layout_policy: PopupLayoutPolicy | None = None,
         pointer_press_reader: PointerPressReader | None = None,
         native_window_surface: NativeWindowSurface | None = None,
+        key_state_reader: KeyboardStateReader = lambda _token: None,
         focus_transition_diagnostics: bool = False,
         voice_projection: VoiceProjection | None = None,
         application_version: str = "development",
@@ -126,6 +128,7 @@ class ResultDialogPresenter:
     ) -> None:
         self._root = ctk.CTk()
         self._root.withdraw()
+        self._raster_resources = TkRasterResources(self._root)
         self._updates = LatestSnapshotMailbox()
         self._output_updates: queue.Queue[OutputOperationResult] = queue.Queue()
         self._paste_target_updates: queue.Queue[PasteTarget | None] = queue.Queue()
@@ -140,6 +143,7 @@ class ResultDialogPresenter:
         self._layout_policy = layout_policy or PopupLayoutPolicy()
         self._pointer_press_reader = pointer_press_reader
         self._native_window_surface = native_window_surface
+        self._key_state_reader = key_state_reader
         self._focus_transition_diagnostics = focus_transition_diagnostics
         self._modals = OwnedModalRegistry(
             self._root, lambda command: self._command_sink(command), native_window_surface,
@@ -468,6 +472,7 @@ class ResultDialogPresenter:
         if self._destroyed:
             return
         self._destroyed = True
+        self._raster_resources.close()
         try:
             self._root.destroy()
         except tk.TclError:
@@ -582,7 +587,7 @@ class ResultDialogPresenter:
                     announce_shown=False,
                 )
             else:
-                self._register_view(snapshot.session_id, view, focus_on_show=snapshot.status not in {SessionStatus.CREATED, SessionStatus.READING_INPUT})
+                self._register_view(snapshot.session_id, view, focus_on_show=snapshot.status not in {SessionStatus.CREATED, SessionStatus.READING_INPUT, SessionStatus.AWAITING_INPUT_CHOICE})
         previous = view.last_snapshot
         if snapshot.status is SessionStatus.VOICE_REVIEW and (
             previous is None or previous.status is not SessionStatus.VOICE_REVIEW
@@ -607,7 +612,7 @@ class ResultDialogPresenter:
         ):
             view.dialog.lifecycle.schedule(
                 15000,
-                lambda sid=snapshot.session_id, rid=popup_model.input_recovery_id: self._command_sink(ExpireInputRecovery(sid, rid)),
+                lambda sid=snapshot.session_id, rid=popup_model.input_recovery_id, current=view: self._expire_recovery_if_unfocused(sid, current, rid),
             )
         if popup_model.guidance:
             view.shown_guidance_keys.add(guidance_key)
@@ -749,6 +754,9 @@ class ResultDialogPresenter:
             and (
                 (previous.status in {SessionStatus.VOICE_LISTENING, SessionStatus.VOICE_FINALIZING}
                  and snapshot.status is SessionStatus.VOICE_REVIEW)
+                or (previous.status in {SessionStatus.CREATED, SessionStatus.READING_INPUT}
+                    and snapshot.status is SessionStatus.AWAITING_INPUT_CHOICE
+                    and popup_model.clipboard_choice_available)
                 or (previous.status in {SessionStatus.CREATED, SessionStatus.READING_INPUT}
                     and snapshot.status in {SessionStatus.PREPARING_REQUEST, SessionStatus.REQUESTING_PROVIDER, SessionStatus.PROCESSING_RESULT, SessionStatus.COMPLETED})
             )
@@ -1055,7 +1063,7 @@ class ResultDialogPresenter:
             primary_surface_lease=primary_lease,
             mount_primary_content=mount_primary_content,
         )
-        surface = BaseResultSurface(dialog)
+        surface = BaseResultSurface(dialog, key_state_reader=self._key_state_reader)
         view = _SessionView(dialog=dialog, surface=surface)
         for name in ("content_text", "follow_entry", "feedback_note"):
             widget = getattr(surface, name, None)
@@ -1150,6 +1158,7 @@ class ResultDialogPresenter:
                 ),
                 active=True,
                 countdown_seconds=remaining_seconds,
+                finishing=finalizing,
             )
             set_countdown_warning = getattr(view.dialog, "set_countdown_warning", None)
             if callable(set_countdown_warning):
@@ -1255,6 +1264,17 @@ class ResultDialogPresenter:
             control.observe_focus(PopupControlShown())
             if focus_on_show:
                 self._schedule_initial_focus(session_id, view)
+
+    def _expire_recovery_if_unfocused(self, workflow_id: str, view: _SessionView, recovery_id: str) -> None:
+        if self._views.get(workflow_id) is not view:
+            return
+        snapshot = view.last_snapshot
+        if snapshot is None or snapshot.status is not SessionStatus.AWAITING_INPUT_CHOICE or snapshot.pinned:
+            return
+        if snapshot.input_recovery is None or snapshot.input_recovery.recovery_id != recovery_id:
+            return
+        if not self._popup_control(workflow_id, view).focused_inside:
+            self._command_sink(ExpireInputRecovery(workflow_id, recovery_id))
 
     def _schedule_initial_focus(self, session_id: str, view: _SessionView) -> None:
         view.awaiting_initial_focus = True

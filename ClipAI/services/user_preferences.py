@@ -17,7 +17,7 @@ SPEECH_SPEED_RATES: dict[SpeechSpeed, str] = {
     "super_fast": "+50%",
 }
 _SPEECH_SPEED_BY_RATE = {rate: speed for speed, rate in SPEECH_SPEED_RATES.items()}
-PreferenceOperationKind = Literal["set_guidance_enabled", "reset_guidance", "set_speech_speed", "set_voice_enabled", "set_voice_language", "set_entry_panel_density", "set_inline_input_mode", "set_inline_dictation_placement", "set_popup_placement"]
+PreferenceOperationKind = Literal["entry_numeric_hint", "set_guidance_enabled", "reset_guidance", "set_speech_speed", "set_voice_enabled", "set_voice_language", "set_entry_panel_density", "set_inline_input_mode", "set_inline_dictation_placement", "set_popup_placement"]
 
 
 @dataclass(frozen=True)
@@ -118,6 +118,17 @@ class UserPreferencesCoordinator:
         with self._lock:
             return self._popup_placement_projection()
 
+    @property
+    def entry_numeric_hint_available(self) -> bool:
+        with self._lock:
+            return self._preferences.entry_numeric_hint_count < 5
+
+    def begin_entry_numeric_hint(self, operation_id: str) -> UserPreferencesUpdate:
+        with self._lock:
+            if not self.entry_numeric_hint_available:
+                return self._update(ignored=True)
+            return self._begin(UserPreferencesWork(operation_id, "entry_numeric_hint"))
+
     def begin_set_guidance_enabled(self, enabled: bool, operation_id: str) -> UserPreferencesUpdate:
         return self._begin(UserPreferencesWork(operation_id, "set_guidance_enabled", enabled=enabled))
 
@@ -191,7 +202,9 @@ class UserPreferencesCoordinator:
                 if self._pending != work:
                     return ""
                 current = self._preferences
-                if work.kind == "set_guidance_enabled":
+                if work.kind == "entry_numeric_hint":
+                    desired = replace(current, entry_numeric_hint_count=min(5, current.entry_numeric_hint_count + 1))
+                elif work.kind == "set_guidance_enabled":
                     desired = replace(current, first_use_hints_enabled=bool(work.enabled))
                 elif work.kind == "reset_guidance":
                     desired = replace(current, seen_action_ids=frozenset())

@@ -156,7 +156,7 @@ def test_japanese_pack_projects_entry_panel_recents_scenes_and_search() -> None:
     )
     assert root.options[0].label == "内容を短くする"
 
-    scene = panel.select_digit("5").snapshot
+    scene = panel.select_digit("6").snapshot
     assert scene.options[0].label == "ピラミッドで立場を整理"
 
     panel.open_more()

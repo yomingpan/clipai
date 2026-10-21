@@ -22,6 +22,7 @@ from ClipAI.core.commands import (
     InlineDictationRefineSettled,
     PasteOperationCompleted,
     ToggleInlineDictation,
+    VoiceCaptureTimeout,
     VoiceEngineEventReceived,
 )
 from ClipAI.core.models import InlineOrigin, PasteOutcome, PasteRequest, PasteTarget
@@ -64,6 +65,14 @@ class Presenter:
 
     def open_inline_dictation(self, interaction_id="", _mode="choice", _placement="cursor") -> None:
         self.interaction_ids.append(interaction_id)
+
+    def present_inline_dictation(self, view):
+        if view.phase == "awaiting": self.choices.append(view.text)
+        if view.phase == "closed": self.closes.append((bool(view.message), view.message))
+        if view.paste_outcome is not None:
+            item = (view.interaction_id, view.paste_outcome, view.text)
+            if item not in self.paste_outcomes: self.paste_outcomes.append(item)
+        if view.phase == "cancel_unconfirmed": self.cancel_unconfirmed.append((view.interaction_id, view.text))
 
     def update_inline_dictation(self, _projection) -> None:
         pass
@@ -241,7 +250,10 @@ class Journey:
             self.runtime.handle(VoiceEngineEventReceived(VoiceEngineListening(self.capture_id)))
         elif step.action == "final":
             self.runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(self.capture_id, 0, step.text)))
-        elif step.action in {"stop", "stop_short", "stop_long"}:
+        elif step.action == "stop":
+            # Automatic stop preserves the explicit review/cancel journey.
+            assert self.runtime.handle(VoiceCaptureTimeout(self.capture_id)), self._context()
+        elif step.action in {"stop_short", "stop_long"}:
             assert self.runtime.handle(ToggleInlineDictation("long" if step.action == "stop_long" else "short")), self._context()
         elif step.action == "change_mode":
             self.mode = step.text

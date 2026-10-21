@@ -11,6 +11,18 @@ from ClipAI.core.commands import OpenContextualQuestion, SpeakSelectionOrClipboa
 from ClipAI.providers.settings import ProviderCredential
 
 
+@pytest.mark.parametrize("configured,expected", [(None, True), (False, False), (True, True)])
+def test_selection_standby_is_enabled_by_default_and_can_be_disabled(tmp_path, configured, expected):
+    import yaml
+    payload = yaml.safe_load(Path("config/config.yaml").read_text(encoding="utf-8"))
+    if configured is not None:
+        payload["app"]["selection_uia_standby"] = configured
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    app, *_ = load_app_config(path)
+    assert app.selection_uia_standby is expected
+
+
 def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     bundle = load_config_bundle()
 
@@ -488,7 +500,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     assert len(start_actions) == 29
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
             "voice_input": "ctrl+alt+w",
-            "inline_dictation": "ctrl+alt+m",
+            "inline_dictation": "right_alt",
         "contextual_question": "ctrl+alt+r",
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",

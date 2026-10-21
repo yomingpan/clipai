@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-10-21T10:30:48.058530+00:00",
+  "device_cohort": "local-windows-minimal-raw-zhTW-controlledTk",
+  "groups": [
+    {
+      "mode": "minimal",
+      "delivery_path": "raw",
+      "status": "comparable",
+      "before_interactions": 20,
+      "after_interactions": 20,
+      "before_terminal_outcomes": {
+        "dispatched_unconfirmed": 20
+      },
+      "after_terminal_outcomes": {
+        "dispatched_unconfirmed": 20
+      },
+      "stage_deltas": {
+        "first_press_to_first_frame": {
+          "before_count": 20,
+          "after_count": 20,
+          "median_delta_ms": 16.0,
+          "p95_delta_ms": 16.0,
+          "p99_delta_ms": null
+        },
+        "stop_to_terminal": {
+          "before_count": 20,
+          "after_count": 20,
+          "median_delta_ms": 8.5,
+          "p95_delta_ms": -16.0,
+          "p99_delta_ms": null
+        },
+        "first_press_to_listening": {
+          "before_count": 20,
+          "after_count": 20,
+          "median_delta_ms": 62.0,
+          "p95_delta_ms": -328.0,
+          "p99_delta_ms": null
+        },
+        "paste_to_terminal": {
+          "before_count": 20,
+          "after_count": 20,
+          "median_delta_ms": -15.0,
+          "p95_delta_ms": -186.0,
+          "p99_delta_ms": null
+        },
+        "refine_to_result": {
+          "before_count": 0,
+          "after_count": 0,
+          "median_delta_ms": null,
+          "p95_delta_ms": null,
+          "p99_delta_ms": null
+        },
+        "first_press_to_terminal": {
+          "before_count": 20,
+          "after_count": 20,
+          "median_delta_ms": -327.5,
+          "p95_delta_ms": 484.0,
+          "p99_delta_ms": null
+        },
+        "stop_to_dispatch": {
+          "before_count": 20,
+          "after_count": 20,
+          "median_delta_ms": 16.0,
+          "p95_delta_ms": 0.0,
+          "p99_delta_ms": null
+        },
+        "stop_to_recognition": {
+          "before_count": 20,
+          "after_count": 20,
+          "median_delta_ms": 0.5,
+          "p95_delta_ms": 30.0,
+          "p99_delta_ms": null
+        }
+      }
+    }
+  ],
+  "insertion_truth": "requires_external_observer",
+  "max_p95_regression_percent": 10,
+  "minimum_interval_samples": 20,
+  "p95_regression_passed": false
+}

@@ -89,6 +89,22 @@ class UserPreferencesRuntimeModule:
             if self._user_preferences is not None:
                 self._project_preferences(self._user_preferences.complete(command.operation_id, command.error))
 
+    def consume_entry_numeric_hint(self) -> bool:
+        if self._user_preferences is None:
+            return False
+        operation_id = uuid.uuid4().hex
+        update = self._user_preferences.begin_entry_numeric_hint(operation_id)
+        if update.work is None:
+            return False
+        work, preferences = update.work, self._user_preferences
+        self._supervisor.submit(
+            f"entry-numeric-hint:{operation_id}",
+            lambda: self._enqueue(GuidancePreferencesCompleted(operation_id, preferences.execute(work))),
+            lambda _error: self._enqueue(GuidancePreferencesCompleted(operation_id, "Unable to save numeric guidance.")),
+            task_class="interactive",
+        )
+        return True
+
     def begin_voice_enabled(self, enabled: bool, operation_id: str, completion: Callable[[str], object]) -> None:
         """Persist one Voice enablement request, then return through its typed caller command."""
         if self._user_preferences is None:

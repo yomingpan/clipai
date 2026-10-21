@@ -22,6 +22,7 @@ class AppSettings:
     modifier_mode: ModifierMode
     system_prompt: str
     entry_panel_enabled: bool = False
+    selection_uia_standby: bool = True
 
 
 @dataclass(frozen=True)

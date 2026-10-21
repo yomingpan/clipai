@@ -47,6 +47,15 @@ class Pystray:
             self.menu_updates += 1
 
 
+def test_inline_tray_explains_new_default_and_altgr_configuration():
+    tray = TrayController(lambda: None, inline_input_mode=InlineInputModeState(), on_set_inline_input_mode=lambda _mode: None)
+    menu = tray._build_inline_dictation_menu(Pystray)
+    labels = [item.text for item in menu.action.items if hasattr(item, "text") and isinstance(item.text, str)]
+    assert "預設 Right Alt：短按原文、長按潤飾" in labels
+    assert "已取代 Ctrl+Alt+M；AltGr 請改用 chord" in labels
+    assert "設定：config/shortcuts.yaml" in labels
+
+
 def test_tray_inline_mode_stays_checked_on_saved_value_while_save_is_pending() -> None:
     selected = []
     tray = TrayController(
@@ -58,7 +67,7 @@ def test_tray_inline_mode_stays_checked_on_saved_value_while_save_is_pending() -
         on_set_inline_input_mode=selected.append,
     )
     mode_menu = tray._build_inline_dictation_menu(Pystray)
-    choice, minimal = mode_menu.action.items
+    choice, minimal = mode_menu.action.items[:2]
     assert mode_menu.text(None) == "Inline Dictation: Full Choice"
     assert choice.text == "Full Choice"
     assert minimal.text == "Minimal Input"
@@ -89,7 +98,7 @@ def test_tray_inline_placement_radio_reflects_saved_and_pending_state() -> None:
     )
     menu = tray._build_inline_dictation_menu(Pystray)
     assert menu.action.items[2] is Menu.SEPARATOR
-    follow_cursor, bottom_center = menu.action.items[3:]
+    follow_cursor, bottom_center = menu.action.items[3:5]
     assert follow_cursor.checked(None) and not bottom_center.checked(None)
     assert follow_cursor.radio and bottom_center.radio
     bottom_center.action(None, None)

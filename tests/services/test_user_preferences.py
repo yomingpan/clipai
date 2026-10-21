@@ -20,6 +20,29 @@ class MemoryStore:
         self.saved.append(preferences)
 
 
+def test_entry_numeric_migration_counts_five_displays_through_shared_gate():
+    store = MemoryStore()
+    coordinator = UserPreferencesCoordinator(store)
+    for index in range(5):
+        assert coordinator.entry_numeric_hint_available
+        update = coordinator.begin_entry_numeric_hint(str(index))
+        assert update.work is not None
+        assert coordinator.begin_set_inline_input_mode("minimal", "competing").ignored
+        assert coordinator.execute(update.work) == ""
+        coordinator.complete(str(index))
+    assert not coordinator.entry_numeric_hint_available
+    assert coordinator.begin_entry_numeric_hint("sixth").ignored
+    assert store.preferences.entry_numeric_hint_count == 5
+
+
+def test_failed_entry_numeric_hint_save_does_not_consume_display_allowance():
+    coordinator = UserPreferencesCoordinator(MemoryStore(fail=True))
+    update = coordinator.begin_entry_numeric_hint("failed")
+    assert coordinator.execute(update.work)
+    coordinator.complete("failed", "save failed")
+    assert coordinator.entry_numeric_hint_available
+
+
 def test_missing_speed_uses_normal_without_rewriting_preferences() -> None:
     store = MemoryStore()
     coordinator = UserPreferencesCoordinator(store, base_speech_rate="+0%")

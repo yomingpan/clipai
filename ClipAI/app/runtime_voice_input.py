@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ClipAI.core.commands import ShortcutPressThresholdReached
 
 import uuid
 import threading
@@ -80,6 +81,7 @@ class VoiceInputRuntimeModule:
         self._workflows = workflows
         self._paste_target_reader = paste_target_reader
         self._inline_input_mode_reader = inline_input_mode_reader
+        self._inline_preview_press: tuple[ShortcutPressId, str] | None = None
         self._inline_dictation_placement_reader = inline_dictation_placement_reader
         self._capture_external_target = capture_external_target or paste_target_reader
         self._persist_enabled = persist_enabled
@@ -190,6 +192,20 @@ class VoiceInputRuntimeModule:
             return VoiceTransition(self._controller.projection, ignored=True)
         return self._controller.request_capture(command.capture_id, admission.target)
 
+    def handle_inline_shortcut_event(self, event: ShortcutPressStarted | ShortcutPressThresholdReached | ShortcutPressEnded) -> None:
+        if isinstance(event, ShortcutPressStarted):
+            identity = self._controller.active_inline_interaction_id()
+            self._inline_preview_press = (event.press_id, identity) if identity is not None else None
+            return
+        pending = self._inline_preview_press
+        if pending is None or pending[0] != event.press_id:
+            return
+        if isinstance(event, ShortcutPressEnded):
+            self._inline_preview_press = None
+        transition = self._controller.preview_inline_refinement(pending[1], active=isinstance(event, ShortcutPressThresholdReached))
+        if not transition.ignored:
+            self._execute(transition)
+
     def toggle_inline_dictation(self, press_type: PressType = "short") -> bool:
         active = self._controller.active_inline_capture_id()
         interaction_id = self._controller.active_inline_interaction_id() or ""
@@ -203,8 +219,13 @@ class VoiceInputRuntimeModule:
                 if not terminal.ignored:
                     self._execute(terminal)
             if self._controller.has_pending_inline_choice():
-                self._notify_shortcut_rejected("Finish or cancel the pending dictation first.")
-                return False
+                transition = self._controller.confirm_inline_settlement(old_interaction_id or "", press_type == "long")
+                if transition.ignored:
+                    self._notify_shortcut_rejected("Finish or cancel the pending dictation first.")
+                    return False
+                _trace_inline("choice_shortcut", old_interaction_id or "", outcome=press_type)
+                self._execute(transition)
+                return True
             if self._controller.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED:
                 if self._setup_presenter is not None:
                     self._setup_presenter.show_voice_setup()
@@ -439,8 +460,8 @@ class VoiceInputRuntimeModule:
             if not countdown.ignored:
                 transition = countdown
         self._projection_sink(transition.projection)
-        if self._controller.active_inline_capture_id() is not None and self._inline_presenter is not None:
-            self._inline_presenter.update_inline_dictation(transition.projection)
+        if transition.inline_view is not None and self._inline_presenter is not None:
+            self._inline_presenter.present_inline_dictation(transition.inline_view)
         if self._setup_presenter is not None:
             self._setup_presenter.set_voice_projection(transition.projection)
         if transition.projection.capability is VoiceCapabilityPhase.READY and self._setup_presenter is not None:
@@ -486,25 +507,17 @@ class VoiceInputRuntimeModule:
                 controller.restore_voice_review(effect.target, effect.message)
         elif isinstance(effect, PresentInlineChoice):
             _trace_inline("choice_ready", effect.interaction_id, outcome="raw_only" if not effect.allow_refine else "raw_or_refine")
-            if self._inline_presenter is not None:
-                self._inline_presenter.present_inline_choice(effect.interaction_id, effect.text, effect.allow_refine, effect.message)
         elif isinstance(effect, PasteInlineDictation):
             _trace_inline("refine_requested" if effect.refine else "paste_requested", effect.interaction_id,
                           operation_id=effect.operation_id)
-            if self._inline_presenter is not None:
-                if effect.refine:
-                    self._inline_presenter.present_inline_refinement_pending(effect.interaction_id)
-                else:
-                    self._inline_presenter.present_inline_paste_pending(effect.interaction_id)
             admitted = self._paste_inline(effect.text, effect.target, effect.refine, effect.interaction_id, effect.operation_id)
             if effect.refine and admitted:
                 _trace_inline("refine_admitted", effect.interaction_id, operation_id=effect.operation_id)
-                if self._inline_presenter is not None:
-                    self._inline_presenter.present_inline_refining(effect.interaction_id)
+                transition = self._controller.accept_inline_refinement_admission(effect.interaction_id, effect.operation_id)
+                if not transition.ignored:
+                    self._execute(transition)
         elif isinstance(effect, CancelInlineRefinement):
             _trace_inline("refine_cancel_requested", effect.interaction_id, operation_id=effect.operation_id)
-            if self._inline_presenter is not None:
-                self._inline_presenter.present_inline_paste_cancelling(effect.interaction_id)
             accepted = self._cancel_inline_refinement(effect.operation_id)
             self._dispatch(InlineDictationRefineCancelAccepted(effect.interaction_id, effect.operation_id, accepted))
             self._watchdog_schedule(
@@ -513,33 +526,22 @@ class VoiceInputRuntimeModule:
             )
         elif isinstance(effect, CancelInlinePaste):
             _trace_inline("paste_cancel_requested", effect.interaction_id, operation_id=effect.operation_id)
-            if self._inline_presenter is not None:
-                self._inline_presenter.present_inline_paste_cancelling(effect.interaction_id)
             self._cancel_inline_paste(effect.operation_id)
         elif isinstance(effect, PresentInlinePasteOutcome):
-            if self._inline_presenter is not None:
-                self._inline_presenter.present_inline_paste_outcome(effect.interaction_id, effect.outcome, effect.text)
+            pass
         elif isinstance(effect, PresentInlineRecovery):
             _trace_inline("recovery_visible_requested", effect.interaction_id)
-            if self._inline_presenter is not None:
-                self._inline_presenter.present_inline_recovery(effect.interaction_id, effect.text, effect.message)
         elif isinstance(effect, PresentInlineCancelUnconfirmed):
-            if self._inline_presenter is not None:
-                self._inline_presenter.present_inline_cancel_unconfirmed(effect.interaction_id, effect.text)
+            pass
         elif isinstance(effect, PresentInlineCopyState):
             if effect.state in {"succeeded", "failed"}:
                 _trace_inline("copy_result", effect.interaction_id, outcome=effect.state)
-            if self._inline_presenter is not None:
-                self._inline_presenter.present_inline_copy_state(effect.interaction_id, effect.state)
         elif isinstance(effect, CopyInlineText):
             self._copy_inline(effect.text, effect.interaction_id, effect.operation_id)
         elif isinstance(effect, CloseInlineTerminal):
-            if self._inline_presenter is not None:
-                self._inline_presenter.close_inline_dictation(interaction_id=effect.interaction_id)
+            pass
         elif isinstance(effect, DiscardInlineDictation):
             _trace_inline("discard_terminal", effect.interaction_id, outcome="failed" if effect.message else "discarded")
-            if self._inline_presenter is not None:
-                self._inline_presenter.close_inline_dictation(flash_failure=bool(effect.message), message=effect.message, interaction_id=effect.interaction_id)
         elif isinstance(effect, FinalizeVoiceDraft):
             controller = self._workflows.controller_for(effect.target.workflow_id)
             if controller is not None:

@@ -4,6 +4,7 @@ from collections.abc import Callable
 import tkinter as tk
 
 import customtkinter as ctk
+from customtkinter.windows.widgets.scaling import ScalingTracker
 
 from ClipAI.core.commands import (
     CloseEntryPanel,
@@ -34,6 +35,15 @@ from ClipAI.ui.base_dialog import (
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
+from ClipAI.ui.text_layout import fit_tile_title
+
+
+def recent_tile_tooltip(option: EntryPanelOption) -> str:
+    return "\n".join(part for part in (
+        option.label, option.description,
+        f"長按:{option.long_label}" if option.long_action is not None else "",
+        option.disabled_reason,
+    ) if part)
 
 
 _TRANSPARENT_WINDOW_BACKGROUND = "#111111"
@@ -206,6 +216,8 @@ class UnifiedEntryPanelDialog:
             ),
         )
         title_label.grid(row=0, column=1, sticky="w")
+        self._numeric_hint_label = ctk.CTkLabel(header, text="", height=16, anchor="w", text_color=MODEL_COLOR, font=ctk.CTkFont(family=TC_FONT_FAMILY, size=10))
+        self._numeric_hint_label.grid(row=1, column=0, columnspan=4, sticky="ew")
         self._density = ctk.CTkSwitch(
             header,
             text="",
@@ -264,10 +276,12 @@ class UnifiedEntryPanelDialog:
             command=self._intent.retry_input,
         )
         self._use_clipboard_button = ctk.CTkButton(
-            source_row, text="使用剪貼簿", width=92, height=24,
+            source_row, text="使用剪貼簿", width=136, height=24,
             fg_color="transparent", hover_color="#3A3A3A", text_color=CONTENT_COLOR,
             command=self._intent.use_clipboard,
         )
+        self._use_clipboard_button.bind("<FocusIn>", lambda _event: self._refresh_clipboard_focus(), add="+")
+        self._use_clipboard_button.bind("<FocusOut>", lambda _event: self._window.after_idle(self._refresh_clipboard_focus), add="+")
 
         self._body = ctk.CTkScrollableFrame(
             self._shell,
@@ -282,8 +296,12 @@ class UnifiedEntryPanelDialog:
         primary_surface_host.bind_drag(header, title_label)
 
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
+        clipboard_had_focus = self._clipboard_has_focus()
         self._snapshot = snapshot
         self._intent.apply(snapshot)
+        hint = getattr(self, "_numeric_hint_label", None)
+        if hint is not None:
+            hint.configure(text=snapshot.header_hint)
         self._render_source_preview(snapshot.source_preview)
         if snapshot.page == "root":
             self._back_button.grid_remove()
@@ -303,6 +321,31 @@ class UnifiedEntryPanelDialog:
         else:
             self._update_option_cards(snapshot.options)
             self._render_message(snapshot)
+        if clipboard_had_focus and not self._clipboard_visible():
+            self._first_focus_target().focus_set()
+        self._refresh_clipboard_focus()
+
+    def _clipboard_visible(self) -> bool:
+        snapshot = getattr(self, "_snapshot", None)
+        return bool(snapshot is not None and snapshot.source_preview is not None and snapshot.source_preview.clipboard_override_available)
+
+    def _clipboard_has_focus(self) -> bool:
+        button = getattr(self, "_use_clipboard_button", None)
+        try:
+            widget = self._window.focus_get()
+            while widget is not None:
+                if widget is button and button is not None:
+                    return True
+                widget = getattr(widget, "master", None)
+        except (AttributeError, tk.TclError):
+            pass
+        return False
+
+    def _refresh_clipboard_focus(self) -> None:
+        button = getattr(self, "_use_clipboard_button", None)
+        if button is not None:
+            focused = self._clipboard_visible() and self._clipboard_has_focus()
+            button.configure(text="使用剪貼簿（Enter）" if focused else "使用剪貼簿", border_width=1 if focused else 0, border_color=ACTION_COLOR)
 
     def show(
         self,
@@ -430,7 +473,7 @@ class UnifiedEntryPanelDialog:
                 recent_frame = ctk.CTkFrame(self._body, fg_color="transparent")
                 recent_frame.grid(row=row, column=0, sticky="ew")
                 for column in range(3):
-                    recent_frame.grid_columnconfigure(column, weight=1, uniform="recent")
+                    recent_frame.grid_columnconfigure(column, weight=1, uniform="recent", minsize=60)
                 for column, option in enumerate(recent):
                     self._create_option_card(
                         recent_frame,
@@ -537,7 +580,7 @@ class UnifiedEntryPanelDialog:
         recent = tuple(
             option
             for option in options
-            if option.action is not None and option.slot in {0, 1, 2}
+            if option.action is not None and option.slot in {1, 2, 3}
         )
         return recent, tuple(option for option in options if option not in recent)
 
@@ -547,6 +590,7 @@ class UnifiedEntryPanelDialog:
         option: EntryPanelOption,
         snapshot: EntryPanelSnapshot,
     ) -> ctk.CTkFrame:
+        recent = snapshot.page == "root" and option.action is not None
         card = ctk.CTkFrame(
             parent,
             corner_radius=9,
@@ -556,6 +600,9 @@ class UnifiedEntryPanelDialog:
         )
         card.grid_columnconfigure(0, weight=1)
         card.grid_columnconfigure(1, weight=0)
+        if recent:
+            card.configure(width=60, height=66)
+            card.grid_propagate(False)
         if option.slot is None:
             title = option.label
         else:
@@ -658,13 +705,11 @@ class UnifiedEntryPanelDialog:
                 weight="bold",
             ),
         )
-        title_label.grid(
-            row=0,
-            column=0,
-            padx=12,
-            pady=7,
-            sticky="ew",
-        )
+        if recent:
+            title_label.configure(height=30, font=ctk.CTkFont(family=TC_FONT_FAMILY, size=11, weight="bold"), justify="left")
+            title_label.place(x=32, y=9)
+        else:
+            title_label.grid(row=0, column=0, padx=12, pady=7, sticky="ew")
         interactive_widgets = [card, title_label]
         detail_label = ctk.CTkLabel(
             card,
@@ -690,6 +735,27 @@ class UnifiedEntryPanelDialog:
             ),
         )
         interactive_widgets.append(long_hint_label)
+        tile_tooltip = None
+        if recent:
+            badge = ctk.CTkLabel(card, text=str(option.slot), width=16, height=16, corner_radius=8, fg_color=ACTION_COLOR, text_color=CONTENT_COLOR, font=ctk.CTkFont(size=10))
+            badge.place(x=10, y=10)
+            interactive_widgets.append(badge)
+            long_hint_label.configure(height=13)
+            long_hint_label.place(x=32, y=43)
+            tile_tooltip = _Tooltip(card, recent_tile_tooltip(option), self._schedule_lifecycle)
+            tk.Misc.bind(card, "<FocusIn>", tile_tooltip._schedule, add="+")
+            tk.Misc.bind(card, "<FocusOut>", tile_tooltip._hide, add="+")
+            card._recent_badge = badge
+            card._recent_title = title_label
+            card._recent_long_hint = long_hint_label
+            card._recent_tooltip = tile_tooltip
+
+            def resize_title(_event=None):
+                scale = max(.1, ScalingTracker.get_widget_scaling(card))
+                available = max(1, card.winfo_width()/scale-42)
+                title_label.configure(width=available, text=fit_tile_title(latest_option.label, width=available, measure=title_label.cget("font").measure))
+            card.bind("<Configure>", resize_title, add="+")
+            card.bind("<Destroy>", tile_tooltip._hide, add="+")
 
         def clear_hold() -> None:
             job = hold["job"]
@@ -775,6 +841,19 @@ class UnifiedEntryPanelDialog:
         def update(updated: EntryPanelOption) -> None:
             nonlocal latest_option, hovered, focused
             latest_option = updated
+            if recent:
+                tile_tooltip.set_text(recent_tile_tooltip(updated))
+                badge.configure(text=str(updated.slot))
+                long_hint_label.configure(text="長按" if updated.long_action is not None else "")
+                title_label.configure(text_color=CONTENT_COLOR if updated.enabled and not updated.pending else MODEL_COLOR)
+                resize_title()
+                if not updated.enabled or updated.pending:
+                    clear_hold()
+                    hovered = focused = False
+                    card.configure(fg_color=_CARD_BACKGROUND, border_color=_CARD_BORDER)
+                else:
+                    redraw_card()
+                return
             detail = updated.disabled_reason or (
                 "正在讀取來源內容…"
                 if updated.pending
@@ -840,6 +919,9 @@ class UnifiedEntryPanelDialog:
         for widget in interactive_widgets:
             widget.bind("<Enter>", show_hover, add="+")
             widget.bind("<Leave>", clear_hover, add="+")
+            if tile_tooltip is not None:
+                widget.bind("<Enter>", tile_tooltip._schedule, add="+")
+                widget.bind("<Leave>", tile_tooltip._hide, add="+")
             if has_long:
                 widget.bind("<ButtonPress-1>", hold_press, add="+")
                 widget.bind("<ButtonRelease-1>", hold_release, add="+")
@@ -850,6 +932,9 @@ class UnifiedEntryPanelDialog:
         card.bind("<space>", activate, add="+")
         card.bind("<FocusIn>", show_focus, add="+")
         card.bind("<FocusOut>", clear_focus, add="+")
+        if recent:
+            tk.Misc.bind(card, "<FocusIn>", show_focus, add="+")
+            tk.Misc.bind(card, "<FocusOut>", clear_focus, add="+")
         self._option_buttons.append(card)
         self._option_updaters.append(update)
         if has_long and option.slot is not None:
@@ -971,9 +1056,13 @@ class UnifiedEntryPanelDialog:
     def _on_enter(self, event) -> str:
         if not self.is_primary_content_mounted():
             return "break"
-        invoke = getattr(event.widget, "invoke", None)
-        if callable(invoke):
-            invoke()
+        widget = event.widget
+        while widget is not None:
+            invoke = getattr(widget, "invoke", None)
+            if callable(invoke):
+                invoke()
+                break
+            widget = getattr(widget, "master", None)
         return "break"
 
     def _move_focus(self, event, forward: bool) -> str:
@@ -1005,6 +1094,8 @@ class UnifiedEntryPanelDialog:
             pass
 
     def _first_focus_target(self):
+        if self._clipboard_visible():
+            return self._use_clipboard_button
         return self._option_buttons[0] if self._option_buttons else self._density
 
 

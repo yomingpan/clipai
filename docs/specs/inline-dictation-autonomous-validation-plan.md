@@ -1,4 +1,13 @@
-# Inline Dictation 自主循環驗證規劃（`Ctrl+Alt+M`）
+# Inline Dictation 自主循環驗證規劃（solo Right Alt）
+
+2026-10-21：本機 Minimal/raw/zh-TW/controlled-Tk 的 S0/S8 各 20 次配對已通過
+p95 退化≤10% gate；Notepad/Word/Edge textarea 的 ✓/✦ 焦點 6/6，黑邊 0。
+目前預設 solo Right Alt、同一個非啟用式 Pill、新安裝 Minimal；明確停止可直接
+選原文／潤飾，自動停止才等待選擇。依據：[ADR-0022](../adr/0022-right-alt-inline-pill-and-input-recovery.md)
+與 [S8 gate](../../artifacts/mu-s8-release.jsonl)。以下保留 2026-09-27 的歷史驗證
+狀態，不把當時 smoke 或模擬結果外推為新裝置、refine 或獨立 HID 證據。
+
+## 2026-09-27 歷史狀態
 
 狀態：實作與驗證進行中；已有型別命令旅程 runner、多 seed 晚到事件、實際 Paste／Clipboard owner 的受控模擬、Paste 終態 identity 固定案例、discard 後 Paste 的 mutation oracle、完整文字 UI 測試、內容安全階段 trace 與 machine-readable manifest。離線量測工具可分模式及原文／潤稿彙整、驗證 trace 順序並比較同 cohort；尚無可宣稱的裝置基線。受控 Tk 文字目標及內容安全讀回協定已建立，已與正式 ClipAI 在使用者桌面完成 Choice／Minimal 原文、Choice／Minimal 潤稿及 Minimal 取消的五輪受控 smoke；獨立 HID／loopback 音源與完整桌面矩陣仍待完成。2026-09-27 在使用者可見的 Windows 桌面執行固定 runner：快速層 363 項、Tk 桌面層 13 項、真實 WebView2 層 4 項均通過，manifest 為 `artifacts/inline-validation-interactive/manifest.json`。WebView2 測試 profile 與頁面需放在繼承 `%LOCALAPPDATA%` 權限的隔離目錄；pytest 的受限 `tmp_path` 曾造成控制器啟動失敗。取消錄音會等相符引擎終態或 watchdog 才關閉狀態視窗。完整桌面矩陣、獨立按鍵／音源觀察及裝置基線仍為 `not_covered`。與[量測規劃](inline-dictation-measurement-plan.md)共用情境、互動 identity 與結果語彙，但品質判定與延遲分析分開。缺少的桌面證據不能判成通過。
 

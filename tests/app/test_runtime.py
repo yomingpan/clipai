@@ -21,6 +21,27 @@ def test_new_voice_commands_are_in_runtime_routing_whitelist() -> None:
     assert {ToggleInlineDictation, ConfirmInlineDictation, CancelInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired} <= set(_VOICE_COMMANDS)
 
 
+def test_inline_physical_press_routes_preview_events_and_release_intent_separately():
+    from types import SimpleNamespace
+    from ClipAI.core.commands import ShortcutPressStarted, ShortcutPressThresholdReached, ShortcutPressEnded
+    from ClipAI.services.shortcut_catalog import ShortcutCatalog
+    runtime, *_ = make_runtime(include_inline=True)
+    events, intents = [], []
+    runtime._voice_input_module = SimpleNamespace(handle_inline_shortcut_event=events.append, handle=intents.append)
+    started = ShortcutPressStarted(1, "inline")
+    threshold = ShortcutPressThresholdReached(1, "inline")
+    ended = ShortcutPressEnded(1, "inline", "released")
+    for event in (started, threshold): runtime.enqueue(event)
+    runtime.drain_commands()
+    assert events == [started, threshold]
+    assert intents == []
+    runtime.enqueue(ShortcutPressInvoked(1, "inline", "long"))
+    runtime.enqueue(ended)
+    runtime.drain_commands()
+    assert intents == [ToggleInlineDictation("long")]
+    assert events == [started, threshold, ended]
+
+
 def test_inline_view_cancel_routes_to_voice_module_with_its_interaction_id() -> None:
     class VoiceModule:
         def __init__(self) -> None:
@@ -674,7 +695,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, personal_styles=None, entry_panel=None, recent_actions=None, recent_action_sink=None, action_language=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, include_inline: bool = False, personal_styles=None, entry_panel=None, recent_actions=None, recent_action_sink=None, action_language=None):
     action = ActionDefinition(
         "a",
         "Action",
@@ -735,6 +756,8 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
     ]
     if include_voice_input:
         shortcut_definitions.append(ShortcutDefinition("voice_input", "ctrl+alt+w", "push_to_talk"))
+    if include_inline:
+        shortcut_definitions.append(ShortcutDefinition("inline", "right_alt", "inline_dictation"))
     shortcuts = ShortcutCatalog(shortcut_definitions)
     actions = ActionCatalog([action, shorten, refine])
     execute_action = FakeExecute()

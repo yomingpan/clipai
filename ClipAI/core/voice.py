@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from ClipAI.core.models import ControlSurfaceRef
 
 if TYPE_CHECKING:
-    from ClipAI.core.models import InlineInputMode, PasteTarget
+    from ClipAI.core.models import InlineInputMode, PasteTarget, PasteOutcome
 
 
 class VoiceLanguage(str):
@@ -269,3 +269,28 @@ class VoiceCaptureAdmission:
     workflow_id: str | None = None
     target: VoiceDraftTarget | VoiceFollowUpTarget | None = None
     message: str = ""
+
+
+InlineDictationPhase: TypeAlias = Literal[
+    "starting", "listening", "finalizing", "cancelling", "awaiting",
+    "refining", "pasting", "settled", "recovery", "cancel_unconfirmed", "closed",
+]
+InlineDelivery: TypeAlias = Literal["raw", "refine"]
+
+
+@dataclass(frozen=True)
+class InlineDictationView:
+    """Complete interaction projection, produced only by the Voice owner."""
+
+    interaction_id: str
+    phase: InlineDictationPhase = "starting"
+    chosen: InlineDelivery | None = None
+    preview_refine: bool = False
+    allow_refine: bool = True
+    audio_level: float = 0.0
+    silence_detected: bool = False
+    countdown_seconds: int | None = None
+    text: str = field(default="", repr=False)
+    message: str = ""
+    paste_outcome: PasteOutcome | None = None
+    copy_state: Literal["idle", "pending", "succeeded", "failed"] = "idle"

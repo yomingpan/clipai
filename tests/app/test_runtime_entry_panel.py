@@ -118,6 +118,7 @@ def make_module(
     supervisor=None,
     events: list[str] | None = None,
     recent_actions: RecentActionHistory | None = None,
+    consume_numeric_hint=lambda: False,
 ):
     bundle = load_config_bundle()
     coordinator = EntryPanelCoordinator(bundle.entry_panel)
@@ -146,8 +147,19 @@ def make_module(
         enqueue=commands.append,
         presenter=presenter,
         recent_actions=recent_actions,
+        consume_numeric_hint=consume_numeric_hint,
     )
     return module, coordinator, presenter, supervisor, workflows, activator, inputs, commands, external
+
+
+def test_numeric_migration_hint_is_consumed_only_for_a_new_panel_lifetime():
+    calls = []
+    module, _, presenter, *_ = make_module(consume_numeric_hint=lambda: calls.append(True) or True)
+    first = module.open()
+    second = module.open()
+    assert first.panel_id == second.panel_id
+    assert first.header_hint == "數字已改:1–3 最近、4–7 分類"
+    assert calls == [True]
 
 
 def complete_external_preparation(module, supervisor, commands) -> str:
@@ -676,7 +688,7 @@ def test_provider_busy_still_prepares_but_never_queues_an_action() -> None:
     workflows.block_reason = "AI 正在回答，完成後再選擇功能。"
     module.open()
     complete_external_preparation(module, supervisor, commands)
-    scene = coordinator.select_digit("4").snapshot
+    scene = coordinator.select_digit("5").snapshot
 
     module.select_action(EntryActionRef("shorten_content", "short"))
 
@@ -697,7 +709,7 @@ def test_mode_compatibility_disables_only_incompatible_actions() -> None:
     module.open()
     complete_external_preparation(module, supervisor, commands)
 
-    tools_scene = coordinator.select_digit("6").snapshot
+    tools_scene = coordinator.select_digit("7").snapshot
     ocr = next(
         option
         for option in tools_scene.options
@@ -731,7 +743,7 @@ def test_availability_refresh_preserves_navigation_and_frozen_input() -> None:
     module, coordinator, _presenter, supervisor, workflows, _activator, _inputs, commands, _external = make_module()
     module.open()
     complete_external_preparation(module, supervisor, commands)
-    before = coordinator.select_digit("4").snapshot
+    before = coordinator.select_digit("5").snapshot
     workflows.block_reason = "AI 正在回答，完成後再選擇功能。"
 
     module.refresh_availability()
@@ -757,7 +769,7 @@ def test_density_toggle_projects_immediately_and_requests_persistence() -> None:
 def test_back_preserves_pending_panel_lifecycle_and_root_is_a_noop() -> None:
     module, coordinator, presenter, supervisor, _workflows, _activator, _inputs, _commands, _external = make_module()
     opened = module.open()
-    scene = coordinator.select_digit("4").snapshot
+    scene = coordinator.select_digit("5").snapshot
     coordinator.toggle_density()
 
     module.handle(EntryPanelBack(opened.panel_id))
@@ -778,7 +790,7 @@ def test_escape_closes_from_non_root_and_cancels_preparation() -> None:
     module, coordinator, presenter, supervisor, _workflows, _activator, _inputs, _commands, _external = make_module()
     panel_id = module.open().panel_id
     task_id = next(iter(supervisor.work))
-    coordinator.select_digit("4")
+    coordinator.select_digit("5")
 
     assert module.request_escape() is True
 

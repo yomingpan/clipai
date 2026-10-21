@@ -178,13 +178,48 @@ the choice. Failed capture leaves successful-step history intact but exposes no
 output actions or editable input form.
 
 Popup presentation projects the frozen clipboard preview and one recovery button.
-Initial input-reading views show without requesting focus. A 15-second UI lifecycle
+Initial input-reading views show without requesting focus. Only a transition
+from CREATED/READING_INPUT into AWAITING_INPUT_CHOICE with an available clipboard
+choice requests Popup focus. The button reads 使用剪貼簿執行（Enter）.
+`KeyboardConfirmGate` requires focus inside the current mounted view, 300 ms
+settlement, a fresh press followed by release, and no modifiers except lock
+bits 0x0002/0x0008/0x0010. Early presses, held-elsewhere keys, auto-repeat,
+focus loss and hidden/replaced options cannot confirm. Option changes restart
+the gate; each recovery ID emits at most one confirmation, then shows disabled
+正在接續…. See `tests/ui/test_keyboard_confirm_gate.py`,
+`tests/ui/test_input_recovery.py` and `tests/ui/test_result_dialog.py`.
+At focus entry, injected `KeyboardStateReader` samples the physical Return
+state through the existing platform key-state adapter. Held or unavailable
+state blocks a first delayed repeat/release even when this Popup never received
+the external key-down; after release, a new press can qualify. UI does not call
+Win32 or introduce a keyboard-activity monitor. The platform VK_RETURN mapping
+also covers keypad Enter (`tests/platform/test_keyboard_state.py`).
+
+A 15-second UI lifecycle
 timer emits `ExpireInputRecovery`; runtime closes only a matching, still-waiting,
 unfocused and unpinned Workflow. Expiry never closes a resumed/newer task. Focused
 or pinned recovery stays available for reading and keyboard interaction. Entry
 Panel retains its navigation and does not expire; both surfaces use the same
 frozen source decision. A missing compatible clipboard yields guidance without
 an enabled recovery button.
+
+## Read-only UIA standby
+
+Typed `selection_uia_standby` defaults to true. `WindowsSelectionProbe` owns at
+most one unbound standby worker; its readiness handshake follows CLR preload
+and never samples a focused element. A new source consumes a healthy standby
+or retires it and cold-starts, then binds the exact source and queries. Requests
+replenish standby without creating a second worker registry. With the setting
+false, start creates no worker and capture remains lazy. See
+`tests/platform/test_selection_uia.py`, `test_selection_standby_integration.py`
+and `tests/app/test_config.py`.
+
+Retirement kills/reaps the owned read-only worker rather than spending a CLR
+graceful-exit delay on interactive capture. stop retains the shared two-second
+cleanup budget. The worker lifecycle integration suite and
+[S8 evidence](../../adr/0022-right-alt-inline-pill-and-input-recovery.md)
+cover source replacement, private memory and zero residual processes; timeout
+or source_changed is still unknown, never confirmed-none.
 
 Diagnostics include operation identity, source token, status, reason, strategy,
 elapsed time, and restoration outcome, never selected text or clipboard content.

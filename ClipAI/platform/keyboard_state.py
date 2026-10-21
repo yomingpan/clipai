@@ -13,6 +13,7 @@ _TOKEN_VIRTUAL_KEYS = {
     "ctrl": (0x11,),  # VK_CONTROL
     "shift": (0x10,),  # VK_SHIFT
     "grave": (0xC0,),  # VK_OEM_3
+    "enter": (0x0D,),  # VK_RETURN includes the numeric keypad Enter
     **{str(digit): (0x30 + digit, 0x60 + digit) for digit in range(10)},
     **{chr(code).lower(): (code,) for code in range(0x41, 0x5B)},
 }

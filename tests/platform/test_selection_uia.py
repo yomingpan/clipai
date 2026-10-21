@@ -19,6 +19,24 @@ from ClipAI.platform import selection_uia_worker as worker
 SOURCE = SelectionSource(ExternalWindowRef("hwnd:1", 42, 0), "hwnd:2")
 
 
+def test_worker_preloads_uia_before_waiting_for_any_source_request(monkeypatch):
+    events = []
+    class Input(io.StringIO):
+        def reconfigure(self, **kwargs):
+            pass
+        def __iter__(self):
+            events.append("read")
+            return super().__iter__()
+    class Output(io.StringIO):
+        def reconfigure(self, **kwargs):
+            pass
+    monkeypatch.setattr(worker, "_preload_uia", lambda: events.append("preload"))
+    monkeypatch.setattr(sys, "stdin", Input())
+    monkeypatch.setattr(sys, "stdout", Output())
+    worker.main()
+    assert events == ["preload", "read"]
+
+
 def test_unconfirmed_retirement_detaches_dead_worker_and_next_capture_spawns(monkeypatch, caplog):
     from ClipAI.platform.selection_uia import _WorkerProcess
     processes = []
@@ -116,20 +134,28 @@ def test_interrupted_response_during_retirement_or_cancel_is_cancelled(monkeypat
 
 
 class Process:
-    def __init__(self, payload=None, *, blocked=False):
+    def __init__(self, payload=None, *, blocked=False, uia_ready=True):
         self.payload = {"worker_reusable": True, **(payload or {"status": "none"})}
         self.blocked = blocked
         self.returncode = None
         self.killed = False
         self.requests: list[dict[str, object]] = []
         self.read_started = threading.Event()
+        self.warmup_requested = threading.Event()
+        self.warmup_pending = False
+        self.uia_ready = uia_ready
         process = self
 
         class Input(io.StringIO):
             def flush(self):
                 value = self.getvalue()
                 if value.endswith("\n"):
-                    process.requests.append(json.loads(value.splitlines()[-1]))
+                    request = json.loads(value.splitlines()[-1])
+                    if request == {"warmup": True}:
+                        process.warmup_pending = True
+                        process.warmup_requested.set()
+                    else:
+                        process.requests.append(request)
 
         class Output(io.StringIO):
             def readline(self, *args, **kwargs):
@@ -138,6 +164,9 @@ class Process:
                     time.sleep(0.001)
                 if process.killed:
                     return ""
+                if process.warmup_pending:
+                    process.warmup_pending = False
+                    return json.dumps({"uia_ready": process.uia_ready}) + "\n"
                 return json.dumps(process.payload) + "\n"
 
         self.stdin, self.stdout, self.stderr = Input(), Output(), io.StringIO()
@@ -151,6 +180,30 @@ class Process:
 
     def wait(self, timeout=None):
         return self.returncode
+
+
+def test_new_source_does_not_spend_graceful_shutdown_budget_before_query():
+    graceful_waits = []
+    class OwnedReadProcess(Process):
+        def wait(self, timeout=None):
+            if self.poll() is None:
+                graceful_waits.append(timeout)
+                raise subprocess.TimeoutExpired("owned-uia-reader", timeout)
+            return super().wait(timeout)
+    processes = []
+    def launch(*args, **kwargs):
+        process = OwnedReadProcess()
+        processes.append(process)
+        return process
+    probe = WindowsSelectionProbe(process_factory=launch)
+    try:
+        assert probe.probe(SOURCE, None).status == "none"
+        changed = SelectionSource(ExternalWindowRef("hwnd:3", 42, 1), "hwnd:4")
+        assert probe.probe(changed, None).status == "none"
+        assert processes[0].killed
+        assert graceful_waits == []
+    finally:
+        probe.stop()
 
 
 @pytest.mark.parametrize("cancel", [False, True])
@@ -210,6 +263,111 @@ def test_same_window_reuses_one_owned_worker_in_request_order():
     assert not processes[0].killed
     probe.stop()
     assert processes[0].killed
+
+
+@pytest.mark.parametrize("standby", [False, True])
+def test_standby_launch_is_explicit_and_stop_reaps_every_worker(standby):
+    processes = []
+    launched = threading.Event()
+    def launch(*args, **kwargs):
+        process = Process()
+        processes.append(process)
+        launched.set()
+        return process
+    probe = WindowsSelectionProbe(standby=standby, process_factory=launch)
+    probe.start()
+    if standby:
+        assert launched.wait(1)
+        assert len(processes) == 1
+        assert processes[0].requests == []  # unbound; never reads a source
+    else:
+        assert processes == []
+    probe.stop()
+    assert all(process.poll() is not None for process in processes)
+    probe.start()
+    assert len(processes) == int(standby)
+
+
+def test_new_sources_consume_the_single_standby_and_replenish_it():
+    processes = []
+    launched = threading.Event()
+    def launch(*args, **kwargs):
+        process = Process()
+        processes.append(process)
+        launched.set()
+        return process
+    probe = WindowsSelectionProbe(standby=True, process_factory=launch)
+    try:
+        probe.start()
+        assert launched.wait(1)
+        assert probe.probe(SOURCE, None).status == "none"
+        other = SelectionSource(ExternalWindowRef("hwnd:9", 99, 0), "hwnd:a")
+        assert probe.probe(other, None).status == "none"
+    finally:
+        probe.stop()
+    assert len(processes) == 3
+    assert [len(process.requests) for process in processes] == [1, 1, 0]
+    assert all(process.poll() is not None for process in processes)
+
+
+def test_dead_standby_is_retired_without_request_and_cold_start_is_used():
+    processes = []
+    launched = threading.Event()
+    def launch(*args, **kwargs):
+        process = Process()
+        if not processes:
+            process.returncode = 1
+        processes.append(process)
+        launched.set()
+        return process
+    probe = WindowsSelectionProbe(standby=True, process_factory=launch)
+    try:
+        probe.start()
+        assert launched.wait(1)
+        assert probe.probe(SOURCE, None).status == "none"
+    finally:
+        probe.stop()
+    assert len(processes) == 3
+    assert processes[0].requests == []
+    assert len(processes[1].requests) == 1
+    assert all(process.poll() is not None for process in processes)
+
+
+def test_standby_requires_successful_uia_readiness_before_source_binding():
+    processes = []
+    launched = threading.Event()
+    def launch(*args, **kwargs):
+        process = Process(uia_ready=bool(processes))
+        processes.append(process)
+        launched.set()
+        return process
+    probe = WindowsSelectionProbe(standby=True, process_factory=launch)
+    try:
+        probe.start()
+        assert launched.wait(1)
+        assert processes[0].warmup_requested.wait(1)
+        assert probe.probe(SOURCE, None).status == "none"
+    finally:
+        probe.stop()
+    assert processes[0].requests == []
+    assert processes[0].poll() is not None
+    assert len(processes[1].requests) == 1
+
+
+def test_stop_can_reap_a_worker_even_while_warmup_is_blocked():
+    process = Process(blocked=True)
+    probe = WindowsSelectionProbe(standby=True, process_factory=lambda *args, **kwargs: process)
+    try:
+        probe.start()
+        assert process.read_started.wait(1)
+        started = time.monotonic()
+        probe.stop()
+        assert time.monotonic() - started < 2
+        assert process.killed
+        assert process.requests == []
+        assert all(stream.closed for stream in (process.stdin, process.stdout, process.stderr))
+    finally:
+        probe.stop()
 
 
 def test_owned_worker_retires_after_64_requests():

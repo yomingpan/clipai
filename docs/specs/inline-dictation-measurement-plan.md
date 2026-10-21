@@ -1,6 +1,16 @@
-# Inline Dictation measurement plan (`Ctrl+Alt+M`)
+# Inline Dictation measurement plan (solo Right Alt)
 
-Status: measurement design with partial instrumentation. Content-free Inline lifecycle stages now enter the existing diagnostics log with monotonic timestamps and distinct interaction, capture, and operation IDs; Paste and clipboard owners already emit their own stages. A controlled pixel observer now confirms initial Inline window presence, but physical-shortcut-to-first-frame timing, target insertion, and representative-device latency still have no verified baseline. This plan applies to Choice-based and Minimal input modes in [ADR-0019](../adr/0019-inline-dictation-interaction-lifetime.md). Voice Input V1 performance objectives in [the rebuild plan](voice-input-v1-rebuild-development-plan.md#9-performance-and-release-objectives) describe PTT/Review; they are reference points, not verified Inline Dictation thresholds.
+Status: one local Windows Minimal/raw/zh-TW/controlled-Tk cohort has matched
+S0/S8 evidence, 20 interactions each. First-frame p95 is 47 → 47 ms and
+stop→dispatch p95 is 547 → 516 ms; all 20 final dispatches uniquely match the
+controlled target's Paste observations. See [comparison](../../artifacts/mu-s8-final-comparison.json),
+[pairing](../../artifacts/mu-s8-final-pairing.json) and
+[ADR-0022](../adr/0022-right-alt-inline-pill-and-input-recovery.md).
+The first-frame observer measures shortcut admission → Tk viewable + DwmFlush,
+not physical HID → exact pixel. Other devices, refine latency and the complete
+external-target matrix remain outside this cohort. Voice Input V1 performance
+objectives in [the rebuild plan](voice-input-v1-rebuild-development-plan.md#9-performance-and-release-objectives)
+describe PTT/Review and are not measured Inline thresholds.
 
 The scenario runner and release-quality oracles are specified separately in the [autonomous validation plan](inline-dictation-autonomous-validation-plan.md). The two plans share scenario IDs and outcome vocabulary; simulation results never count as measured device latency.
 
@@ -16,7 +26,7 @@ The product question is not one stopwatch reading. It has three parts:
 
 ## Measurement boundaries
 
-Use one short-lived, opaque **Inline interaction ID** to join stages of one explicit `Ctrl+Alt+M` journey. Retain separate capture, provider invocation, Paste Operation, and view lifecycle IDs. An ID correlates observations; it does not grant ownership, change admission, or imply success. The typed provider and Paste completion paths now report their terminal stages. Missing UI-frame and target-insertion observations remain `not_observable`, not zero duration.
+Use one short-lived, opaque **Inline interaction ID** to join stages of one explicit solo Right Alt journey. Retain separate capture, provider invocation, Paste Operation, and view lifecycle IDs. An ID correlates observations; it does not grant ownership, change admission, or imply success. The typed provider and Paste completion paths report their terminal stages. Missing UI-frame and target-insertion observations remain `not_observable`, not zero duration.
 
 Record monotonic timestamps at the boundary that actually observes each event. Compute intervals only from timestamps in the same process/clock domain. For a WebView or external observer, record send and receive boundaries in the Python host and label transport/observer uncertainty; do not subtract unrelated wall clocks. Wall time is only for grouping runs. Each stage records an explicit outcome (`completed`, `failed`, `cancelled`, `timed_out`, `skipped`, or `not_observable`) and a typed reason where available. A late or duplicate event remains visible in diagnostics but cannot extend or settle a newer interaction.
 
@@ -110,7 +120,7 @@ See the [acoustic-path evidence](../evidence/inline-microphone-acoustic-path-202
 
 1. **Trace and offline validation: partially implemented.** Content-free lifecycle stages use monotonic timestamps and distinct identities through the existing diagnostics logger. `scripts/report_inline_dictation_baseline.py` validates stage ordering, rejects incomplete or invalid traces including Paste after discard, and reports supported interval distributions by mode and path. Counts, median, p90, p95, p99 when sample size permits, cumulative latency buckets, terminal outcome rates, copy outcomes, recovery requests, and discards are separated; a recovery request is not proof that its first frame was visible. Deterministic fixtures cover malformed terminal traces. It produces no device performance claim. Owner-stage correlation and an external observation schema still need completion; do not add a second interaction registry, global event bus, or widget-owned timer.
 2. **Local interactive Windows probe.** A controlled target app and external frame/target observer timestamp actual first frame, actual text insertion, caret/selection, focus, and clipboard restoration. Join its observations with content-free ClipAI traces by a run nonce, never by transcript or window title. Include a warm-up and repeated runs, then emit one local JSONL record per journey with stage durations, terminal truth, device cohort, and measurement uncertainty. The probe must not turn `dispatched_unconfirmed` into product success.
-3. **Offline comparison: partially implemented.** `scripts/compare_inline_dictation_baselines.py` compares only matching controlled-desktop cohorts, retains sample counts and outcomes, and refuses simulation or incomplete traces. Device, target, language, load, and warm/cold strata require the external observer and a real baseline before a regression threshold can be set.
+3. **Offline comparison: implemented for matched cohorts.** `scripts/compare_inline_dictation_baselines.py` compares only matching controlled-desktop cohorts, retains sample counts and outcomes, and refuses simulation or incomplete traces. Its release verdict requires at least 20 observations of both first_press_to_first_frame and stop_to_dispatch and at most 10% p95 regression. S8 passes for the one cohort above; other device/target/language/load strata still require their own evidence. See `tests/scripts/test_inline_baseline_comparison.py` and the S8 comparison artifact.
 4. **Optional user diagnostic mode.** After local measurement is useful, offer an explicit, short-lived way to collect the same content-free timing and outcome metadata on other machines. Export remains an explicit user intent through the existing diagnostics boundary. No always-on transcript/audio capture or silent remote telemetry is implied.
 
 ## Privacy and measurement integrity
@@ -119,4 +129,4 @@ The trace contains no audio, interim/final transcript, prompt, provider response
 
 ## Next decision
 
-The identity-scoped lifecycle, mode choice, fallback, cancellation deadline, typed Paste acknowledgement, and content-free stage trace are implemented and covered by deterministic and Tk tests. The next gate is the isolated Windows desktop observer and a baseline for both modes. The initial report should answer: **Which stage dominates p95 stop-to-terminal time on each device and mode, how often is the outcome unusable, and which visible state made the wait understandable or misleading?** Only then choose the smallest performance change and rerun the same matrix.
+The identity-scoped lifecycle, mode choice, fallback, cancellation deadline, typed Paste acknowledgement, and content-free stage trace are implemented and covered by deterministic and Tk tests. The local Minimal/raw gate above is complete. Broader latency work still needs baselines for the other modes, refinement paths and devices. Those reports should answer: **Which stage dominates p95 stop-to-terminal time on each device and mode, how often is the outcome unusable, and which visible state made the wait understandable or misleading?** They do not inherit this cohort's result.

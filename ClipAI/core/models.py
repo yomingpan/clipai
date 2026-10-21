@@ -157,6 +157,7 @@ class EntryPanelSnapshot:
     status: Literal["idle", "preparing", "error"] = "idle"
     message: str = ""
     source_preview: EntryInputSourcePreview | None = None
+    header_hint: str = ""
 
 
 @dataclass(frozen=True)
@@ -662,6 +663,7 @@ class UserPreferences:
     inline_input_mode: InlineInputMode = "choice"
     inline_dictation_placement: InlineDictationPlacement = "bottom_center"
     popup_placement: PopupPlacement = "bottom_center"
+    entry_numeric_hint_count: int = 0
 
 
 @dataclass(frozen=True)

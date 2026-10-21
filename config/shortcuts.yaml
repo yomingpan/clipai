@@ -6,7 +6,7 @@ shortcuts:
     command: push_to_talk
 
   - id: inline_dictation
-    hotkey: ctrl+alt+m
+    hotkey: right_alt
     command: inline_dictation
 
   - id: contextual_question

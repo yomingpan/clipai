@@ -19,7 +19,9 @@ import tkinter as tk
 from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
 from ClipAI.support.statistics import percentile
-from ClipAI.ui.inline_dictation import InlineDictationWindow
+from ClipAI.ui.inline_pill import InlinePill
+from ClipAI.ui.raster_resources import TkRasterResources
+from ClipAI.core.voice import InlineDictationView
 if __package__:
     from .popup_first_frame_benchmark import _await_presented_frame
 else:
@@ -35,6 +37,11 @@ def _summary(values: list[float]) -> dict[str, float | int]:
     }
 
 
+def initial_budget_passed(phase_ms: dict, budget_ms: float) -> bool:
+    initial = [value for name, value in phase_ms.items() if name.endswith(".initial")]
+    return bool(initial) and all(value.get("count", 0) > 0 and value.get("p95_ms", float("inf")) <= budget_ms for value in initial)
+
+
 def _within_work_area(window: tk.Toplevel, reader: WindowsDisplayMetricsReader) -> bool:
     metrics = reader.current()
     return (
@@ -45,13 +52,14 @@ def _within_work_area(window: tk.Toplevel, reader: WindowsDisplayMetricsReader) 
     )
 
 
-def measure(iterations: int) -> dict[str, object]:
-    if iterations < 1:
-        raise ValueError("iterations must be positive")
+def measure(iterations: int, interval_ms: int = 250) -> dict[str, object]:
+    if iterations < 1 or interval_ms < 0:
+        raise ValueError("iterations must be positive and interval nonnegative")
     reader = WindowsDisplayMetricsReader()
     native = WindowsNativeWindowSurface()
     root = tk.Tk()
     root.withdraw()
+    raster_resources = TkRasterResources(root)
     display = reader.current()
     tcl_patchlevel = str(root.tk.call("info", "patchlevel"))
     timings: dict[str, list[float]] = {
@@ -66,8 +74,8 @@ def measure(iterations: int) -> dict[str, object]:
         for mode in ("minimal", "choice"):
             for iteration in range(iterations):
                 started = time.perf_counter()
-                window = InlineDictationWindow(
-                    root, mode=mode, interaction_id=f"benchmark-{mode}-{iteration}",
+                window = InlinePill(
+                    root, interaction_id=f"benchmark-{mode}-{iteration}",
                     on_confirm=lambda _refine: None, on_cancel=lambda: None,
                     native_window_surface=native, display_metrics=reader,
                 )
@@ -77,19 +85,19 @@ def measure(iterations: int) -> dict[str, object]:
                     timings[f"{mode}.initial"].append((time.perf_counter() - started) * 1000)
                     if mode == "choice":
                         started = time.perf_counter()
-                        window.present_choice("受控測試文字。" * 12)
+                        window.present(InlineDictationView(window.interaction_id, "awaiting", text="controlled fixture" * 12))
                         _await_presented_frame(window._window)
                         timings["choice.selection"].append((time.perf_counter() - started) * 1000)
                         bounds_checks += 1
                         bounds_failures += not _within_work_area(window._window, reader)
 
                     started = time.perf_counter()
-                    window.show_refining()
+                    window.present(InlineDictationView(window.interaction_id, "refining", chosen="refine"))
                     _await_presented_frame(window._window)
                     timings[f"{mode}.refining"].append((time.perf_counter() - started) * 1000)
 
                     started = time.perf_counter()
-                    window.show_recovery("受控測試文字。" * 12, "潤稿未完成，原文仍可使用。")
+                    window.present(InlineDictationView(window.interaction_id, "recovery", text="controlled fixture" * 12))
                     _await_presented_frame(window._window)
                     timings[f"{mode}.recovery"].append((time.perf_counter() - started) * 1000)
                     bounds_checks += 1
@@ -97,7 +105,9 @@ def measure(iterations: int) -> dict[str, object]:
                 finally:
                     window.close()
                     root.update_idletasks()
+                    time.sleep(interval_ms / 1000)
     finally:
+        raster_resources.close()
         root.destroy()
     return {
         "schema_version": 1,
@@ -111,6 +121,7 @@ def measure(iterations: int) -> dict[str, object]:
             "tcl_patchlevel": tcl_patchlevel,
         },
         "iterations_per_mode": iterations,
+        "interval_ms": interval_ms,
         "status": "pass" if bounds_failures == 0 else "fail",
         "phase_ms": {name: _summary(values) for name, values in timings.items()},
         "work_area_bounds_checks": bounds_checks,
@@ -124,8 +135,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--initial-budget-ms", type=float)
+    parser.add_argument("--interval-ms", type=int, default=250)
     args = parser.parse_args()
-    result = measure(args.iterations)
+    result = measure(args.iterations, args.interval_ms)
+    if args.initial_budget_ms is not None:
+        result["initial_budget_ms"] = args.initial_budget_ms
+        result["initial_budget_passed"] = initial_budget_passed(result["phase_ms"], args.initial_budget_ms)
+        if not result["initial_budget_passed"]:
+            result["status"] = "fail"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": result["status"], "output": str(args.output)}))

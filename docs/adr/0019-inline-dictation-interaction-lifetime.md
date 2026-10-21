@@ -3,6 +3,10 @@
 Status: accepted design, implementation in progress. Amends ADR-0018's choice,
 fallback, and window-settlement rules.
 
+[ADR-0022](0022-right-alt-inline-pill-and-input-recovery.md) supersedes this
+decision's hotkey, initial mode and window presentation rules. The single
+semantic owner and independent operation identities remain in force.
+
 ## Context and decision
 
 Inline Dictation is a non-Workflow interaction. Today its capture and pending

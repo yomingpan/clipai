@@ -401,14 +401,15 @@ def test_exact_alt_hold_does_not_open_before_500_ms_deadline() -> None:
 
 
 @pytest.mark.parametrize("alt_name", ["alt", "alt_l", "alt_r"])
-def test_left_and_right_alt_share_the_exact_alt_contract(alt_name: str) -> None:
+def test_only_left_alt_opens_entry_panel(alt_name: str) -> None:
     events = []
     dispatcher = _dispatcher(events)
 
     dispatcher.on_press(Key(alt_name))
-    Timer.timers[0].fire()
+    for timer in Timer.timers:
+        timer.fire()
 
-    assert events == [OpenUnifiedEntryPanel(ModifierHoldId(1))]
+    assert events == ([] if alt_name == "alt_r" else [OpenUnifiedEntryPanel(ModifierHoldId(1))])
 
 
 @pytest.mark.parametrize(
@@ -496,6 +497,8 @@ def test_every_configured_ctrl_alt_shortcut_keeps_its_existing_lifecycle() -> No
     }
 
     for definition in definitions:
+        if not definition["hotkey"].startswith("ctrl+alt+"):
+            continue
         Timer.timers.clear()
         events = []
         dispatcher = create_hotkey_dispatcher(

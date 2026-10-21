@@ -110,14 +110,20 @@ def _execute_focus_repair(api, walker, root, expected_hwnd: int, plan: FocusRepa
     return None
 
 
+def _preload_uia() -> None:
+    """Load CLR/UIA without consulting focus or binding an external source."""
+    import clr
+    for assembly in ("UIAutomationClient", "UIAutomationTypes"):
+        clr.AddReference(f"{assembly}, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35")
+    from System.Windows.Automation import AutomationElement, TextPattern, TreeWalker
+    from System.Windows.Automation.Text import TextPatternRangeEndpoint
+
+
 def read_selection(source: SelectionSource) -> NativeSelectionResult:
     if capture_windows_source(source.window) != source:
         return _unknown("source_changed")
     try:
-        import clr
-
-        for assembly in ("UIAutomationClient", "UIAutomationTypes"):
-            clr.AddReference(f"{assembly}, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35")
+        _preload_uia()
         from System.Windows.Automation import AutomationElement, TextPattern, TreeWalker
         from System.Windows.Automation.Text import TextPatternRangeEndpoint
 
@@ -223,9 +229,24 @@ def read_selection(source: SelectionSource) -> NativeSelectionResult:
 def main() -> None:
     cast(TextIOWrapper, sys.stdin).reconfigure(encoding="utf-8")
     cast(TextIOWrapper, sys.stdout).reconfigure(encoding="utf-8")
+    try:
+        _preload_uia()
+    except Exception:
+        # A request still reports the real UIA failure through its normal typed
+        # outcome. Warmup cannot fabricate selection evidence or write content.
+        pass
     for line in sys.stdin:
         try:
             payload = json.loads(line)
+            if payload == {"warmup": True}:
+                try:
+                    _preload_uia()
+                    ready = True
+                except Exception:
+                    ready = False
+                sys.stdout.write(json.dumps({"uia_ready": ready}) + "\n")
+                sys.stdout.flush()
+                continue
             source = SelectionSource(
                 ExternalWindowRef(payload["window_token"], payload["process_id"], payload["observation_sequence"]),
                 payload["focus_token"],

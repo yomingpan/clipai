@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import Literal
 import uuid
 
 from ClipAI.core.errors import InlineRefinementFailureReason
 from ClipAI.core.voice import (
+    InlineDictationView,
+    InlineDelivery,
     VoiceCaptureId,
     VoiceCaptureDestination,
     VoiceCaptureTarget,
@@ -190,6 +193,7 @@ class VoiceTransition:
     projection: VoiceProjection
     effects: tuple[VoiceEffect, ...] = ()
     ignored: bool = False
+    inline_view: InlineDictationView | None = None
 
 
 @dataclass
@@ -211,6 +215,7 @@ class _Capture:
     progress_since_restart: bool = False
     restarts_without_progress: int = 0
     inline_delivery: bool | None = None
+    preview_refine: bool = False
 
     def __post_init__(self) -> None:
         if self.segments is None:
@@ -224,6 +229,7 @@ class _PendingInline:
     delivery_text: str = ""
     refine_failed: bool = False
     refining: bool = False
+    refine_admitted: bool = False
     refine_operation_id: str | None = None
     paste_operation_id: str | None = None
     discard_requested: bool = False
@@ -231,6 +237,9 @@ class _PendingInline:
     paste_outcome: PasteOutcome | None = None
     recovery_message: str = ""
     copy_operation_id: str | None = None
+    chosen: InlineDelivery | None = None
+    preview_refine: bool = False
+    copy_state: Literal["idle", "pending", "succeeded", "failed"] = "idle"
 
 
 class VoiceInputController:
@@ -413,18 +422,40 @@ class VoiceInputController:
     def has_pending_inline_choice(self) -> bool:
         return self._pending_inline is not None
 
+    def preview_inline_refinement(self, interaction_id: str, *, active: bool = True) -> VoiceTransition:
+        view = self.inline_view
+        if view is None or view.interaction_id != interaction_id or view.phase not in {"starting", "listening", "awaiting"} or not view.allow_refine:
+            return self._ignored()
+        if view.preview_refine == active:
+            return self._ignored()
+        if self._capture is not None:
+            self._capture.preview_refine = active
+        elif self._pending_inline is not None:
+            self._pending_inline = replace(self._pending_inline, preview_refine=active)
+        return self._transition()
+
     def confirm_inline_settlement(self, interaction_id: str, refine: bool = False) -> VoiceTransition:
+        capture = self._capture
+        if capture is not None and isinstance(capture.target, VoiceInlineTarget) and capture.target.interaction_id == interaction_id:
+            return self.request_stop(capture.capture_id, inline_delivery=refine)
         pending = self._pending_inline
         if pending is None or pending.target.interaction_id != interaction_id or pending.target.paste_target is None or pending.refining or pending.paste_operation_id is not None or pending.paste_outcome is not None or pending.recovery_message or (refine and pending.refine_failed):
             return self._ignored()
         if refine:
             operation_id = f"inline-refine-{uuid.uuid4().hex}"
-            self._pending_inline = replace(pending, refining=True, refine_operation_id=operation_id)
+            self._pending_inline = replace(pending, refining=True, refine_operation_id=operation_id, chosen="refine", preview_refine=False)
             self._message = "Refining dictation…"
         else:
             operation_id = f"inline-paste-{uuid.uuid4().hex}"
-            self._pending_inline = replace(pending, paste_operation_id=operation_id)
+            self._pending_inline = replace(pending, paste_operation_id=operation_id, chosen="raw", preview_refine=False)
         return self._transition(PasteInlineDictation(pending.text, pending.target.paste_target, refine, pending.target.interaction_id, operation_id))
+
+    def accept_inline_refinement_admission(self, interaction_id: str, operation_id: str) -> VoiceTransition:
+        pending = self._pending_inline
+        if pending is None or pending.target.interaction_id != interaction_id or pending.refine_operation_id != operation_id or not pending.refining or pending.refine_admitted:
+            return self._ignored()
+        self._pending_inline = replace(pending, refine_admitted=True)
+        return self._transition()
 
     def complete_inline_refinement(self, interaction_id: str, operation_id: str, text: str = "", *, error: bool = False, failure_reason: InlineRefinementFailureReason | None = None) -> VoiceTransition:
         pending = self._pending_inline
@@ -503,14 +534,14 @@ class VoiceInputController:
         ):
             return self._ignored()
         operation_id = f"inline-copy-{uuid.uuid4().hex}"
-        self._pending_inline = replace(pending, copy_operation_id=operation_id)
+        self._pending_inline = replace(pending, copy_operation_id=operation_id, copy_state="pending")
         return self._transition(PresentInlineCopyState(interaction_id, "pending"), CopyInlineText(interaction_id, operation_id, pending.delivery_text or pending.text))
 
     def complete_inline_copy(self, interaction_id: str, operation_id: str, error: str = "") -> VoiceTransition:
         pending = self._pending_inline
         if pending is None or pending.target.interaction_id != interaction_id or pending.copy_operation_id != operation_id:
             return self._ignored()
-        self._pending_inline = replace(pending, copy_operation_id=None)
+        self._pending_inline = replace(pending, copy_operation_id=None, copy_state="failed" if error else "succeeded")
         return self._transition(PresentInlineCopyState(interaction_id, "failed" if error else "succeeded"))
 
     def complete_inline_paste(self, interaction_id: str, operation_id: str, outcome: PasteOutcome) -> VoiceTransition:
@@ -644,6 +675,7 @@ class VoiceInputController:
         capture.stop_requested = True
         if isinstance(capture.target, VoiceInlineTarget):
             capture.inline_delivery = inline_delivery
+            capture.preview_refine = False
         capture.phase = VoiceCapturePhase.FINALIZING
         capture.remaining_seconds = None
         self._message = "Finalizing…"
@@ -823,7 +855,7 @@ class VoiceInputController:
                 self._pending_inline = _PendingInline(text, target, recovery_message=recovery_message)
                 return PresentInlineRecovery(target.interaction_id, text, self._pending_inline.recovery_message)
             self._pending_inline = _PendingInline(text, target)
-            if target.mode == "minimal" and inline_delivery is not None:
+            if inline_delivery is not None:
                 return self.confirm_inline_settlement(target.interaction_id, inline_delivery).effects[0]
             return PresentInlineChoice(target.interaction_id, text, message=warning)
         return (
@@ -847,7 +879,53 @@ class VoiceInputController:
         return "Listening…"
 
     def _transition(self, *effects: VoiceEffect) -> VoiceTransition:
-        return VoiceTransition(self.projection, effects)
+        view = self.inline_view
+        if view is None:
+            for effect in effects:
+                if isinstance(effect, (DiscardInlineDictation, CloseInlineTerminal)):
+                    view = InlineDictationView(effect.interaction_id, "closed", message=effect.message if isinstance(effect, DiscardInlineDictation) else "")
+                    break
+        return VoiceTransition(self.projection, effects, inline_view=view)
+
+    @property
+    def inline_view(self) -> InlineDictationView | None:
+        capture = self._capture
+        if capture is not None and isinstance(capture.target, VoiceInlineTarget):
+            phase = (
+                "cancelling" if capture.cancelled else
+                "finalizing" if capture.stop_requested else
+                "listening" if capture.phase is VoiceCapturePhase.LISTENING else "starting"
+            )
+            return InlineDictationView(
+                capture.target.interaction_id, phase,
+                chosen=None if capture.inline_delivery is None else "refine" if capture.inline_delivery else "raw",
+                preview_refine=capture.preview_refine,
+                audio_level=capture.audio_level,
+                silence_detected=capture.silence_detected,
+                countdown_seconds=capture.remaining_seconds,
+                message=self._message,
+            )
+        pending = self._pending_inline
+        if pending is not None:
+            phase = (
+                "cancel_unconfirmed" if pending.cancel_timed_out else
+                "cancelling" if pending.discard_requested and pending.paste_outcome is None else
+                "settled" if pending.paste_outcome is not None and pending.paste_outcome.state in {"dispatched_unconfirmed", "cancelled"} else
+                "recovery" if pending.paste_outcome is not None or pending.recovery_message else
+                "pasting" if pending.paste_operation_id is not None and pending.paste_outcome is None else
+                "refining" if pending.refining and pending.refine_admitted else
+                "finalizing" if pending.refining else "awaiting"
+            )
+            return InlineDictationView(
+                pending.target.interaction_id, phase, chosen=pending.chosen,
+                preview_refine=pending.preview_refine,
+                allow_refine=not pending.refine_failed and pending.target.paste_target is not None,
+                text=pending.delivery_text or pending.text,
+                message=pending.recovery_message or self._message,
+                paste_outcome=pending.paste_outcome,
+                copy_state=pending.copy_state,
+            )
+        return None
 
     def _ignored(self) -> VoiceTransition:
         return VoiceTransition(self.projection, ignored=True)

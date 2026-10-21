@@ -6,13 +6,18 @@ import tkinter.font as tkfont
 from dataclasses import dataclass
 from typing import Callable, Literal, Mapping, Protocol
 
+from PIL import ImageTk
 import customtkinter as ctk
+
+from ClipAI.ui import voice_visuals as visuals
 from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
 
 from ClipAI.core.models import ActionFeedbackContract, FeedbackOperationState, FeedbackOutcome, PasteTarget, PopupBounds, PresentationDocument
 from ClipAI.core.popup_presentation import PopupPresentationModel
 
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
+from ClipAI.ui.keyboard_confirm_gate import KeyboardConfirmGate
+from ClipAI.core.ports import KeyboardStateReader
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceLease
 from ClipAI.ui.presentation_render import RenderedContent, RenderSelectionSegment, build_popup_render_plan, project_selection_text
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, display_break_opportunity, strip_display_break_hint_boundaries, strip_display_break_hints
@@ -336,17 +341,17 @@ class _VoiceWaveIndicator(tk.Canvas):
 
     BASE_WIDTH = 82
     BASE_HEIGHT = 22
-    FRAME_DELAY_MS = 40
+    FRAME_DELAY_MS = visuals.FRAME_MS
     AMPLITUDE_EASING = 0.24
     FONT_BASE_PX = 10
 
-    _DISABLED_PILL = "#4A4A4A"
-    _ACTIVE_PILL = "#244B44"
-    _DEFAULT_PILL = ACTION_COLOR
-    _DISABLED_LINE = "#858585"
-    _SILENCE_LINE = "#D9A441"
-    _ACTIVE_LINE = "#8DE8BC"
-    _DEFAULT_LINE = "#F4F8FB"
+    _DISABLED_PILL = visuals.BODY
+    _ACTIVE_PILL = visuals.BODY
+    _DEFAULT_PILL = visuals.BODY
+    _DISABLED_LINE = visuals.MUTED
+    _SILENCE_LINE = visuals.MUTED
+    _ACTIVE_LINE = visuals.WHITE
+    _DEFAULT_LINE = visuals.WHITE
 
     def __init__(
         self,
@@ -378,6 +383,8 @@ class _VoiceWaveIndicator(tk.Canvas):
         self._target_amplitude = 0.0
         self._amplitude = 0.0
         self._phase = 0.0
+        self._finishing = False
+        self._photo = None
         self._job: str | None = None
         self.bind("<Button-1>", self._invoke, add="+")
         self.bind("<Return>", self._invoke, add="+")
@@ -396,7 +403,9 @@ class _VoiceWaveIndicator(tk.Canvas):
         active: bool,
         command: Callable[[], None] | None,
         countdown_seconds: int | None = None,
+        finishing: bool = False,
     ) -> None:
+        self._finishing = finishing
         self._word = word
         self._listening = listening
         self._silence = silence
@@ -406,6 +415,8 @@ class _VoiceWaveIndicator(tk.Canvas):
         self._command = command if enabled else None
         normalized_level = max(0.0, min(1.0, float(level)))
         self._target_amplitude = normalized_level if listening and not silence else 0.0
+        if self._target_amplitude <= .002:
+            self._amplitude = 0.0
         try:
             self.configure(cursor="hand2" if self._command is not None else "")
         except tk.TclError:
@@ -419,14 +430,14 @@ class _VoiceWaveIndicator(tk.Canvas):
         return "break"
 
     def _ensure_animation(self) -> None:
-        if self._job is not None or self._lifecycle.is_closed:
+        if self._lifecycle.is_closed:
             return
-        if (
-            abs(self._target_amplitude - self._amplitude) < 0.005
-            and (not self._listening or self._amplitude <= 0.002)
-        ):
-            return
-        self._job = self._lifecycle.schedule(self.FRAME_DELAY_MS, self._tick)
+        animate = getattr(self, "_finishing", False) or self._listening and not self._silence and self._target_amplitude > .002
+        if not animate and self._job is not None:
+            self._lifecycle.cancel(self._job)
+            self._job = None
+        if animate and self._job is None:
+            self._job = self._lifecycle.schedule(self.FRAME_DELAY_MS, self._tick)
 
     def _tick(self) -> None:
         self._job = None
@@ -436,7 +447,7 @@ class _VoiceWaveIndicator(tk.Canvas):
         self._amplitude += delta * self.AMPLITUDE_EASING
         if abs(delta) < 0.005:
             self._amplitude = self._target_amplitude
-        if self._listening and self._amplitude > 0.002:
+        if getattr(self, "_finishing", False) or self._listening and self._amplitude > 0.002:
             self._phase = (self._phase + 0.42) % math.tau
         try:
             self._render()
@@ -468,116 +479,39 @@ class _VoiceWaveIndicator(tk.Canvas):
         return self._font
 
     def _colors(self) -> tuple[str, str, str]:
-        if not self._enabled:
-            return self._DISABLED_PILL, self._DISABLED_LINE, "#B0B0B0"
-        pill = self._ACTIVE_PILL if self._active else self._DEFAULT_PILL
-        if self._silence:
-            line = self._SILENCE_LINE
-        elif self._active:
-            line = self._ACTIVE_LINE
-        else:
-            line = self._DEFAULT_LINE
-        return pill, line, CONTENT_COLOR
+        color = visuals.MUTED if not self._enabled or self._silence else visuals.WHITE
+        return visuals.BODY, color, visuals.CONFIRM if self._enabled else visuals.MUTED
 
     def _render(self) -> None:
         scaling = self._widget_scaling()
-        width = round(self.BASE_WIDTH * scaling)
-        height = round(self.BASE_HEIGHT * scaling)
+        width, height = round(self.BASE_WIDTH*scaling), round(self.BASE_HEIGHT*scaling)
         self.configure(width=width, height=height)
         self.delete("all")
-
-        pill_color, line_color, word_color = self._colors()
-        radius = 6.0 * scaling
-        self._draw_rounded_pill(0.0, 0.0, float(width), float(height), radius, pill_color)
-        countdown_seconds = getattr(self, "_countdown_seconds", None)
-
         font = self._scaled_font(scaling)
-        padding = 7.0 * scaling
-        display_word = self._word
-        if countdown_seconds is not None:
-            minutes, seconds = divmod(max(0, countdown_seconds), 60)
+        remaining = self._countdown_seconds
+        display_word = visuals.SILENCE_WORD if self._silence else self._word
+        if remaining is not None:
+            minutes, seconds = divmod(max(0, remaining), 60)
             display_word = f"{minutes}:{seconds:02d}"
-        word_width = float(font.measure(display_word))
-        word_x = float(width) - padding
-        center_y = float(height) / 2.0
-        self.create_text(
-            word_x,
-            center_y,
-            text=display_word,
-            fill=word_color,
-            font=font,
-            anchor="e",
+        wave_width = max(1, (width-font.measure(display_word))/scaling-21)
+        bitmap = visuals.draw_voice_capsule(
+            width=width, height=height, scale=scaling, wave_width=wave_width,
+            level=self._amplitude, listening=self._listening, silence=self._silence,
+            finishing=self._finishing, enabled=self._enabled,
+            countdown=remaining is not None and remaining <= 30,
+            frame=round(self._phase/.42), background=SURFACE_BG,
         )
-
-        line_left = padding
-        line_right = max(
-            line_left + scaling,
-            word_x - word_width - (7.0 * scaling),
-        )
-        point_count = 18
-        amplitude_px = self._amplitude * 6.2 * scaling
-        points: list[float] = []
-        for index in range(point_count):
-            progress = index / (point_count - 1)
-            x = line_left + ((line_right - line_left) * progress)
-            envelope = math.sin(math.pi * progress) ** 0.7
-            wave = (
-                math.sin((progress * math.tau * 1.8) + self._phase)
-                + 0.35 * math.sin((progress * math.tau * 3.7) - (self._phase * 0.7))
-            ) / 1.35
-            y = center_y - (amplitude_px * envelope * wave)
-            points.extend((x, y))
-        self.create_line(
-            *points,
-            fill=line_color,
-            width=max(1.0, 1.35 * scaling),
-            capstyle=tk.ROUND,
-            joinstyle=tk.ROUND,
-            smooth=True,
-            splinesteps=8,
-        )
+        self._photo = ImageTk.PhotoImage(bitmap, master=self)
+        self.create_image(0, 0, image=self._photo, anchor="nw")
+        self.create_text(width-7*scaling, height/2, text=display_word,
+                         fill=visuals.AMBER if remaining is not None and remaining <= 30 else self._colors()[2],
+                         font=font, anchor="e")
 
     def redraw(self) -> None:
         try:
             self._render()
         except tk.TclError:
             pass
-
-    def _draw_rounded_pill(
-        self,
-        left: float,
-        top: float,
-        right: float,
-        bottom: float,
-        radius: float,
-        color: str,
-        *,
-        outline: str = "",
-        outline_width: float = 1.0,
-    ) -> None:
-        self.create_polygon(
-            left + radius,
-            top,
-            right - radius,
-            top,
-            right,
-            top,
-            right,
-            bottom,
-            right - radius,
-            bottom,
-            left + radius,
-            bottom,
-            left,
-            bottom,
-            left,
-            top,
-            fill=color,
-            outline=outline,
-            width=outline_width,
-            smooth=True,
-            splinesteps=24,
-        )
 
 PRESENTATION_TAG_STYLES: dict[str, dict[str, object]] = {
     "heading_1": {"foreground": "#8EC5FF", "spacing1": 10, "spacing3": 6},
@@ -1352,7 +1286,7 @@ class StandardResultActions:
 
 
 class BaseResultSurface:
-    def __init__(self, dialog: BaseDialog) -> None:
+    def __init__(self, dialog: BaseDialog, *, key_state_reader: KeyboardStateReader = lambda _token: None) -> None:
         self.dialog = dialog
         self.root = dialog.surface
         self.root.grid_columnconfigure(0, weight=1)
@@ -1374,14 +1308,65 @@ class BaseResultSurface:
         self._rendered_pinned_state: bool | None = None
         self._last_model: PopupPresentationModel | None = None
         self._clipboard_choice: Callable[[str], None] | None = None
+        self._clipboard_confirmed_ids: set[str] = set()
+        self._keyboard_confirm = KeyboardConfirmGate(
+            key_down_reader=lambda: key_state_reader("enter") is not False,
+        )
         self._build()
+        self._install_keyboard_confirm()
+
+    @staticmethod
+    def _descendant(widget: object, parent: object) -> bool:
+        while widget is not None:
+            if widget is parent:
+                return True
+            widget = getattr(widget, "master", None)
+        return False
+
+    def _refresh_keyboard_focus(self) -> None:
+        try:
+            focused = self.dialog.root.focus_get()
+            inside = self.dialog.is_primary_content_mounted() and (focused is self.dialog.root or self._descendant(focused, self.root))
+        except tk.TclError:
+            inside = False
+        self._keyboard_confirm.focus_changed(inside)
+
+    def _install_keyboard_confirm(self) -> None:
+        tag = f"ClipAIRecoveryConfirm{id(self)}"
+        sequences = ("<KeyPress-Return>", "<KeyRelease-Return>", "<KeyPress-KP_Enter>", "<KeyRelease-KP_Enter>", "<FocusIn>", "<FocusOut>")
+        def press(event):
+            self._refresh_keyboard_focus()
+            self._keyboard_confirm.press(state=event.state)
+            return "break" if self._clipboard_available() else None
+        def release(event):
+            self._refresh_keyboard_focus()
+            accepted = self._keyboard_confirm.release(state=event.state)
+            if accepted and self._clipboard_available():
+                self._choose_clipboard()
+            return "break" if self._clipboard_available() else None
+        for sequence in sequences:
+            callback = press if "KeyPress" in sequence else release if "KeyRelease" in sequence else lambda _event: self.dialog.root.after_idle(self._refresh_keyboard_focus)
+            self.root.bind_class(tag, sequence, callback)
+        def attach(widget):
+            widget.bindtags((tag, *widget.bindtags()))
+            for child in widget.winfo_children(): attach(child)
+        attach(self.root)
+        def cleanup(event):
+            if event.widget is self.root:
+                for sequence in sequences: self.root.unbind_class(tag, sequence)
+        self.root.bind("<Destroy>", cleanup, add="+")
+
+    def _clipboard_available(self) -> bool:
+        model = self._last_model
+        return bool(model is not None and model.input_recovery_id and model.clipboard_choice_available and self.dialog.is_primary_content_mounted())
 
     def bind_clipboard_choice(self, callback: Callable[[str], None]) -> None:
         self._clipboard_choice = callback
 
     def _choose_clipboard(self) -> None:
         model = self._last_model
-        if model is not None and model.input_recovery_id and model.clipboard_choice_available and self._clipboard_choice is not None:
+        if self._clipboard_available() and model.input_recovery_id not in self._clipboard_confirmed_ids and self._clipboard_choice is not None:
+            self._clipboard_confirmed_ids.add(model.input_recovery_id)
             self.clipboard_choice_button.configure(state="disabled", text="正在接續…")
             self._clipboard_choice(model.input_recovery_id)
 
@@ -1389,10 +1374,17 @@ class BaseResultSurface:
         """Render the content-free Popup model through field-group diffs."""
         previous = self._last_model
         if previous is None or (previous.input_recovery_id, previous.clipboard_choice_available) != (model.input_recovery_id, model.clipboard_choice_available):
+            gate = getattr(self, "_keyboard_confirm", None)
+            if gate is not None:
+                self._refresh_keyboard_focus()
+                gate.restart()
             if model.clipboard_choice_available:
-                self.clipboard_choice_button.configure(state="normal", text="使用剪貼簿執行")
+                confirmed = model.input_recovery_id in getattr(self, "_clipboard_confirmed_ids", set())
+                self.clipboard_choice_button.configure(state="disabled" if confirmed else "normal", text="正在接續…" if confirmed else "使用剪貼簿執行（Enter）")
                 self.clipboard_choice_button.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 2))
             else:
+                if gate is not None and self._descendant(self.dialog.root.focus_get(), self.clipboard_choice_button):
+                    self.content_text.focus_set()
                 self.clipboard_choice_button.grid_remove()
         if previous is None or _popup_header_group(previous) != _popup_header_group(model):
             self.set_pinned_state(model.pinned)
@@ -2009,6 +2001,7 @@ class BaseResultSurface:
         command: Callable[[], None] | None,
         tooltip: str,
         countdown_seconds: int | None = None,
+        finishing: bool = False,
     ) -> None:
         self.voice_input_button.update_state(
             word=word,
@@ -2019,6 +2012,7 @@ class BaseResultSurface:
             enabled=enabled,
             active=active,
             countdown_seconds=countdown_seconds,
+            finishing=finishing,
         )
         self.set_action_tooltip("voice_input", tooltip)
 

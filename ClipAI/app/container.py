@@ -51,6 +51,7 @@ from ClipAI.platform.external_window import SystemExternalWindowActivator
 from ClipAI.platform.recent_actions import JsonRecentActionStore
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
 from ClipAI.platform.pointer_input import WindowsPointerPressReader
+from ClipAI.platform.keyboard_state import windows_key_is_pressed
 from ClipAI.platform.window_focus import WindowsForegroundWindowMonitor
 from ClipAI.platform.browser_speech import WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT, BrowserSpeechWebView2Engine, find_webview2_runtime_for_major
 from ClipAI.platform.voice_permissions import open_microphone_privacy_settings
@@ -187,6 +188,7 @@ def build_runtime(
         display_metrics=WindowsDisplayMetricsReader(),
         layout_policy=PopupLayoutPolicy(lambda: user_preferences.popup_placement),
         pointer_press_reader=WindowsPointerPressReader(),
+        key_state_reader=windows_key_is_pressed,
         native_window_surface=native_window_surface,
         focus_transition_diagnostics=bundle.logging.diagnostics.enabled("focus_transitions"),
         voice_projection=voice_controller.projection,
@@ -226,7 +228,7 @@ def build_runtime(
         else None
     )
     clipboard_transactions = ClipboardTransactionCoordinator(clipboard)
-    selection_probe = WindowsSelectionProbe()
+    selection_probe = WindowsSelectionProbe(standby=bundle.app.selection_uia_standby)
     selection_reader = SelectionCaptureCoordinator(
         clipboard_transactions,
         SystemSelectionCaptureAdapter(),
@@ -443,6 +445,7 @@ def build_runtime(
             enqueue=enqueue,
             presenter=view,
             recent_actions=recent_actions,
+            consume_numeric_hint=user_preferences_module.consume_entry_numeric_hint,
         )
         if bundle.app.entry_panel_enabled
         else None

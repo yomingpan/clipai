@@ -1,5 +1,22 @@
 from __future__ import annotations
 
+import pytest
+
+
+@pytest.mark.parametrize("title", ["中文標題非常長" * 10, "日本語の長いタイトル" * 10, "A very long English title " * 10])
+def test_recent_tile_title_has_two_bounded_lines_with_ellipsis(title):
+    from ClipAI.ui.text_layout import fit_tile_title
+    measure = lambda text: sum(14 if ord(char) > 127 else 7 for char in text)
+    rendered = fit_tile_title(title, width=70, measure=measure)
+    assert len(rendered.splitlines()) <= 2
+    assert all(measure(line) <= 70 for line in rendered.splitlines())
+    assert rendered.endswith("…")
+
+
+def test_short_recent_tile_title_is_preserved():
+    from ClipAI.ui.text_layout import fit_tile_title
+    assert fit_tile_title("翻譯", width=70, measure=lambda text: len(text)*14) == "翻譯"
+
 import random
 
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, strip_display_break_hints

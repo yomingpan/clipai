@@ -12,7 +12,11 @@ def test_selection_reader_cannot_erase_capture_status():
 def test_production_assembly_wires_native_probe_and_sole_clipboard_owner():
     source = Path("ClipAI/app/container.py").read_text(encoding="utf-8")
     assert source.count("ClipboardTransactionCoordinator(clipboard)") == 1
-    assert "selection_probe = WindowsSelectionProbe()" in source
+    probes = [node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "WindowsSelectionProbe"]
+    assert len(probes) == 1
+    assert {keyword.arg: ast.unparse(keyword.value) for keyword in probes[0].keywords} == {
+        "standby": "bundle.app.selection_uia_standby",
+    }
     assert "background_components=(selection_probe,)" in source
 
 

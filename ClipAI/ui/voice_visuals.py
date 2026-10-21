@@ -1,0 +1,234 @@
+"""Shared, widget-neutral Voice drawing and presentation vocabulary."""
+
+from dataclasses import dataclass
+from functools import lru_cache
+import math
+
+from PIL import Image, ImageDraw
+
+from ClipAI.core.voice import InlineDictationView
+
+TRANSPARENT_KEY = "#010203"
+BODY = "#1E1F22"
+BUTTON = OUTLINE = "#3A3D41"
+DISABLED = "#2A2B2E"
+AMBER = "#D9A441"
+RED = "#C0392B"
+GREEN = "#2E9E5B"
+REFINE = "#6C5CE7"
+CONFIRM = "#F2F2F2"
+MUTED = "#7A7D82"
+WHITE = "#FFFFFF"
+SILENCE_WORD = "無聲"
+SUPERSAMPLE = 4
+BASE_WIDTH = 132
+BASE_HEIGHT = 26
+STRIP_HEIGHT = 18
+CANVAS_WIDTH = 300
+CANVAS_HEIGHT = 208
+PANEL_HEIGHT = 164
+PANEL_RADIUS = 10
+BUTTON_RADIUS = 9
+HIT_PADDING = 3
+REFINE_DIAMETER = 22
+WAVE_BARS = 9
+FRAME_MS = 80
+MARGIN = 8
+MESSAGE_COLOR = "#B8C9C3"
+
+
+@dataclass(frozen=True)
+class InlineVisuals:
+    status: str
+    border: str = OUTLINE
+    raw_fill: str = DISABLED
+    refine_fill: str = BUTTON
+    spinner: str | None = None
+    center_text: str = ""
+    panel_hint: str = ""
+    panel_message: str = ""
+    copy_label: str = ""
+
+
+def project_inline_visuals(view: InlineDictationView, *, hover: str = "") -> InlineVisuals:
+    status = {
+        "starting": "準備麥克風…",
+        "listening": "聆聽中…",
+        "finalizing": "整理中…",
+        "cancelling": "取消中…",
+        "awaiting": "已停止 · ✓ 原文 / ✦ 潤飾",
+        "refining": "潤飾中…",
+        "pasting": "貼上中…",
+        "recovery": "未完成",
+        "cancel_unconfirmed": "取消尚未確認",
+        "closed": "未完成" if view.message else "已取消，沒有貼上",
+        "settled": "已送出貼上，請確認原欄位",
+    }[view.phase]
+    cancelled = view.paste_outcome is not None and view.paste_outcome.state == "cancelled"
+    done = view.paste_outcome is not None and view.paste_outcome.state == "dispatched_unconfirmed"
+    failed = view.phase == "recovery" or view.phase == "closed" and bool(view.message)
+    countdown = view.countdown_seconds if view.phase == "listening" else None
+    countdown = countdown if countdown is not None and countdown <= 30 else None
+    clickable = view.phase in {"starting", "listening", "awaiting"}
+    center = ""
+    if cancelled:
+        status = "已取消，沒有貼上"
+    if view.phase == "awaiting" and not view.allow_refine:
+        status = "已停止 · ✓ 原文"
+    if view.phase == "listening" and view.silence_detected:
+        status, center = "沒有收到聲音", SILENCE_WORD
+    if countdown is not None:
+        status, center = f"剩 {countdown} 秒，將自動停止", str(countdown)
+    if view.preview_refine:
+        status = "放開後潤飾貼上"
+    status = {
+        "cancel": "取消 (Esc)",
+        "raw": "直接貼上（短按右 Alt）",
+        "refine": "潤飾後貼上（長按右 Alt）" if view.allow_refine else "潤飾無法使用",
+    }.get(hover, status)
+    spinner = (
+        "refine" if view.phase == "refining" else
+        "raw" if view.phase == "pasting" else
+        view.chosen or "wave" if view.phase == "finalizing" else None
+    )
+    panel_hint = {
+        "awaiting": "✓ 貼上原文 · ✦ 潤飾後貼上 · ✕ 丟棄" if view.allow_refine else "✓ 貼上原文 · ✕ 丟棄",
+        "recovery": "✕ 關閉", "cancel_unconfirmed": "Esc 重試取消",
+    }.get(view.phase, "")
+    panel_message = view.message if view.phase == "closed" or view.phase == "awaiting" and not view.allow_refine else ""
+    if view.phase == "cancel_unconfirmed":
+        panel_message = "取消尚未確認；不會送出貼上。可複製原文。"
+    elif view.phase == "recovery":
+        panel_message = (
+            "貼上或剪貼簿還原無法確認。請檢查原欄位與剪貼簿。"
+            if view.paste_outcome is not None and view.paste_outcome.state == "cleanup_failed" else
+            "尚未貼上。可複製下方內容，切回原欄位手動貼上。"
+        )
+    return InlineVisuals(
+        status, RED if failed else GREEN if done else AMBER if countdown is not None else OUTLINE,
+        GREEN if view.chosen == "raw" or done else CONFIRM if clickable else DISABLED,
+        DISABLED if not view.allow_refine else REFINE if view.chosen == "refine" or view.preview_refine else BUTTON,
+        spinner, center, panel_hint, panel_message,
+        {"idle": "", "pending": "複製中…", "succeeded": "已複製", "failed": "複製失敗"}[view.copy_state],
+    )
+
+
+def wave_heights(level: float, *, frame: int = 0, listening: bool = True, silence: bool = False) -> tuple[float, ...]:
+    level = max(0.0, min(1.0, level)) if listening and not silence else 0.0
+    if level <= .002:
+        return (0.0,) * WAVE_BARS
+    return tuple(
+        level * 7 * (.35 + .65 * abs(math.sin(index * .8 + frame * .42)))
+        for index in range(WAVE_BARS)
+    )
+
+
+def composite_backdrop(layer: Image.Image, backdrop: Image.Image | None) -> Image.Image:
+    """Opaque antialiased edges use the pre-show backdrop, never the color key."""
+    background = backdrop.convert("RGBA") if backdrop is not None else Image.new("RGBA", layer.size, BODY)
+    if background.size != layer.size:
+        raise ValueError("backdrop dimensions must match the raster")
+    composed = Image.alpha_composite(background, layer).convert("RGB")
+    alpha = layer.getchannel("A")
+    fully_transparent = alpha.point(lambda value: 255 if value == 0 else 0)
+    composed.paste(TRANSPARENT_KEY, mask=fully_transparent)
+    return composed
+
+
+def _line(draw: ImageDraw.ImageDraw, points: list[tuple[float, float]], color: str, width: float) -> None:
+    draw.line(points, fill=color, width=max(1, round(width)), joint="curve")
+    radius = width / 2
+    for x, y in (points[0], points[-1]):
+        draw.ellipse((x-radius, y-radius, x+radius, y+radius), fill=color)
+
+
+def _icon(draw: ImageDraw.ImageDraw, kind: str, cx: float, cy: float, unit: float, color: str) -> None:
+    if kind == "cancel":
+        for sign in (-1, 1):
+            _line(draw, [(cx-3*unit, cy-sign*3*unit), (cx+3*unit, cy+sign*3*unit)], color, 1.5*unit)
+    elif kind == "raw":
+        _line(draw, [(cx-4*unit, cy), (cx-unit, cy+3*unit), (cx+4*unit, cy-3*unit)], color, 1.6*unit)
+    else:
+        points = []
+        for index in range(8):
+            angle = index * math.pi / 4 - math.pi / 2
+            radius = (5 if index % 2 == 0 else 1.6) * unit
+            points.append((cx+math.cos(angle)*radius, cy+math.sin(angle)*radius))
+        draw.polygon(points, fill=color)
+
+
+def _spinner(draw: ImageDraw.ImageDraw, cx: float, cy: float, unit: float, frame: int, color: str) -> None:
+    radius = 5 * unit
+    draw.arc((cx-radius, cy-radius, cx+radius, cy+radius), start=frame*32, end=frame*32+250, fill=color, width=max(1, round(1.5*unit)))
+
+
+def _wave(draw: ImageDraw.ImageDraw, left: float, cy: float, width: float, unit: float, heights: tuple[float, ...], color: str) -> None:
+    for index, height in enumerate(heights):
+        x = left + index * width / (WAVE_BARS-1)
+        half = max(.35, height) * unit
+        _line(draw, [(x, cy-half), (x, cy+half)], color, 1.5*unit)
+
+
+def _pill_layer(scale, border, refine_fill, raw_fill, spinner, heights, wave_color, allow_refine, frame):
+    size = (round(BASE_WIDTH*scale), round(BASE_HEIGHT*scale))
+    unit = scale * SUPERSAMPLE
+    layer = Image.new("RGBA", (size[0]*SUPERSAMPLE, size[1]*SUPERSAMPLE))
+    draw = ImageDraw.Draw(layer)
+    draw.rounded_rectangle((0, 0, layer.width-1, layer.height-1), radius=13*unit, fill=BODY, outline=border, width=max(1, round(unit)))
+    for kind, cx, fill, foreground in (
+        ("cancel", 13, BODY, CONFIRM),
+        ("refine", 94, refine_fill, WHITE if refine_fill == REFINE else MUTED if not allow_refine else CONFIRM),
+        ("raw", 119, raw_fill, WHITE if raw_fill == GREEN else BODY if raw_fill == CONFIRM else MUTED),
+    ):
+        radius = 11 * unit
+        draw.rounded_rectangle(((cx*unit)-radius, 2*unit, (cx*unit)+radius, 24*unit), radius=BUTTON_RADIUS*unit, fill=fill)
+        if spinner == kind:
+            _spinner(draw, cx*unit, 13*unit, unit, frame, foreground)
+        else:
+            _icon(draw, kind, cx*unit, 13*unit, unit, foreground)
+    if spinner == "wave":
+        _spinner(draw, 53*unit, 13*unit, unit, frame, CONFIRM)
+    else:
+        _wave(draw, 31*unit, 13*unit, 42*unit, unit, heights, wave_color)
+    return layer.resize(size, Image.Resampling.LANCZOS)
+
+
+# Cache only bounded, content-free static geometry. Background pixels and
+# interaction/view identities never enter this cache; animation stays uncached.
+_static_pill_layer = lru_cache(maxsize=16)(_pill_layer)
+
+
+def draw_pill(view: InlineDictationView, *, scale: float = 1.0, frame: int = 0, backdrop: Image.Image | None = None) -> Image.Image:
+    visual = project_inline_visuals(view)
+    heights = wave_heights(view.audio_level, frame=frame, listening=view.phase == "listening", silence=view.silence_detected)
+    wave_color = MUTED if view.phase in {"starting", "cancelling"} or view.silence_detected else WHITE
+    animated = visual.spinner is not None or any(heights)
+    render = _pill_layer if animated else _static_pill_layer
+    layer = render(scale, visual.border, visual.refine_fill, visual.raw_fill, visual.spinner, heights, wave_color, view.allow_refine, frame if animated else 0)
+    return composite_backdrop(layer, backdrop)
+
+
+def draw_panel(*, scale: float = 1, backdrop: Image.Image | None = None) -> Image.Image:
+    size = (round(CANVAS_WIDTH*scale), round(PANEL_HEIGHT*scale))
+    layer = Image.new("RGBA", (size[0]*SUPERSAMPLE, size[1]*SUPERSAMPLE))
+    ImageDraw.Draw(layer).rounded_rectangle((0, 0, layer.width-1, layer.height-1), radius=PANEL_RADIUS*scale*SUPERSAMPLE, fill=BODY)
+    return composite_backdrop(layer.resize(size, Image.Resampling.LANCZOS), backdrop)
+
+
+def draw_voice_capsule(
+    *, width: int, height: int, level: float, listening: bool,
+    silence: bool = False, finishing: bool = False, enabled: bool = True,
+    countdown: bool = False, frame: int = 0, scale: float = 1,
+    wave_width: float | None = None, background: str = BODY,
+) -> Image.Image:
+    unit = scale*SUPERSAMPLE
+    layer = Image.new("RGBA", (width*SUPERSAMPLE, height*SUPERSAMPLE))
+    draw = ImageDraw.Draw(layer)
+    draw.rounded_rectangle((0, 0, layer.width-1, layer.height-1), radius=9*unit, fill=BODY, outline=AMBER if countdown else OUTLINE, width=max(1, round(unit)))
+    area = wave_width if wave_width is not None else width/scale-14
+    if finishing:
+        _spinner(draw, (7+area/2)*unit, layer.height/2, unit, frame, CONFIRM)
+    else:
+        _wave(draw, 7*unit, layer.height/2, area*unit, unit, wave_heights(level, frame=frame, listening=listening and enabled, silence=silence), MUTED if silence or not enabled else WHITE)
+    layer = layer.resize((width, height), Image.Resampling.LANCZOS)
+    return Image.alpha_composite(Image.new("RGBA", layer.size, background), layer).convert("RGB")

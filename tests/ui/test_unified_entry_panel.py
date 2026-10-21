@@ -21,6 +21,24 @@ from ClipAI.services.entry_panel import EntryPanelCoordinator
 from ClipAI.app.config_loader import load_config_bundle
 
 
+def test_panel_enter_climbs_nested_ctk_widget_without_keyboard_confirm_settle():
+    """Panel opens from a held Alt intent, so Enter has no Popup focus-settle gate."""
+    from types import SimpleNamespace
+    invoked = []
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog.is_primary_content_mounted = lambda: True
+    button = SimpleNamespace(master=None, invoke=lambda: invoked.append(True))
+    nested = SimpleNamespace(master=SimpleNamespace(master=button))
+    assert dialog._on_enter(SimpleNamespace(widget=nested)) == "break"
+    assert invoked == [True]
+
+
+def test_recent_tile_tooltip_keeps_complete_copy_in_specified_order():
+    from ClipAI.ui.unified_entry_panel import recent_tile_tooltip
+    option = EntryPanelOption(1, "完整標題", "說明", action=EntryActionRef("a", "short"), long_action=EntryActionRef("a", "long"), long_label="深入分析", enabled=False, disabled_reason="目前無法使用")
+    assert recent_tile_tooltip(option) == "完整標題\n說明\n長按:深入分析\n目前無法使用"
+
+
 @pytest.mark.integration
 def test_panel_dialog_builds_and_closes_cleanly() -> None:
     """A native Panel surface must not leave a partial Toplevel on startup."""
@@ -89,6 +107,23 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         assert dialog._escape_tooltip.text == 'Esc 關閉'
 
         assert dialog._use_clipboard_button.winfo_ismapped()
+        assert dialog._use_clipboard_button.cget("width") == 136
+        assert dialog._first_focus_target() is dialog._use_clipboard_button
+        dialog.reveal()
+        master.update()
+        assert dialog._use_clipboard_button.cget("text") == "使用剪貼簿（Enter）"
+        focus = dialog._window.focus_get()
+        focus.event_generate("<Return>")
+        master.update()
+        assert commands[-1] == UseEntryPanelClipboard("panel-1")
+        dialog.apply(replace(snapshot, source_preview=None))
+        master.update()
+        assert dialog._use_clipboard_button.cget("text") == "使用剪貼簿"
+        assert dialog._use_clipboard_button.cget("width") == 136
+        focus = dialog._window.focus_get()
+        while focus is not None:
+            assert focus is not dialog._use_clipboard_button
+            focus = getattr(focus, "master", None)
         assert (
             dialog._use_clipboard_button.winfo_rootx() + dialog._use_clipboard_button.winfo_width()
             <= dialog._window.winfo_rootx() + dialog._window.winfo_width()
@@ -121,16 +156,42 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
                     slot,
                     f"最近 {slot}",
                     action=EntryActionRef("shorten_content", "short"),
-                ) for slot in range(3)),
+                ) for slot in range(1, 4)),
                 *(EntryPanelOption(
                     slot,
                     f"情境 {slot}",
                     category_id=f"category-{slot}",
-                ) for slot in range(3, 7)),
+                ) for slot in range(4, 8)),
             ),
         )
+        titles = ("中文長標題" * 20, "日本語の長いタイトル" * 20, "Very long English title " * 20)
+        root_snapshot = replace(root_snapshot, header_hint="數字已改:1–3 最近、4–7 分類", options=tuple(
+            replace(option, label=titles[index], long_action=EntryActionRef("shorten_content", "long"), long_label="深入版本") if index < 3 else option
+            for index, option in enumerate(root_snapshot.options)
+        ))
+        bounds_before = dialog._window.geometry()
         dialog.show(root_snapshot)
         master.update_idletasks()
+        assert dialog._window.geometry() == bounds_before
+        assert dialog._numeric_hint_label.cget("text") == "數字已改:1–3 最近、4–7 分類"
+        recent_cards = dialog._option_buttons[:3]
+        assert all(card.cget("height") == 66 for card in recent_cards)
+        assert max(card.winfo_width() for card in recent_cards)-min(card.winfo_width() for card in recent_cards) <= 1
+        for card, title in zip(recent_cards, titles):
+            assert card.winfo_width() >= 60
+            assert card._recent_badge.cget("width") == 16
+            assert card._recent_title.cget("text").endswith("…")
+            assert len(card._recent_title.cget("text").splitlines()) <= 2
+            assert card._recent_long_hint.cget("text") == "長按"
+            assert card._recent_tooltip.text.startswith(title+"\n")
+            card.focus_set()
+            master.update()
+            assert card._recent_tooltip._job is not None
+            card._recent_tooltip._hide()
+            card._canvas.event_generate("<Enter>")
+            assert card._recent_tooltip._job is not None
+            card._recent_tooltip._hide()
+            assert dialog._window.geometry() == bounds_before
         divider = next(
             child
             for child in dialog._body.winfo_children()

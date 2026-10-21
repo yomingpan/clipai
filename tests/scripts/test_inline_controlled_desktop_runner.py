@@ -344,12 +344,13 @@ def test_attended_run_preserves_existing_evidence_directory(monkeypatch, tmp_pat
     assert "輸出目錄" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("trace_args", [[], ["--log", "isolated.trace"]])
 def test_attended_run_stops_before_opening_target_when_app_is_absent(
-    monkeypatch, tmp_path, capsys
+    monkeypatch, tmp_path, capsys, trace_args
 ) -> None:
     output_dir = tmp_path / "run"
     monkeypatch.setattr(
-        sys, "argv", ["controlled", "--mode", "minimal", "--scenario", "cancel", "--output-dir", str(output_dir)]
+        sys, "argv", ["controlled", "--mode", "minimal", "--scenario", "cancel", "--output-dir", str(output_dir), *trace_args]
     )
     monkeypatch.setattr(run_inline_controlled_desktop, "harness_is_elevated", lambda: False)
     monkeypatch.setattr(run_inline_controlled_desktop, "app_instance_is_running", lambda: False)

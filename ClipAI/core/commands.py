@@ -74,6 +74,12 @@ class ShortcutPressStarted:
 
 
 @dataclass(frozen=True)
+class ShortcutPressThresholdReached:
+    press_id: ShortcutPressId
+    shortcut_id: str
+
+
+@dataclass(frozen=True)
 class ShortcutPressInvoked:
     press_id: ShortcutPressId
     shortcut_id: str
@@ -180,6 +186,7 @@ class InterruptionRequested:
 ShortcutInputEvent: TypeAlias = (
     ShortcutKeyStateChanged
     | ShortcutPressStarted
+    | ShortcutPressThresholdReached
     | ShortcutPressInvoked
     | ShortcutPressEnded
     | ShortcutAttemptRejected

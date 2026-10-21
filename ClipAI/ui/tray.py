@@ -509,6 +509,13 @@ class TrayController:
                     enabled=lambda _item, chosen=placement: self._inline_dictation_placement is not None and not self._inline_dictation_placement.update_pending and self._inline_dictation_placement.selected_placement != chosen,
                     radio=True,
                 ))
+        if items:
+            items.append(pystray.Menu.SEPARATOR)
+            items.extend(pystray.MenuItem(label, None, enabled=False) for label in (
+                "預設 Right Alt：短按原文、長按潤飾",
+                "已取代 Ctrl+Alt+M；AltGr 請改用 chord",
+                "設定：config/shortcuts.yaml",
+            ))
         return pystray.MenuItem(lambda _item: self._inline_dictation_label(), pystray.Menu(*items)) if items else None
 
     def _inline_dictation_label(self) -> str:

@@ -7,6 +7,17 @@ import pytest
 from scripts import probe_inline_pixel_presence as probe
 
 
+def test_edge_probe_detects_black_fringe_instead_of_only_body_presence():
+    from PIL import Image
+    mask = Image.new("RGBA", (2, 1))
+    mask.putdata([(30, 31, 34, 64), (30, 31, 34, 255)])
+    expected = Image.new("RGB", (2, 1), (180, 180, 180))
+    observed = expected.copy()
+    assert probe.count_black_fringe(mask, expected, observed) == (1, 0)
+    observed.putpixel((0, 0), (0, 0, 0))
+    assert probe.count_black_fringe(mask, expected, observed) == (1, 1)
+
+
 class _Image:
     def __init__(self, pixels):
         self._pixels = pixels

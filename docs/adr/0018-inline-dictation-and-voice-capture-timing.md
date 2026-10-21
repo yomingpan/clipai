@@ -2,6 +2,10 @@
 
 ## Status
 
+[ADR-0022](0022-right-alt-inline-pill-and-input-recovery.md) supersedes the
+default hotkey, delivery gesture, Pill/view projection and new-install default
+where this historical decision differs; its S8 artifacts contain desktop evidence.
+
 Accepted. Amends ADR-0016's statement that PTT is the only global Voice Input interaction.
 ADR-0019 extends Inline Dictation ownership through refinement and Paste
 settlement, adds the optional minimal input mode, and supersedes the choice,

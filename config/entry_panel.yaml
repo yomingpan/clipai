@@ -2,7 +2,7 @@ schema_version: 2
 
 categories:
   - id: understand
-    slot: 3
+    slot: 4
     label: 看得懂
     description: 降低理解門檻，掌握這段內容真正要表達的意思。
     flagship:
@@ -27,7 +27,7 @@ categories:
         press_type: short
 
   - id: write
-    slot: 4
+    slot: 5
     label: 寫得出
     description: 把已有的意思轉成可直接使用的文字。
     flagship:
@@ -57,7 +57,7 @@ categories:
         press_type: short
 
   - id: think
-    slot: 5
+    slot: 6
     label: 想清楚
     description: 照亮結構、盲點與取捨，保留最後判斷給你。
     flagship:
@@ -90,7 +90,7 @@ categories:
         press_type: short
 
   - id: tools
-    slot: 6
+    slot: 7
     label: 工具
     description: 把內容或脈絡帶進來，再交給既有 Action 處理。
     flagship:

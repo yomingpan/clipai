@@ -95,6 +95,7 @@ class EntryPanelRuntimeModule:
         enqueue: Callable[[object], None],
         presenter: EntryPanelPresenter,
         recent_actions: RecentActionHistory | None = None,
+        consume_numeric_hint: Callable[[], bool] = lambda: False,
     ) -> None:
         self._coordinator = coordinator
         self._actions = actions
@@ -107,6 +108,7 @@ class EntryPanelRuntimeModule:
         self._enqueue = enqueue
         self._presenter = presenter
         self._recent_actions = recent_actions
+        self._consume_numeric_hint = consume_numeric_hint
         self._input_targets = InputTargetResolver()
         self._source: EntryPanelSource | None = None
         self._task_id: str | None = None
@@ -154,6 +156,7 @@ class EntryPanelRuntimeModule:
             disabled=self._disabled_actions(preparing=True),
             preparing=True,
             source_preview=EntryInputSourcePreview("preparing"),
+            numeric_hint=self._consume_numeric_hint(),
         )
         self._presenter.present_entry_panel(snapshot)
         source = self._source

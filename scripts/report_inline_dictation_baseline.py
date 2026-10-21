@@ -21,6 +21,8 @@ TRACE = re.compile(
     r"operation_id=(?P<operation>\S*) mode=(?P<mode>\S*) outcome=(?P<outcome>\S*)"
 )
 INTERVALS = {
+    "first_press_to_first_frame": ("capture_requested", "first_frame_visible"),
+    "stop_to_dispatch": ("stop_requested", "paste_dispatched"),
     "first_press_to_listening": ("capture_requested", "listening"),
     "stop_to_recognition": ("stop_requested", "recognition_settled"),
     "refine_to_result": ("refine_requested", "refine_settled"),
@@ -30,6 +32,8 @@ INTERVALS = {
 }
 HISTOGRAM_BOUNDARIES_MS = (50, 100, 250, 500, 1000)
 REQUIRED_PREDECESSOR = {
+    "first_frame_visible": "capture_requested",
+    "paste_dispatched": "paste_requested",
     "listening": "capture_requested",
     "stop_requested": "capture_requested",
     "refine_requested": "recognition_settled",
@@ -39,7 +43,7 @@ REQUIRED_PREDECESSOR = {
     "discard_terminal": "capture_requested",
     "copy_result": "capture_requested",
 }
-UNIQUE_STAGES = frozenset({"capture_requested", "listening", "stop_requested", "recognition_settled", "refine_requested", "refine_settled", "paste_requested", "paste_terminal", "discard_terminal"})
+UNIQUE_STAGES = frozenset({"capture_requested", "first_frame_visible", "listening", "stop_requested", "recognition_settled", "refine_requested", "refine_settled", "paste_requested", "paste_dispatched", "paste_terminal", "discard_terminal"})
 
 
 def _percentile(values: list[float], percentile: int) -> float:
@@ -155,7 +159,11 @@ def summarize(lines: list[str], *, cohort: str, evidence: str) -> dict[str, obje
         "malformed_inline_records": malformed,
         "groups": summaries,
         "insertion_truth": "not_observable_from_app_log",
-        "ui_first_frame": "not_observable_from_app_log",
+        "ui_first_frame": (
+            "tk_viewable_then_dwm_flush_observer_upper_bound"
+            if any(group["stage_latency"]["first_press_to_first_frame"]["count"] for group in summaries)
+            else "not_observable_from_app_log"
+        ),
         "note": "Terminal dispatched_unconfirmed means a Paste shortcut was sent, not that text was inserted.",
     }
 

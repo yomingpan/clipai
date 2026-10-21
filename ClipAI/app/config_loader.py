@@ -101,13 +101,14 @@ def load_app_config(path: str | Path) -> tuple[AppSettings, RuntimeSettings, Pro
     _schema_version(root, path, max_version=APP_CONFIG_SCHEMA_VERSION)
     _reject_unknown(root, {"schema_version", "app", "provider", "runtime", "tts", "voice_input", "logging"}, "config")
     app_data = _mapping(root.get("app"), "config.app")
-    _reject_unknown(app_data, {"stream", "temperature", "modifier_mode", "entry_panel_enabled"}, "config.app")
+    _reject_unknown(app_data, {"stream", "temperature", "modifier_mode", "entry_panel_enabled", "selection_uia_standby"}, "config.app")
     app = AppSettings(
         stream=_boolean(app_data.get("stream"), "config.app.stream", default=False),
         temperature=_number(app_data.get("temperature"), "config.app.temperature", default=0.2),
         system_prompt="",
         modifier_mode=cast(ModifierMode, _choice(app_data.get("modifier_mode"), "config.app.modifier_mode", {"alt_shift", "ctrl_shift", "ctrl_alt"}, "ctrl_alt")),
         entry_panel_enabled=_boolean(app_data.get("entry_panel_enabled"), "config.app.entry_panel_enabled", default=False),
+        selection_uia_standby=_boolean(app_data.get("selection_uia_standby"), "config.app.selection_uia_standby", default=True),
     )
 
     runtime_data = _mapping(root.get("runtime"), "config.runtime", allow_none=True)

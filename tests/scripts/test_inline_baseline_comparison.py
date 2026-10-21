@@ -47,3 +47,15 @@ def test_comparison_includes_p99_only_when_both_reports_support_it() -> None:
     after["groups"][0]["stage_latency"]["stop_to_terminal"]["p99_ms"] = 120
 
     assert compare(before, after)["groups"][0]["stage_deltas"]["stop_to_terminal"]["p99_delta_ms"] == -20
+
+
+def test_release_budget_requires_twenty_samples_of_both_frozen_intervals():
+    before, after = report("same", 100), report("same", 100)
+    assert compare(before, after)["p95_regression_passed"] is False
+    for item in (before, after):
+        item["groups"][0]["stage_latency"] = {stage: {"count": 20, "p95_ms": 100} for stage in ("first_press_to_first_frame", "stop_to_dispatch")}
+    assert compare(before, after)["p95_regression_passed"] is True
+    after["groups"][0]["stage_latency"]["stop_to_dispatch"]["p95_ms"] = 110.1
+    assert compare(before, after)["p95_regression_passed"] is False
+    after["groups"][0]["stage_latency"]["stop_to_dispatch"] = {"count": 19, "p95_ms": 90}
+    assert compare(before, after)["p95_regression_passed"] is False

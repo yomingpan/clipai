@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import inspect
+import pytest
 from dataclasses import replace
 
 from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelInlineDictation, CloseSession, ConfirmInlineDictation, ControlSurfaceActivated, ControlSurfaceReleased, CopyResult, FollowUp, NavigateWorkflowBack, PasteResult, RefineVoiceDraftInPlace, RegenerateResult, StartPopupVoiceCapture, StopVoiceCapture, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, WorkflowAttentionCompleted
@@ -34,122 +35,14 @@ def test_late_inline_refinement_cannot_close_a_newer_window() -> None:
     assert presenter._window is window
 
 
-def test_new_inline_interaction_retires_the_old_failure_notice(monkeypatch) -> None:
-    import ClipAI.ui.inline_dictation_owner as result_dialog
-
-    windows = []
-
-    class Window:
-        def __init__(self, _root, **kwargs) -> None:
-            self.interaction_id = kwargs["interaction_id"]
-            self.close_calls = []
-            windows.append(self)
-
-        def show(self) -> None:
-            pass
-
-        def close(self, **kwargs) -> None:
-            self.close_calls.append(kwargs)
-
-    monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
-    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None, native_window_surface=object())
-
-    presenter.open_inline_dictation("old")
-    presenter.close_inline_dictation(flash_failure=True, message="timed out", interaction_id="old")
-    assert presenter._window is windows[0]
-    assert windows[0].close_calls == [{"flash_failure": True, "message": "timed out"}]
-
-    presenter.open_inline_dictation("new")
-    assert windows[0].close_calls[-1] == {}
-    assert presenter._window is windows[1]
-    presenter.close_inline_dictation(interaction_id="old")
-    assert windows[1].close_calls == []
 
 
-def test_inline_result_only_updates_the_matching_interaction_window() -> None:
-    class Window:
-        interaction_id = "inline-new"
-
-        def __init__(self) -> None:
-            self.results = []
-
-        def show_paste_outcome(self, outcome, text) -> None:
-            self.results.append((outcome, text))
-
-    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None)
-    window = Window()
-    presenter._window = window
-    outcome = PasteOutcome("failed", "not_dispatched", "not_required")
-
-    presenter.present_inline_paste_outcome("inline-old", outcome, "old text")
-    presenter.present_inline_paste_outcome("inline-new", outcome, "new text")
-
-    assert window.results == [(outcome, "new text")]
 
 
-def test_inline_choice_only_updates_the_matching_interaction_window() -> None:
-    class Window:
-        interaction_id = "inline-new"
-
-        def __init__(self) -> None:
-            self.choices = []
-
-        def present_choice(self, text, allow_refine, message) -> None:
-            self.choices.append((text, allow_refine, message))
-
-    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None)
-    window = Window()
-    presenter._window = window
-
-    presenter.present_inline_choice("inline-old", "old text")
-    presenter.present_inline_choice("inline-new", "new text", False, "recover")
-
-    assert window.choices == [("new text", False, "recover")]
 
 
-def test_inline_dictation_receives_the_presenters_native_window_surface(monkeypatch) -> None:
-    import ClipAI.ui.inline_dictation_owner as result_dialog
-
-    created: list[tuple[object, str]] = []
-
-    class Window:
-        def __init__(self, _root, **kwargs) -> None:
-            created.append((kwargs["native_window_surface"], kwargs["interaction_id"]))
-
-        def show(self) -> None:
-            pass
-
-    monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
-    presenter = InlineDictationInterfaceOwner(object(), lambda _command: None, native_window_surface=object())
-
-    presenter.open_inline_dictation("inline-1")
-
-    assert created == [(presenter._native_window_surface, "inline-1")]
 
 
-def test_inline_view_callbacks_keep_the_interaction_that_created_them(monkeypatch) -> None:
-    import ClipAI.ui.inline_dictation_owner as result_dialog
-
-    callbacks = {}
-
-    class Window:
-        def __init__(self, _root, **kwargs) -> None:
-            callbacks[kwargs["interaction_id"]] = kwargs
-
-        def show(self) -> None:
-            pass
-
-    monkeypatch.setattr(result_dialog, "InlineDictationWindow", Window)
-    commands = []
-    presenter = InlineDictationInterfaceOwner(object(), commands.append, native_window_surface=object())
-
-    presenter.open_inline_dictation("old")
-    presenter._window = None
-    presenter.open_inline_dictation("new")
-    callbacks["old"]["on_confirm"](True)
-    callbacks["old"]["on_cancel"]()
-
-    assert commands == [ConfirmInlineDictation("old", True), CancelInlineDictation("old")]
 
 
 def test_voice_waveform_uses_canvas_and_packs_after_right_anchors() -> None:
@@ -297,96 +190,8 @@ def test_voice_waveform_font_uses_scaled_negative_pixel_size_and_is_cached(monke
     assert created[0]["size"] == -15
 
 
-def test_voice_waveform_line_ends_before_the_measured_status_word() -> None:
-    class Font:
-        def measure(self, word: str) -> int:
-            assert word == "聆聽"
-            return 30
-
-    class Indicator:
-        BASE_WIDTH = 82
-        BASE_HEIGHT = 22
-
-        def _widget_scaling(self) -> float:
-            return 1.5
-
-        def _scaled_font(self, _scaling: float) -> Font:
-            return Font()
-
-        def _colors(self):
-            return "pill", "line", "word"
-
-        def configure(self, **kwargs) -> None:
-            self.configured = kwargs
-
-        def delete(self, _tag: str) -> None:
-            pass
-
-        def _draw_rounded_pill(self, *_args) -> None:
-            pass
-
-        def create_text(self, *_args, **_kwargs) -> None:
-            pass
-
-        def create_line(self, *points, **_kwargs) -> None:
-            self.points = points
-
-    indicator = Indicator()
-    indicator._word = "聆聽"
-    indicator._amplitude = 0.7
-    indicator._phase = 0.0
-
-    _VoiceWaveIndicator._render(indicator)
-
-    width = round(82 * 1.5)
-    padding = 7.0 * 1.5
-    measured_line_right = width - padding - 30 - padding
-    x_coordinates = indicator.points[0::2]
-    assert max(x_coordinates) <= measured_line_right
 
 
-def test_voice_waveform_uses_a_compact_minutes_and_seconds_countdown() -> None:
-    rendered: list[str] = []
-
-    class Font:
-        def measure(self, word: str) -> int:
-            return len(word)
-
-    class Indicator:
-        BASE_WIDTH = 82
-        BASE_HEIGHT = 22
-        _countdown_seconds = 90
-        _word = "聆聽"
-        _amplitude = 0.0
-        _phase = 0.0
-
-        def _widget_scaling(self) -> float:
-            return 1.0
-
-        def _scaled_font(self, _scaling: float) -> Font:
-            return Font()
-
-        def _colors(self):
-            return "pill", "line", "word"
-
-        def configure(self, **kwargs) -> None:
-            pass
-
-        def delete(self, _tag: str) -> None:
-            pass
-
-        def _draw_rounded_pill(self, *_args, **_kwargs) -> None:
-            pass
-
-        def create_text(self, *_args, **kwargs) -> None:
-            rendered.append(kwargs["text"])
-
-        def create_line(self, *_args, **_kwargs) -> None:
-            pass
-
-    _VoiceWaveIndicator._render(Indicator())
-
-    assert rendered == ["1:30"]
 
 
 class Root:
@@ -2366,3 +2171,38 @@ def test_input_reading_popup_renders_before_show_and_does_not_request_focus():
     presenter._apply(SessionSnapshot("s1", 1, SessionStatus.READING_INPUT, "a", "Action", "model", status_text="Reading input"))
     assert ("focus", False) in events
     assert events.index(("loading", "Reading input")) < events.index(("visibility", "visible_no_activate"))
+
+
+@pytest.mark.parametrize("available", [False, True])
+def test_recovery_requests_focus_only_when_clipboard_choice_is_available(available):
+    from tests.ui.test_input_recovery import recovery_snapshot
+    from ClipAI.core.models import PreparedInput, SelectionCaptureOutcome
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    snapshot = replace(recovery_snapshot(), session_id="s1")
+    if not available:
+        snapshot = replace(snapshot, input_recovery=replace(snapshot.input_recovery, prepared=PreparedInput(selection_outcome=SelectionCaptureOutcome(reason="unsupported"))))
+    view.last_snapshot = replace(snapshot, revision=1, status=SessionStatus.READING_INPUT, input_recovery=None)
+    view.dialog.lifecycle.schedule = lambda delay, callback: None
+    presenter._schedule_initial_focus = lambda *_args: events.append("recovery-focus")
+    presenter._apply(snapshot)
+    assert ("recovery-focus" in events) is available
+
+
+@pytest.mark.parametrize("focused, pinned, stale, expires", [(False, False, False, True), (True, False, False, False), (False, True, False, False), (False, False, True, False)])
+def test_recovery_expiry_is_guarded_by_focus_pin_and_identity(focused, pinned, stale, expires):
+    from types import SimpleNamespace
+    from tests.ui.test_input_recovery import recovery_snapshot
+    from ClipAI.core.commands import ExpireInputRecovery
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    jobs = []
+    view.dialog.lifecycle.schedule = lambda delay, callback: jobs.append((delay, callback))
+    snapshot = replace(recovery_snapshot(), session_id="s1", pinned=pinned)
+    presenter._apply(snapshot)
+    view.popup_control = SimpleNamespace(focused_inside=focused)
+    if stale:
+        view.last_snapshot = replace(snapshot, input_recovery=replace(snapshot.input_recovery, recovery_id="new"))
+    expiry = next(callback for delay, callback in jobs if delay == 15000)
+    expiry()
+    assert (ExpireInputRecovery("s1", "choice") in events) is expires

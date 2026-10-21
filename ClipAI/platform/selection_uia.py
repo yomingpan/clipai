@@ -61,12 +61,15 @@ class WindowsSelectionProbe:
         timeout_sec: float = 2.0,
         max_requests_per_worker: int = 64,
         process_factory=subprocess.Popen,
+        standby: bool = False,
     ) -> None:
         self._timeout_sec = timeout_sec
         self._max_requests_per_worker = max_requests_per_worker
         self._process_factory = process_factory
         self._owned_lock = threading.Lock()
-        self._lifecycle_lock = threading.Lock()
+        self._lifecycle_lock = threading.RLock()
+        self._standby_enabled = standby
+        self._standby_worker: _WorkerProcess | None = None
         self._stopped = threading.Event()
         self._workers: set[_WorkerProcess] = set()
         self._owned_worker: _WorkerProcess | None = None
@@ -74,12 +77,27 @@ class WindowsSelectionProbe:
         self._owned_requests = 0
 
     def start(self) -> None:
-        """Workers are source-bound and therefore start lazily on first use."""
+        """Start at most one unbound worker when composition enables standby."""
+        self._replenish_standby()
+
+    def _replenish_standby(self) -> None:
+        with self._lifecycle_lock:
+            if self._standby_enabled and not self._stopped.is_set() and self._standby_worker is None:
+                self._standby_worker = self._start_worker(prewarm=True)
+
+    def _take_standby(self) -> _WorkerProcess | None:
+        with self._lifecycle_lock:
+            worker, self._standby_worker = self._standby_worker, None
+        if worker is not None and not worker.is_usable():
+            self._retire_worker(worker)
+            return None
+        return worker
 
     def stop(self) -> None:
         deadline = time.monotonic() + 2.0
         with self._lifecycle_lock:
             self._stopped.set()
+            self._standby_worker = None
             workers = tuple(self._workers)
         # Initiate every cleanup before waiting: the budget is container-wide.
         for worker in workers:
@@ -103,12 +121,15 @@ class WindowsSelectionProbe:
     def probe(self, source: SelectionSource, cancellation: CancellationToken | None) -> SelectionCaptureOutcome:
         if self._stopped.is_set() or (cancellation is not None and cancellation.is_cancelled):
             return SelectionCaptureOutcome(status="cancelled", strategy="uia")
-        if self._owned_lock.acquire(blocking=False):
-            try:
-                return self._probe_owned(source, cancellation)
-            finally:
-                self._owned_lock.release()
-        return self._probe_overflow(source, cancellation)
+        try:
+            if self._owned_lock.acquire(blocking=False):
+                try:
+                    return self._probe_owned(source, cancellation)
+                finally:
+                    self._owned_lock.release()
+            return self._probe_overflow(source, cancellation)
+        finally:
+            self._replenish_standby()
 
     def _probe_owned(
         self,
@@ -120,7 +141,7 @@ class WindowsSelectionProbe:
             self._retire_owned()
         if self._owned_worker is None:
             try:
-                self._owned_worker = self._start_worker()
+                self._owned_worker = self._take_standby() or self._start_worker()
                 self._owned_source = source_key
                 self._owned_requests = 0
             except Exception:
@@ -157,11 +178,11 @@ class WindowsSelectionProbe:
             if worker is not None:
                 self._retire_worker(worker)
 
-    def _start_worker(self) -> _WorkerProcess:
+    def _start_worker(self, *, prewarm: bool = False) -> _WorkerProcess:
         with self._lifecycle_lock:
             if self._stopped.is_set():
                 raise RuntimeError("Selection probe is stopped")
-            worker = _WorkerProcess(self._launch_process)
+            worker = _WorkerProcess(self._launch_process, prewarm=prewarm)
             self._workers.add(worker)
             return worker
 
@@ -209,9 +230,12 @@ def _request_payload(source: SelectionSource) -> str:
 class _WorkerProcess:
     """Contain launch, blocking pipes and retirement behind bounded waits."""
 
-    def __init__(self, launch) -> None:
+    def __init__(self, launch, *, prewarm: bool = False) -> None:
         self._process: Any = None
+        self._launched = threading.Event()
         self._ready = threading.Event()
+        self._prewarm = prewarm
+        self._uia_ready = False
         self._retiring = threading.Event()
         self._retired = threading.Event()
         self._retirement_lock = threading.Lock()
@@ -220,12 +244,29 @@ class _WorkerProcess:
         def guarded_start() -> None:
             try:
                 self._process = launch()
+                self._launched.set()
+                if prewarm and not self._retiring.is_set():
+                    self._process.stdin.write('{"warmup":true}\n')
+                    self._process.stdin.flush()
+                    payload = json.loads(self._process.stdout.readline())
+                    self._uia_ready = payload.get("uia_ready") is True
             except Exception:
                 pass  # request reports unavailable; no native details escape.
             finally:
+                self._launched.set()
                 self._ready.set()
 
         threading.Thread(target=guarded_start, daemon=True).start()
+
+    def is_usable(self) -> bool:
+        if self._retiring.is_set() or not self._ready.wait(0.02):
+            return False
+        if self._prewarm and not self._uia_ready:
+            return False
+        try:
+            return self._process is not None and self._process.poll() is None
+        except (OSError, ValueError):
+            return False
 
     def request(
         self,
@@ -306,7 +347,7 @@ class _WorkerProcess:
 
     def _cleanup(self) -> None:
         # A slow launch remains owned even after stop reports its deadline.
-        self._ready.wait()
+        self._launched.wait()
         process = self._process
         if process is None:
             self._retired.set()
@@ -323,10 +364,9 @@ class _WorkerProcess:
         closer = threading.Thread(target=close_input, daemon=True)
         closer.start()
         try:
-            try:
-                process.wait(timeout=0.2)
-            except subprocess.TimeoutExpired:
-                pass
+            # This owned process only reads UIA. Waiting for CLR shutdown here
+            # used to add 200 ms to every new-source capture before the ready
+            # standby could be used. Terminate, then reap within the same budget.
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=1.0)

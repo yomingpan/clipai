@@ -1,8 +1,8 @@
 """Observe a controlled Inline window on the real desktop without saving pixels.
 
-The probe samples an 8x8 patch of the window's known background after the
-production Tk surface is shown. Latency is an observer upper bound, not the
-exact first-pixel time or physical shortcut response.
+The probe samples an 8x8 body patch and compares fractional-alpha edge pixels
+against the raster over a controlled light background. Latency is an observer
+upper bound, not exact first-pixel time or physical shortcut response.
 """
 
 from __future__ import annotations
@@ -16,15 +16,20 @@ import statistics
 import time
 import tkinter as tk
 
-from PIL import ImageGrab
+from PIL import Image, ImageGrab
 
 from ClipAI.platform.display import WindowsDisplayMetricsReader
 from ClipAI.platform.native_window import WindowsNativeWindowSurface
 from ClipAI.support.statistics import percentile
-from ClipAI.ui.inline_dictation import InlineDictationWindow, _clamp_inline_position
+from ClipAI.ui.inline_pill import InlinePill, resolve_pill_layout
+from ClipAI.ui.raster_resources import TkRasterResources
+from ClipAI.ui.voice_visuals import BODY
+from ClipAI.ui import voice_visuals
+from ClipAI.core.voice import InlineDictationView
+from PIL import ImageColor
 
 
-BACKGROUND = (32, 39, 43)
+BACKGROUND = ImageColor.getrgb(BODY)
 PATCH_SIZE = 8
 PRESENCE_PIXELS = 56
 AMBIGUOUS_PIXELS = 16
@@ -32,6 +37,52 @@ AMBIGUOUS_PIXELS = 16
 
 class ScreenCaptureUnavailable(RuntimeError):
     pass
+
+
+def count_black_fringe(mask, expected, observed) -> tuple[int, int]:
+    edges = failures = 0
+    for alpha, wanted, actual in zip(mask.getchannel("A").getdata(), expected.convert("RGB").getdata(), observed.convert("RGB").getdata()):
+        if 0 < alpha < 255:
+            edges += 1
+            failures += sum(actual)+24 < sum(wanted)
+    return edges, failures
+
+
+def _measure_edges(root, native, metrics):
+    layout = resolve_pill_layout(metrics.current(), "bottom_center")
+    background = tk.Toplevel(root)
+    background.withdraw()
+    background.overrideredirect(True)
+    background.configure(bg="#D6E3EF")
+    background.geometry(f"{layout.width}x{layout.height}{layout.x:+d}{layout.y:+d}")
+    background.deiconify()
+    background.lift()
+    root.update()
+    from scripts.popup_first_frame_benchmark import _await_presented_frame
+    _await_presented_frame(background)
+    pill = InlinePill(root, interaction_id="pixel-edge", on_confirm=lambda _: None, on_cancel=lambda: None, native_window_surface=native, display_metrics=metrics)
+    try:
+        pill.show()
+        root.update()
+        _await_presented_frame(pill._window)
+        size = (round(voice_visuals.BASE_WIDTH*layout.scale), round(voice_visuals.BASE_HEIGHT*layout.scale))
+        x, y = layout.x+layout.pill_x, layout.y+layout.pill_y
+        observed = ImageGrab.grab(bbox=(x, y, x+size[0], y+size[1]), include_layered_windows=True).convert("RGB")
+        view = InlineDictationView("pixel-edge")
+        expected = voice_visuals.draw_pill(view, scale=layout.scale, backdrop=pill._backdrop.crop((layout.pill_x, layout.pill_y, layout.pill_x+size[0], layout.pill_y+size[1])))
+        white = voice_visuals.draw_pill(view, scale=layout.scale, backdrop=Image.new("RGB", size, "white"))
+        black = voice_visuals.draw_pill(view, scale=layout.scale, backdrop=Image.new("RGB", size, "black"))
+        mask = Image.new("RGBA", size)
+        mask.putdata([(0, 0, 0, 255-abs(w[0]-b[0])) for w, b in zip(white.getdata(), black.getdata())])
+        edges, failures = count_black_fringe(mask, expected, observed)
+        return {"edge_pixels_checked": edges, "black_fringe_pixels": failures, "edge_passed": edges > 0 and failures == 0,
+                "body_pixels_observed": sum(p == BACKGROUND for p in observed.getdata()),
+                "matching_pixels": sum(a == b for a, b in zip(expected.getdata(), observed.getdata())),
+                "geometry_matches": (pill._window.winfo_rootx(), pill._window.winfo_rooty()) == (layout.x, layout.y)}
+    finally:
+        pill.close()
+        background.destroy()
+        root.update()
 
 
 class FixedCursorMetricsReader:
@@ -79,25 +130,23 @@ def measure(iterations: int, timeout_seconds: float) -> dict[str, object]:
     native = WindowsNativeWindowSurface()
     root = tk.Tk()
     root.withdraw()
+    raster_resources = TkRasterResources(root)
     durations: dict[str, list[float]] = {"minimal": [], "choice": []}
     grab_durations: list[float] = []
     observed_samples: list[int] = []
     failures: list[dict[str, object]] = []
+    edge_result = {}
     try:
         for mode in ("minimal", "choice"):
             for iteration in range(iterations):
-                window = InlineDictationWindow(
-                    root, mode=mode, interaction_id=f"pixel-probe-{mode}-{iteration}",
+                window = InlinePill(
+                    root, interaction_id=f"pixel-probe-{mode}-{iteration}",
                     on_confirm=lambda _refine: None, on_cancel=lambda: None,
                     native_window_surface=native, display_metrics=metrics,
                 )
                 try:
-                    window._place()
-                    x, y = _clamp_inline_position(
-                        metrics.current(),
-                        window._window.winfo_reqwidth(),
-                        window._window.winfo_reqheight(),
-                    )
+                    layout = resolve_pill_layout(metrics.current(), "bottom_center")
+                    x, y = layout.x+layout.pill_x+round(32*layout.scale), layout.y+layout.pill_y
                     before = _background_pixels(x, y)
                     if before > AMBIGUOUS_PIXELS:
                         failures.append({"mode": mode, "iteration": iteration, "reason": "background_ambiguous"})
@@ -106,7 +155,7 @@ def measure(iterations: int, timeout_seconds: float) -> dict[str, object]:
                     window.show()
                     root.update()
                     actual_position = (window._window.winfo_rootx(), window._window.winfo_rooty())
-                    if actual_position != (x, y):
+                    if actual_position != (layout.x, layout.y):
                         failures.append({"mode": mode, "iteration": iteration, "reason": "position_mismatch"})
                         continue
                     samples = 0
@@ -133,7 +182,9 @@ def measure(iterations: int, timeout_seconds: float) -> dict[str, object]:
                 finally:
                     window.close()
                     root.update()
+        edge_result = _measure_edges(root, native, metrics)
     finally:
+        raster_resources.close()
         root.destroy()
     expected = iterations * 2
     observed = sum(map(len, durations.values()))
@@ -141,7 +192,8 @@ def measure(iterations: int, timeout_seconds: float) -> dict[str, object]:
         "schema_version": 1,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "scope": "controlled_inline_onscreen_pixel_presence",
-        "status": _verdict(expected, observed, failures),
+        "status": _verdict(expected, observed, failures) if edge_result["edge_passed"] else "fail",
+        **edge_result,
         "iterations_per_mode": iterations,
         "observed_runs": observed,
         "pixel_presence_upper_bound_ms": {
@@ -154,7 +206,7 @@ def measure(iterations: int, timeout_seconds: float) -> dict[str, object]:
         } if observed_samples else None,
         "failures": failures,
         "pixel_data_saved": False,
-        "limits": "8x8 background patch only; fixed controlled window position; screen-capture sampling delay included; no physical HID, microphone, Provider, Paste, or target insertion.",
+        "limits": "8x8 body patch plus fractional-alpha edges on controlled light background; sampling delay included; no physical HID, microphone, Provider, Paste, or target insertion.",
     }
 
 

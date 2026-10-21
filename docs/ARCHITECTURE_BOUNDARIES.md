@@ -36,6 +36,18 @@ tests/              # Unit sims 與 integration tests
 - `Ctrl+Alt+R`「問這段」使用獨立 typed intent，不是 YAML Action。其 selection/clipboard source snapshot、capture identity、首次問題等待狀態與後續 step history 由既有 `WorkflowController` 擁有；首次送出前不得建立 provider invocation。來源擷取重用既有 `InputResolver` 與 container-scoped `ClipboardTransactionCoordinator`，不得建立平行 clipboard owner。
 - `ProviderExecutionModule` 是 provider async HTTP task、transport cancellation、settlement、shared connection pool 與 transport shutdown 的唯一 owner。Provider networking 不得占用 `TaskSupervisor`；`TaskSupervisor` 只執行非 provider 的 blocking work。
 - Hotkey callback 只能 enqueue command；worker 不得直接碰 Tkinter。
+- `InterruptionRuntimeModule` 是 current / all / CloseSession 政策順序的唯一 owner；
+  `AppRuntime` 只 dispatch。current 依序為 Panel、Inline、無 focused surface 時的
+  pending shortcut、focused/latest operation、未釘選 Popup；all 跳過 Panel。
+  CloseSession 固定先 release user control，再 voice、output、workflow。
+  依據：`tests/app/test_runtime_interruption.py` 與
+  [ADR-0022](adr/0022-right-alt-inline-pill-and-input-recovery.md)。
+- Inline 語意生命週期與 frozen view 只有 `VoiceInputController` 一個 owner；
+  runtime 原樣轉送 view，UI owner 管 interaction/view lease，Pill 只 render。
+  `TkRasterResources` 僅持有 root-scoped 的固定像素圖形資源；static raster cache
+  不含內容或背景。不得以圖形資源快取建立另一個 interaction registry。
+  依據：`tests/services/test_inline_dictation_view.py`、`tests/ui/test_inline_pill.py`
+  與 `tests/architecture/test_voice_visuals_contract.py`。
 - 同一時間最多一個 visible Workflow 擁有主要 Popup surface。PIN 會保留並占用該 surface；新的 visible Action 必須重用既有 pinned Workflow 與同一個 Popup，不得建立第二個 surface，也不得要求使用者先取消 PIN。未 pin Workflow 才可被非 contextual Action 取代；被取代或取消的 invocation 晚到時，必須依 Workflow ID、active invocation ID 與 cancellation token 丟棄。Workflow snapshot revision 只用於拒絕過時的 UI projection，不得代替 operation identity。
 - `app/container.py` 負責 assembly；需要在 runtime reload 或設定變更後重建的 concrete dependency，可由 focused app composition adapter 建立並透過 typed backend contract 注入 services。
 - 只有 composition root 可以讀取 API key environment variables；provider 只接收已解析且不可洩漏的 credential。

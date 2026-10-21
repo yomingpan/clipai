@@ -8,7 +8,27 @@ from ClipAI.platform.user_preferences import JsonUserPreferencesStore
 
 def test_preferences_default_disabled_when_file_is_missing(tmp_path) -> None:
     store = JsonUserPreferencesStore(tmp_path / "preferences.json")
-    assert store.load() == UserPreferences()
+    assert store.load() == UserPreferences(inline_input_mode="minimal")
+    assert UserPreferences().inline_input_mode == "choice"
+
+
+def test_corrupt_preferences_keep_legacy_choice_default(tmp_path) -> None:
+    path = tmp_path / "preferences.json"
+    path.write_text("{corrupt", encoding="utf-8")
+    assert JsonUserPreferencesStore(path).load() == UserPreferences()
+
+
+def test_numeric_migration_count_round_trips_and_legacy_file_starts_at_zero(tmp_path):
+    path = tmp_path / "prefs.json"
+    store = JsonUserPreferencesStore(path)
+    store.save(UserPreferences(entry_numeric_hint_count=4, inline_input_mode="minimal"))
+    assert store.load().entry_numeric_hint_count == 4
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["schema_version"] = 8
+    payload.pop("entry_numeric_hint_count")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert store.load().entry_numeric_hint_count == 0
+    assert store.load().inline_input_mode == "minimal"
 
 
 def test_preferences_round_trip_with_schema_and_no_temporary_file(tmp_path) -> None:
@@ -21,7 +41,7 @@ def test_preferences_round_trip_with_schema_and_no_temporary_file(tmp_path) -> N
     assert store.load() == expected
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload == {
-        "schema_version": 8,
+        "schema_version": 9,
         "first_use_hints_enabled": False,
         "seen_action_ids": ["shorten", "translate"],
         "speech_speed": "fast",
@@ -31,6 +51,7 @@ def test_preferences_round_trip_with_schema_and_no_temporary_file(tmp_path) -> N
         "inline_input_mode": "choice",
         "inline_dictation_placement": "bottom_center",
         "popup_placement": "bottom_center",
+        "entry_numeric_hint_count": 0,
     }
     assert list(path.parent.glob("*.tmp")) == []
 

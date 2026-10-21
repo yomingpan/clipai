@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Callable
 
 # Tk's ``word`` wrapping on Windows only treats ASCII whitespace as a reliable
 # break. Invisible separators make that space reversible in canonical text.
@@ -13,6 +14,29 @@ _ASCII_TOKEN = frozenset("._-:/?&=#%@+~")
 _OPENING_PUNCTUATION = frozenset("([{<（〔［｛〈《「『【〖")
 _CLOSING_PUNCTUATION = frozenset(")]}>）〕］｝〉》」』、】【〗、，。！？；：")
 _LATIN_ISLAND = re.compile(r"[A-Za-z0-9]+(?:[ \t]+[A-Za-z0-9]+)*")
+
+
+def fit_tile_title(text: str, *, width: float, measure: Callable[[str], float]) -> str:
+    """Fit display copy into two measured lines without changing canonical text."""
+    clusters: list[str] = []
+    for char in text.replace("\n", " "):
+        if clusters and _joins_grapheme(clusters[-1][-1], char):
+            clusters[-1] += char
+        else:
+            clusters.append(char)
+    lines = []
+    for index in range(2):
+        remaining = "".join(clusters)
+        if measure(remaining) <= width:
+            lines.append(remaining)
+            break
+        suffix = "…" if index else ""
+        count = 0
+        while count < len(clusters) and measure("".join(clusters[:count+1])+suffix) <= width:
+            count += 1
+        lines.append("".join(clusters[:count]).rstrip()+suffix)
+        clusters = clusters[count:]
+    return "\n".join(lines)
 
 
 def strip_display_break_hints(text: str) -> str:

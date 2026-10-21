@@ -267,7 +267,16 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 - Recovery 保留原 Workflow 的 provider binding 與 Action variant。15 秒 expiry
   只關閉 matching、未聚焦、未 pin 的等待視窗，不得關閉已接續的 Action。
 - `tests/ui/test_input_recovery.py -m integration` 驗證真實 Tk 按鈕 pending、
-  唯讀內容與同一 surface 的 recovery → request 投影。
+  唯讀內容、真實 Return press/release 與同一 surface 的 recovery → request 投影。
+- `tests/ui/test_keyboard_confirm_gate.py` 鎖住 300 ms settle、held-elsewhere、
+  auto-repeat、modifier、失焦、隱藏選項與每 recovery 最多一次；
+  `tests/ui/test_result_dialog.py` 鎖住只有 CREATED/READING_INPUT →
+  AWAITING_INPUT_CHOICE 且有 clipboard choice 才 request focus。
+- Held-elsewhere 的真實模式不得先呼叫 gate.press 假裝外部事件能送到 Popup。
+  聚焦時透過注入的 `KeyboardStateReader` 取樣 held／unknown，等超過 settle
+  才送第一個 repeat，再 release；兩者不得確認，下一次 fresh press/release 才可。
+  `test_input_recovery.py` 以真實 Tk focus/Return 路徑驗證四個 integration 案例，
+  `test_keyboard_state.py` 驗證共用平台 adapter 的 VK_RETURN 映射。
 
 - 直接 Shortcut 的外部 text-capable Action 在 trigger time 擷取 selection；Unified
   Entry Panel 則在 Panel open intent 凍結 selection／clipboard，Action 選取不得
@@ -320,7 +329,7 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
   取樣目標行程全部 visible top-level windows；每個候選策略至少四次，記錄
   samples、visible frames、opaque frames 與最終 layered/visibility 狀態。
 
-### Inline Dictation 端到端量測（規劃中）
+### Inline Dictation 受控量測與目前範圍
 
 固定驗證可執行 `python scripts/run_inline_dictation_validation.py --output-dir artifacts/inline-validation-<run>`；互動式 Windows 桌面另加 `--tk --webview`。腳本輸出 JUnit XML 與不含口述內容的 `manifest.json`，將快速模擬、Tk 視窗與 WebView2 分層。Tk 層使用 pytest 的 `sys` capture，避免 Windows 上 Tcl 讀取 `init.tcl` 受 FD capture 影響；manifest 記錄各層的 capture 模式。桌面層的 pytest 暫存放在 `%LOCALAPPDATA%/ClipAI/InlineValidation`；WebView2 profile 與測試頁面另外建立在 `%LOCALAPPDATA%/ClipAI/InlineValidationProfiles`，繼承目錄 ACL，避免 pytest 的受限 `tmp_path` 權限阻止瀏覽器子行程使用 profile。必要桌面案例若因無法取得 foreground 而 skip，該層標為 `blocked`，不能由其餘 Tk 通過案例推論焦點已驗證。自動化多目標矩陣、獨立實體快捷鍵／音源觀察及裝置基線維持 `not_covered` 或 `blocked`。模擬與 pytest 時間不可當成裝置延遲。
 
@@ -333,12 +342,47 @@ conditional restoration 與 external clipboard change；它驗證 adapter seam�
 已有受控桌面的內容安全日誌後，可執行 `python scripts/report_inline_dictation_baseline.py <log> --device-cohort <cohort> --evidence controlled_desktop --output <report.json>` 彙整單調時鐘的階段間隔。報表按模式、原文／潤稿與終態分組，缺少終態時記為 `not_observable`；應由外部 observer 補上實際畫面與受控目標讀回，不能由 ClipAI 日誌推論文字已插入。
 同一裝置與條件下的兩份報表可用 `python scripts/compare_inline_dictation_baselines.py <before.json> <after.json> --output <comparison.json>` 比較；工具拒絕模擬時鐘與不同裝置分組，並保留樣本數與終態分布。
 
-`Ctrl+Alt+M` 的階段、指標、裝置矩陣、隱私界線與工具順序見
+Inline 的階段、指標、裝置矩陣、隱私界線與工具順序見
 [`docs/specs/inline-dictation-measurement-plan.md`](specs/inline-dictation-measurement-plan.md)。
 可重播使用者旅程、故障注入、受控桌面目標與發版 gate 見
 [`docs/specs/inline-dictation-autonomous-validation-plan.md`](specs/inline-dictation-autonomous-validation-plan.md)。
-目前沒有已驗證的 Inline Dictation 裝置延遲基線或發版門檻；PTT 的 Voice V1
-目標不可直接當作 Inline Dictation 的量測結果。
+Right Alt 的本機 Minimal/raw/zh-TW/controlled-Tk cohort 已有 S0 與 S8 各 20 次
+唯一貼上配對：first-frame p95 47 → 47 ms，stop→dispatch p95 547 → 516 ms。
+[S8 gate](../artifacts/mu-s8-release.jsonl) 與
+[比較](../artifacts/mu-s8-final-comparison.json) 保存實測。
+起點是 shortcut admission，畫面 observer 為 Tk viewable + DwmFlush；不能當作
+精確 HID 或像素時間，也不外推到 refine、其他裝置或 Teams。PTT 的 Voice V1
+目標不是這個 cohort 的量測結果。
+
+`scripts/mu_loop.ps1 -Step <step>` 在每一步跑 targeted、architecture、unit、
+selection policy gate，拒絕測試數下降或 content leak。S8 的最後程式回歸為
+535 / 64 / 2341 通過，另有 9 個真實 Tk integration；
+[ADR-0022](adr/0022-right-alt-inline-pill-and-input-recovery.md) 列出測試與桌面證據。
+測試中的 slot 字面值必須是最近 1–3／分類 4–7；root 0 只提示、不得產生 Action。
+右 Alt solo/chord/注入/滑鼠/mask/threshold 預覽由 platform 測試鎖住；
+guide practice 的 threshold 也必須留在同一 captured press 的 quarantine。
+trace stages、JSONL/報表欄位與實體提示不可單獨改名，應同步 golden/report/compare。
+視覺的 palette/status/spinner/copy 文案只由 voice_visuals golden 與架構測試維護。
+S9 補上 held-elsewhere 的聚焦鍵狀態快照後，最終回歸為 547 / 64 / 2343，
+recovery integration 4 個通過；見 [最終 gate](../artifacts/mu-final-release.jsonl)
+與 [組裝啟停 smoke](../artifacts/mu-s9-composition-smoke.json)。
+
+桌面工具依序執行，不與單元測試或另一個桌面工具同時跑：
+
+1. `probe_inline_pill_focus.py`：實體點擊 Notepad/Word/Edge textarea 的 ✓/✦，
+   要求 6/6 show/click foreground、focused control、intent 全通過。
+2. `probe_inline_pixel_presence.py`：實際桌面 body 與 fractional-alpha 邊緣，
+   黑邊必須為 0；圖片僅在記憶體。樣本須先完成 Tk 映射再讀取。
+3. `probe_uia_standby.py --standby on|off --cases 50`：交替 owned source；
+   on 要求 p50≤300、p95≤1000 ms、>1000≤2%、unknown_as_none=0，
+   worker 最多 2、private≤60 MB、stop 後 0。off 是對照，可能不通過 on 的延遲預算。
+4. `run_inline_measurement_app.py` 配合受控 target 與實體快捷鍵；report/compare
+   要求同 cohort、兩個固定 interval 各至少 20 次、p95 退化≤10%，並另驗證貼上配對。
+
+快速連續顯示會低估 idle 後的成本，presentation microbenchmark 預設每輪停
+250 ms，仍不能取代第四步。Tk 映射可更換 native wrapper，必須驗證後續事件
+後 WS_EX_NOACTIVATE 仍在；僅測 show 保留焦點不足以證明 click 不搶焦點。
+上述回歸由 `tests/ui/test_inline_pill.py` 與 S8 focus probe 覆蓋。
 
 - 以同一個非 Workflow interaction identity 串起快捷鍵、capture、choice、
   provider invocation、Paste Operation 與終端顯示；各 operation identity 仍獨立。
@@ -417,7 +461,7 @@ Recipe 回饋與使用引導應測：
   提示原地更新、card 不重建與 Esc close intent。公司負載下的實際延遲仍需以
   activation/capture/confirmation elapsed_ms 分段日誌驗證。
 
-- Catalog tests 以 PRD literal 驗證 `0`–`2` recent、`3`–`6` root category、
+- Catalog tests 以 PRD literal 驗證 `1`–`3` recent、`4`–`7` root category、
   `1`–`4` flagship 與 More 無數字；未知 Action/press type、重複候選、重複 slot、
   多於四個 flagship 與未知欄位都必須 fail closed。
 - Language Pack tests 必須驗證每個 canonical `action_id + press_type` 都有 exact、

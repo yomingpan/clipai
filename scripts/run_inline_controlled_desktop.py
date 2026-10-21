@@ -29,6 +29,14 @@ else:
     from verify_inline_controlled_target import verify
 
 
+def physical_shortcut_prompts(scenario: str) -> tuple[str, str]:
+    return ("單獨按一下實體右 Alt", {
+        "raw": "再單獨短按右 Alt，停止並貼上原文。",
+        "refine": "按住右 Alt 約一秒（看到 ✦ 亮起）",
+        "cancel": "請在錄音期間按 Esc 取消；不要手動貼上。",
+    }[scenario])
+
+
 ROOT = Path(__file__).resolve().parents[1]
 ESCAPE_HOTKEY_MARKER = "Escape interruption requested: current"
 
@@ -318,6 +326,7 @@ def main() -> int:
     parser.add_argument("--freeform", action="store_true", help="check nonempty stable insertion; optional --expected-text measures literal character error")
     parser.add_argument("--audio-file", type=Path, help="fixed WAV to play through speakers after capture starts")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--log", type=Path, help="process-isolated trace from run_inline_measurement_app; omit only for legacy diagnostics")
     parser.add_argument("--late-wait", type=float, default=3.0)
     args = parser.parse_args()
     if args.freeform and args.scenario == "cancel":
@@ -372,7 +381,7 @@ def main() -> int:
         print(f"Inline 模式不符：工作樹設定為 {saved_mode or '未知'}，命令指定 {args.mode}。請從 ClipAI Tray 選好模式後重試。", file=sys.stderr)
         print(report_path)
         return 2
-    app_log = ROOT / "logs" / "clipai.log"
+    app_log = args.log.resolve() if args.log is not None else ROOT / "logs" / "clipai.log"
     log_offset = app_log.stat().st_size if app_log.exists() else 0
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "scripts" / "inline_dictation_controlled_target.py"),
@@ -389,17 +398,12 @@ def main() -> int:
         _wait_record(events_path, "ready")
         print("受控文字框已開啟。請確認這個工作樹的 ClipAI 正在執行，並已從 Tray 選好模式。")
         print("本輪只做一次聽寫互動；完成後不要再次啟動聽寫或修改文字框／剪貼簿。")
-        print("按 Enter 後，請點選受控文字框，再以實體 Ctrl+Alt+M 開始聽寫。")
+        print("按 Enter 後，請點選受控文字框。")
+        first, stop = physical_shortcut_prompts(args.scenario)
+        print(first)
         spoken_prompt = "播放固定測試音檔" if audio_file else "說一段話" if args.freeform else "說出固定測試文字"
-        if args.scenario == "cancel":
-            print("請在錄音期間按 Esc 取消；不要手動貼上。")
-        elif args.scenario == "raw":
-            print(f"{spoken_prompt}後，以第二次短按停止；完整選擇模式還需明確選擇原文。")
-        else:
-            if args.mode == "minimal":
-                print(f"{spoken_prompt}後，第二次按住 Ctrl+Alt+M，讓 M 鍵本身保持按下約一秒，再放開並等待潤稿終態。")
-            else:
-                print(f"{spoken_prompt}後，以第二次短按停止，再於選擇視窗點選潤飾。")
+        print(spoken_prompt)
+        print(stop)
         input("準備好時按 Enter：")
         if not app_instance_is_running():
             _write_blocked_report(report_path, mode=args.mode, scenario=args.scenario,

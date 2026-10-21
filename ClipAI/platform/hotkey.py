@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from typing import Callable
 
-from ClipAI.core.hotkeys import GRAVE_KEY_ALIASES, GRAVE_KEY_TOKEN, canonicalize_hotkey, parse_hotkey_tokens
-from ClipAI.core.commands import EntryPanelDigitPressed, InterruptionRequested, OpenUnifiedEntryPanel, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted
+from ClipAI.core.hotkeys import GRAVE_KEY_ALIASES, GRAVE_KEY_TOKEN, RIGHT_ALT_TOKEN, canonicalize_hotkey, parse_hotkey_tokens
+from ClipAI.core.commands import EntryPanelDigitPressed, InterruptionRequested, OpenUnifiedEntryPanel, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShortcutPressThresholdReached
 from ClipAI.core.models import ModifierHoldId, ShortcutObservationSnapshot, ShortcutPressId, ShortcutPressRef
 from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_key_is_pressed
 from ClipAI.platform.keyboard_menu import mask_alt_menu
@@ -67,19 +68,16 @@ class _WindowsHotkeyEventFilter:
         dispatcher: _HotkeyDispatcher,
         mask_menu: Callable[[], None] = mask_alt_menu,
         *,
-        suppressible_m: bool = False,
         key_is_pressed: Callable[[str], bool | None] = windows_key_is_pressed,
         inline_escape_owner: Callable[[], bool] = lambda: False,
         popup_escape_owner: Callable[[], bool] = lambda: False,
     ) -> None:
         self._dispatcher = dispatcher
         self._mask_menu = mask_menu
-        self._suppressible_m = suppressible_m
         self._key_is_pressed = key_is_pressed
         self._inline_escape_owner = inline_escape_owner
         self._popup_escape_owner = popup_escape_owner
         self._listener = None
-        self._m_suppressed = False
         self._esc_suppressed = False
 
     def bind_listener(self, listener) -> None:
@@ -109,38 +107,23 @@ class _WindowsHotkeyEventFilter:
             elif message in (0x0101, 0x0105) and self._esc_suppressed:
                 self._esc_suppressed = False
                 self._suppress_trigger_event(message, vk)
-        if self._suppressible_m and vk == 0x4D:
-            if message in (0x0100, 0x0104):  # WM_KEYDOWN / WM_SYSKEYDOWN
-                if self._m_suppressed or (
-                    self._key_is_pressed("ctrl") is True
-                    and (
-                        self._key_is_pressed("alt") is True
-                        or bool(int(data.flags) & 0x20)  # LLKHF_ALTDOWN
-                    )
-                ):
-                    self._m_suppressed = True
-                    self._suppress_trigger_event(message, vk)
-            elif message in (0x0101, 0x0105) and self._m_suppressed:
-                self._m_suppressed = False
-                self._suppress_trigger_event(message, vk)
-        if (
-            message in (0x0101, 0x0105)  # WM_KEYUP / WM_SYSKEYUP
-            and int(data.vkCode) in (0x12, 0xA4, 0xA5)
-            and self._dispatcher.consume_entry_alt_release()
-        ):
-            try:
-                self._mask_menu()
-            except Exception:
-                # Never lose physical Alt-up or stop the hook on injection failure.
-                logger.warning("[clipai] Alt menu mask failed", exc_info=True)
+        if message in (0x0101, 0x0105) and vk in (0x12, 0xA4, 0xA5):
+            entry_claimed = self._dispatcher.consume_entry_alt_release()
+            solo_claimed = self._dispatcher.consume_solo_release() if vk == 0xA5 else False
+            if entry_claimed or solo_claimed:
+                try:
+                    self._mask_menu()
+                except Exception:
+                    # Never lose physical Alt-up or stop the hook on injection failure.
+                    logger.warning("[clipai] Alt menu mask failed", exc_info=True)
         return True
 
 
 def _normalize_key(key) -> str | None:
     name = getattr(key, "name", None)
     if name:
-        if name == "alt_gr":
-            return "altgr"
+        if name in {"alt_gr", "alt_r"}:
+            return RIGHT_ALT_TOKEN
         if name.startswith("alt"):
             return "alt"
         if name.startswith("shift"):
@@ -150,6 +133,8 @@ def _normalize_key(key) -> str | None:
         return str(name).lower()
 
     vk = getattr(key, "vk", None)
+    if vk == 0xA5:
+        return RIGHT_ALT_TOKEN
     if vk == _VK_OEM_3:
         return GRAVE_KEY_TOKEN
     if isinstance(vk, int):
@@ -212,6 +197,18 @@ class _ModifierHoldState:
     native_release_seen: bool = False
 
 
+@dataclass
+class _SoloPressState:
+    timer_generation: int
+    press_id: ShortcutPressId
+    shortcut_id: str
+    started_at: float
+    timer: threading.Timer | None = None
+    threshold_reached: bool = False
+    chorded: bool = False
+    native_released_at: float | None = None
+
+
 class _ShortcutObservationLease:
     def __init__(
         self,
@@ -265,25 +262,27 @@ class _HotkeyDispatcher:
         timer_factory: Callable[..., threading.Timer] = threading.Timer,
         diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
         key_is_pressed: Callable[[str], bool | None] | None = None,
-        suppressed_trigger_tokens: frozenset[str] = frozenset(),
         entry_panel_enabled: bool = False,
         entry_panel_hold_sec: float = ENTRY_PANEL_HOLD_SEC,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._hotkeys = [(shortcut_id, frozenset(tokens)) for shortcut_id, tokens in hotkeys]
+        self._solo_shortcut_id = next((sid for sid, tokens in self._hotkeys if tokens == {RIGHT_ALT_TOKEN}), None)
+        self._hotkeys = [(sid, tokens) for sid, tokens in self._hotkeys if tokens != {RIGHT_ALT_TOKEN}]
+        self._solo: _SoloPressState | None = None
+        self._clock = clock
         self._on_event = on_event
         self._long_press_sec = long_press_sec
         self._timer_factory = timer_factory
         self._diagnostics_enabled = diagnostics_enabled
         self._key_is_pressed = key_is_pressed
-        # A key consumed by the native hook may read as released through
-        # GetAsyncKeyState even while its physical press is still repeating.
-        self._suppressed_trigger_tokens = suppressed_trigger_tokens
         self._entry_panel_enabled = entry_panel_enabled
         self._entry_panel_hold_sec = entry_panel_hold_sec
         self._tracked_tokens = frozenset(
             {
                 *MODIFIER_KEYS,
                 "esc",
+                *({RIGHT_ALT_TOKEN} if self._solo_shortcut_id is not None else ()),
                 *(token for _, tokens in self._hotkeys for token in tokens),
                 *("0123456789" if entry_panel_enabled else ""),
                 *(_ENTRY_PANEL_CONFLICT_KEYS if entry_panel_enabled else ()),
@@ -300,6 +299,26 @@ class _HotkeyDispatcher:
         self._observers: set[int] = set()
         self._lock = threading.RLock()
         self._stopped = False
+
+    def _start_solo(self) -> None:
+        assert self._solo_shortcut_id is not None
+        self._timer_generation += 1
+        state = _SoloPressState(self._timer_generation, self._next_press_id(), self._solo_shortcut_id, self._clock())
+        self._solo = state
+        self._emit(ShortcutPressStarted(state.press_id, state.shortcut_id))
+
+        def preview() -> None:
+            with self._lock:
+                current = self._solo
+                if (self._stopped or current is not state or current.chorded
+                    or current.threshold_reached or current.native_released_at is not None):
+                    return
+                current.threshold_reached = True
+                self._emit(ShortcutPressThresholdReached(current.press_id, current.shortcut_id))
+
+        state.timer = self._timer_factory(self._long_press_sec, preview)
+        state.timer.daemon = True
+        state.timer.start()
 
     def _emit(self, event: ShortcutInputEvent) -> None:
         if not self._stopped:
@@ -328,6 +347,8 @@ class _HotkeyDispatcher:
                 ShortcutPressRef(state.press_id, state.shortcut_id)
                 for state in self._active.values()
             )
+            if self._solo is not None and not self._solo.chorded:
+                active += (ShortcutPressRef(self._solo.press_id, self._solo.shortcut_id),)
             return _ShortcutObservationLease(
                 self,
                 token,
@@ -359,10 +380,22 @@ class _HotkeyDispatcher:
             state.native_release_seen = True
             return state.opened
 
+    def consume_solo_release(self) -> bool:
+        """Claim one physical Right Alt-up, before semantic release is queued."""
+        with self._lock:
+            state = self._solo
+            if self._stopped or state is None or state.native_released_at is not None:
+                return False
+            state.native_released_at = self._clock()
+            return not state.chorded
+
     def stop(self) -> None:
         with self._lock:
             if self._stopped:
                 return
+            solo, self._solo = self._solo, None
+            if solo is not None and solo.timer is not None:
+                solo.timer.cancel()
             active = tuple(self._active.values())
             for state in active:
                 if state.timer:
@@ -379,6 +412,8 @@ class _HotkeyDispatcher:
             self._stopped = True
         for state in active:
             self._on_event(ShortcutPressEnded(state.press_id, state.shortcut_id, "cancelled"))
+        if solo is not None and not solo.chorded:
+            self._on_event(ShortcutPressEnded(solo.press_id, solo.shortcut_id, "cancelled"))
 
     def _update_entry_hold_on_press(self, token: str) -> None:
         if not self._entry_panel_enabled:
@@ -468,8 +503,7 @@ class _HotkeyDispatcher:
             released_tokens = {
                 token
                 for token in trigger_tokens
-                if token not in self._suppressed_trigger_tokens
-                and self._key_is_pressed is not None
+                if self._key_is_pressed is not None
                 and self._key_is_pressed(token) is False
             }
             if released_tokens:
@@ -498,23 +532,15 @@ class _HotkeyDispatcher:
         stale_tokens = {
             token
             for token in self._pressed
-            if token not in self._suppressed_trigger_tokens
-            and self._key_is_pressed(token) is False
+            if self._key_is_pressed(token) is False
         }
         # Windows can report Alt as released while its low-level hook is still
         # delivering the press lifecycle. A live Entry Panel hold therefore
         # owns Alt until the listener observes a semantic transition itself.
         if self._entry_hold is not None:
             stale_tokens.discard("alt")
-        # Once the chord's modifiers are gone, a missed suppressed-key release
-        # cannot be checked through GetAsyncKeyState. Drop it before the next
-        # genuine chord instead of leaving a permanently pressed trigger.
-        if self._pressed.isdisjoint(MODIFIER_KEYS):
-            stale_tokens.update(self._pressed & self._suppressed_trigger_tokens)
-        elif stale_tokens:
-            for state in self._active.values():
-                if not state.binding_tokens.isdisjoint(stale_tokens):
-                    stale_tokens.update(state.binding_tokens & self._suppressed_trigger_tokens)
+        if self._solo is not None:
+            stale_tokens.discard(RIGHT_ALT_TOKEN)
         if not stale_tokens:
             return set()
 
@@ -567,7 +593,13 @@ class _HotkeyDispatcher:
             if self._stopped:
                 return
             stale_tokens = self._discard_stale_pressed_state()
-            if token not in self._tracked_tokens:
+            solo = self._solo
+            if solo is not None and token != RIGHT_ALT_TOKEN and not solo.chorded:
+                solo.chorded = True
+                if solo.timer is not None:
+                    solo.timer.cancel()
+                self._emit(ShortcutPressEnded(solo.press_id, solo.shortcut_id, "cancelled"))
+            if token not in self._tracked_tokens and self._solo_shortcut_id is None:
                 # The global hook observes ordinary typing too. Retaining an
                 # unbound character after its release is missed can poison the
                 # exact Alt entry hold indefinitely because Windows cannot
@@ -639,6 +671,11 @@ class _HotkeyDispatcher:
                 # physical hold remains active. Only an observed release or an
                 # identity-scoped Panel settlement may start a new hold.
                 return
+            if token == RIGHT_ALT_TOKEN and self._solo_shortcut_id is not None and not self._pressed:
+                self._pressed.add(token)
+                self._start_solo()
+                self._report_key_state()
+                return
             self._pressed.add(token)
             self._update_entry_hold_on_press(token)
             if self._claim_entry_digit(token):
@@ -695,7 +732,19 @@ class _HotkeyDispatcher:
         with self._lock:
             if self._stopped:
                 return
-            if token not in self._tracked_tokens:
+            if token not in self._tracked_tokens and token not in self._pressed:
+                return
+            if token == RIGHT_ALT_TOKEN and self._solo is not None:
+                state, self._solo = self._solo, None
+                self._pressed.discard(token)
+                if state.timer is not None:
+                    state.timer.cancel()
+                if not state.chorded:
+                    released_at = state.native_released_at if state.native_released_at is not None else self._clock()
+                    press_type = "long" if released_at - state.started_at >= self._long_press_sec else "short"
+                    self._emit(ShortcutPressInvoked(state.press_id, state.shortcut_id, press_type))
+                    self._emit(ShortcutPressEnded(state.press_id, state.shortcut_id, "released"))
+                self._report_key_state()
                 return
             if token == "esc":
                 state, self._escape = self._escape, None
@@ -758,9 +807,9 @@ def create_hotkey_dispatcher(
     timer_factory: Callable[..., threading.Timer] = threading.Timer,
     diagnostics_enabled: Callable[[str], bool] = lambda _flag: False,
     key_is_pressed: Callable[[str], bool | None] | None = None,
-    suppressed_trigger_tokens: frozenset[str] = frozenset(),
     entry_panel_enabled: bool = False,
     entry_panel_hold_sec: float = ENTRY_PANEL_HOLD_SEC,
+    clock: Callable[[], float] = time.monotonic,
 ) -> _HotkeyDispatcher:
     return _HotkeyDispatcher(
         build_hotkey_bindings(shortcut_map, modifier_mode=modifier_mode),
@@ -769,9 +818,9 @@ def create_hotkey_dispatcher(
         timer_factory=timer_factory,
         diagnostics_enabled=diagnostics_enabled,
         key_is_pressed=key_is_pressed,
-        suppressed_trigger_tokens=suppressed_trigger_tokens,
         entry_panel_enabled=entry_panel_enabled,
         entry_panel_hold_sec=entry_panel_hold_sec,
+        clock=clock,
     )
 
 
@@ -797,19 +846,16 @@ def register_hotkeys_with_long_press(
 
     logger.info("[clipai] Hotkey listener modifier_mode=%s long_press_sec=%s", modifier_mode, long_press_sec)
 
-    suppressible_m = any(tokens == {"ctrl", "alt", "m"} for _, tokens in hotkeys)
     dispatcher = _HotkeyDispatcher(
         hotkeys,
         on_event,
         long_press_sec=long_press_sec,
         diagnostics_enabled=diagnostics_enabled,
         key_is_pressed=windows_key_is_pressed,
-        suppressed_trigger_tokens=frozenset({"m"}) if suppressible_m else frozenset(),
         entry_panel_enabled=entry_panel_enabled,
     )
     event_filter = _WindowsHotkeyEventFilter(
         dispatcher,
-        suppressible_m=suppressible_m,
         inline_escape_owner=inline_escape_owner,
         popup_escape_owner=popup_escape_owner,
     )
