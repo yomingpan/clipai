@@ -276,6 +276,7 @@ InlineDictationPhase: TypeAlias = Literal[
     "refining", "pasting", "settled", "recovery", "cancel_unconfirmed", "closed",
 ]
 InlineDelivery: TypeAlias = Literal["raw", "refine"]
+InlineCaptureNotice: TypeAlias = VoiceTransportFailure | Literal["no_speech", "time_limit", "missing_segment", "cancel_timeout"]
 
 
 @dataclass(frozen=True)
@@ -294,3 +295,4 @@ class InlineDictationView:
     message: str = ""
     paste_outcome: PasteOutcome | None = None
     copy_state: Literal["idle", "pending", "succeeded", "failed"] = "idle"
+    capture_notice: InlineCaptureNotice | None = None

@@ -84,8 +84,11 @@ acknowledgement before closing.
 
 The Pill is 160×36 logical pixels on a 300-wide reserved canvas, with an
 18-pixel status strip and an 8-pixel scaled work-area margin. The same window
-holds a 300-wide, padding-10, radius-10 review panel, complete scrollable text
-and a 44×20 Copy button. UI does not bind Enter or Ctrl+P here. A first explicit
+holds a 300×136 notification card, padding-12 and radius-10, with a short
+localized title and explanation. It has no transcript, text editor, scrollbar
+or dropdown. A 72×24 Copy Content button appears only when content is available;
+the existing typed copy intent consumes the complete owner-held content.
+UI does not bind Enter or Ctrl+P here. A first explicit
 delivery click locks until phase changes; stale view/callback identities are
 ignored. Terminal Dismiss is scheduled once per interaction, at 600 ms for
 dispatched_unconfirmed or 1200 ms for cancelled. See `tests/ui/test_inline_pill.py`
@@ -98,14 +101,20 @@ muted line at silence/zero, and show 無聲 where required. Static phases schedu
 no frames; active animation uses 80 ms. Golden colors, copy/status strings,
 chosen/spinner mapping and border states are in `tests/ui/test_voice_visuals.py`;
 `tests/architecture/test_voice_visuals_contract.py` prevents duplicated visuals.
-Buttons are 24×24 with six logical pixels of shell clearance; the two delivery
+Buttons are circular, 24×24 with six logical pixels of shell clearance; the two delivery
 buttons have an eight-pixel gap. Hover brightens an enabled button without
-moving its geometry. The shell uses a subdued outline and a fine upper highlight.
-During refinement, the fixed sparkle is surrounded by a 1.5-pixel fading purple
-quarter-perimeter light, moving clockwise once per 1600 ms. It stops when the
+moving its geometry. The charcoal shell uses one continuous light-gray outline;
+there is no separate top highlight stroke. Cancel and refine use gray circular fills; the enabled confirm uses
+a white circular fill. The enabled sparkle has a subtle, stationary white halo.
+During refinement, the fixed sparkle is surrounded by a 1.5-pixel fading,
+slightly violet quarter-circle light, moving clockwise once per 1600 ms. It stops when the
 real refinement phase ends; paste status continues to reflect its own lifecycle.
 This visual revision supersedes the original 132×26 dimensions; historical
 latency and focus evidence in ADR-0022 describes that original geometry.
+Typed `capture_notice` facts originate in `VoiceInputController` and distinguish
+permission, service, initialization, interruption, timeout, no speech, time limit,
+and incomplete recognition. UI never interprets English diagnostic strings.
+See `docs/design/inline-pill-feedback.md` for the full presentation matrix.
 
 Native display order is anchor/DPI → place → capture → draw → deiconify →
 show_without_activation → prevent_click_activation → animation. Mapping must

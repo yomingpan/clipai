@@ -67,7 +67,7 @@ class InlinePill:
         self._click_locked_phase: str | None = None
         self._hover = ""
         self._panel: tk.Frame | None = None
-        self._panel_signature: tuple[str, str, str] | None = None
+        self._panel_signature: tuple[str, str, bool] | None = None
         self._panel_photo: ImageTk.PhotoImage | None = None
         self._window = tk.Toplevel(root)
         self._window.withdraw()
@@ -132,7 +132,10 @@ class InlinePill:
         visual = visuals.project_inline_visuals(self._view, hover=self._hover)
         self._status.configure(text=visual.status, font=("Microsoft JhengHei", -max(1, round(9*layout.scale))))
         strip_y = layout.pill_y-round(visuals.STRIP_HEIGHT*layout.scale) if layout.panel_above else layout.pill_y+height
-        self._status.place(x=layout.width//2, y=strip_y, anchor="n", height=round(visuals.STRIP_HEIGHT*layout.scale))
+        if visual.panel_title:
+            self._status.place_forget()
+        else:
+            self._status.place(x=layout.width//2, y=strip_y, anchor="n", height=round(visuals.STRIP_HEIGHT*layout.scale))
         if visual.center_text:
             self._center.configure(text=visual.center_text, fg=visuals.AMBER if self._view.countdown_seconds is not None else visuals.MUTED, font=("Microsoft JhengHei", -max(1, round(9*layout.scale))))
             self._center.place(x=layout.pill_x+round(visuals.WAVE_CENTER*layout.scale), y=layout.pill_y+round(visuals.CENTER_Y*layout.scale), anchor="center", width=round(visuals.WAVE_WIDTH*layout.scale), height=round(16*layout.scale))
@@ -143,8 +146,8 @@ class InlinePill:
     def _sync_panel(self, visual: visuals.InlineVisuals) -> None:
         layout = self._layout
         assert layout is not None
-        visible = self._view.phase in {"awaiting", "recovery", "cancel_unconfirmed"} or self._view.phase == "closed" and bool(self._view.message)
-        signature = (self._view.text, visual.panel_message, visual.panel_hint) if visible else None
+        visible = bool(visual.panel_title)
+        signature = (visual.panel_title, visual.panel_message, visual.panel_copy) if visible else None
         if signature != self._panel_signature:
             if self._panel is not None:
                 self._panel.destroy()
@@ -160,28 +163,20 @@ class InlinePill:
                 self._panel_photo = ImageTk.PhotoImage(visuals.draw_panel(scale=scale, backdrop=backdrop), master=self._window)
                 self._canvas.create_image(0, top, image=self._panel_photo, anchor="nw", tags="panel")
                 panel = self._panel = tk.Frame(self._window, bg=visuals.BODY)
-                panel.place(x=round(10*scale), y=top+round(10*scale), width=round(280*scale), height=height-round(20*scale))
-                if visual.panel_message:
-                    tk.Label(panel, text=visual.panel_message, wraplength=round(280*scale), justify="left", anchor="w", bg=visuals.BODY, fg=visuals.AMBER if self._view.phase in {"recovery", "closed"} else visuals.MESSAGE_COLOR, font=("Microsoft JhengHei", -max(1, round(9*scale)))).pack(fill="x")
-                tk.Label(panel, text=visual.panel_hint, bg=visuals.BODY, fg=visuals.CONFIRM, font=("Microsoft JhengHei", -max(1, round(9*scale)))).pack(fill="x")
+                inner_width = round((visuals.CANVAS_WIDTH-24)*scale)
+                panel.place(x=round(12*scale), y=top+round(12*scale), width=inner_width, height=height-round(24*scale))
+                warning = self._view.phase != "awaiting" or not self._view.allow_refine or self._view.capture_notice is not None
+                tk.Label(panel, text=visual.panel_title, anchor="w", bg=visuals.BODY, fg=visuals.AMBER if warning else visuals.CONFIRM, font=("Microsoft JhengHei", -max(1, round(13*scale)), "bold")).pack(fill="x")
+                tk.Label(panel, text=visual.panel_message, wraplength=inner_width, justify="left", anchor="w", bg=visuals.BODY, fg=visuals.CONFIRM, font=("Microsoft JhengHei", -max(1, round(11*scale)))).pack(fill="x", pady=(round(6*scale), 0))
                 controls = tk.Frame(panel, bg=visuals.BODY)
                 controls.pack(side="bottom", fill="x")
-                self._copy_button = ctk.CTkButton(controls, text="複製", width=44, height=20, corner_radius=10, command=self._on_copy, fg_color=visuals.BUTTON, hover_color=visuals.OUTLINE, font=ctk.CTkFont(size=10))
+                self._copy_button = ctk.CTkButton(controls, text="複製內容", width=72, height=24, corner_radius=12, command=self._on_copy, fg_color=visuals.BUTTON, hover_color=visuals.OUTLINE, font=ctk.CTkFont(size=11))
                 self._copy_button.pack(side="left")
                 self._copy_status = tk.Label(controls, bg=visuals.BODY, fg=visuals.CONFIRM, font=("Microsoft JhengHei", -max(1, round(9*scale))))
                 self._copy_status.pack(side="left", padx=round(5*scale))
-                content = tk.Frame(panel, bg=visuals.BODY)
-                content.pack(fill="both", expand=True)
-                self._text = tk.Text(content, height=4 if visual.panel_message else 6, width=1, wrap="word", relief="flat", bd=0, bg=visuals.BODY, fg=visuals.WHITE, font=("Microsoft JhengHei", -max(1, round(11*scale))))
-                self._text.insert("1.0", self._view.text)
-                self._text.configure(state="disabled")
-                scrollbar = tk.Scrollbar(content, command=self._text.yview)
-                scrollbar.pack(side="right", fill="y")
-                self._text.configure(yscrollcommand=scrollbar.set)
-                self._text.pack(fill="both", expand=True)
-                if self._view.phase == "closed":
+                if not visual.panel_copy:
                     controls.pack_forget()
-        if self._panel is not None:
+        if self._panel is not None and visual.panel_copy:
             self._copy_button.configure(state="disabled" if self._view.copy_state == "pending" else "normal")
             self._copy_status.configure(text=visual.copy_label)
 

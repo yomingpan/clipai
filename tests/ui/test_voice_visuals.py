@@ -4,6 +4,28 @@ from PIL import Image, ImageChops
 from ClipAI.core.voice import InlineDictationView
 from ClipAI.ui.voice_visuals import project_inline_visuals
 from ClipAI.core.models import PasteOutcome
+from ClipAI.core.voice import VoiceTransportFailure
+
+
+@pytest.mark.parametrize("reason", [*VoiceTransportFailure, "no_speech", "time_limit", "missing_segment", "cancel_timeout"])
+@pytest.mark.parametrize("partial", [False, True])
+def test_every_capture_notice_has_short_localized_feedback_without_diagnostics_or_transcript(reason, partial):
+    view = InlineDictationView("i", "awaiting" if partial else "closed", text="private recognized content" if partial else "", message="unbounded provider diagnostic "*100, capture_notice=reason)
+    visual = project_inline_visuals(view)
+    assert visual.panel_title and visual.panel_message
+    assert len(visual.panel_title) <= 20 and len(visual.panel_message) <= 70
+    assert "diagnostic" not in visual.panel_message
+    assert "private recognized content" not in visual.panel_message
+    assert visual.panel_copy == partial
+
+
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5, 1.75, 2])
+def test_shell_has_one_uniform_stroke_without_a_brighter_overlaid_top_bar(scale):
+    from ClipAI.ui.voice_visuals import draw_pill
+    bitmap = draw_pill(InlineDictationView("i"), scale=scale)
+    top = bitmap.crop((round(25*scale), 0, round(135*scale), round(3*scale)))
+    # LANCZOS may overshoot the gray by a few levels at fractional DPI.
+    assert all(max(pixel) <= 132 for pixel in top.getdata())
 
 
 @pytest.mark.parametrize("phase, status", [
@@ -83,21 +105,21 @@ def test_raster_edges_blend_with_backdrop_and_keep_fully_transparent_pixels_keye
     assert any(100 < red < 210 and green > red and blue > green for red, green, blue in pixels)
 
 
-@pytest.mark.parametrize("phase, allow, hint", [
-    ("awaiting", True, "✓ 貼上原文 · ✦ 潤飾後貼上 · ✕ 丟棄"),
-    ("awaiting", False, "✓ 貼上原文 · ✕ 丟棄"),
-    ("recovery", True, "✕ 關閉"),
-    ("cancel_unconfirmed", True, "Esc 重試取消"),
+@pytest.mark.parametrize("phase, allow, title", [
+    ("awaiting", True, "辨識完成"),
+    ("awaiting", False, "潤飾未完成"),
+    ("recovery", True, "找不到原輸入欄"),
+    ("cancel_unconfirmed", True, "取消仍在確認"),
 ])
-def test_panel_hint_golden(phase, allow, hint):
-    assert project_inline_visuals(InlineDictationView("i", phase, allow_refine=allow)).panel_hint == hint
+def test_notification_title_golden(phase, allow, title):
+    assert project_inline_visuals(InlineDictationView("i", phase, allow_refine=allow)).panel_title == title
 
 
 @pytest.mark.parametrize("options, message", [
-    ({"phase": "cancel_unconfirmed"}, "取消尚未確認；不會送出貼上。可複製原文。"),
-    ({"phase": "recovery"}, "尚未貼上。可複製下方內容，切回原欄位手動貼上。"),
-    ({"phase": "closed", "message": "microphone unavailable"}, "microphone unavailable"),
-    ({"phase": "recovery", "paste_outcome": PasteOutcome("cleanup_failed", "dispatched_unconfirmed", "failed")}, "貼上或剪貼簿還原無法確認。請檢查原欄位與剪貼簿。"),
+    ({"phase": "cancel_unconfirmed"}, "尚未送出貼上。內容已保留，可先複製；Esc 可重試取消。"),
+    ({"phase": "recovery"}, "內容已保留。複製後，切回要輸入的位置手動貼上。"),
+    ({"phase": "closed", "message": "microphone unavailable"}, "未送出貼上，請重新開始。"),
+    ({"phase": "recovery", "paste_outcome": PasteOutcome("cleanup_failed", "dispatched_unconfirmed", "failed")}, "請先檢查原輸入欄與剪貼簿，再決定是否手動貼上。內容仍可複製。"),
 ])
 def test_panel_message_golden(options, message):
     assert project_inline_visuals(InlineDictationView("i", **options)).panel_message == message
@@ -151,3 +173,20 @@ def test_hover_changes_only_the_enabled_button_without_moving_its_glyph():
     assert difference.getpixel((110, 18)) == (0, 0, 0)
     disabled = InlineDictationView("i", "awaiting", allow_refine=False)
     assert draw_pill(disabled).tobytes() == draw_pill(disabled, hover="refine").tobytes()
+
+
+@pytest.mark.parametrize("center, fill", [(18, (58, 61, 65)), (110, (58, 61, 65)), (142, (242, 242, 242))])
+def test_reference_style_uses_circular_gray_controls_and_white_confirm(center, fill):
+    from ClipAI.ui.voice_visuals import draw_pill
+    bitmap = draw_pill(InlineDictationView("i", "awaiting"), scale=3)
+    assert bitmap.getpixel((center*3, 10*3)) == fill
+    # A circle leaves its diagonal corners open; a rounded square fills them.
+    corner = bitmap.getpixel(((center-9)*3, 9*3))
+    assert max(corner) < 45
+
+
+def test_refining_keeps_gray_fill_and_only_the_perimeter_gets_a_color_accent():
+    from ClipAI.ui.voice_visuals import draw_pill
+    bitmap = draw_pill(InlineDictationView("i", "refining", chosen="refine"), scale=3)
+    red, green, blue = bitmap.getpixel((110*3, 10*3))
+    assert max(red, green, blue)-min(red, green, blue) < 12

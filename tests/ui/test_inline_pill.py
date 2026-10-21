@@ -83,7 +83,7 @@ def test_show_captures_once_before_native_nonactivating_show_and_lock(root):
 
 
 @pytest.mark.integration
-def test_panel_keeps_full_text_and_copy_updates_reuse_widgets_without_moving_pill(root):
+def test_notification_has_no_reading_controls_and_copy_reuses_widgets_without_moving_pill(root):
     copies = []
     pill = InlinePill(root, interaction_id="i", on_confirm=lambda _: None, on_cancel=lambda: None, on_copy=lambda: copies.append(True))
     text = "original " * 90
@@ -94,7 +94,12 @@ def test_panel_keeps_full_text_and_copy_updates_reuse_widgets_without_moving_pil
         root.update()
         bounds = pill._window.geometry()
         panel = pill._panel
-        assert pill._text.get("1.0", "end-1c") == text
+        def descendants(widget):
+            return [child for item in widget.winfo_children() for child in [item, *descendants(item)]]
+        widgets = descendants(panel)
+        assert not any(isinstance(widget, (tk.Text, tk.Scrollbar)) for widget in widgets)
+        assert not hasattr(pill, "_text")
+        assert pill._view.text == text
         pill._copy_button.invoke()
         assert copies == [True]
         pill.present(replace(view, copy_state="pending"))
@@ -103,6 +108,44 @@ def test_panel_keeps_full_text_and_copy_updates_reuse_widgets_without_moving_pil
         assert pill._copy_status.cget("text") == "已複製"
         assert pill._panel is panel
         assert pill._window.geometry() == bounds
+    finally:
+        pill.close()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5, 1.75, 2])
+def test_notice_cards_fit_at_each_dpi_without_scrolling_or_clipping(root, scale):
+    from ClipAI.core.voice import VoiceTransportFailure
+    from ClipAI.core.models import PasteOutcome
+    class Reader:
+        def current(self): return DisplayMetrics(scale, 0, 0, 1600, 1000, 0, 0)
+    pill = InlinePill(root, interaction_id="notice", on_confirm=lambda _: None, on_cancel=lambda: None, display_metrics=Reader(), placement="cursor")
+    cases = [
+        InlineDictationView("notice", "awaiting", text="full text "*200),
+        InlineDictationView("notice", "awaiting", text="original", allow_refine=False),
+        InlineDictationView("notice", "recovery", text="original"),
+        InlineDictationView("notice", "recovery", text="original", paste_outcome=PasteOutcome("cleanup_failed", "dispatched_unconfirmed", "failed")),
+        InlineDictationView("notice", "cancel_unconfirmed", text="original"),
+        *[InlineDictationView("notice", "awaiting", text="original", capture_notice=reason) for reason in VoiceTransportFailure],
+        *[InlineDictationView("notice", "closed", message="diagnostic", capture_notice=reason) for reason in VoiceTransportFailure],
+    ]
+    try:
+        pill.show()
+        bounds = pill._window.geometry()
+        for view in cases:
+            pill.present(view)
+            root.update()
+            panel = pill._panel
+            assert panel is not None
+            assert pill._window.geometry() == bounds
+            children = [child for child in panel.winfo_children() if child.winfo_ismapped()]
+            for child in children:
+                assert child.winfo_y()+child.winfo_height() <= panel.winfo_height()
+                if isinstance(child, tk.Label):
+                    assert child.winfo_height() >= child.winfo_reqheight()
+            for index, child in enumerate(children):
+                for other in children[index+1:]:
+                    assert child.winfo_y()+child.winfo_height() <= other.winfo_y() or other.winfo_y()+other.winfo_height() <= child.winfo_y()
     finally:
         pill.close()
 

@@ -5,6 +5,17 @@ from pathlib import Path
 ROOT = Path(__file__).parents[2]
 
 
+def test_inline_notification_cannot_grow_back_into_a_scrollable_reader_or_menu():
+    tree = ast.parse((ROOT / "ClipAI/ui/inline_pill.py").read_text(encoding="utf-8"))
+    forbidden = {"Text", "Scrollbar", "OptionMenu", "Combobox", "CTkTextbox", "CTkScrollbar", "CTkScrollableFrame", "CTkOptionMenu", "CTkComboBox"}
+    calls = {
+        node.func.attr if isinstance(node.func, ast.Attribute) else node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, (ast.Attribute, ast.Name))
+    }
+    assert not calls & forbidden
+
+
 def test_inline_has_one_pill_and_no_legacy_choice_window():
     assert not (ROOT / "ClipAI/ui/inline_dictation.py").exists()
     owner = (ROOT / "ClipAI/ui/inline_dictation_owner.py").read_text(encoding="utf-8")

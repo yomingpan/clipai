@@ -45,6 +45,16 @@ def test_missing_controlled_pixel_cannot_be_reported_as_a_pass():
     assert probe._verdict(2, 2, []) == "pass"
 
 
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5, 1.75, 2])
+def test_body_observer_patch_avoids_the_reference_style_highlight_and_controls(scale):
+    from ClipAI.core.voice import InlineDictationView
+    from ClipAI.ui.voice_visuals import draw_pill
+    bitmap = draw_pill(InlineDictationView("pixel-fixture"), scale=scale)
+    x, y = round(probe.PATCH_LEFT*scale)+2, round(probe.PATCH_TOP*scale)+2
+    patch = bitmap.crop((x, y, x+probe.PATCH_SIZE, y+probe.PATCH_SIZE))
+    assert sum(pixel == probe.BACKGROUND for pixel in patch.getdata()) >= probe.PRESENCE_PIXELS
+
+
 def test_denied_screen_capture_has_a_content_free_blocked_report(monkeypatch, tmp_path, capsys):
     def deny(*, bbox):
         raise OSError("screen grab failed")

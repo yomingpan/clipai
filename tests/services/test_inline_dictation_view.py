@@ -3,9 +3,39 @@ import pytest
 from ClipAI.core.models import PasteTarget, PasteOutcome
 from ClipAI.core.voice import VoiceCaptureId, VoiceInlineTarget, VoiceEngineListening, VoiceEngineFinalSegment, VoiceEngineEnded, VoiceDraftTarget
 from ClipAI.services.voice_input import VoiceInputController, PasteInlineDictation
+from ClipAI.core.voice import VoiceEngineFailed, VoiceTransportFailure
 
 
 TARGET = PasteTarget("hwnd:1", 42, "controlled", "", 1)
+
+
+@pytest.mark.parametrize("failure", list(VoiceTransportFailure))
+@pytest.mark.parametrize("partial", [False, True])
+def test_capture_failure_projects_typed_reason_without_losing_partial_content(failure, partial):
+    controller = VoiceInputController(enabled=True)
+    capture = VoiceCaptureId("capture-notice")
+    controller.request_capture(capture, VoiceInlineTarget("notice", TARGET, "minimal"))
+    if partial:
+        controller.observe_engine(VoiceEngineFinalSegment(capture, 0, "preserved"))
+    result = controller.observe_engine(VoiceEngineFailed(capture, failure, "arbitrary diagnostic detail"))
+    assert result.inline_view.capture_notice == failure
+    assert result.inline_view.phase == ("awaiting" if partial else "closed")
+    assert result.inline_view.text == ("preserved" if partial else "")
+    assert not any(isinstance(effect, PasteInlineDictation) for effect in result.effects)
+    if partial:
+        copied = controller.request_inline_copy("notice")
+        assert copied.effects[-1].text == "preserved"
+        assert copied.inline_view.capture_notice == failure
+
+
+def test_no_speech_is_distinct_from_a_transport_failure():
+    controller = VoiceInputController(enabled=True)
+    capture = VoiceCaptureId("empty")
+    controller.request_capture(capture, VoiceInlineTarget("notice", TARGET, "minimal"))
+    controller.request_stop(capture)
+    result = controller.observe_engine(VoiceEngineEnded(capture))
+    assert result.inline_view.phase == "closed"
+    assert result.inline_view.capture_notice == "no_speech"
 
 
 @pytest.mark.parametrize("mode", ["minimal", "choice"])

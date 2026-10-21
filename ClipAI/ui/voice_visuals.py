@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 import math
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
-from ClipAI.core.voice import InlineDictationView
+from ClipAI.core.voice import InlineDictationView, VoiceTransportFailure
 
 TRANSPARENT_KEY = "#010203"
 BODY = "#1E1F22"
@@ -25,10 +25,9 @@ BASE_WIDTH = 160
 BASE_HEIGHT = 36
 STRIP_HEIGHT = 18
 CANVAS_WIDTH = 300
-PANEL_HEIGHT = 164
+PANEL_HEIGHT = 136
 CANVAS_HEIGHT = PANEL_HEIGHT + STRIP_HEIGHT + BASE_HEIGHT
 PANEL_RADIUS = 10
-BUTTON_RADIUS = 9
 HIT_PADDING = 3
 REFINE_DIAMETER = 24
 BUTTON_CENTERS = (("cancel", 18), ("refine", 110), ("raw", 142))
@@ -36,10 +35,10 @@ CENTER_Y = BASE_HEIGHT / 2
 WAVE_LEFT = 43
 WAVE_WIDTH = 41
 WAVE_CENTER = WAVE_LEFT + WAVE_WIDTH / 2
-SHELL_OUTLINE = "#34363C"
-SHELL_HIGHLIGHT = "#41434A"
-REFINE_ACTIVE = "#4B426C"
-REFINE_LIGHT = "#B7A5F5"
+SHELL_OUTLINE = "#737977"
+BUTTON_RIM = "#4B5050"
+REFINE_ACTIVE = "#414447"
+REFINE_LIGHT = "#D1C9E7"
 REFINE_RING_FRAMES = 20
 WAVE_BARS = 9
 FRAME_MS = 80
@@ -55,9 +54,55 @@ class InlineVisuals:
     refine_fill: str = BUTTON
     spinner: str | None = None
     center_text: str = ""
-    panel_hint: str = ""
     panel_message: str = ""
     copy_label: str = ""
+    panel_title: str = ""
+    panel_copy: bool = False
+
+
+def _notice_card(view: InlineDictationView) -> tuple[str, str]:
+    """Present typed owner facts, never parse or expose diagnostic prose."""
+    if view.phase == "cancel_unconfirmed":
+        return "取消仍在確認", "尚未送出貼上。內容已保留，可先複製；Esc 可重試取消。"
+    if view.phase == "recovery":
+        if view.paste_outcome is None:
+            return "找不到原輸入欄", "內容已保留。複製後，切回要輸入的位置手動貼上。"
+        if view.paste_outcome.state == "cleanup_failed":
+            return "貼上狀態需要確認", "請先檢查原輸入欄與剪貼簿，再決定是否手動貼上。內容仍可複製。"
+        return "尚未貼上", "內容已保留。可複製後，切回原輸入欄手動貼上。"
+    if view.phase not in {"awaiting", "closed"}:
+        return "", ""
+    if view.phase == "closed" and not view.message:
+        return "", ""
+    if view.phase == "awaiting" and not view.allow_refine:
+        return "潤飾未完成", "原文已保留。短按右 Alt 貼上原文，或先複製內容。"
+    notice = view.capture_notice
+    if notice == "cancel_timeout":
+        return "取消等待逾時", "未送出貼上。麥克風停止狀態未能確認，請檢查語音服務後再試。"
+    titles = {
+        "no_speech": "沒有辨識到語音", "time_limit": "已達錄音時間上限",
+        "missing_segment": "部分語音未能辨識",
+        VoiceTransportFailure.PERMISSION_DENIED: "需要麥克風權限",
+        VoiceTransportFailure.PERMISSION_BLOCKED: "麥克風權限遭封鎖",
+        VoiceTransportFailure.UNAVAILABLE: "語音服務無法使用",
+        VoiceTransportFailure.INITIALIZATION_FAILED: "麥克風未能啟動",
+        VoiceTransportFailure.PROCESS_CRASHED: "語音辨識意外中斷",
+        VoiceTransportFailure.PROTOCOL_ERROR: "語音辨識回應異常",
+        VoiceTransportFailure.TIMEOUT: "語音辨識等待逾時",
+        VoiceTransportFailure.CANCELLED: "語音輸入已取消",
+    }
+    if notice is not None:
+        title = titles[notice]
+        if view.text:
+            return title, "已保留辨識到的文字。可貼上原文或複製內容；使用前請確認內容是否完整。"
+        if notice in {VoiceTransportFailure.PERMISSION_DENIED, VoiceTransportFailure.PERMISSION_BLOCKED}:
+            return title, "請在系統或語音服務設定中允許麥克風，再重新開始。"
+        if notice == VoiceTransportFailure.UNAVAILABLE:
+            return title, "未送出貼上。請檢查連線與語音設定後再試。"
+        return title, "這次沒有可送出的文字，請重新開始。"
+    if view.phase == "closed":
+        return "語音輸入未完成", "未送出貼上，請重新開始。"
+    return "辨識完成", "短按右 Alt 貼上原文，長按可潤飾後貼上。"
 
 
 def project_inline_visuals(view: InlineDictationView, *, hover: str = "") -> InlineVisuals:
@@ -101,25 +146,14 @@ def project_inline_visuals(view: InlineDictationView, *, hover: str = "") -> Inl
         "raw" if view.phase == "pasting" else
         view.chosen or "wave" if view.phase == "finalizing" else None
     )
-    panel_hint = {
-        "awaiting": "✓ 貼上原文 · ✦ 潤飾後貼上 · ✕ 丟棄" if view.allow_refine else "✓ 貼上原文 · ✕ 丟棄",
-        "recovery": "✕ 關閉", "cancel_unconfirmed": "Esc 重試取消",
-    }.get(view.phase, "")
-    panel_message = view.message if view.phase == "closed" or view.phase == "awaiting" and not view.allow_refine else ""
-    if view.phase == "cancel_unconfirmed":
-        panel_message = "取消尚未確認；不會送出貼上。可複製原文。"
-    elif view.phase == "recovery":
-        panel_message = (
-            "貼上或剪貼簿還原無法確認。請檢查原欄位與剪貼簿。"
-            if view.paste_outcome is not None and view.paste_outcome.state == "cleanup_failed" else
-            "尚未貼上。可複製下方內容，切回原欄位手動貼上。"
-        )
+    panel_title, panel_message = _notice_card(view)
     return InlineVisuals(
         status, RED if failed else GREEN if done else AMBER if countdown is not None else OUTLINE,
         GREEN if view.chosen == "raw" or done else CONFIRM if clickable else DISABLED,
         DISABLED if not view.allow_refine else REFINE if view.chosen == "refine" or view.preview_refine else BUTTON,
-        spinner, center, panel_hint, panel_message,
+        spinner, center, panel_message,
         {"idle": "", "pending": "複製中…", "succeeded": "已複製", "failed": "複製失敗"}[view.copy_state],
+        panel_title, bool(view.text) and view.phase != "closed" and bool(panel_title),
     )
 
 
@@ -185,26 +219,13 @@ def _blend(first: str, second: str, amount: float) -> tuple[int, int, int]:
 
 @lru_cache(maxsize=1)
 def _button_perimeter() -> tuple[tuple[float, float], ...]:
-    """Uniform-distance clockwise samples on the button's inset border."""
-    half, radius = REFINE_DIAMETER/2-.75, BUTTON_RADIUS-.75
-    straight = 2*(half-radius)
-    arc = math.pi*radius/2
-    quadrant = straight+arc
-    points = []
-    for index in range(160):
-        distance = index*4*quadrant/160
-        side = int(distance/quadrant)
-        offset = distance-side*quadrant
-        if offset < straight:
-            x, y = -half+radius+offset, -half
-        else:
-            angle = -math.pi/2+(offset-straight)/radius
-            x = half-radius+radius*math.cos(angle)
-            y = -half+radius+radius*math.sin(angle)
-        for _ in range(side):
-            x, y = -y, x
-        points.append((x, y))
-    return tuple(points)
+    """Uniform-distance clockwise samples on the circular button border."""
+    radius = REFINE_DIAMETER/2-.75
+    return tuple(
+        (radius*math.cos(index*2*math.pi/160-math.pi/2),
+         radius*math.sin(index*2*math.pi/160-math.pi/2))
+        for index in range(160)
+    )
 
 
 def _refine_ring(draw, cx, cy, unit, frame, fill):
@@ -224,17 +245,25 @@ def _pill_layer(scale, border, refine_fill, raw_fill, spinner, heights, wave_col
     layer = Image.new("RGBA", (size[0]*SUPERSAMPLE, size[1]*SUPERSAMPLE))
     draw = ImageDraw.Draw(layer)
     draw.rounded_rectangle((0, 0, layer.width-1, layer.height-1), radius=CENTER_Y*unit, fill=BODY, outline=SHELL_OUTLINE if border == OUTLINE else border, width=max(1, round(unit)))
-    if border == OUTLINE:
-        draw.line([(CENTER_Y*unit, unit), ((BASE_WIDTH-CENTER_Y)*unit, unit)], fill=SHELL_HIGHLIGHT, width=max(1, round(.5*unit)))
     centers = dict(BUTTON_CENTERS)
     for kind, cx, fill, foreground in (
-        ("cancel", centers["cancel"], BODY, CONFIRM),
-        ("refine", centers["refine"], REFINE_ACTIVE if refine_fill == REFINE else refine_fill, WHITE if refine_fill == REFINE else MUTED if not allow_refine else CONFIRM),
+        ("cancel", centers["cancel"], BUTTON, CONFIRM),
+        ("refine", centers["refine"], REFINE_ACTIVE if refine_fill == REFINE else refine_fill, MUTED if not allow_refine else WHITE if refine_fill == REFINE else CONFIRM),
         ("raw", centers["raw"], raw_fill, WHITE if raw_fill == GREEN else BODY if raw_fill == CONFIRM else MUTED),
     ):
         radius = REFINE_DIAMETER/2 * unit
         button_fill = _blend(fill, WHITE, .07) if hover == kind else fill
-        draw.rounded_rectangle(((cx*unit)-radius, CENTER_Y*unit-radius, (cx*unit)+radius, CENTER_Y*unit+radius), radius=BUTTON_RADIUS*unit, fill=button_fill)
+        bounds = ((cx*unit)-radius, CENTER_Y*unit-radius, (cx*unit)+radius, CENTER_Y*unit+radius)
+        draw.ellipse(bounds, fill=button_fill)
+        if kind != "raw" and (kind != "refine" or allow_refine):
+            draw.ellipse(bounds, outline=BUTTON_RIM, width=max(1, round(.5*unit)))
+        if kind == "refine" and allow_refine:
+            # A stationary, restrained halo belongs to the glyph, not a timer.
+            glow = Image.new("RGBA", (round(2*radius)+1, round(2*radius)+1))
+            _icon(ImageDraw.Draw(glow), kind, radius, radius, unit, WHITE)
+            glow = glow.filter(ImageFilter.GaussianBlur(1.3*unit))
+            glow.putalpha(glow.getchannel("A").point(lambda alpha: round(alpha*.18)))
+            layer.alpha_composite(glow, (round(cx*unit-radius), round(CENTER_Y*unit-radius)))
         if spinner == kind and kind != "refine":
             _spinner(draw, cx*unit, CENTER_Y*unit, unit, frame, foreground)
         else:
@@ -261,7 +290,8 @@ def draw_pill(view: InlineDictationView, *, scale: float = 1.0, frame: int = 0, 
     animated = visual.spinner is not None or any(heights)
     render = _pill_layer if animated else _static_pill_layer
     interactive_hover = hover if view.phase in {"starting", "listening", "awaiting"} and (hover != "refine" or view.allow_refine) else ""
-    layer = render(scale, visual.border, visual.refine_fill, visual.raw_fill, visual.spinner, heights, wave_color, view.allow_refine, frame if animated else 0, interactive_hover)
+    refine_active = view.allow_refine and (view.phase in {"starting", "listening", "awaiting"} or visual.spinner == "refine")
+    layer = render(scale, visual.border, visual.refine_fill, visual.raw_fill, visual.spinner, heights, wave_color, refine_active, frame if animated else 0, interactive_hover)
     return composite_backdrop(layer, backdrop)
 
 

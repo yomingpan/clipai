@@ -8,6 +8,7 @@ from ClipAI.core.errors import InlineRefinementFailureReason
 from ClipAI.core.voice import (
     InlineDictationView,
     InlineDelivery,
+    InlineCaptureNotice,
     VoiceCaptureId,
     VoiceCaptureDestination,
     VoiceCaptureTarget,
@@ -133,6 +134,7 @@ class PasteInlineDictation:
 class DiscardInlineDictation:
     interaction_id: str
     message: str = ""
+    capture_notice: InlineCaptureNotice | None = None
 
 
 @dataclass(frozen=True)
@@ -240,6 +242,7 @@ class _PendingInline:
     chosen: InlineDelivery | None = None
     preview_refine: bool = False
     copy_state: Literal["idle", "pending", "succeeded", "failed"] = "idle"
+    capture_notice: InlineCaptureNotice | None = None
 
 
 class VoiceInputController:
@@ -759,7 +762,7 @@ class VoiceInputController:
                 target = capture.target
                 self._capture = None
                 self._message = "Voice Input stopped before the microphone was ready. Try again."
-                return self._transition(self._restore_effect(capture.capture_id, target, self._message))
+                return self._transition(self._restore_effect(capture.capture_id, target, self._message, capture_notice=VoiceTransportFailure.INITIALIZATION_FAILED))
             if capture.progress_since_restart:
                 capture.restarts_without_progress = 0
             else:
@@ -782,9 +785,12 @@ class VoiceInputController:
             if any(sequence > capture.next_sequence for sequence in capture.segments)
             else ""
         )
+        notice: InlineCaptureNotice | None = "missing_segment" if warning else None
         if capture.safety_limit_reached:
+            notice = "time_limit"
             warning = "The 2-minute Voice Input limit was reached. This section was saved; release the shortcut and press it again to continue."
         if timed_out:
+            notice = VoiceTransportFailure.TIMEOUT
             warning = "Voice Input timed out while finalizing. Try again."
         text = " ".join(part.strip() for part in text_parts if part.strip())
         capture_id, target, cancelled = capture.capture_id, capture.target, capture.cancelled
@@ -793,12 +799,12 @@ class VoiceInputController:
         if cancelled:
             self._message = "Voice Input cancellation timed out." if timed_out else "Voice Input cancelled."
             effect_message = self._message if timed_out or not isinstance(target, VoiceInlineTarget) else ""
-            return self._transition(self._restore_effect(capture_id, target, effect_message))
+            return self._transition(self._restore_effect(capture_id, target, effect_message, capture_notice="cancel_timeout" if timed_out else None))
         if not text:
             self._message = warning or "No speech was recognized. Try again."
-            return self._transition(self._restore_effect(capture_id, target, self._message))
+            return self._transition(self._restore_effect(capture_id, target, self._message, capture_notice=notice or "no_speech"))
         self._message = warning or "Review your dictation."
-        return self._transition(self._finalize_effect(capture_id, target, text, warning, inline_delivery=inline_delivery))
+        return self._transition(self._finalize_effect(capture_id, target, text, warning, inline_delivery=inline_delivery, capture_notice=notice))
 
     def _settle_failed(self, capture: _Capture, event: VoiceEngineFailed) -> VoiceTransition:
         target = capture.target
@@ -810,7 +816,7 @@ class VoiceInputController:
             self._capability = VoiceCapabilityPhase.PERMISSION_BLOCKED
         self._message = _failure_message(event.failure, event.detail)
         if capture.cancelled:
-            return self._transition(self._restore_effect(event.capture_id, target, self._message))
+            return self._transition(self._restore_effect(event.capture_id, target, self._message, capture_notice=event.failure))
         assert capture.segments is not None
         text = " ".join(
             capture.segments[sequence].strip()
@@ -820,18 +826,19 @@ class VoiceInputController:
         if text:
             self._message = f"{self._message} Recognized content was preserved."
             return self._transition(
-                self._finalize_effect(event.capture_id, target, text, self._message)
+                self._finalize_effect(event.capture_id, target, text, self._message, capture_notice=event.failure)
             )
-        return self._transition(self._restore_effect(event.capture_id, target, self._message))
+        return self._transition(self._restore_effect(event.capture_id, target, self._message, capture_notice=event.failure))
 
     def _restore_effect(
         self,
         capture_id: VoiceCaptureId,
         target: VoiceCaptureTarget,
         message: str,
+        *, capture_notice: InlineCaptureNotice | None = None,
     ) -> VoiceEffect:
         if isinstance(target, VoiceInlineTarget):
-            return DiscardInlineDictation(target.interaction_id, message)
+            return DiscardInlineDictation(target.interaction_id, message, capture_notice)
         return (
             RestoreVoiceFollowUp(capture_id, target, message)
             if isinstance(target, VoiceFollowUpTarget)
@@ -846,15 +853,16 @@ class VoiceInputController:
         warning: str,
         *,
         inline_delivery: bool | None = None,
+        capture_notice: InlineCaptureNotice | None = None,
     ) -> VoiceEffect:
         if isinstance(target, VoiceInlineTarget):
             if target.paste_target is None:
                 recovery_message = "No paste target is available. Copy the text and paste it manually."
                 if warning:
                     recovery_message = f"{warning} {recovery_message}"
-                self._pending_inline = _PendingInline(text, target, recovery_message=recovery_message)
+                self._pending_inline = _PendingInline(text, target, recovery_message=recovery_message, capture_notice=capture_notice)
                 return PresentInlineRecovery(target.interaction_id, text, self._pending_inline.recovery_message)
-            self._pending_inline = _PendingInline(text, target)
+            self._pending_inline = _PendingInline(text, target, capture_notice=capture_notice)
             if inline_delivery is not None:
                 return self.confirm_inline_settlement(target.interaction_id, inline_delivery).effects[0]
             return PresentInlineChoice(target.interaction_id, text, message=warning)
@@ -883,7 +891,7 @@ class VoiceInputController:
         if view is None:
             for effect in effects:
                 if isinstance(effect, (DiscardInlineDictation, CloseInlineTerminal)):
-                    view = InlineDictationView(effect.interaction_id, "closed", message=effect.message if isinstance(effect, DiscardInlineDictation) else "")
+                    view = InlineDictationView(effect.interaction_id, "closed", message=effect.message if isinstance(effect, DiscardInlineDictation) else "", capture_notice=effect.capture_notice if isinstance(effect, DiscardInlineDictation) else None)
                     break
         return VoiceTransition(self.projection, effects, inline_view=view)
 
@@ -924,6 +932,7 @@ class VoiceInputController:
                 message=pending.recovery_message or self._message,
                 paste_outcome=pending.paste_outcome,
                 copy_state=pending.copy_state,
+                capture_notice=pending.capture_notice,
             )
         return None
 

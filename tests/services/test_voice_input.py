@@ -361,6 +361,7 @@ def test_inline_capture_cancel_distinguishes_engine_acknowledgement_from_timeout
             DiscardInlineDictation(
                 "interaction-cancel",
                 "Voice Input cancellation timed out." if timed_out else "",
+                capture_notice="cancel_timeout" if timed_out else None,
             ),
         )
         assert settled.projection.capture_id is None
@@ -527,6 +528,7 @@ def test_inline_network_failure_reports_recovery_without_paste() -> None:
         DiscardInlineDictation(
             "inline-network",
             "Speech recognition could not reach its service. Check your connection and try again.",
+            capture_notice=VoiceTransportFailure.UNAVAILABLE,
         ),
     )
     assert not any(isinstance(effect, PasteInlineDictation) for effect in transition.effects)

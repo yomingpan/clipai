@@ -31,6 +31,8 @@ from PIL import ImageColor
 
 BACKGROUND = ImageColor.getrgb(BODY)
 PATCH_SIZE = 8
+PATCH_LEFT = 32
+PATCH_TOP = 6
 PRESENCE_PIXELS = 56
 AMBIGUOUS_PIXELS = 16
 
@@ -146,7 +148,9 @@ def measure(iterations: int, timeout_seconds: float) -> dict[str, object]:
                 )
                 try:
                     layout = resolve_pill_layout(metrics.current(), "bottom_center")
-                    x, y = layout.x+layout.pill_x+round(32*layout.scale), layout.y+layout.pill_y
+                    # Sample the interior gap, clear of the shell highlight.
+                    x = layout.x+layout.pill_x+round(PATCH_LEFT*layout.scale)
+                    y = layout.y+layout.pill_y+round(PATCH_TOP*layout.scale)
                     before = _background_pixels(x, y)
                     if before > AMBIGUOUS_PIXELS:
                         failures.append({"mode": mode, "iteration": iteration, "reason": "background_ambiguous"})
