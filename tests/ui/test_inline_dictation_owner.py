@@ -28,7 +28,7 @@ def setup_owner(monkeypatch, native=None):
 def test_owner_ignores_late_result_and_close_for_replaced_interaction(monkeypatch):
     owner, windows, _, _ = setup_owner(monkeypatch)
     owner.open_inline_dictation("old")
-    owner.open_inline_dictation("new", placement="bottom_center")
+    owner.open_inline_dictation("new")
     owner.present_inline_dictation(InlineDictationView("old", "recovery", text="old"))
     current = InlineDictationView("new", "recovery", text="new")
     owner.present_inline_dictation(current)

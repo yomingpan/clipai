@@ -497,11 +497,13 @@ Prompt template 與可調整語意內容目前放在 `config/actions.yaml` 的 A
 
 - `UserPreferencesCoordinator` is the single owner of first-use guidance, Speech Speed, and preference-operation identity. Explicit preference writes share one operation gate because they update the same persisted aggregate.
 - Tray emits typed preference intents and projects authoritative preferences; it never reads or writes JSON and never changes the checked state before persistence succeeds.
-- Popup and Inline placement choices use this same preference owner and save
-  gate. The composition root injects the saved Popup choice into the existing
-  `PopupLayoutPolicy`; `PrimarySurfaceHost` retains sole bounds/drag ownership.
-  Entry Panel shares the Popup shell and its initial placement. Existing shells
-  and identity-matched replacement keep their bounds. See
+- Popup, Entry Panel, and Inline use fixed bottom-center initial placement on
+  the starting pointer monitor; placement is not a persisted preference or
+  runtime command. `PopupLayoutPolicy` owns Popup/Panel initial layout;
+  `PrimarySurfaceHost` retains sole bounds/drag ownership. Existing shells and
+  identity-matched replacement keep their bounds. Inline notification space
+  expands above the fixed Pill without activation. Legacy placement fields are
+  ignored on load and omitted from schema-10 saves. See
   `docs/contracts/ui/window-placement-contract.md`.
 - A platform `UserPreferencesStore` adapter owns `data/user_preferences.json` and writes it atomically. `.env` remains independently owned provider configuration and does not share this gate.
 - First-use hints are disabled by default and the tray toggle is initially unchecked. When explicitly enabled, a successful feedback-enabled Recipe may consume its first-use hint once per Action and press type. The visible Workflow surface projects that decision as a temporary coachmark beside the existing `ⓘ`; it does not add a persistent layout row.

@@ -178,11 +178,14 @@ Integration 應測：
 
 ## Popup 測試重點
 
-Experimental placement tests cover Bottom Center defaults, independent Popup
-and Inline preference persistence, legacy/invalid defaults, shared save-gate
-pending/failure/stale completion, and Tray menu order/radio truth. Layout tests
-cover physical bounds at multiple DPI scales and negative monitor origins;
-primary-surface tests keep existing shell/replacement bounds unchanged.
+Fixed placement tests cover Popup/Panel and Inline bottom-center layout,
+pointer independence within the sampled monitor, multiple DPI scales, negative
+monitor origins, and work-area margins. Primary-surface tests preserve dragged
+and replacement bounds; Inline notifications expand upward without moving or
+activating the Pill. Preference tests load obsolete cursor/invalid placement
+fields without writes or loss of other settings, then verify schema-10 saves
+omit those fields. Tray tests cover English grouping, language endonyms,
+absence of position controls, and truthful pending/failure/restart projection.
 
 Popup 是另一個穩定性重點。
 

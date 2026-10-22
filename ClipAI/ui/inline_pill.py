@@ -7,7 +7,7 @@ import customtkinter as ctk
 
 from PIL import Image, ImageTk
 
-from ClipAI.core.models import DisplayMetrics, InlineDictationPlacement
+from ClipAI.core.models import DisplayMetrics
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
 from ClipAI.core.voice import InlineDictationView
 from ClipAI.ui import voice_visuals as visuals
@@ -26,21 +26,20 @@ class PillLayout:
     scale: float
 
 
-def resolve_pill_layout(metrics: DisplayMetrics, placement: InlineDictationPlacement) -> PillLayout:
+def resolve_pill_layout(metrics: DisplayMetrics) -> PillLayout:
     scale = max(.1, metrics.scale)
     width = round(visuals.CANVAS_WIDTH*scale)
     pill_height, strip_height, panel_height = (round(value*scale) for value in (visuals.BASE_HEIGHT, visuals.STRIP_HEIGHT, visuals.PANEL_HEIGHT))
     height = pill_height+strip_height+panel_height
     margin = round(visuals.MARGIN*scale)
     pill_x = round((visuals.CANVAS_WIDTH-visuals.BASE_WIDTH)*scale/2)
-    above = placement == "bottom_center" or metrics.cursor_y > metrics.work_y+metrics.work_height/2
-    pill_y = panel_height+strip_height if above else 0
-    requested_x = metrics.work_x+(metrics.work_width-width)//2 if placement == "bottom_center" else metrics.cursor_x+round(14*scale)-pill_x
-    requested_y = metrics.work_y+metrics.work_height-margin-height if placement == "bottom_center" else metrics.cursor_y+round(18*scale)-pill_y
+    pill_y = panel_height+strip_height
+    requested_x = metrics.work_x+(metrics.work_width-width)//2
+    requested_y = metrics.work_y+metrics.work_height-margin-height
     left, top = metrics.work_x+margin, metrics.work_y+margin
     x = min(max(requested_x, left), max(left, metrics.work_x+metrics.work_width-width-margin))
     y = min(max(requested_y, top), max(top, metrics.work_y+metrics.work_height-height-margin))
-    return PillLayout(x, y, width, height, pill_x, pill_y, above, scale)
+    return PillLayout(x, y, width, height, pill_x, pill_y, True, scale)
 
 
 class InlinePill:
@@ -50,13 +49,11 @@ class InlinePill:
         on_copy: Callable[[], None] = lambda: None,
         native_window_surface: NativeWindowSurface | None = None,
         display_metrics: DisplayMetricsReader | None = None,
-        placement: InlineDictationPlacement = "bottom_center",
     ) -> None:
         self.interaction_id = interaction_id
         self._on_confirm, self._on_cancel, self._on_copy = on_confirm, on_cancel, on_copy
         self._native = native_window_surface
         self._metrics = display_metrics
-        self._placement = placement
         self._view = InlineDictationView(interaction_id)
         self._layout: PillLayout | None = None
         self._backdrop: Image.Image | None = None
@@ -92,7 +89,7 @@ class InlinePill:
         else:
             x, y = self._window.winfo_pointerxy()
             metrics = DisplayMetrics(1, 0, 0, self._window.winfo_screenwidth(), self._window.winfo_screenheight(), x, y)
-        self._layout = layout = resolve_pill_layout(metrics, self._placement)
+        self._layout = layout = resolve_pill_layout(metrics)
         self._window.geometry(f"{layout.width}x{layout.height}{layout.x:+d}{layout.y:+d}")
         if self._native is not None:
             rgb = self._native.capture_screen_rgb(layout.x, layout.y, layout.width, layout.height)

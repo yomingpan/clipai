@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
-from ClipAI.core.commands import InlineDictationPlacementPreferencesCompleted, InlineInputModePreferencesCompleted, SetInlineDictationPlacement, SetInlineInputMode
+from ClipAI.core.commands import InlineInputModePreferencesCompleted, SetInlineInputMode
 from ClipAI.core.models import UserPreferences
 from ClipAI.core.voice import VoiceSetupId
 from ClipAI.services.user_preferences import UserPreferencesCoordinator
@@ -31,12 +31,6 @@ class InlineModePresenter:
         self.states = []
 
     def set_inline_input_mode(self, state) -> None:
-        self.states.append(state)
-
-    def set_inline_dictation_placement(self, state) -> None:
-        self.states.append(state)
-
-    def set_popup_placement(self, state) -> None:
         self.states.append(state)
 
 
@@ -77,41 +71,3 @@ def test_inline_mode_uses_shared_save_gate_and_projects_only_saved_selection() -
     module.handle(enqueued.pop())
     assert presenter.states[-1].selected_mode == "minimal"
     assert presenter.states[-1].pending_mode is None
-
-
-def test_inline_placement_routes_through_shared_save_gate() -> None:
-    store, supervisor, enqueued, presenter = Store(), Supervisor(), [], InlineModePresenter()
-    module = UserPreferencesRuntimeModule(
-        supervisor=supervisor,
-        enqueue=enqueued.append,
-        user_preferences=UserPreferencesCoordinator(store),
-        inline_dictation_placement_presenter=presenter,
-    )
-    module.handle(SetInlineDictationPlacement("cursor", "placement-1"))
-    assert presenter.states[-1].pending_placement == "cursor"
-    next(work for task_id, work in supervisor.work.items() if task_id.endswith(":placement-1"))()
-    assert enqueued == [InlineDictationPlacementPreferencesCompleted("placement-1")]
-    module.handle(enqueued.pop())
-    assert presenter.states[-1].selected_placement == "cursor"
-
-
-def test_popup_position_routes_typed_completion_and_ignores_stale_operations() -> None:
-    from ClipAI.core.commands import PopupPlacementPreferencesCompleted, SetPopupPlacement
-
-    store, supervisor, enqueued, presenter = Store(), Supervisor(), [], InlineModePresenter()
-    module = UserPreferencesRuntimeModule(
-        supervisor=supervisor,
-        enqueue=enqueued.append,
-        user_preferences=UserPreferencesCoordinator(store),
-        popup_placement_presenter=presenter,
-    )
-    module.handle(SetPopupPlacement("cursor", "popup-1"))
-    assert presenter.states[-1].selected_placement == "bottom_center"
-    assert presenter.states[-1].pending_placement == "cursor"
-    module.handle(PopupPlacementPreferencesCompleted("old"))
-    assert presenter.states[-1].update_pending
-    next(work for task_id, work in supervisor.work.items() if task_id.endswith(":popup-1"))()
-    assert enqueued == [PopupPlacementPreferencesCompleted("popup-1")]
-    module.handle(enqueued.pop())
-    assert presenter.states[-1].selected_placement == "cursor"
-    assert not presenter.states[-1].update_pending

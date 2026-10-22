@@ -51,7 +51,7 @@ def count_black_fringe(mask, expected, observed) -> tuple[int, int]:
 
 
 def _measure_edges(root, native, metrics):
-    layout = resolve_pill_layout(metrics.current(), "bottom_center")
+    layout = resolve_pill_layout(metrics.current())
     background = tk.Toplevel(root)
     background.withdraw()
     background.overrideredirect(True)
@@ -147,7 +147,7 @@ def measure(iterations: int, timeout_seconds: float) -> dict[str, object]:
                     native_window_surface=native, display_metrics=metrics,
                 )
                 try:
-                    layout = resolve_pill_layout(metrics.current(), "bottom_center")
+                    layout = resolve_pill_layout(metrics.current())
                     # Sample the interior gap, clear of the shell highlight.
                     x = layout.x+layout.pill_x+round(PATCH_LEFT*layout.scale)
                     y = layout.y+layout.pill_y+round(PATCH_TOP*layout.scale)

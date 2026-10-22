@@ -12,7 +12,7 @@ from ClipAI.app.voice_capture_timing import VoiceCaptureTiming
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
 from ClipAI.core.commands import CancelInlineDictation, CopyInlineDictation, DismissInlineDictationTerminal, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationCopyCompleted, InlineDictationRefineSettled, InlineDictationRefineCancelAccepted, InlineDictationRefineCancelTimedOut, PasteOperationCompleted, VoiceFinalizeWatchdogExpired
 from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired
-from ClipAI.core.models import ControlSurfaceRef, InlineDictationPlacement, InlineInputMode, InlineOrigin, PasteTarget, PressType, ShortcutPressId
+from ClipAI.core.models import ControlSurfaceRef, InlineInputMode, InlineOrigin, PasteTarget, PressType, ShortcutPressId
 from ClipAI.core.ports import InlineDictationPresenter, UserNotifier, VoiceInputEngine, VoiceSetupPresenter
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureTarget, VoiceDraftTarget, VoiceInlineTarget, VoiceEngineListening, VoiceEngineEnded, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
@@ -55,7 +55,6 @@ class VoiceInputRuntimeModule:
         workflows: WorkflowRuntimeModule,
         paste_target_reader: Callable[[], PasteTarget | None],
         inline_input_mode_reader: Callable[[], InlineInputMode] = lambda: "choice",
-        inline_dictation_placement_reader: Callable[[], InlineDictationPlacement] = lambda: "bottom_center",
         capture_external_target: Callable[[], PasteTarget | None] | None = None,
         persist_enabled: Callable[[str], None] = lambda _setup_id: None,
         persist_disabled: Callable[[str], None] = lambda _disable_id: None,
@@ -82,7 +81,6 @@ class VoiceInputRuntimeModule:
         self._paste_target_reader = paste_target_reader
         self._inline_input_mode_reader = inline_input_mode_reader
         self._inline_preview_press: tuple[ShortcutPressId, str] | None = None
-        self._inline_dictation_placement_reader = inline_dictation_placement_reader
         self._capture_external_target = capture_external_target or paste_target_reader
         self._persist_enabled = persist_enabled
         self._persist_disabled = persist_disabled
@@ -238,7 +236,7 @@ class VoiceInputRuntimeModule:
                 capture_id, VoiceInlineTarget(interaction_id, target, mode)
             )
             if not transition.ignored and self._inline_presenter is not None:
-                self._inline_presenter.open_inline_dictation(interaction_id, mode, self._inline_dictation_placement_reader())
+                self._inline_presenter.open_inline_dictation(interaction_id, mode)
         if transition.ignored:
             self._notify_shortcut_rejected("Voice Input is busy. Finish or cancel the current dictation.")
             return False

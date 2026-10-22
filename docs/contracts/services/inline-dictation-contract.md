@@ -56,15 +56,14 @@ New installs with no preferences file start in Minimal; existing preferences
 and corrupt-file ordinary defaults retain their existing mode behavior. See
 `tests/platform/test_json_guidance_preferences.py`.
 
-The Inline window freezes its placement at interaction start. `cursor` uses
-the starting pointer position; `bottom_center` uses the work area's bottom
-center and is the default for both Full Choice and Minimal Input. A reserved
-transparent area holds panel expansion away from the nearer work-area edge;
-content and Copy updates never move or resize the window. Placement is saved
-atomically through the shared preference gate; invalid
-or unchanged values do not write. The Tray offers the two modes and both
-placement choices with pending state. Each new Pill samples starting display
-metrics/DPI before placing and rendering; later updates keep that layout.
+The Inline window opens at the bottom center of the starting pointer monitor's
+work area for both Full Choice and Minimal Input. There is no placement choice
+or saved placement preference. A reserved transparent area holds notification
+expansion above the Pill; content and Copy updates never move or resize the
+window. The Tray offers only the two input modes, with real save pending state.
+Each new Pill samples starting display metrics/DPI before placing and rendering;
+later updates keep that layout. Legacy placement settings are ignored as defined
+in `docs/contracts/ui/window-placement-contract.md`.
 `InlineDictationInterfaceOwner` alone owns its window and interaction ID;
 `OwnedModalRegistry` alone owns the five root-owned dialogs.
 View Confirm, Copy, and Esc callbacks carry the interaction ID captured when

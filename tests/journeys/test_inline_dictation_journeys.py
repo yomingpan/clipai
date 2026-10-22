@@ -63,7 +63,7 @@ class Presenter:
         self.interaction_ids: list[str] = []
         self.cancel_unconfirmed: list[tuple[str, str]] = []
 
-    def open_inline_dictation(self, interaction_id="", _mode="choice", _placement="cursor") -> None:
+    def open_inline_dictation(self, interaction_id="", _mode="choice") -> None:
         self.interaction_ids.append(interaction_id)
 
     def present_inline_dictation(self, view):

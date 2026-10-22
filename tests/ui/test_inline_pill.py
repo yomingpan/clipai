@@ -9,14 +9,17 @@ from ClipAI.ui.inline_pill import InlinePill, resolve_pill_layout
 
 
 @pytest.mark.parametrize("scale", [1, 1.25, 1.5, 2])
+@pytest.mark.parametrize("work_x,work_y", [(-1920, -200), (0, 0), (1920, 100)])
 @pytest.mark.parametrize("pointer", [(0, 0), (1279, 719), (600, 300)])
-def test_pill_and_future_panel_fit_work_area_with_scaled_margin(scale, pointer):
-    metrics = DisplayMetrics(scale, 0, 0, 1280, 720, *pointer)
-    layout = resolve_pill_layout(metrics, "cursor")
-    assert layout.x >= round(8*scale)
-    assert layout.y >= round(8*scale)
-    assert layout.x + layout.width <= 1280-round(8*scale)
-    assert layout.y + layout.height <= 720-round(8*scale)
+def test_pill_and_future_panel_fit_work_area_with_scaled_margin(scale, pointer, work_x, work_y):
+    metrics = DisplayMetrics(scale, work_x, work_y, 1280, 720, work_x+pointer[0], work_y+pointer[1])
+    layout = resolve_pill_layout(metrics)
+    assert layout.x == work_x + (1280-layout.width)//2
+    assert layout.y + layout.height == work_y+720-round(8*scale)
+    assert layout.x >= work_x+round(8*scale)
+    assert layout.y >= work_y+round(8*scale)
+    assert layout.x + layout.width <= work_x+1280-round(8*scale)
+    assert layout.panel_above
     assert layout.scale == scale
 
 
@@ -24,20 +27,20 @@ def test_pill_and_future_panel_fit_work_area_with_scaled_margin(scale, pointer):
 def test_scaled_regions_fit_without_independent_rounding_clipping(scale):
     from ClipAI.ui import voice_visuals as visuals
     metrics = DisplayMetrics(scale, 0, 0, 1600, 1000, 0, 0)
-    layout = resolve_pill_layout(metrics, "bottom_center")
+    layout = resolve_pill_layout(metrics)
     assert layout.pill_y+round(visuals.BASE_HEIGHT*scale) == layout.height
     assert layout.pill_y-round(visuals.STRIP_HEIGHT*scale) == round(visuals.PANEL_HEIGHT*scale)
 
 
 def test_bottom_center_placement_does_not_follow_pointer():
     metrics = DisplayMetrics(1, 100, 50, 1000, 700, 130, 70)
-    assert resolve_pill_layout(metrics, "bottom_center") == resolve_pill_layout(replace(metrics, cursor_x=1000, cursor_y=700), "bottom_center")
+    assert resolve_pill_layout(metrics) == resolve_pill_layout(replace(metrics, cursor_x=1000, cursor_y=700))
 
 
 @pytest.mark.parametrize("scale", [1, 1.5, 2])
 def test_button_targets_follow_spaced_geometry_and_leave_shell_and_gap_inactive(scale):
     pill = object.__new__(InlinePill)
-    pill._layout = layout = resolve_pill_layout(DisplayMetrics(scale, 0, 0, 1600, 1000, 0, 0), "bottom_center")
+    pill._layout = layout = resolve_pill_layout(DisplayMetrics(scale, 0, 0, 1600, 1000, 0, 0))
     def hit(x, y):
         return pill._hit(layout.pill_x+x*scale, layout.pill_y+y*scale)
     assert hit(18, 18) == "cancel"
@@ -119,7 +122,7 @@ def test_notice_cards_fit_at_each_dpi_without_scrolling_or_clipping(root, scale)
     from ClipAI.core.models import PasteOutcome
     class Reader:
         def current(self): return DisplayMetrics(scale, 0, 0, 1600, 1000, 0, 0)
-    pill = InlinePill(root, interaction_id="notice", on_confirm=lambda _: None, on_cancel=lambda: None, display_metrics=Reader(), placement="cursor")
+    pill = InlinePill(root, interaction_id="notice", on_confirm=lambda _: None, on_cancel=lambda: None, display_metrics=Reader())
     cases = [
         InlineDictationView("notice", "awaiting", text="full text "*200),
         InlineDictationView("notice", "awaiting", text="original", allow_refine=False),

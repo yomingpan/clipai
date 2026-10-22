@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from ClipAI.core.models import ExternalWindowWaitPolicy, InlineDictationPlacement, InlineDictationPlacementState, InlineInputMode, InlineInputModeState, PasteOutcome, PopupPlacementState
+from ClipAI.core.models import ExternalWindowWaitPolicy, InlineInputMode, InlineInputModeState, PasteOutcome
 from ClipAI.core.models import ActionFeedbackRecord, ActionLanguagePackSelectionRead, ActionLanguagePackSelectionState, ActiveWorkflowContext, ApplicationStatus, DisplayMetrics, EntryPanelSnapshot, EnvironmentSetting, ExternalWindowActivationOutcome, ExternalWindowRef, GuidancePreferences, ImageContent, LLMProviderEvent, LLMRequest, ManagedUpdatePresentation, ModelSelectionState, ModifierHoldId, OperationKind, OutputOperationResult, PasteDispatchReceipt, PasteTarget, PersonalStyleCollection, PersonalStyleState, ProviderSelectionState, ProviderSettingsState, ShortcutGuideSnapshot, ShortcutObservationSnapshot, SpeechRequest, SpeechSpeedState, UserFacingError, UserPreferences, WorkflowAttention
 from ClipAI.core.state import CancellationToken, SessionSnapshot
 from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest, SelectionSource
@@ -96,7 +96,6 @@ class ApplicationView(ResultPresenter, Protocol):
     def set_managed_update(self, state: ManagedUpdatePresentation) -> None: ...
 
     def open_github(self, url: str) -> None: ...
-
 
 
 class OutputOperationPresenter(Protocol):
@@ -227,14 +226,6 @@ class SpeechSpeedPresenter(Protocol):
 
 class InlineInputModePresenter(Protocol):
     def set_inline_input_mode(self, state: InlineInputModeState) -> None: ...
-
-
-class InlineDictationPlacementPresenter(Protocol):
-    def set_inline_dictation_placement(self, state: InlineDictationPlacementState) -> None: ...
-
-
-class PopupPlacementPresenter(Protocol):
-    def set_popup_placement(self, state: PopupPlacementState) -> None: ...
 
 
 class ShortcutGuidePresenter(Protocol):
@@ -390,7 +381,7 @@ class VoiceSetupPresenter(Protocol):
 
 
 class InlineDictationPresenter(Protocol):
-    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice", placement: InlineDictationPlacement = "bottom_center") -> None: ...
+    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice") -> None: ...
 
     def present_inline_dictation(self, view: InlineDictationView) -> None: ...
 

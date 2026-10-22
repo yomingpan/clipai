@@ -133,7 +133,7 @@ class EntryPanelIntentAdapter:
 
 
 class UnifiedEntryPanelDialog:
-    """Toolkit-only cursor-adjacent projection of the Unified Entry Panel."""
+    """Toolkit-only bottom-center projection of the Unified Entry Panel."""
 
     def __init__(
         self,

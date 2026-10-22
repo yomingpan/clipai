@@ -6,7 +6,7 @@ from collections.abc import Callable
 import tkinter as tk
 
 from ClipAI.core.commands import CancelInlineDictation, ConfirmInlineDictation, CopyInlineDictation, DismissInlineDictationTerminal
-from ClipAI.core.models import InlineDictationPlacement, InlineInputMode
+from ClipAI.core.models import InlineInputMode
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
 from ClipAI.core.voice import InlineDictationView
 from ClipAI.ui.inline_pill import InlinePill
@@ -27,7 +27,7 @@ class InlineDictationInterfaceOwner:
         self._dismiss_job: str | None = None
         self._dismiss_for: str | None = None
 
-    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice", placement: InlineDictationPlacement = "bottom_center") -> None:
+    def open_inline_dictation(self, interaction_id: str = "", mode: InlineInputMode = "choice") -> None:
         if self._window is not None and self._window.interaction_id == interaction_id:
             return
         self.close_inline_dictation()
@@ -39,7 +39,6 @@ class InlineDictationInterfaceOwner:
             native_window_surface=self._native_window_surface,
             display_metrics=self._display_metrics,
             interaction_id=interaction_id,
-            placement=placement,
         )
         self._window = window
         window.show()

@@ -20,6 +20,9 @@ def test_threshold_notification_is_immutable_and_retains_the_press_identity():
 def test_inline_presenter_exposes_only_lifecycle_and_one_complete_view():
     methods = {name for name, value in inspect.getmembers(InlineDictationPresenter, inspect.isfunction) if not name.startswith("_")}
     assert methods == {"open_inline_dictation", "present_inline_dictation", "close_inline_dictation"}
+    assert tuple(inspect.signature(InlineDictationPresenter.open_inline_dictation).parameters) == (
+        "self", "interaction_id", "mode",
+    )
 
 
 def test_headless_native_ports_never_claim_activation_or_screen_capture():

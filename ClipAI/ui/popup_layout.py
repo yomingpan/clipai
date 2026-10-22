@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 
-from ClipAI.core.models import DisplayMetrics, PopupBounds, PopupPlacement
+from ClipAI.core.models import DisplayMetrics, PopupBounds
 
 
 _TK_GEOMETRY = re.compile(
@@ -32,9 +31,6 @@ class PopupLayoutPolicy:
     MIN_HEIGHT = 220
     MARGIN = 16
 
-    def __init__(self, placement_reader: Callable[[], PopupPlacement] = lambda: "bottom_center") -> None:
-        self._placement_reader = placement_reader
-
     def calculate(self, metrics: DisplayMetrics, *, content_lines: int = 8) -> PopupBounds:
         scale = max(metrics.scale, 0.5)
         del content_lines
@@ -45,12 +41,8 @@ class PopupLayoutPolicy:
         margin = int(self.MARGIN * scale)
         physical_width = int(width * scale)
         physical_height = int(height * scale)
-        if self._placement_reader() == "bottom_center":
-            x = metrics.work_x + (metrics.work_width - physical_width) // 2
-            y = metrics.work_y + metrics.work_height - physical_height - margin
-        else:
-            x = metrics.cursor_x - physical_width // 3
-            y = metrics.cursor_y - physical_height // 4
+        x = metrics.work_x + (metrics.work_width - physical_width) // 2
+        y = metrics.work_y + metrics.work_height - physical_height - margin
         x = max(metrics.work_x + margin, min(x, metrics.work_x + metrics.work_width - physical_width - margin))
         y = max(metrics.work_y + margin, min(y, metrics.work_y + metrics.work_height - physical_height - margin))
         return PopupBounds(x, y, width, height)

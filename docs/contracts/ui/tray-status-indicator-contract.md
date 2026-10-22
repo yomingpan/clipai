@@ -34,7 +34,8 @@ Concurrent, timer-reset, late-event, icon retry, menu callback, and stop cleanup
 
 ## Quick-control menu depth
 
-- Tray labels use English. The official Action Language Pack display names are `Traditional Chinese` and `Japanese`; Action content still follows its selected pack.
+- Tray labels use English; language names use endonyms. The official Action Language Pack display names are `繁體中文` and `日本語`; Voice Input offers `繁體中文` and `English`. Action content still follows its selected pack.
 - Voice Input stays a first-level category. Its submenu contains one state-aware Enable/Disable command and direct language radio choices, without a nested Language menu. Pending setup/disable is disabled and named explicitly; failed cleanup offers a retry of Disable. The parent shows the authoritative capability and saved language. A language save projects `(Saving...)` while the prior language stays checked; save failure retains that choice and notifies the user.
-- Inline Dictation is a first-level category beside Voice Input. Its submenu directly offers input-mode and placement radio choices; the parent shows the saved input mode and any pending save.
+- Inline Dictation is a first-level category beside Voice Input. Its submenu offers only input-mode radio choices; the parent shows the saved input mode and any pending save. Popup, Entry Panel, and Inline use fixed bottom-center placement without position settings.
 - Quick controls may have one submenu level. Provider credentials and personal-style editing keep their dedicated dialogs.
+- Full menu order and state labels are defined in [Tray menu](tray-menu-contract.md).

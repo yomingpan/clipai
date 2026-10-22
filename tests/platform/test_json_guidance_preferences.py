@@ -1,9 +1,36 @@
 from __future__ import annotations
 
 import json
+import pytest
 
 from ClipAI.core.models import UserPreferences
 from ClipAI.platform.user_preferences import JsonUserPreferencesStore
+
+
+@pytest.mark.parametrize("schema", [7, 8, 9, 10])
+@pytest.mark.parametrize("placement", ["cursor", "bottom_center", "invalid", {"legacy": True}])
+def test_retired_positions_are_ignored_without_losing_other_preferences(tmp_path, schema, placement):
+    path = tmp_path / "preferences.json"
+    store = JsonUserPreferencesStore(path)
+    expected = UserPreferences(
+        first_use_hints_enabled=True, seen_action_ids=frozenset({"translate"}),
+        speech_speed="fast", voice_input_enabled=True, voice_language="en-US",
+        entry_panel_density="compact", inline_input_mode="minimal",
+        entry_numeric_hint_count=3 if schema >= 9 else 0,
+    )
+    store.save(expected)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.update(schema_version=schema, popup_placement=placement, inline_dictation_placement=placement)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    original = path.read_bytes()
+    assert store.load() == expected
+    assert path.read_bytes() == original
+    store.save(store.load())
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["schema_version"] == 10
+    assert "popup_placement" not in saved
+    assert "inline_dictation_placement" not in saved
+    assert store.load() == expected
 
 
 def test_preferences_default_disabled_when_file_is_missing(tmp_path) -> None:
@@ -41,7 +68,7 @@ def test_preferences_round_trip_with_schema_and_no_temporary_file(tmp_path) -> N
     assert store.load() == expected
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload == {
-        "schema_version": 9,
+        "schema_version": 10,
         "first_use_hints_enabled": False,
         "seen_action_ids": ["shorten", "translate"],
         "speech_speed": "fast",
@@ -49,8 +76,6 @@ def test_preferences_round_trip_with_schema_and_no_temporary_file(tmp_path) -> N
         "voice_language": "zh-TW",
         "entry_panel_density": "detailed",
         "inline_input_mode": "choice",
-        "inline_dictation_placement": "bottom_center",
-        "popup_placement": "bottom_center",
         "entry_numeric_hint_count": 0,
     }
     assert list(path.parent.glob("*.tmp")) == []
@@ -75,41 +100,6 @@ def test_inline_mode_round_trip_and_schema_five_defaults_to_choice(tmp_path) -> 
     payload.pop("inline_input_mode")
     path.write_text(json.dumps(payload), encoding="utf-8")
     assert store.load().inline_input_mode == "choice"
-
-
-def test_inline_placement_round_trip_and_legacy_default(tmp_path) -> None:
-    path = tmp_path / "preferences.json"
-    store = JsonUserPreferencesStore(path)
-    store.save(UserPreferences(inline_dictation_placement="bottom_center"))
-    assert store.load().inline_dictation_placement == "bottom_center"
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["schema_version"] = 6
-    payload.pop("inline_dictation_placement")
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    assert store.load().inline_dictation_placement == "bottom_center"
-
-
-def test_window_placements_round_trip_independently_and_preserve_legacy_selection(tmp_path) -> None:
-    path = tmp_path / "preferences.json"
-    store = JsonUserPreferencesStore(path)
-    store.save(UserPreferences(popup_placement="cursor", inline_dictation_placement="bottom_center"))
-    assert store.load().popup_placement == "cursor"
-    assert store.load().inline_dictation_placement == "bottom_center"
-
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["schema_version"] = 7
-    payload["inline_dictation_placement"] = "cursor"
-    payload.pop("popup_placement")
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    assert store.load().popup_placement == "bottom_center"
-    assert store.load().inline_dictation_placement == "cursor"
-
-    payload["schema_version"] = 8
-    payload["popup_placement"] = "invalid"
-    payload["inline_dictation_placement"] = "invalid"
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    assert store.load().popup_placement == "bottom_center"
-    assert store.load().inline_dictation_placement == "bottom_center"
 
 
 def test_invalid_or_future_preferences_fall_back_safely(tmp_path) -> None:

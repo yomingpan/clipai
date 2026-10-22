@@ -17,7 +17,7 @@ STEPS: dict[str, tuple[str, ...]] = {
         "tests/platform/test_native_window.py",
         "tests/platform/test_keyboard_state.py",
     ),
-    "core-contracts": ("tests/core/test_inline_dictation_placement_contract.py",),
+    "core-contracts": ("tests/core/test_inline_ports_contract.py",),
     "services-placement": (
         "tests/services/test_user_preferences.py",
         "tests/platform/test_json_guidance_preferences.py",
