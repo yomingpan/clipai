@@ -149,6 +149,7 @@ class EntryPanelCoordinator:
         self._catalog = catalog
         self._density = density
         self._snapshot: EntryPanelSnapshot | None = None
+        self._question_disabled_reason = ""
         self._recent: tuple[EntryActionRef, ...] = ()
         self._disabled: dict[EntryActionRef, str] = {}
         self._pending = False
@@ -200,7 +201,13 @@ class EntryPanelCoordinator:
                     category_id=category.category_id,
                 )
                 for category in self._catalog.categories
-            ),
+            ) + (EntryPanelOption(
+                8, "問這段", "針對目前這段內容，自由輸入你的問題。Ctrl+Alt+R",
+                command="open_contextual_question",
+                enabled=not self._question_disabled_reason,
+                pending=self._pending and not self._question_disabled_reason,
+                disabled_reason=self._question_disabled_reason,
+            ),),
             status="preparing" if preparing else "idle",
             message="正在讀取來源內容…" if preparing else "",
             source_preview=source_preview,
@@ -330,6 +337,15 @@ class EntryPanelCoordinator:
         )
         return self._snapshot
 
+    def set_question_availability(self, reason: str) -> EntryPanelSnapshot | None:
+        self._question_disabled_reason = reason
+        if self._snapshot is not None:
+            self._snapshot = replace(
+                self._snapshot,
+                options=self._project_option_lifecycle(self._snapshot.options),
+            )
+        return self._snapshot
+
     def back(self) -> EntryPanelSnapshot | None:
         if self._snapshot is None:
             return None
@@ -376,6 +392,8 @@ class EntryPanelCoordinator:
             self._snapshot = replace(self._snapshot, message="最近使用改為 1–3")
             return EntryPanelDecision(self._snapshot)
         option = next((item for item in self._snapshot.options if item.slot == slot), None)
+        if option is not None and option.command is not None and option.enabled and not option.pending:
+            return EntryPanelDecision(self._snapshot, command=option.command)
         if (
             option is not None
             and option.action is not None
@@ -422,11 +440,15 @@ class EntryPanelCoordinator:
         return tuple(
             replace(
                 option,
-                enabled=not (reason := self._disabled.get(option.action, "")),
+                enabled=not (reason := (
+                    self._question_disabled_reason
+                    if option.command is not None
+                    else self._disabled.get(option.action, "")
+                )),
                 pending=self._pending and not reason,
                 disabled_reason=reason,
             )
-            if option.action is not None
+            if option.action is not None or option.command is not None
             else option
             for option in options
         )

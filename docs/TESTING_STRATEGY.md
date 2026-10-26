@@ -615,3 +615,13 @@ python -m pytest -m integration
 穩定性是 ClipAI 的產品功能。
 
 測試架構不是附屬品，而是架構設計的一部分。每一個新功能都應思考：這個功能的真實世界接縫在哪裡？測試時能不能拔掉？如果不能，代表架構還沒有切乾淨。
+
+
+### Entry Panel contextual-question entry
+
+Root slot 8 must remain fixed at the bottom of the root after category 7 without changing slots
+1–7. Coordinator tests cover pending/disabled state, root-only selection and
+Back navigation. Runtime tests cover click and held-Alt selection, frozen source
+reuse, unavailable input, Workflow lineage, pre-projection surface handoff and
+no capture/provider work before question submission. Native Panel smoke checks
+that the fixed entry renders and dispatches slot 8.

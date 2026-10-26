@@ -1161,6 +1161,7 @@ def _body_render_key(snapshot: EntryPanelSnapshot) -> tuple[object, ...]:
                 option.label,
                 option.description if snapshot.density == "detailed" else "",
                 option.action,
+                option.command,
                 option.long_action,
                 option.long_label,
                 option.category_id,

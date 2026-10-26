@@ -74,6 +74,16 @@ class Workflows:
             before_first_projection("workflow-1")
         return ActionStartAdmission("accepted", workflow_id="workflow-1")
 
+    def entry_panel_question_block_reason(self, target):
+        if target.document is not None and target.document.image is not None:
+            return "Text is required."
+        return self.block_reason
+
+    def open_contextual_question(self, *, input_target, before_first_projection):
+        self.starts.append(("question", input_target))
+        before_first_projection("workflow-1")
+        return ActionStartAdmission("accepted", workflow_id="workflow-1")
+
     def entry_panel_action_block_reason(self, _action):
         return self.block_reason
 
@@ -388,7 +398,7 @@ def test_unknown_capture_auto_uses_frozen_clipboard_only_in_entry_panel(reason):
     panel_id = module.open().panel_id
     complete_external_preparation(module, supervisor, commands)
     assert coordinator.snapshot.source_preview.kind == "clipboard_text"
-    assert not coordinator.snapshot.source_preview.clipboard_override_available
+    assert coordinator.snapshot.source_preview.clipboard_override_available
     module.handle(UseEntryPanelClipboard("stale-panel"))
     assert coordinator.snapshot.source_preview.kind == "clipboard_text"
     inputs.prepared = PreparedInput(clipboard_text_document=InputDocument("changed", "clipboard"))
@@ -797,3 +807,60 @@ def test_escape_closes_from_non_root_and_cancels_preparation() -> None:
     assert coordinator.snapshot is None
     assert task_id in supervisor.cancelled
     assert presenter.snapshots[-1] is None
+
+
+@pytest.mark.parametrize("via_hold", [False, True])
+def test_question_uses_frozen_panel_input_and_hands_off_surface(via_hold):
+    from ClipAI.core.commands import EntryPanelDigitPressed, EntryPanelSlotSelected
+    from ClipAI.core.models import ModifierHoldId
+    module, coordinator, presenter, supervisor, workflows, _, inputs, commands, _ = make_module()
+    hold_id = ModifierHoldId(8)
+    root = module.open(hold_id)
+    module.handle(EntryPanelSlotSelected(root.panel_id, 8))
+    assert workflows.starts == []
+    complete_external_preparation(module, supervisor, commands)
+    inputs.prepared = PreparedInput(selection_document=InputDocument("changed", "selection"))
+    command = EntryPanelDigitPressed(hold_id, "8") if via_hold else EntryPanelSlotSelected(root.panel_id, 8)
+    module.handle(command)
+    assert workflows.starts[0][0] == "question"
+    assert workflows.starts[0][1].document.text == "selected at open"
+    assert inputs.calls == 1
+    assert coordinator.snapshot is None
+    assert presenter.popup_transitions == [(root.panel_id, "workflow-1")]
+
+
+@pytest.mark.parametrize("image_only", [False, True])
+def test_question_unavailable_for_empty_input_and_image_only_clipboard(image_only):
+    from ClipAI.core.commands import EntryPanelSlotSelected
+    from ClipAI.core.models import ImageContent
+    module, coordinator, presenter, supervisor, workflows, _, _, commands, _ = make_module(
+        input_resolver=Inputs(PreparedInput(clipboard_image=ImageContent(b"image", "image/png") if image_only else None)),
+    )
+    root = module.open()
+    complete_external_preparation(module, supervisor, commands)
+    option = next(item for item in coordinator.snapshot.options if item.slot == 8)
+    assert not option.enabled
+    assert option.disabled_reason
+    module.handle(EntryPanelSlotSelected(root.panel_id, 8))
+    assert workflows.starts == []
+    assert presenter.popup_transitions == []
+
+
+def test_question_requires_explicit_clipboard_choice_when_selection_is_unknown():
+    from ClipAI.core.commands import EntryPanelSlotSelected
+    inputs = Inputs(PreparedInput(
+        clipboard_text_document=InputDocument("frozen clipboard", "clipboard"),
+        selection_outcome=SelectionCaptureOutcome(reason="uia_unsupported"),
+    ))
+    module, coordinator, presenter, supervisor, workflows, _, _, commands, _ = make_module(input_resolver=inputs)
+    root = module.open()
+    complete_external_preparation(module, supervisor, commands)
+    question = next(item for item in coordinator.snapshot.options if item.slot == 8)
+    assert not question.enabled
+    assert coordinator.snapshot.source_preview.clipboard_override_available
+    module.handle(EntryPanelSlotSelected(root.panel_id, 8))
+    assert workflows.starts == []
+    module.handle(UseEntryPanelClipboard(root.panel_id))
+    module.handle(EntryPanelSlotSelected(root.panel_id, 8))
+    assert workflows.starts[0][1].document.text == "frozen clipboard"
+    assert inputs.calls == 1

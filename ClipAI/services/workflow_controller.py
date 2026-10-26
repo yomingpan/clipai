@@ -122,19 +122,24 @@ class WorkflowController:
         self._presenter.render(snapshot)
         return snapshot
 
-    def request_question_composer(self) -> SessionSnapshot | None:
+    @property
+    def can_open_question_composer(self) -> bool:
         with self._lock:
-            if (
-                self._snapshot.active_invocation_id is not None
-                or self._snapshot.status not in {
+            return (
+                self._snapshot.active_invocation_id is None
+                and self._snapshot.status in {
                     SessionStatus.CONTEXT_QUESTION,
                     SessionStatus.COMPLETED,
                     SessionStatus.FAILED,
                     SessionStatus.STOPPED,
                     SessionStatus.VOICE_REVIEW,
                 }
-                or "follow_up" not in self._snapshot.available_actions
-            ):
+                and "follow_up" in self._snapshot.available_actions
+            )
+
+    def request_question_composer(self) -> SessionSnapshot | None:
+        with self._lock:
+            if not self.can_open_question_composer:
                 return None
             self._snapshot = self._snapshot.evolve(
                 question_composer_revision=self._snapshot.question_composer_revision + 1,

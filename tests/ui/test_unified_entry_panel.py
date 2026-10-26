@@ -849,3 +849,62 @@ def test_close_releases_projection_without_destroying_shared_host() -> None:
 
     assert events == ["tooltip-hidden", 'escape-tooltip-hidden', "cancelled"]
     assert dialog._snapshot is None
+
+
+def test_question_card_emits_panel_slot_intent_and_respects_pending():
+    panel = EntryPanelCoordinator(load_config_bundle().entry_panel)
+    snapshot = panel.open("question", preparing=True)
+    commands = []
+    adapter = EntryPanelIntentAdapter(commands.append)
+    adapter.apply(snapshot)
+    adapter.select(snapshot.options[-1])
+    assert commands == []
+    snapshot = panel.complete_input_preparation(EntryInputSourcePreview("selection_text", "text"))
+    adapter.apply(snapshot)
+    adapter.select(snapshot.options[-1])
+    assert commands == [EntryPanelSlotSelected("question", 8)]
+
+
+@pytest.mark.integration
+def test_fixed_question_card_renders_last_and_dispatches_slot_eight():
+    class NativeSurface:
+        def activate(self, _window_id): return True
+        def hide_from_task_switcher(self, _window_id): pass
+    class MetricsReader:
+        def current(self): return DisplayMetrics(1.0, 0, 0, 1920, 1080, 420, 320)
+    master = ctk.CTk()
+    master.withdraw()
+    host = None
+    dialog = None
+    commands = []
+    try:
+        host = PrimarySurfaceHost(master, PrimarySurfaceSpec(PopupBounds(268, 220, 400, 600)), NativeSurface())
+        lease = host.acquire()
+        dialog = UnifiedEntryPanelDialog(
+            master, commands.append, NativeSurface(), MetricsReader(),
+            primary_surface_host=host, primary_surface_lease=lease,
+        )
+        panel = EntryPanelCoordinator(load_config_bundle().entry_panel)
+        snapshot = panel.open("question-smoke", recent=(EntryActionRef("shorten_content", "short"),), preparing=True)
+        dialog.apply(snapshot)
+        assert host.mount(lease, dialog)
+        assert host.show(lease)
+        dialog.reveal()
+        master.update()
+        dialog._option_buttons[-1]._canvas.event_generate("<Button-1>", x=5, y=5)
+        master.update()
+        assert commands == []
+        snapshot = panel.complete_input_preparation(EntryInputSourcePreview("selection_text", "frozen text"))
+        dialog.apply(snapshot)
+        master.update()
+        question = dialog._option_buttons[-1]
+        assert question.winfo_rooty() > dialog._option_buttons[-2].winfo_rooty()
+        question._canvas.event_generate("<Button-1>", x=5, y=5)
+        master.update()
+        assert commands == [EntryPanelSlotSelected("question-smoke", 8)]
+    finally:
+        if dialog is not None:
+            dialog.close()
+        if host is not None:
+            host.close()
+        master.destroy()

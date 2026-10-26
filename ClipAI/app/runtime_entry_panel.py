@@ -59,6 +59,13 @@ class WorkflowActionAdmitter(Protocol):
 
     def entry_panel_action_block_reason(self, action: EntryActionRef) -> str: ...
 
+    def entry_panel_question_block_reason(self, target: InputTarget) -> str: ...
+
+    def open_contextual_question(
+        self, *, input_target: InputTarget,
+        before_first_projection: Callable[[str], None],
+    ) -> ActionStartAdmission: ...
+
 
 EntryPanelRuntimeCommand: TypeAlias = (
     OpenUnifiedEntryPanel
@@ -150,6 +157,7 @@ class EntryPanelRuntimeModule:
         preparation_id = EntryInputPreparationId(uuid.uuid4().hex)
         self._preparation_id = preparation_id
         self._prepared_input = None
+        self._coordinator.set_question_availability("")
         snapshot = self._coordinator.open(
             panel_id,
             recent=self._recent_actions.refs if self._recent_actions is not None else (),
@@ -193,6 +201,8 @@ class EntryPanelRuntimeModule:
                 self._presenter.present_entry_panel(decision.snapshot)
                 if decision.action is not None:
                     self.select_action(decision.action)
+                elif decision.command == "open_contextual_question":
+                    self.select_question()
         elif isinstance(command, EntryPanelInputPreparationCompleted):
             self._complete_preparation(command)
         elif isinstance(command, EntryPanelInputPreparationFailed):
@@ -218,6 +228,8 @@ class EntryPanelRuntimeModule:
                 self._presenter.present_entry_panel(decision.snapshot)
                 if decision.action is not None:
                     self.select_action(decision.action)
+                elif decision.command == "open_contextual_question":
+                    self.select_question()
             elif isinstance(command, EntryPanelOpenMore):
                 self._presenter.present_entry_panel(self._coordinator.open_more())
             elif isinstance(command, EntryPanelSearchChanged):
@@ -255,6 +267,57 @@ class EntryPanelRuntimeModule:
         self._hold_id = None
         self._presenter.present_entry_panel(None)
 
+    def _question_target(self) -> InputTarget:
+        prepared = self._prepared_input
+        document = prepared.resolve("selection_or_clipboard").document if prepared is not None else None
+        return InputTarget(
+            "workflow_result" if document is not None and document.source == "workflow_result" else "external_text",
+            document,
+        )
+
+    def _refresh_question_availability(self) -> None:
+        current = self._coordinator.snapshot
+        reason = ""
+        if current is not None and current.status != "preparing":
+            target = self._question_target()
+            if target.document is None:
+                prepared = self._prepared_input
+                reason = self._input_unavailable_message(
+                    prepared.resolve("selection_or_clipboard").unavailable_reason if prepared is not None else None,
+                )
+            else:
+                reason = self._workflows.entry_panel_question_block_reason(target)
+        self._coordinator.set_question_availability(reason)
+
+    def select_question(self) -> None:
+        current = self._coordinator.snapshot
+        if current is None or current.status == "preparing":
+            return
+        self._refresh_question_availability()
+        current = self._coordinator.snapshot
+        assert current is not None
+        option = next((
+            item for item in current.options
+            if item.command == "open_contextual_question"
+        ), None)
+        if option is None or not option.enabled:
+            self._presenter.present_entry_panel(self._coordinator.snapshot)
+            return
+        admission = self._workflows.open_contextual_question(
+            input_target=self._question_target(),
+            before_first_projection=lambda workflow_id: self._presenter.transition_entry_panel_to_popup(
+                current.panel_id, workflow_id,
+            ),
+        )
+        if admission.accepted:
+            self._coordinator.close()
+            self._source = None
+            self._prepared_input = None
+            self._preparation_id = None
+            self._hold_id = None
+        else:
+            self._presenter.present_entry_panel(self._coordinator.show_error(admission.message))
+
     def select_action(self, action: EntryActionRef) -> None:
         current = self._coordinator.snapshot
         if current is None:
@@ -272,7 +335,10 @@ class EntryPanelRuntimeModule:
                 self._coordinator.show_error(str(error))
             )
             return
-        resolution = self._prepared_input.resolve(resolved.input_mode)
+        prepared = self._prepared_input
+        if allows_entry_panel_clipboard_fallback(prepared):
+            prepared = prepared.use_clipboard()
+        resolution = prepared.resolve(resolved.input_mode)
         if resolution.document is None:
             self._presenter.present_entry_panel(
                 self._coordinator.show_error(
@@ -337,21 +403,21 @@ class EntryPanelRuntimeModule:
         ):
             return
         self._task_id = None
+        self._prepared_input = command.prepared_input
         prepared = command.prepared_input
-        if allows_entry_panel_clipboard_fallback(prepared):
+        automatic_clipboard = allows_entry_panel_clipboard_fallback(prepared) and not prepared.clipboard_override
+        if automatic_clipboard:
             prepared = prepared.use_clipboard()
-        self._prepared_input = prepared
-        self._coordinator.complete_input_preparation(
-            build_entry_input_preview(
-                prepared,
-                workflow_selection=self._workflow_selection,
-            )
-        )
+        preview = build_entry_input_preview(prepared, workflow_selection=self._workflow_selection)
+        if automatic_clipboard:
+            preview = replace(preview, clipboard_override_available=True)
+        self._coordinator.complete_input_preparation(preview)
         snapshot = self._coordinator.set_disabled(
             self._disabled_actions(prepared=prepared)
         )
         assert snapshot is not None
-        self._presenter.present_entry_panel(snapshot)
+        self._refresh_question_availability()
+        self._presenter.present_entry_panel(self._coordinator.snapshot)
 
     def _fail_preparation(self, command: EntryPanelInputPreparationFailed) -> None:
         current = self._coordinator.snapshot
@@ -371,7 +437,8 @@ class EntryPanelRuntimeModule:
             self._disabled_actions(failure=command.message)
         )
         assert snapshot is not None
-        self._presenter.present_entry_panel(snapshot)
+        self._refresh_question_availability()
+        self._presenter.present_entry_panel(self._coordinator.snapshot)
 
     def _retry_preparation(self) -> None:
         current = self._coordinator.snapshot
@@ -392,7 +459,8 @@ class EntryPanelRuntimeModule:
             self._disabled_actions(preparing=True)
         )
         assert snapshot is not None
-        self._presenter.present_entry_panel(snapshot)
+        self._refresh_question_availability()
+        self._presenter.present_entry_panel(self._coordinator.snapshot)
         self._schedule_external_preparation(
             current.panel_id,
             preparation_id,
@@ -427,7 +495,8 @@ class EntryPanelRuntimeModule:
             )
         )
         if snapshot is not None:
-            self._presenter.present_entry_panel(snapshot)
+            self._refresh_question_availability()
+            self._presenter.present_entry_panel(self._coordinator.snapshot)
 
     def _schedule_external_preparation(
         self,
@@ -628,6 +697,8 @@ class EntryPanelRuntimeModule:
         failure: str = "",
     ) -> dict[EntryActionRef, str]:
         disabled: dict[EntryActionRef, str] = {}
+        if prepared is not None and allows_entry_panel_clipboard_fallback(prepared):
+            prepared = prepared.use_clipboard()
         actions = list(self._coordinator.actions)
         if self._recent_actions is not None:
             actions.extend(

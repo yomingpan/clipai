@@ -13,7 +13,7 @@ def coordinator() -> EntryPanelCoordinator:
 def test_root_numeric_migration_reserves_zero_for_visible_feedback_only():
     panel = coordinator()
     root = panel.open("migration", recent=(EntryActionRef("shorten_content", "short"),))
-    assert tuple(option.slot for option in root.options) == (1, 4, 5, 6, 7)
+    assert tuple(option.slot for option in root.options) == (1, 4, 5, 6, 7, 8)
     decision = panel.select_digit("0")
     assert decision.action is None
     assert decision.snapshot.message == "最近使用改為 1–3"
@@ -109,7 +109,7 @@ def test_root_projects_a_long_press_recent_with_variant_localized_copy() -> None
         recent=(action,),
     )
 
-    recent = root.options[0]
+    recent = next(option for option in root.options if option.slot == 1)
     resolved = bundle.actions.resolve(action.action_id, action.press_type)
     assert resolved.feedback_contract is not None
     assert recent.action == action
@@ -297,3 +297,22 @@ def test_catalog_rejects_unknown_action_without_yaml_loader() -> None:
             ),
             actions=ActionCatalog([]),
         )
+
+
+def test_question_is_fixed_on_root_and_respects_input_lifecycle():
+    panel = coordinator()
+    root = panel.open("question", preparing=True)
+    assert root.options[-1].slot == 8
+    assert root.options[-1].command == "open_contextual_question"
+    assert root.options[-1].pending
+    assert panel.select_digit("8").command is None
+    panel.complete_input_preparation(EntryInputSourcePreview("selection_text", "text"))
+    assert panel.select_digit("8").command == "open_contextual_question"
+    panel.set_question_availability("unavailable")
+    assert panel.select_digit("8").command is None
+    panel.select_digit("4")
+    assert panel.select_digit("8").command is None
+    root = panel.back()
+    assert root.options[-1].disabled_reason == "unavailable"
+    panel.set_question_availability("")
+    assert panel.select_digit("8").command == "open_contextual_question"

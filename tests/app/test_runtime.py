@@ -3348,3 +3348,72 @@ def test_unfocused_input_recovery_expiry_closes_only_matching_workflow():
     runtime.enqueue(ExpireInputRecovery(controller.snapshot.session_id, recovery.recovery_id))
     runtime.drain_commands()
     assert controller.snapshot.status is SessionStatus.CLOSED
+
+
+@pytest.mark.parametrize("source", ["selection", "clipboard"])
+def test_panel_question_admission_uses_frozen_source_without_capture_or_provider(source):
+    from ClipAI.core.models import InputTarget
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    transitions = []
+    admission = runtime._workflow_module.open_contextual_question(
+        input_target=InputTarget("external_text", InputDocument("frozen panel text", source)),
+        before_first_projection=transitions.append,
+    )
+    assert admission.accepted
+    controller = runtime._workflow_module.controller_for(admission.workflow_id)
+    assert controller.snapshot.status is SessionStatus.CONTEXT_QUESTION
+    assert controller.snapshot.contextual_source_text == "frozen panel text"
+    assert controller.snapshot.contextual_source_kind == source
+    assert controller.snapshot.active_invocation_id is None
+    assert supervisor.work == {}
+    assert view.execute_action.follow_ups == []
+    assert transitions == [admission.workflow_id]
+    runtime.enqueue(SubmitContextualQuestion(admission.workflow_id, "Why?"))
+    runtime.drain_commands()
+    invocation_id = controller.snapshot.active_invocation_id
+    supervisor.work[invocation_id]()
+    continuation = view.execute_action.follow_ups[-1][0][0]
+    assert continuation.question == "Why?"
+    request = continuation.build_request(default_system_prompt="", action_system_prompt=lambda: "", model="model", default_temperature=0.2)
+    assert request.messages[1].content == "<source_context>\nfrozen panel text\n</source_context>"
+
+
+@pytest.mark.parametrize("image_only", [False, True])
+def test_panel_question_rejects_invalid_source_before_surface_handoff(image_only):
+    from ClipAI.core.models import ImageContent, InputTarget
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    transitions = []
+    admission = runtime._workflow_module.open_contextual_question(
+        input_target=InputTarget("external_text", InputDocument("", "clipboard", image=ImageContent(b"image", "image/png")) if image_only else InputDocument("x" * 40_001, "selection")),
+        before_first_projection=transitions.append,
+    )
+    assert not admission.accepted
+    assert transitions == []
+    assert supervisor.work == {}
+    assert view.execute_action.follow_ups == []
+
+
+def test_panel_question_on_existing_result_preserves_workflow_and_source_identity():
+    from ClipAI.core.models import InputTarget
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    controller = workflow(view, view.snapshots[-1].session_id)
+    invocation_id = controller.snapshot.active_invocation_id
+    supervisor.work[invocation_id]()
+    invocation = view.execute_action.invocations[-1]
+    controller.complete(invocation, view.actions.resolve("a", "short"), InputDocument("source", "selection"), "answer", ("follow_up",))
+    workflow_id = controller.snapshot.session_id
+    target = InputTarget("workflow_result", InputDocument("answer", "workflow_result", workflow_id, controller.snapshot.steps[-1].step_id))
+    before = controller.snapshot.question_composer_revision
+    tasks_before = set(supervisor.work)
+    transitions = []
+    admission = runtime._workflow_module.open_contextual_question(input_target=target, before_first_projection=transitions.append)
+    assert admission.workflow_id == workflow_id
+    assert controller.snapshot.question_composer_revision == before + 1
+    assert controller.snapshot.steps[-1].result_text == "answer"
+    assert set(supervisor.work) == tasks_before
+    assert transitions == [workflow_id]
+    stale = InputTarget("workflow_result", InputDocument("stale", "workflow_result", "missing-workflow", "missing-step"))
+    assert not runtime._workflow_module.open_contextual_question(input_target=stale, before_first_projection=transitions.append).accepted
+    assert transitions == [workflow_id]

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Unified Entry Panel is a short-lived Action launcher. It is not a Workflow,
+The Unified Entry Panel is a short-lived launcher for Actions and the explicit contextual-question intent. It is not a Workflow,
 chat, result Popup, shortcut catalog or execution pipeline. It presents recent
 successful Action references and a configuration-backed information hierarchy,
 then requests admission through the existing Workflow runtime.
@@ -112,7 +112,10 @@ presentation actuation only and does not merge Panel navigation with
   calling `use_clipboard()`. The current Panel may still receive the explicit
   `UseEntryPanelClipboard` intent; stale Panel IDs do nothing and the chosen input
   is the frozen clipboard, never a later live value. Other unknown outcomes retain
-  the existing automatic frozen-clipboard behavior. See
+  the existing automatic frozen-clipboard behavior for Actions. The stored
+  bundle preserves the original selection outcome; the question entry requires
+  explicit clipboard choice in this case, so the preview keeps that control
+  available. See
   [ADR-0021](../../adr/0021-selection-modifier-release-scoped-to-copy-fallback.md).
 
 ## Catalog and numeric rules
@@ -185,3 +188,29 @@ UI lifecycle tests additionally lock `_body_render_key` to topology and visible
 static detail only. Per-option `enabled/pending/disabled_reason` changes update
 existing cards in place. Both updater and click callback read the latest option;
 opening and preparation settlement must not rebuild the body.
+
+
+## Fixed contextual-question entry
+
+The root always presents `8 問這段` after category 7, at the bottom of the root. Slots 1–3 remain
+recent Actions and 4–7 remain categories. Slot 8 is root-only, available through
+mouse, focused keyboard selection and the identity-scoped held-Alt digit path.
+It is an `EntryPanelOption.command`, never a fabricated YAML Action or a recent
+Action entry. The coordinator emits a typed `EntryPanelDecision.command`;
+widgets continue to enqueue `EntryPanelSlotSelected` only.
+
+The entry carries the same pending and unavailable feedback as other content
+operations. It resolves `selection_or_clipboard` exclusively from frozen
+`PreparedInput`; unknown selection, image-only input and failed preparation must
+not silently fall back. An explicit clipboard override uses that frozen bundle.
+External text starts the existing contextual-question Workflow with no second
+capture and no provider invocation before explicit question submission. Text
+length is validated before replacing the Panel. Workflow-result input retains
+its original Workflow/step identity and opens that Workflow's existing composer;
+its history, canonical content and contextual source remain intact.
+
+`WorkflowController.can_open_question_composer` owns composer availability.
+Workflow runtime owns source-lineage validation, admission and membership. Every
+accepted question uses the same Panel/Workflow pre-projection handoff as Action
+admission. Rejection keeps the Panel and displays the reason. The shortcut keeps
+its existing focused-Popup and external-capture semantics.

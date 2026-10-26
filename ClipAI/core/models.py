@@ -135,6 +135,7 @@ class EntryPanelOption:
     disabled_reason: str = ""
     long_action: EntryActionRef | None = None
     long_label: str = ""
+    command: Literal["open_contextual_question"] | None = None
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,7 @@ class EntryPanelSnapshot:
 class EntryPanelDecision:
     snapshot: EntryPanelSnapshot
     action: EntryActionRef | None = None
+    command: Literal["open_contextual_question"] | None = None
 
 
 @dataclass(frozen=True)

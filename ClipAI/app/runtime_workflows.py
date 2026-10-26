@@ -12,7 +12,7 @@ from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, Acti
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActionAdmissionOrigin, ActionInvocation, ActionStartAdmission, ControlSurfaceRef, EntryActionRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, PressType, ResultRoute, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceCaptureContextReader, WorkflowAttentionPresenter, WorkflowContextReader
-from ClipAI.core.state import SessionSnapshot, SessionStatus
+from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureAdmission, VoiceCaptureIntent, VoiceCaptureSurfaceContext, VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
@@ -27,7 +27,7 @@ from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.shortcut_intent import ShortcutIntentCoordinator
 from ClipAI.services.shortcut_sequence import ShortcutSequenceCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
-from ClipAI.services.workflow_controller import WorkflowController
+from ClipAI.services.workflow_controller import CONTEXTUAL_SOURCE_MAX_CHARS, WorkflowController
 from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
 
@@ -844,6 +844,59 @@ class WorkflowRuntimeModule:
             binding=record.binding,
         )
 
+    def entry_panel_question_block_reason(self, target: InputTarget) -> str:
+        document = target.document
+        if document is None:
+            return "找不到可用的文字內容。"
+        if target.kind == "workflow_result":
+            record = self._records.get(document.workflow_id)
+            if record is None or record.presentation != "visible":
+                return "原本的內容已無法使用，請重新開啟選單。"
+            snapshot = record.controller.snapshot
+            if document.step_id not in {step.step_id for step in snapshot.steps} and not (
+                document.step_id == "voice-origin" and snapshot.status is SessionStatus.VOICE_REVIEW
+            ):
+                return "原本的內容已無法使用，請重新開啟選單。"
+            if not record.controller.can_open_question_composer:
+                return "目前內容還不能提問，請等處理完成。"
+            return ""
+        if document.image is not None or document.source not in {"selection", "clipboard"} or not document.text.strip():
+            return "找不到可用的文字內容。"
+        if len(document.text) > CONTEXTUAL_SOURCE_MAX_CHARS:
+            return "這段內容太長，請縮小選取範圍後再試一次。"
+        visible = self._visible_record()
+        if visible is not None and visible[1].controller.snapshot.pinned:
+            return "目前視窗已固定，請在該視窗中使用問題輸入欄。"
+        return ""
+
+    def open_contextual_question(
+        self,
+        *,
+        input_target: InputTarget,
+        before_first_projection: Callable[[str], None],
+    ) -> ActionStartAdmission:
+        """Admit a Panel question using its frozen source, without recapturing input."""
+        reason = self.entry_panel_question_block_reason(input_target)
+        if reason:
+            return ActionStartAdmission("blocked", "question_unavailable", reason)
+        document = input_target.document
+        assert document is not None
+        if input_target.kind == "workflow_result":
+            workflow_id = document.workflow_id
+            record = self._records[workflow_id]
+            before_first_projection(workflow_id)
+            if record.controller.request_question_composer() is None:
+                return ActionStartAdmission("blocked", "question_unavailable", "目前內容還不能提問。")
+            self._foreground_id = workflow_id
+        else:
+            if not self._replace_unpinned_visible_workflow():
+                return ActionStartAdmission("blocked", "pinned_workflow", "目前視窗已固定。")
+            workflow_id, capture_id, controller, _token = self._create_contextual_question(
+                before_first_projection,
+            )
+            controller.complete_contextual_source_capture(capture_id, document)
+        return ActionStartAdmission("accepted", workflow_id=workflow_id)
+
     def _open_contextual_question(self) -> None:
         visible = self._visible_record()
         if visible is not None:
@@ -874,29 +927,8 @@ class WorkflowRuntimeModule:
             self._sequence_error("目前視窗已固定。", "請在該視窗中直接使用問題輸入欄。")
             return
 
-        workflow_id = uuid.uuid4().hex
-        capture_id = uuid.uuid4().hex
         selection_request = self._input_resolver.begin_selection()
-        controller = self._new_controller(
-            SessionSnapshot(
-                workflow_id,
-                0,
-                SessionStatus.CREATED,
-                CONTEXTUAL_QUESTION_ACTION_ID,
-                "問這段",
-                self._provider_configuration.active_binding.model,
-                status_text="準備讀取內容…",
-            ),
-            "visible",
-        )
-        self._register(
-            workflow_id,
-            controller,
-            self._provider_configuration.active_binding,
-            "visible",
-        )
-        self._foreground_id = workflow_id
-        token = controller.begin_contextual_source_capture(capture_id)
+        workflow_id, capture_id, controller, token = self._create_contextual_question()
         resolver = self._input_resolver
 
         def capture() -> None:
@@ -931,6 +963,36 @@ class WorkflowRuntimeModule:
                 capture_id,
                 "無法開始讀取反白或剪貼簿內容。",
             ))
+
+    def _create_contextual_question(
+        self,
+        before_first_projection: Callable[[str], None] | None = None,
+    ) -> tuple[str, str, WorkflowController, CancellationToken]:
+        workflow_id = uuid.uuid4().hex
+        capture_id = uuid.uuid4().hex
+        if before_first_projection is not None:
+            before_first_projection(workflow_id)
+        controller = self._new_controller(
+            SessionSnapshot(
+                workflow_id,
+                0,
+                SessionStatus.CREATED,
+                CONTEXTUAL_QUESTION_ACTION_ID,
+                "問這段",
+                self._provider_configuration.active_binding.model,
+                status_text="準備讀取內容…",
+            ),
+            "visible",
+        )
+        self._register(
+            workflow_id,
+            controller,
+            self._provider_configuration.active_binding,
+            "visible",
+        )
+        self._foreground_id = workflow_id
+        token = controller.begin_contextual_source_capture(capture_id)
+        return workflow_id, capture_id, controller, token
 
     def _complete_contextual_source(self, command: ContextualSourceCaptured) -> None:
         record = self._records.get(command.workflow_id)
