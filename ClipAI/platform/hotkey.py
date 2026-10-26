@@ -9,7 +9,7 @@ from typing import Callable
 from ClipAI.core.hotkeys import GRAVE_KEY_ALIASES, GRAVE_KEY_TOKEN, RIGHT_ALT_TOKEN, canonicalize_hotkey, parse_hotkey_tokens
 from ClipAI.core.commands import EntryPanelDigitPressed, InterruptionRequested, OpenUnifiedEntryPanel, ShortcutAttemptRejected, ShortcutInputEvent, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, ShortcutPressThresholdReached
 from ClipAI.core.models import ModifierHoldId, ShortcutObservationSnapshot, ShortcutPressId, ShortcutPressRef
-from ClipAI.platform.keyboard_state import MODIFIER_KEYS, windows_key_is_pressed
+from ClipAI.platform.keyboard_state import MODIFIER_KEYS, WINDOWS_OEM_KEY_TOKENS, windows_key_is_pressed
 from ClipAI.platform.keyboard_menu import mask_alt_menu
 
 logger = logging.getLogger("clipai.hotkey")
@@ -33,7 +33,6 @@ _SHIFTED_DIGIT_MAP = {
 _VK_DIGIT_MAP = {code: str(code - 48) for code in range(48, 58)}
 _VK_NUMPAD_MAP = {code: str(code - 96) for code in range(96, 106)}
 _VK_ALPHA_MAP = {code: chr(code).lower() for code in range(65, 91)}
-_VK_OEM_3 = 192
 _ENTRY_PANEL_CONFLICT_KEYS = frozenset({"altgr", "cmd", "tab", "f4", "space"})
 _LLKHF_INJECTED = 0x10
 _ESCAPE_MODIFIER_KEYS = (*MODIFIER_KEYS, "cmd")
@@ -135,8 +134,8 @@ def _normalize_key(key) -> str | None:
     vk = getattr(key, "vk", None)
     if vk == 0xA5:
         return RIGHT_ALT_TOKEN
-    if vk == _VK_OEM_3:
-        return GRAVE_KEY_TOKEN
+    if vk in WINDOWS_OEM_KEY_TOKENS:
+        return WINDOWS_OEM_KEY_TOKENS[vk]
     if isinstance(vk, int):
         if vk in _VK_DIGIT_MAP:
             return _VK_DIGIT_MAP[vk]

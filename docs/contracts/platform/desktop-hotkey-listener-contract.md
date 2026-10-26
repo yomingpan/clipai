@@ -79,6 +79,14 @@ terminal lifecycle facts are never suppressed by observation state.
 
 ## Recovery and shutdown
 
+Windows OEM punctuation uses a stable VK-derived token before translated
+character text, just as letters, digits and grave do. Shift/layout changes
+between down and up must release the same owned key. Normalization and the
+physical-state reader share one OEM mapping, so a missed punctuation release
+can be recovered on the next physical press. A genuinely held punctuation key
+still blocks solo Right Alt and exact Left Alt; recovery never fabricates intent.
+The regression matrix runs with the production Right Alt binding enabled.
+
 Before matching a normalized non-injected key-down, the module reconciles
 owned pressed tokens with physical Windows state. Owned tokens are registered
 binding tokens, modifiers, Escape and Panel digits; ordinary unbound global

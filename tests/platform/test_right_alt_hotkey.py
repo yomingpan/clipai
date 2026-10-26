@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 import pytest
 
-from ClipAI.core.commands import ShortcutPressStarted, ShortcutPressThresholdReached, ShortcutPressInvoked, ShortcutPressEnded
+from ClipAI.core.commands import OpenUnifiedEntryPanel, ShortcutPressStarted, ShortcutPressThresholdReached, ShortcutPressInvoked, ShortcutPressEnded
 from ClipAI.core.models import ShortcutPressId, ShortcutPressRef
 from ClipAI.platform.hotkey import create_hotkey_dispatcher, _WindowsHotkeyEventFilter
 
@@ -33,6 +33,55 @@ def make_dispatcher(events, **kwargs):
 
 def key(name):
     return SimpleNamespace(name=name)
+
+
+@pytest.mark.parametrize("shifted,plain,vk", [
+    (":", ";", 0xBA), ("+", "=", 0xBB), ("<", ",", 0xBC),
+    ("_", "-", 0xBD), (">", ".", 0xBE), ("?", "/", 0xBF),
+    ("~", "`", 0xC0), ("{", "[", 0xDB), ("|", "\\", 0xDC),
+    ("}", "]", 0xDD), ('"', "'", 0xDE), ("|", "\\", 0xE2),
+])
+def test_typing_shifted_punctuation_does_not_disable_both_alt_shortcuts(shifted, plain, vk):
+    events = []
+    dispatcher, timers, clock = make_dispatcher(events, key_is_pressed=lambda token: None)
+    # Shift/layout may change between key-down and key-up; VK stays the same.
+    dispatcher.on_press(SimpleNamespace(char=shifted, vk=vk))
+    dispatcher.on_release(SimpleNamespace(char=plain, vk=vk))
+    dispatcher.on_press(key("alt_gr"))
+    dispatcher.on_release(key("alt_gr"))
+    assert any(isinstance(event, ShortcutPressInvoked) for event in events)
+    dispatcher.on_press(key("alt_l"))
+    clock[0] = 0.5
+    for timer in timers:
+        timer.callback()
+    assert any(isinstance(event, OpenUnifiedEntryPanel) for event in events)
+
+
+@pytest.mark.parametrize("released", [False, True])
+def test_punctuation_physical_state_recovers_missed_release_without_admitting_held_chord(monkeypatch, released):
+    import ctypes
+    from ClipAI.platform import keyboard_state
+
+    held = {0xBA, 0xBC, 0xBF}
+    monkeypatch.setattr(keyboard_state.sys, "platform", "win32")
+    monkeypatch.setattr(ctypes, "windll", SimpleNamespace(user32=SimpleNamespace(
+        GetAsyncKeyState=lambda vk: 0x8000 if vk in held else 0,
+    )), raising=False)
+    events = []
+    dispatcher, timers, clock = make_dispatcher(events, key_is_pressed=keyboard_state.windows_key_is_pressed)
+    # Replay the retained keys in the export; deliberately omit semantic up.
+    for char, vk in [(":", 0xBA), ("<", 0xBC), ("?", 0xBF)]:
+        dispatcher.on_press(SimpleNamespace(char=char, vk=vk))
+    if released:
+        held.clear()
+    dispatcher.on_press(key("alt_gr"))
+    dispatcher.on_release(key("alt_gr"))
+    dispatcher.on_press(key("alt_l"))
+    clock[0] = 0.5
+    for timer in timers:
+        timer.callback()
+    assert any(isinstance(event, ShortcutPressInvoked) for event in events) is released
+    assert any(isinstance(event, OpenUnifiedEntryPanel) for event in events) is released
 
 
 def test_right_alt_threshold_only_previews_and_release_invokes_then_ends():

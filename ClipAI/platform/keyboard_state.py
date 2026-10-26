@@ -5,14 +5,23 @@ import sys
 
 MODIFIER_KEYS = ("ctrl", "alt", "shift")
 
+# Physical OEM keys retain one identity when Shift or the keyboard layout
+# changes between down and up. Share these tokens with listener normalization.
+WINDOWS_OEM_KEY_TOKENS = {
+    0xBA: ";", 0xBB: "=", 0xBC: ",", 0xBD: "-", 0xBE: ".",
+    0xBF: "/", 0xC0: "grave", 0xDB: "[", 0xDC: "\\",
+    0xDD: "]", 0xDE: "'", 0xE2: "oem_102",
+}
+
 _TOKEN_VIRTUAL_KEYS = {
     "cmd": (0x5B, 0x5C),  # VK_LWIN / VK_RWIN
     # VK_MENU is not reliably asserted for side-specific Alt events while a
     # low-level hook is processing them. Query the generic and both side keys.
     "alt": (0x12, 0xA4, 0xA5),  # VK_MENU, VK_LMENU, VK_RMENU
+    "altgr": (0xA5,),  # VK_RMENU
     "ctrl": (0x11,),  # VK_CONTROL
     "shift": (0x10,),  # VK_SHIFT
-    "grave": (0xC0,),  # VK_OEM_3
+    **{token: (vk,) for vk, token in WINDOWS_OEM_KEY_TOKENS.items()},
     "enter": (0x0D,),  # VK_RETURN includes the numeric keypad Enter
     **{str(digit): (0x30 + digit, 0x60 + digit) for digit in range(10)},
     **{chr(code).lower(): (code,) for code in range(0x41, 0x5B)},
