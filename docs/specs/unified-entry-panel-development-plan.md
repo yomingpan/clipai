@@ -9,8 +9,11 @@ links passing service/UI tests and [S8 gate](../../artifacts/mu-s8-release.jsonl
 The existing shared preference gate stores the bounded hint count; no second
 configuration writer was introduced (`tests/app/test_runtime_user_preferences.py`).
 Active zh-TW/ja-JP feature_contract_hash is
-`sha256:aae0f0ae6fead53f431584baf546887dfb9c631d7ced234143216b62791cf92f`,
+`sha256:701c643676f19dfca7707d3109cd540662e4bc2c9afc602ffbd53da47dbaf3dc`,
 validated by the language-pack loader tests after atomic YAML/hash updates.
+The 2026-10-26 Command Actions split keeps the four-flagship limit and adds
+generation plus coaching through the existing catalogs; see the
+[Command Actions contract](../contracts/services/command-actions-contract.md).
 
 Branch: `codex/unified-entry-panel-development-plan`
 

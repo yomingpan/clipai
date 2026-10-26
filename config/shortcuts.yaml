@@ -137,6 +137,11 @@ shortcuts:
     command: start_action
     action_id: command_copilot
 
+  - id: command_generate
+    hotkey: ctrl+alt+b
+    command: start_action
+    action_id: command_generate
+
   - id: personal_style_informal
     hotkey: ctrl+alt+i
     command: start_action

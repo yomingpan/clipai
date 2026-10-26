@@ -424,7 +424,7 @@ actions:
   input_mode: selection_or_clipboard
   external_fallback: selection_or_clipboard
   output_mode: popup
-  output_profile: plain_text
+  output_profile: command_readable
   prompt_variables:
   - input
   temperature: 0.1
@@ -433,6 +433,34 @@ actions:
   - risk_or_scope_inaccurate
   - safety_check_missing
   - command_behavior_changed
+  - other
+- id: command_generate
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: command_readable
+  prompt_variables:
+  - input
+  temperature: 0.1
+  feedback_reason_ids:
+  - intent_misread
+  - command_too_complex
+  - context_invented
+  - explanation_unclear
+  - other
+- id: command_coach
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: command_readable
+  prompt_variables:
+  - input
+  temperature: 0.1
+  feedback_reason_ids:
+  - intent_misread
+  - explanation_inaccurate
+  - teaching_too_dense
+  - transfer_tip_missing
   - other
 - id: advisory_board
   input_mode: selection_or_clipboard

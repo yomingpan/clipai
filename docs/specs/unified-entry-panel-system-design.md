@@ -207,7 +207,10 @@ Popup keyboard gate. These changes retain shell bounds. Evidence:
 
 The validated zh-TW/ja-JP manifests bind these category slots and the solo
 Right Alt shortcut with feature_contract_hash
-`sha256:aae0f0ae6fead53f431584baf546887dfb9c631d7ced234143216b62791cf92f`.
+`sha256:701c643676f19dfca7707d3109cd540662e4bc2c9afc602ffbd53da47dbaf3dc`.
+The 2026-10-26 Command Actions split adds generation as the fourth Tools
+flagship and coaching in Tools More; see the
+[Command Actions contract](../contracts/services/command-actions-contract.md).
 `tests/app/test_language_pack_loader.py` and `test_official_action_language_packs.py`
 verify the active configuration; hashes were updated atomically with YAML.
 

@@ -103,4 +103,8 @@ categories:
         press_type: short
       - action_id: command_copilot
         press_type: short
-    advanced: []
+      - action_id: command_generate
+        press_type: short
+    advanced:
+      - action_id: command_coach
+        press_type: short

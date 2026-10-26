@@ -497,7 +497,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 29
+    assert len(start_actions) == 30
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
             "voice_input": "ctrl+alt+w",
             "inline_dictation": "right_alt",
@@ -527,6 +527,7 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "shorten_content": "ctrl+alt+x",
         "intent_preserving_dictation_editor": "ctrl+alt+~",
             "command_copilot": "ctrl+alt+c",
+            "command_generate": "ctrl+alt+b",
             "personal_style_informal": "ctrl+alt+i",
             "personal_style_oral": "ctrl+alt+o",
             "personal_style_presentation": "ctrl+alt+p",
@@ -737,12 +738,12 @@ def test_session_handoff_preserves_reasoning_continuity_for_a_new_ai_session() -
     assert "None identified." in profile.instruction
 
 
-def test_command_copilot_combines_command_generation_and_risk_review() -> None:
+def test_command_copilot_keeps_shortcut_but_only_reviews_risk() -> None:
     bundle = load_config_bundle()
     action = bundle.actions.get("command_copilot")
     shortcut = bundle.shortcuts.definition("command_copilot")
 
-    assert action.name == "Command Copilot｜指令轉譯與風險審查"
+    assert action.name == "指令風險檢查"
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
@@ -752,7 +753,8 @@ def test_command_copilot_combines_command_generation_and_risk_review() -> None:
     assert shortcut.hotkey == "ctrl+alt+c"
     assert shortcut.action_id == action.id
     assert action.feedback_contract is not None
-    assert "自然語言意圖或既有 command" in action.system_prompt
+    assert "不因輸入是中文或含有程式碼而切換任務" in action.system_prompt
+    assert "不自行補成可執行 commands" in action.system_prompt
     assert "不得為了縮短或安全而改變原 command 的行為" in action.system_prompt
     assert "風險層級" in action.prompt
     assert "更安全的做法" in action.prompt

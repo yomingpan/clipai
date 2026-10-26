@@ -114,5 +114,13 @@ candidates:
     description: 次のAI対話へ持ち込める引き継ぎ内容を整理します。
   - action_id: command_copilot
     press_type: short
-    label: Command Copilot｜コマンド変換とリスク審査
-    description: 使用予定のコマンドを確認し、意味とリスクを理解できるよう支援します。
+    label: コマンドのリスク確認
+    description: 既存コマンドの影響、リスク、復旧条件を確認する。
+  - action_id: command_generate
+    press_type: short
+    label: 要望をコマンドに
+    description: 音声や文章の要望を、短く理解しやすく手入力できるコマンドにする。
+  - action_id: command_coach
+    press_type: short
+    label: コマンドコーチ
+    description: 要望の分解と組み立てを学び、覚え方と小さな練習で応用する。

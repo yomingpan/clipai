@@ -114,5 +114,13 @@ candidates:
     description: 整理可帶往下一段 AI 對話的交接內容。
   - action_id: command_copilot
     press_type: short
-    label: Command Copilot
-    description: 協助檢視與理解即將使用的指令。
+    label: 指令風險檢查
+    description: 檢查既有指令的影響、風險與復原條件。
+  - action_id: command_generate
+    press_type: short
+    label: 需求轉指令
+    description: 把口述或文字需求轉成簡短、看得懂且能手打的指令。
+  - action_id: command_coach
+    press_type: short
+    label: 指令教練
+    description: 學會拆解需求、組出指令，用記憶提示與小練習舉一反三。

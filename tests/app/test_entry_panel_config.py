@@ -263,8 +263,8 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
         ),
         7: (
             "tools",
-            ("extract_screenshot_text", "session_handoff", "command_copilot"),
-            (),
+            ("extract_screenshot_text", "session_handoff", "command_copilot", "command_generate"),
+            ("command_coach",),
         ),
     }
     actual = {
