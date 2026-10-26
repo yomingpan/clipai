@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-27",
+  "scope": "single_windows_desktop_attended_exploratory",
+  "baseline_status": "not_established",
+  "source_artifact": "artifacts/inline-attended-exploratory-five-20260927.json",
+  "attended_runs": [
+    {"mode": "choice", "scenario": "raw", "status": "pass", "terminal": "dispatched_unconfirmed", "target_readback": "pass", "clipboard_restored": true},
+    {"mode": "choice", "scenario": "refine", "status": "pass", "terminal": "dispatched_unconfirmed", "target_readback": "pass", "clipboard_restored": true},
+    {"mode": "minimal", "scenario": "raw", "status": "pass", "terminal": "dispatched_unconfirmed", "target_readback": "pass", "clipboard_restored": true},
+    {"mode": "minimal", "scenario": "refine", "status": "pass", "terminal": "dispatched_unconfirmed", "target_readback": "pass", "clipboard_restored": true},
+    {"mode": "minimal", "scenario": "cancel", "status": "pass", "terminal": "discarded", "paste_count": 0, "target_unchanged": true, "clipboard_restored": true}
+  ],
+  "stage_samples_ms": [
+    {"mode": "choice", "path": "raw", "count": 1, "capture_to_listening": 125, "stop_to_recognition": 78, "refine_to_result": null, "paste_to_terminal": 344},
+    {"mode": "choice", "path": "refine", "count": 1, "capture_to_listening": 328, "stop_to_recognition": 156, "refine_to_result": 1187, "paste_to_terminal": 390},
+    {"mode": "minimal", "path": "raw", "count": 1, "capture_to_listening": 188, "stop_to_recognition": 406, "refine_to_result": null, "paste_to_terminal": 313},
+    {"mode": "minimal", "path": "refine", "count": 1, "capture_to_listening": 171, "stop_to_recognition": 203, "refine_to_result": 984, "paste_to_terminal": 328},
+    {"mode": "minimal", "path": "undelivered", "count": 1, "capture_to_listening": 297, "stop_to_recognition": null, "refine_to_result": null, "paste_to_terminal": null}
+  ],
+  "automated_layers": {
+    "fast": {"status": "pass", "passed": 376},
+    "unit_non_integration": {"status": "pass", "passed": 1759, "deselected": 43},
+    "webview": {"status": "pass", "passed": 4},
+    "tk_user_interactive": {"status": "pass", "passed": 13},
+    "tk_agent_followup": {"status": "fail", "reason": "intermittent_tcl_library_read_failure"}
+  },
+  "not_covered": [
+    "independent_physical_hid_observer",
+    "replayable_loopback_audio_source",
+    "first_visible_ui_frame",
+    "ime_composition_settlement",
+    "multiple_device_cohorts",
+    "automated_multi_target_matrix",
+    "representative_latency_distribution"
+  ],
+  "notes": [
+    "Each mode/path has one observation, so no representative percentile or performance comparison is claimed.",
+    "The attended operator reported physical hotkey and microphone use; neither was independently recorded.",
+    "dispatched_unconfirmed reports Paste dispatch only; target insertion is separately supported by controlled readback.",
+    "Freeform dictation content accuracy was not machine verified."
+  ]
+}

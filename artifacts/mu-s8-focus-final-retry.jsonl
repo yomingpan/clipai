@@ -1,0 +1,6 @@
+{"schema": 1, "app": "Notepad", "intent": "raw", "foreground_kept_on_show": true, "foreground_kept_on_click": false, "focused_control_kept": false, "intent_received": true, "content_recorded": false, "status": "fail"}
+{"schema": 1, "app": "Notepad", "intent": "refine", "foreground_kept_on_show": true, "foreground_kept_on_click": false, "focused_control_kept": false, "intent_received": true, "content_recorded": false, "status": "fail"}
+{"schema": 1, "app": "Word", "intent": "raw", "foreground_kept_on_show": true, "foreground_kept_on_click": false, "focused_control_kept": false, "intent_received": true, "content_recorded": false, "status": "fail"}
+{"schema": 1, "app": "Word", "intent": "refine", "foreground_kept_on_show": true, "foreground_kept_on_click": false, "focused_control_kept": false, "intent_received": true, "content_recorded": false, "status": "fail"}
+{"schema": 1, "app": "Edge", "intent": "raw", "foreground_kept_on_show": true, "foreground_kept_on_click": false, "focused_control_kept": false, "intent_received": true, "content_recorded": false, "status": "fail"}
+{"schema": 1, "app": "Edge", "intent": "refine", "foreground_kept_on_show": true, "foreground_kept_on_click": false, "focused_control_kept": false, "intent_received": true, "content_recorded": false, "status": "fail"}

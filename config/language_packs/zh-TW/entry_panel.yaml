@@ -96,6 +96,14 @@ candidates:
     press_type: short
     label: SCORE 需求整理
     description: 用 SCORE 結構釐清需求與背景。
+  - action_id: advisory_board
+    press_type: short
+    label: 顧問團
+    description: 以多元顧問視角提出建言與取捨。
+  - action_id: insight_engine
+    press_type: short
+    label: 洞察引擎
+    description: 挖掘非顯而易見、有依據的洞察。
   - action_id: extract_screenshot_text
     press_type: short
     label: OCR／擷取截圖文字
@@ -106,5 +114,13 @@ candidates:
     description: 整理可帶往下一段 AI 對話的交接內容。
   - action_id: command_copilot
     press_type: short
-    label: Command Copilot
-    description: 協助檢視與理解即將使用的指令。
+    label: 指令風險檢查
+    description: 檢查既有指令的影響、風險與復原條件。
+  - action_id: command_generate
+    press_type: short
+    label: 需求轉指令
+    description: 把口述或文字需求轉成簡短、看得懂且能手打的指令。
+  - action_id: command_coach
+    press_type: short
+    label: 指令教練
+    description: 學會拆解需求、組出指令，用記憶提示與小練習舉一反三。

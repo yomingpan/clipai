@@ -2,6 +2,10 @@ schema_version: 1
 profiles:
   plain_text:
     instruction: ''
+  command_readable:
+    instruction: |-
+      說明文字中的指令、子命令與正在解釋的關鍵參數使用 Markdown 粗體，例如「先以 **git status** 確認變更，再以 **git commit** 提交暫存區內容」，不要用單反引號包住行內指令。只強調需要辨認的片段，不將整句或整段加粗。
+      供複製或手打的完整指令維持獨立、符合實際 shell 的 fenced code block，區塊內不得加入粗體標記。指令原本的字元、引用與 shell 語法所需的反引號必須忠實保留，不做全域字元替換。沿用 Action 指定的內容順序與區塊數，不為格式規則額外增加標題、說明或範例。
   english_learning_compact:
     instruction: |-
       Put exactly one target English expression by itself on the first line, without any spoken/written or formal/informal label. Then give at most two short, conversational Traditional Chinese sentences combining its meaning with a concrete usage situation, followed by one practical English example.

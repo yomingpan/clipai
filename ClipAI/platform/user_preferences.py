@@ -6,11 +6,12 @@ from pathlib import Path
 import tempfile
 from typing import cast
 
-from ClipAI.core.models import EntryPanelDensity, SpeechSpeed, UserPreferences, VoiceLanguagePreference
+from ClipAI.core.models import EntryPanelDensity, InlineInputMode, SpeechSpeed, UserPreferences, VoiceLanguagePreference
 
 _SPEECH_SPEEDS: frozenset[str] = frozenset({"slow", "normal", "fast", "super_fast"})
 _VOICE_LANGUAGES: frozenset[str] = frozenset({"zh-TW", "en-US"})
 _ENTRY_PANEL_DENSITIES: frozenset[str] = frozenset({"detailed", "compact"})
+_INLINE_INPUT_MODES: frozenset[str] = frozenset({"choice", "minimal"})
 
 
 class JsonUserPreferencesStore:
@@ -21,7 +22,7 @@ class JsonUserPreferencesStore:
         try:
             payload = json.loads(self._path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            return UserPreferences()
+            return UserPreferences(inline_input_mode="minimal")
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             return UserPreferences()
         if not isinstance(payload, dict):
@@ -51,7 +52,7 @@ class JsonUserPreferencesStore:
             if not isinstance(voice_enabled, bool) or language not in _VOICE_LANGUAGES:
                 return UserPreferences(enabled, frozenset(seen), speed)
             return UserPreferences(enabled, frozenset(seen), speed, voice_enabled, cast(VoiceLanguagePreference, language))
-        if schema_version != 5 or not isinstance(enabled, bool):
+        if schema_version not in {5, 6, 7, 8, 9, 10} or not isinstance(enabled, bool):
             return UserPreferences()
         raw_speed = payload.get("speech_speed")
         if raw_speed is not None and raw_speed not in _SPEECH_SPEEDS:
@@ -64,17 +65,25 @@ class JsonUserPreferencesStore:
         density = payload.get("entry_panel_density")
         if density not in _ENTRY_PANEL_DENSITIES:
             density = "detailed"
-        return UserPreferences(enabled, frozenset(seen), speed, voice_enabled, cast(VoiceLanguagePreference, language), cast(EntryPanelDensity, density))
+        mode = payload.get("inline_input_mode", "choice") if schema_version in {6, 7, 8, 9, 10} else "choice"
+        if mode not in _INLINE_INPUT_MODES:
+            mode = "choice"
+        hint_count = payload.get("entry_numeric_hint_count", 0) if schema_version in {9, 10} else 0
+        if type(hint_count) is not int or not 0 <= hint_count <= 5:
+            hint_count = 0
+        return UserPreferences(enabled, frozenset(seen), speed, voice_enabled, cast(VoiceLanguagePreference, language), cast(EntryPanelDensity, density), cast(InlineInputMode, mode), hint_count)
 
     def save(self, preferences: UserPreferences) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         payload: dict[str, object] = {
-            "schema_version": 5,
+            "schema_version": 10,
             "first_use_hints_enabled": preferences.first_use_hints_enabled,
             "seen_action_ids": sorted(preferences.seen_action_ids),
             "voice_input_enabled": preferences.voice_input_enabled,
             "voice_language": preferences.voice_language,
             "entry_panel_density": preferences.entry_panel_density,
+            "inline_input_mode": preferences.inline_input_mode,
+            "entry_numeric_hint_count": preferences.entry_numeric_hint_count,
         }
         if preferences.speech_speed is not None:
             payload["speech_speed"] = preferences.speech_speed

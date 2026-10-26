@@ -91,7 +91,7 @@ class OperationLifecycleCoordinator:
     def set_ready(self, ready: bool) -> None:
         with self._lock:
             self._ready = ready
-            if not self._active and self._reset_call is None:
+            if not self._active and self._transient_status is None:
                 self._indicator.set_status(self._baseline_status())
 
     def stop(self) -> None:

@@ -2,7 +2,7 @@ schema_version: 2
 
 categories:
   - id: understand
-    slot: 3
+    slot: 4
     label: 看得懂
     description: 降低理解門檻，掌握這段內容真正要表達的意思。
     flagship:
@@ -10,10 +10,16 @@ categories:
         press_type: short
       - action_id: english_companion
         press_type: short
+        long:
+          action_id: english_companion
+          press_type: long
       - action_id: explain_like_friend
         press_type: short
       - action_id: reading_friction
         press_type: short
+        long:
+          action_id: reading_friction
+          press_type: long
     advanced:
       - action_id: article_structure
         press_type: short
@@ -21,14 +27,20 @@ categories:
         press_type: short
 
   - id: write
-    slot: 4
+    slot: 5
     label: 寫得出
     description: 把已有的意思轉成可直接使用的文字。
     flagship:
       - action_id: translate_to_english
         press_type: short
+        long:
+          action_id: translate_to_english
+          press_type: long
       - action_id: shorten_content
         press_type: short
+        long:
+          action_id: shorten_content
+          press_type: long
       - action_id: personal_style_informal
         press_type: short
       - action_id: intent_preserving_dictation_editor
@@ -36,13 +48,16 @@ categories:
     advanced:
       - action_id: expression_retrieval
         press_type: short
+        long:
+          action_id: expression_retrieval
+          press_type: long
       - action_id: personal_style_oral
         press_type: short
       - action_id: personal_style_presentation
         press_type: short
 
   - id: think
-    slot: 5
+    slot: 6
     label: 想清楚
     description: 照亮結構、盲點與取捨，保留最後判斷給你。
     flagship:
@@ -69,16 +84,27 @@ categories:
         press_type: short
       - action_id: structure_score_prompt
         press_type: short
+      - action_id: advisory_board
+        press_type: short
+      - action_id: insight_engine
+        press_type: short
 
   - id: tools
-    slot: 6
+    slot: 7
     label: 工具
     description: 把內容或脈絡帶進來，再交給既有 Action 處理。
     flagship:
       - action_id: extract_screenshot_text
         press_type: short
+        long:
+          action_id: extract_screenshot_text
+          press_type: long
       - action_id: session_handoff
         press_type: short
       - action_id: command_copilot
         press_type: short
-    advanced: []
+      - action_id: command_generate
+        press_type: short
+    advanced:
+      - action_id: command_coach
+        press_type: short

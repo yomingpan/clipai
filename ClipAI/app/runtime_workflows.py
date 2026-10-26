@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Literal, TypeAlias
 import uuid
 
 from ClipAI.app.provider_execution import ProviderExecutionModule
+from ClipAI.services.voice_capture_admission import VoiceCaptureAdmissionPolicy
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted, WorkflowStepAccepted
+from ClipAI.core.commands import ExpireInputRecovery, UseWorkflowClipboard, ActivateWorkflow, AppCommand, CancelSession, CloseSession, ContextualSourceCaptured, ContextualSourceCaptureFailed, FollowUp, NavigateWorkflowBack, OpenContextualQuestion, PasteOperationCompleted, RefineVoiceDraftInPlace, RegenerateResult, ShortcutPressInvoked, StartAction, SubmitContextualQuestion, TogglePin, WorkflowAttentionCompleted, WorkflowStepAccepted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActionAdmissionOrigin, ActionInvocation, ActionStartAdmission, ControlSurfaceRef, EntryActionRef, InputDocument, InputTarget, InterruptibleOperationRef, PasteTarget, PersonalStyleProfile, PressType, ResultRoute, WorkflowAttention
 from ClipAI.core.ports import ApplicationView, OperationTracker, UserNotifier, VoiceCaptureContextReader, WorkflowAttentionPresenter, WorkflowContextReader
-from ClipAI.core.state import SessionSnapshot, SessionStatus
-from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
+from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
+from ClipAI.core.voice import VoiceCaptureAdmission, VoiceCaptureIntent, VoiceCaptureSurfaceContext, VoiceDraftTarget, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.execute_action import ActionExecutor
 from ClipAI.services.follow_up_continuation import CONTEXTUAL_QUESTION_ACTION_ID, FollowUpContinuation, VOICE_DRAFT_FOLLOW_UP_ACTION_ID
@@ -26,12 +27,13 @@ from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.shortcut_intent import ShortcutIntentCoordinator
 from ClipAI.services.shortcut_sequence import ShortcutSequenceCoordinator
 from ClipAI.services.speech_coordinator import SpeechCoordinator
-from ClipAI.services.workflow_controller import WorkflowController
+from ClipAI.services.workflow_controller import CONTEXTUAL_SOURCE_MAX_CHARS, WorkflowController
 from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
 from ClipAI.support.diagnostics import IncidentReporter
 
 
 WorkflowPresentation: TypeAlias = Literal["visible", "headless"]
+REFINE_VOICE_DRAFT_ACTION_ID = "intent_preserving_dictation_editor"
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,8 @@ WorkflowRuntimeCommand: TypeAlias = (
     | CancelSession
     | TogglePin
     | FollowUp
+    | RegenerateResult
+    | RefineVoiceDraftInPlace
     | ActivateWorkflow
     | NavigateWorkflowBack
     | WorkflowInvocationFailed
@@ -79,26 +83,11 @@ class _WorkflowRecord:
     binding: ProviderExecutionBinding
     presentation: WorkflowPresentation
     personal_style: PersonalStyleProfile | None = None
-
-
-@dataclass(frozen=True)
-class VoiceCaptureIntent:
-    """One explicit request for runtime-owned Voice destination admission."""
-
-    trigger: Literal["shortcut", "popup"]
-    workflow_id: str | None = None
-    focused_surface: ControlSurfaceRef | None = None
-    active_voice_workflow_id: str | None = None
-
-
-@dataclass(frozen=True)
-class VoiceCaptureAdmission:
-    """The sole runtime decision about where a Voice capture may operate."""
-
-    kind: Literal["create", "voice_review", "follow_up", "continue", "rejected"]
-    workflow_id: str | None = None
-    target: VoiceDraftTarget | VoiceFollowUpTarget | None = None
-    message: str = ""
+    replay_by_invocation: dict[str, FollowUpContinuation | None] = field(
+        default_factory=dict,
+        compare=False,
+        repr=False,
+    )
 
 
 class _RuntimeWorkflowPresenter:
@@ -188,7 +177,7 @@ class WorkflowRuntimeModule:
         )
 
     def create_voice_workflow(self, workflow_id: str, target: PasteTarget | None) -> WorkflowController:
-        """Create the visible Workflow that exclusively owns one Voice draft."""
+        """Create a visible Voice draft standing by without opening the microphone."""
         if workflow_id in self._records:
             raise RuntimeError(f"workflow identity is already registered: {workflow_id}")
         if not self._replace_unpinned_visible_workflow():
@@ -197,15 +186,15 @@ class WorkflowRuntimeModule:
             SessionSnapshot(
                 workflow_id,
                 0,
-                SessionStatus.VOICE_PREPARING,
+                SessionStatus.VOICE_REVIEW,
                 "voice_input",
                 "Voice Input",
                 self._provider_configuration.active_binding.model,
                 content="",
                 source_preview="Voice Input draft",
-                status_text="Preparing microphone…",
-                available_actions=(),
-                result_completeness="none",
+                status_text="",
+                available_actions=("copy", "paste", "follow_up", "refine"),
+                result_completeness="complete",
                 voice_origin=VoiceOrigin(target),
             ),
             "visible",
@@ -216,104 +205,33 @@ class WorkflowRuntimeModule:
 
     def admit_voice_capture(self, intent: VoiceCaptureIntent) -> VoiceCaptureAdmission:
         """Choose one semantic destination without leaking the policy to either trigger."""
-        if intent.trigger == "popup":
-            workflow_id = intent.workflow_id
-            if workflow_id is None:
-                return VoiceCaptureAdmission("rejected")
-            record = self._records.get(workflow_id)
-            if record is None or record.presentation != "visible":
-                return VoiceCaptureAdmission("rejected", workflow_id=workflow_id)
-            return self._voice_capture_admission_for_visible(intent, workflow_id, record)
+        return VoiceCaptureAdmissionPolicy(self).decide(intent)
+
+    def voice_capture_presentation(self, workflow_id: str) -> WorkflowPresentation | None:
+        record = self._records.get(workflow_id)
+        return record.presentation if record is not None else None
+
+    def voice_capture_visible_workflow(self) -> tuple[str, SessionSnapshot] | None:
         visible = self._visible_record()
-        if visible is not None:
-            workflow_id, record = visible
-            return self._voice_capture_admission_for_visible(intent, workflow_id, record)
-        if intent.focused_surface is not None:
-            if intent.focused_surface.kind != "workflow":
-                return VoiceCaptureAdmission(
-                    "rejected",
-                    message="Close the active ClipAI window, then try again.",
-                )
-            target = self._voice_review_target(intent.focused_surface.surface_id)
-            if target is not None:
-                return VoiceCaptureAdmission(
-                    "voice_review",
-                    workflow_id=intent.focused_surface.surface_id,
-                    target=target,
-                )
-        return VoiceCaptureAdmission("create")
+        return (visible[0], visible[1].controller.snapshot) if visible is not None else None
 
-    def _voice_capture_admission_for_visible(
-        self,
-        intent: VoiceCaptureIntent,
-        workflow_id: str,
-        record: _WorkflowRecord,
-    ) -> VoiceCaptureAdmission:
-        shortcut = intent.trigger == "shortcut"
-        if shortcut and intent.active_voice_workflow_id == workflow_id:
-            self._request_attention(
-                workflow_id,
-                "語音輸入進行中",
-                duration_ms=1500,
-                warning=False,
-            )
-            return VoiceCaptureAdmission("continue", workflow_id=workflow_id)
-        focused_surface = intent.focused_surface
-        if shortcut and focused_surface is None:
-            return VoiceCaptureAdmission(
-                "rejected",
-                workflow_id=workflow_id,
-                message="請先點選目前的 ClipAI 視窗再使用語音輸入，或關閉視窗後開始新的語音輸入。",
-            )
-        if shortcut:
-            assert focused_surface is not None
-            if focused_surface.kind != "workflow" or focused_surface.surface_id != workflow_id:
-                return VoiceCaptureAdmission(
-                    "rejected",
-                    workflow_id=workflow_id,
-                    message="請先點選目前的 ClipAI 視窗再使用語音輸入。",
-                )
+    def voice_capture_foreground_id(self) -> str | None:
+        return self._foreground_id
 
-        snapshot = record.controller.snapshot
-        provider_active = snapshot.active_invocation_id is not None or snapshot.status in {
-            SessionStatus.READING_INPUT,
-            SessionStatus.PREPARING_REQUEST,
-            SessionStatus.REQUESTING_PROVIDER,
-            SessionStatus.PROCESSING_RESULT,
-        }
-        if provider_active:
-            return VoiceCaptureAdmission(
-                "rejected",
-                workflow_id=workflow_id,
-                message="AI 正在回答，完成後再追問。" if shortcut else "",
-            )
-        context = self._voice_capture_surface_context(workflow_id)
-        if shortcut and context is not None and context.follow_up_requested:
-            return VoiceCaptureAdmission(
-                "follow_up",
-                workflow_id=workflow_id,
-                target=VoiceFollowUpTarget(workflow_id),
-            )
-        if snapshot.status is SessionStatus.VOICE_REVIEW:
-            target = self._voice_review_target(workflow_id, context)
-            if target is not None:
-                return VoiceCaptureAdmission("voice_review", workflow_id=workflow_id, target=target)
-            return VoiceCaptureAdmission("rejected", workflow_id=workflow_id)
-        if (
-            snapshot.status in {SessionStatus.CONTEXT_QUESTION, SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
-            and (snapshot.status is SessionStatus.CONTEXT_QUESTION or snapshot.displayed_step_index >= 0)
-            and "follow_up" in snapshot.available_actions
-        ):
-            return VoiceCaptureAdmission(
-                "follow_up",
-                workflow_id=workflow_id,
-                target=VoiceFollowUpTarget(workflow_id),
-            )
-        return VoiceCaptureAdmission(
-            "rejected",
-            workflow_id=workflow_id,
-            message="這份內容目前無法使用 Follow-up。" if shortcut else "",
-        )
+    def voice_capture_snapshot(self, workflow_id: str) -> SessionSnapshot | None:
+        record = self._records.get(workflow_id)
+        return record.controller.snapshot if record is not None else None
+
+    def voice_capture_surface_context(self, workflow_id: str) -> VoiceCaptureSurfaceContext | None:
+        return self._voice_capture_surface_context(workflow_id)
+
+    def voice_capture_review_target(
+        self, workflow_id: str, context: VoiceCaptureSurfaceContext | None = None,
+    ) -> VoiceDraftTarget | None:
+        return self._voice_review_target(workflow_id, context)
+
+    def request_voice_capture_attention(self, workflow_id: str) -> None:
+        self._request_attention(workflow_id, "語音輸入進行中", duration_ms=1500, warning=False)
 
     def _voice_review_target(
         self,
@@ -341,6 +259,13 @@ class WorkflowRuntimeModule:
 
     def has_foreground_workflow(self) -> bool:
         return self._foreground_id in self._records
+
+    def unpinned_foreground_popup_id(self) -> str | None:
+        workflow_id = self._foreground_id
+        record = self._records.get(workflow_id) if workflow_id is not None else None
+        if record is None or record.presentation != "visible" or record.controller.snapshot.pinned:
+            return None
+        return workflow_id
 
     @property
     def foreground_workflow_id(self) -> str | None:
@@ -469,6 +394,7 @@ class WorkflowRuntimeModule:
                 return
             invocation, action = choice
             record.controller.begin_invocation(invocation, action)
+            record.replay_by_invocation[invocation.invocation_id] = None
             self._submit_invocation(
                 command.workflow_id, invocation.invocation_id,
                 lambda: self._execute_action.execute_invocation(action, invocation, record.controller, binding=record.binding),
@@ -491,6 +417,10 @@ class WorkflowRuntimeModule:
                 controller.toggle_pin()
         elif isinstance(command, FollowUp):
             self._follow_up(command)
+        elif isinstance(command, RegenerateResult):
+            self._regenerate(command)
+        elif isinstance(command, RefineVoiceDraftInPlace):
+            self._refine_voice_draft(command)
         elif isinstance(command, ActivateWorkflow):
             record = self._records.get(command.workflow_id)
             if record is not None and record.presentation == "visible":
@@ -663,6 +593,7 @@ class WorkflowRuntimeModule:
         )
         controller.begin_invocation(invocation, action)
         self._foreground_id = workflow_id
+        record.replay_by_invocation[invocation.invocation_id] = None
         self._submit_invocation(
             workflow_id,
             invocation.invocation_id,
@@ -794,16 +725,177 @@ class WorkflowRuntimeModule:
         )
         controller = record.controller
         controller.begin_invocation(invocation, action)
+        record.replay_by_invocation[invocation.invocation_id] = continuation
         self._submit_invocation(
             workflow_id,
             invocation.invocation_id,
-            lambda: self._execute_action.execute_follow_up_invocation(
+            lambda: self._execute_continuation(
                 continuation,
                 invocation,
                 controller,
-                binding=record.binding,
+                record,
             ),
         )
+
+    def _regenerate(self, command: RegenerateResult) -> None:
+        record = self._records.get(command.workflow_id)
+        if record is None or record.presentation != "visible":
+            return
+        prepared = record.controller.prepare_retry()
+        if prepared is None:
+            self._request_attention(
+                command.workflow_id,
+                "目前內容無法重新產生",
+                duration_ms=1500,
+                warning=True,
+            )
+            return
+        source_invocation_id, invocation, action = prepared
+        continuation = record.replay_by_invocation.get(source_invocation_id)
+        if source_invocation_id == record.controller.snapshot.active_invocation_id:
+            self._provider_execution.cancel(source_invocation_id)
+        record.controller.begin_invocation(invocation, action)
+        record.replay_by_invocation[invocation.invocation_id] = continuation
+        if continuation is None:
+            work = lambda: self._execute_action.execute_invocation(
+                action,
+                invocation,
+                record.controller,
+                binding=record.binding,
+            )
+        else:
+            work = lambda: self._execute_continuation(
+                continuation,
+                invocation,
+                record.controller,
+                record,
+            )
+        self._submit_invocation(
+            command.workflow_id,
+            invocation.invocation_id,
+            work,
+        )
+
+    def _refine_voice_draft(self, command: RefineVoiceDraftInPlace) -> None:
+        record = self._records.get(command.workflow_id)
+        if record is None or record.presentation != "visible":
+            return
+        controller = record.controller
+        snapshot = controller.snapshot
+        origin = snapshot.voice_origin
+        if (
+            snapshot.status is not SessionStatus.VOICE_REVIEW
+            or origin is None
+            or snapshot.active_invocation_id is not None
+            or origin.revision != command.expected_revision
+        ):
+            return
+        text_length = len(origin.text)
+        start = max(0, min(command.selection_start, text_length))
+        end = max(0, min(command.selection_end, text_length))
+        if end <= start:
+            start, end = 0, text_length
+        selected_text = origin.text[start:end]
+        if not selected_text.strip():
+            return
+        target = controller.freeze_voice_insertion(start, end)
+        if target is None:
+            return
+        try:
+            action = self._actions.resolve(REFINE_VOICE_DRAFT_ACTION_ID, "short")
+        except ValueError as error:
+            self._sequence_error(str(error), "Check the Action configuration and try again.")
+            return
+        invocation = ActionInvocation(
+            uuid.uuid4().hex,
+            action.id,
+            action.press_type,
+            InputTarget(
+                "workflow_result",
+                InputDocument(selected_text, "voice_draft", workflow_id=command.workflow_id),
+            ),
+            workflow_id=command.workflow_id,
+        )
+        controller.begin_invocation(invocation, action)
+        record.replay_by_invocation[invocation.invocation_id] = None
+        self._submit_invocation(
+            command.workflow_id,
+            invocation.invocation_id,
+            lambda: self._execute_action.execute_refine_voice_draft_invocation(
+                action,
+                invocation,
+                controller,
+                binding=record.binding,
+                target=target,
+            ),
+        )
+
+    def _execute_continuation(
+        self,
+        continuation: FollowUpContinuation,
+        invocation: ActionInvocation,
+        controller: WorkflowController,
+        record: _WorkflowRecord,
+    ) -> Awaitable[None]:
+        return self._execute_action.execute_follow_up_invocation(
+            continuation,
+            invocation,
+            controller,
+            binding=record.binding,
+        )
+
+    def entry_panel_question_block_reason(self, target: InputTarget) -> str:
+        document = target.document
+        if document is None:
+            return "找不到可用的文字內容。"
+        if target.kind == "workflow_result":
+            record = self._records.get(document.workflow_id)
+            if record is None or record.presentation != "visible":
+                return "原本的內容已無法使用，請重新開啟選單。"
+            snapshot = record.controller.snapshot
+            if document.step_id not in {step.step_id for step in snapshot.steps} and not (
+                document.step_id == "voice-origin" and snapshot.status is SessionStatus.VOICE_REVIEW
+            ):
+                return "原本的內容已無法使用，請重新開啟選單。"
+            if not record.controller.can_open_question_composer:
+                return "目前內容還不能提問，請等處理完成。"
+            return ""
+        if document.image is not None or document.source not in {"selection", "clipboard"} or not document.text.strip():
+            return "找不到可用的文字內容。"
+        if len(document.text) > CONTEXTUAL_SOURCE_MAX_CHARS:
+            return "這段內容太長，請縮小選取範圍後再試一次。"
+        visible = self._visible_record()
+        if visible is not None and visible[1].controller.snapshot.pinned:
+            return "目前視窗已固定，請在該視窗中使用問題輸入欄。"
+        return ""
+
+    def open_contextual_question(
+        self,
+        *,
+        input_target: InputTarget,
+        before_first_projection: Callable[[str], None],
+    ) -> ActionStartAdmission:
+        """Admit a Panel question using its frozen source, without recapturing input."""
+        reason = self.entry_panel_question_block_reason(input_target)
+        if reason:
+            return ActionStartAdmission("blocked", "question_unavailable", reason)
+        document = input_target.document
+        assert document is not None
+        if input_target.kind == "workflow_result":
+            workflow_id = document.workflow_id
+            record = self._records[workflow_id]
+            before_first_projection(workflow_id)
+            if record.controller.request_question_composer() is None:
+                return ActionStartAdmission("blocked", "question_unavailable", "目前內容還不能提問。")
+            self._foreground_id = workflow_id
+        else:
+            if not self._replace_unpinned_visible_workflow():
+                return ActionStartAdmission("blocked", "pinned_workflow", "目前視窗已固定。")
+            workflow_id, capture_id, controller, _token = self._create_contextual_question(
+                before_first_projection,
+            )
+            controller.complete_contextual_source_capture(capture_id, document)
+        return ActionStartAdmission("accepted", workflow_id=workflow_id)
 
     def _open_contextual_question(self) -> None:
         visible = self._visible_record()
@@ -835,29 +927,8 @@ class WorkflowRuntimeModule:
             self._sequence_error("目前視窗已固定。", "請在該視窗中直接使用問題輸入欄。")
             return
 
-        workflow_id = uuid.uuid4().hex
-        capture_id = uuid.uuid4().hex
         selection_request = self._input_resolver.begin_selection()
-        controller = self._new_controller(
-            SessionSnapshot(
-                workflow_id,
-                0,
-                SessionStatus.CREATED,
-                CONTEXTUAL_QUESTION_ACTION_ID,
-                "問這段",
-                self._provider_configuration.active_binding.model,
-                status_text="準備讀取內容…",
-            ),
-            "visible",
-        )
-        self._register(
-            workflow_id,
-            controller,
-            self._provider_configuration.active_binding,
-            "visible",
-        )
-        self._foreground_id = workflow_id
-        token = controller.begin_contextual_source_capture(capture_id)
+        workflow_id, capture_id, controller, token = self._create_contextual_question()
         resolver = self._input_resolver
 
         def capture() -> None:
@@ -892,6 +963,36 @@ class WorkflowRuntimeModule:
                 capture_id,
                 "無法開始讀取反白或剪貼簿內容。",
             ))
+
+    def _create_contextual_question(
+        self,
+        before_first_projection: Callable[[str], None] | None = None,
+    ) -> tuple[str, str, WorkflowController, CancellationToken]:
+        workflow_id = uuid.uuid4().hex
+        capture_id = uuid.uuid4().hex
+        if before_first_projection is not None:
+            before_first_projection(workflow_id)
+        controller = self._new_controller(
+            SessionSnapshot(
+                workflow_id,
+                0,
+                SessionStatus.CREATED,
+                CONTEXTUAL_QUESTION_ACTION_ID,
+                "問這段",
+                self._provider_configuration.active_binding.model,
+                status_text="準備讀取內容…",
+            ),
+            "visible",
+        )
+        self._register(
+            workflow_id,
+            controller,
+            self._provider_configuration.active_binding,
+            "visible",
+        )
+        self._foreground_id = workflow_id
+        token = controller.begin_contextual_source_capture(capture_id)
+        return workflow_id, capture_id, controller, token
 
     def _complete_contextual_source(self, command: ContextualSourceCaptured) -> None:
         record = self._records.get(command.workflow_id)

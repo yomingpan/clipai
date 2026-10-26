@@ -4,6 +4,10 @@
 
 Accepted.
 
+Amended by [ADR-0018](0018-inline-dictation-and-voice-capture-timing.md):
+Inline Dictation is a separate global interaction, and `VoiceCaptureTiming`
+owns capture-scoped timers. The PTT 120-second decision remains in force.
+
 ## Context
 
 The 120-second missing-release watchdog treated expiry as user cancellation.

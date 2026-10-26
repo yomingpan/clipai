@@ -2,6 +2,50 @@ from __future__ import annotations
 
 import random
 
+import pytest
+
+
+@pytest.mark.parametrize("title", ["中文標題非常長" * 10, "日本語の長いタイトル" * 10, "A very long English title " * 10])
+def test_recent_tile_title_has_two_bounded_lines_with_ellipsis(title):
+    from ClipAI.ui.text_layout import fit_tile_title
+    measure = lambda text: sum(14 if ord(char) > 127 else 7 for char in text)
+    rendered = fit_tile_title(title, width=70, measure=measure)
+    assert len(rendered.splitlines()) <= 2
+    assert all(measure(line) <= 70 for line in rendered.splitlines())
+    assert rendered.endswith("…")
+
+
+def test_short_recent_tile_title_is_preserved():
+    from ClipAI.ui.text_layout import fit_tile_title
+    assert fit_tile_title("翻譯", width=70, measure=lambda text: len(text)*14) == "翻譯"
+
+
+def test_recent_tile_breaks_english_between_words():
+    from ClipAI.ui.text_layout import fit_tile_title
+    assert fit_tile_title("English Companion", width=90, measure=lambda text: len(text)*7) == "English\nCompanion"
+
+
+def test_recent_tile_balances_cjk_lines_without_an_orphan_character():
+    from ClipAI.ui.text_layout import fit_tile_title
+    measure = lambda text: sum(14 if ord(char) > 127 else 7 for char in text)
+    assert fit_tile_title("OCR／擷取截圖文字", width=90, measure=measure) == "OCR／擷取\n截圖文字"
+
+
+def test_single_line_preview_collapses_breaks_and_fits_with_ellipsis():
+    from ClipAI.ui.text_layout import fit_single_line_text
+    measure = lambda text: len(text) * 7
+    rendered = fit_single_line_text("選取文字：這是一段\n很長的內容", width=98, measure=measure)
+    assert "\n" not in rendered
+    assert rendered.startswith("選取文字：")
+    assert rendered.endswith("…")
+    assert measure(rendered) <= 98
+
+
+def test_single_line_preview_preserves_short_text():
+    from ClipAI.ui.text_layout import fit_single_line_text
+    assert fit_single_line_text("剪貼簿截圖", width=100, measure=lambda text: len(text) * 10) == "剪貼簿截圖"
+
+
 from ClipAI.ui.text_layout import DISPLAY_BREAK_HINT, add_display_break_hints, strip_display_break_hints
 
 

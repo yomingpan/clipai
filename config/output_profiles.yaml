@@ -2,6 +2,8 @@ schema_version: 2
 profiles:
 - id: plain_text
   presentation: plain_text
+- id: command_readable
+  presentation: plain_text
 - id: english_learning_compact
   presentation: plain_text
 - id: reading_friction_explain

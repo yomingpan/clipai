@@ -1,8 +1,21 @@
 from ClipAI.core.commands import ShortcutAttemptRejected, ShortcutKeyStateChanged, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted
+from ClipAI.core.commands import ShortcutPressThresholdReached
 from ClipAI.core.models import ActionDefinition, ActionFeedbackContract, FeedbackReason, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, ShortcutPressRef
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.shortcut_guide import ShortcutGuideCatalog, ShortcutGuideCoordinator
+
+
+def test_captured_practice_press_quarantines_threshold_until_release_even_after_guide_closes():
+    coordinator = ShortcutGuideCoordinator()
+    press = ShortcutPressId(900)
+    coordinator.open("practice", ())
+    coordinator.handle(ShortcutPressStarted(press, "inline_dictation"))
+    assert coordinator.handle(ShortcutPressThresholdReached(press, "inline_dictation")).consumed
+    coordinator.close()
+    assert coordinator.handle(ShortcutPressThresholdReached(press, "inline_dictation")).consumed
+    coordinator.handle(ShortcutPressEnded(press, "inline_dictation", "released"))
+    assert not coordinator.handle(ShortcutPressThresholdReached(press, "inline_dictation")).consumed
 
 
 def guide_catalog() -> ShortcutGuideCatalog:
@@ -39,6 +52,17 @@ def test_catalog_projects_action_and_speech_semantics_in_shortcut_order() -> Non
     assert speech.long_title == "語音快捷鍵組合"
 
 
+def test_inline_guide_explains_release_gesture_and_altgr_migration():
+    bundle = load_config_bundle()
+    item = next(item for item in ShortcutGuideCatalog(bundle.shortcuts, bundle.actions, modifier_mode=bundle.app.modifier_mode).items() if item.shortcut_id == "inline_dictation")
+    assert item.display_hotkey == "Right Alt"
+    assert item.short_description.splitlines()[0] == "單獨按一下開始；再按一次收尾：短按直接貼上，長按潤飾後貼上。"
+    assert "AltGr" in item.short_description
+    assert "chord" in item.short_description
+    assert "config/shortcuts.yaml" in item.short_description
+    assert "Ctrl+Alt+M" in item.short_description
+
+
 def test_catalog_displays_the_effective_modifier_mode() -> None:
     catalog = guide_catalog()
     catalog._modifier_mode = "alt_shift"
@@ -54,7 +78,7 @@ def test_real_config_projects_every_shortcut_and_declared_long_variant() -> None
         modifier_mode=bundle.app.modifier_mode,
     ).items()
 
-    assert len(items) == 30
+    assert len(items) == 34
     assert [item.shortcut_id for item in items] == [definition.id for definition in bundle.shortcuts.definitions()]
     assert {item.shortcut_id for item in items if item.long_title} == {
         "translate_to_english",

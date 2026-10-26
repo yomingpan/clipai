@@ -11,12 +11,25 @@ from ClipAI.core.commands import OpenContextualQuestion, SpeakSelectionOrClipboa
 from ClipAI.providers.settings import ProviderCredential
 
 
+@pytest.mark.parametrize("configured,expected", [(None, True), (False, False), (True, True)])
+def test_selection_standby_is_enabled_by_default_and_can_be_disabled(tmp_path, configured, expected):
+    import yaml
+    payload = yaml.safe_load(Path("config/config.yaml").read_text(encoding="utf-8"))
+    if configured is not None:
+        payload["app"]["selection_uia_standby"] = configured
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    app, *_ = load_app_config(path)
+    assert app.selection_uia_standby is expected
+
+
 def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     bundle = load_config_bundle()
 
     assert bundle.providers.active == "gemini"
     assert bundle.runtime.maintenance_workers == 1
     assert bundle.voice_input.backend == "edge_webview2_browser_speech"
+    assert bundle.voice_input.webview2_runtime_major is None
     assert bundle.app.modifier_mode == "ctrl_alt"
     assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
@@ -61,6 +74,15 @@ def test_voice_input_config_rejects_unsupported_engine_paths() -> None:
         _parse_voice_input({"backend": "openai"})
     with pytest.raises(ConfigError, match="auto_start"):
         _parse_voice_input({"backend": "edge_webview2_browser_speech", "auto_start": True})
+
+
+def test_voice_input_config_accepts_an_optional_webview2_runtime_major() -> None:
+    assert _parse_voice_input({}).webview2_runtime_major is None
+    assert _parse_voice_input({"webview2_runtime_major": 152}).webview2_runtime_major == 152
+
+    for value in (0, -1, True, "152", 152.0):
+        with pytest.raises(ConfigError, match="webview2_runtime_major"):
+            _parse_voice_input({"webview2_runtime_major": value})
 
 
 def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input() -> None:
@@ -475,9 +497,10 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 27
+    assert len(start_actions) == 30
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
-        "voice_input": "ctrl+alt+w",
+            "voice_input": "ctrl+alt+w",
+            "inline_dictation": "right_alt",
         "contextual_question": "ctrl+alt+r",
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -504,9 +527,12 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "shorten_content": "ctrl+alt+x",
         "intent_preserving_dictation_editor": "ctrl+alt+~",
             "command_copilot": "ctrl+alt+c",
+            "command_generate": "ctrl+alt+b",
             "personal_style_informal": "ctrl+alt+i",
             "personal_style_oral": "ctrl+alt+o",
             "personal_style_presentation": "ctrl+alt+p",
+            "advisory_board": "ctrl+alt+j",
+            "insight_engine": "ctrl+alt+k",
         }
     for shortcut in start_actions:
         for press_type in ("short", "long"):
@@ -517,10 +543,11 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
             assert resolved.feedback_contract.reasons[-1].id == "other"
             assert 4 <= len(resolved.feedback_contract.reasons) <= 5
 
-    non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
-    assert [(item["id"], item["command"]) for item in non_action] == [
-        ("voice_input", "push_to_talk"),
-        ("contextual_question", "open_contextual_question"),
+        non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
+        assert [(item["id"], item["command"]) for item in non_action] == [
+            ("voice_input", "push_to_talk"),
+            ("inline_dictation", "inline_dictation"),
+            ("contextual_question", "open_contextual_question"),
         ("speak_selection_or_clipboard", "speak_selection_or_clipboard")
     ]
     assert bundle.shortcuts.resolve("contextual_question", "short") == OpenContextualQuestion()
@@ -711,12 +738,12 @@ def test_session_handoff_preserves_reasoning_continuity_for_a_new_ai_session() -
     assert "None identified." in profile.instruction
 
 
-def test_command_copilot_combines_command_generation_and_risk_review() -> None:
+def test_command_copilot_keeps_shortcut_but_only_reviews_risk() -> None:
     bundle = load_config_bundle()
     action = bundle.actions.get("command_copilot")
     shortcut = bundle.shortcuts.definition("command_copilot")
 
-    assert action.name == "Command Copilot｜指令轉譯與風險審查"
+    assert action.name == "指令風險檢查"
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
@@ -726,7 +753,8 @@ def test_command_copilot_combines_command_generation_and_risk_review() -> None:
     assert shortcut.hotkey == "ctrl+alt+c"
     assert shortcut.action_id == action.id
     assert action.feedback_contract is not None
-    assert "自然語言意圖或既有 command" in action.system_prompt
+    assert "不因輸入是中文或含有程式碼而切換任務" in action.system_prompt
+    assert "不自行補成可執行 commands" in action.system_prompt
     assert "不得為了縮短或安全而改變原 command 的行為" in action.system_prompt
     assert "風險層級" in action.prompt
     assert "更安全的做法" in action.prompt

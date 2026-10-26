@@ -115,7 +115,8 @@ class AppProviderConfigurationBackend:
             )
         else:
             provider_settings = getattr(self._bundle.providers, provider)
-            api_key = environment.get(provider_settings.api_key_env, "")
+            api_key = ((connection.api_key.strip() if connection is not None else "")
+                       or environment.get(provider_settings.api_key_env, ""))
         return await self._catalog.list_models(provider, provider_settings, api_key)
 
     def _environment(self) -> dict[str, str]:

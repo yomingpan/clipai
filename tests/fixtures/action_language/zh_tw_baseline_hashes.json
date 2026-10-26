@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "inventory": {
-    "actions": 27,
+    "actions": 31,
     "explicit_variants": [
       "translate_to_english:long",
       "english_companion:long",
@@ -10,10 +10,10 @@
       "shorten_content:long",
       "extract_screenshot_text:long"
     ],
-    "output_profiles": 10,
-    "shortcuts": 30,
-    "start_action_shortcuts": 27,
-    "entry_panel_candidates": 27
+    "output_profiles": 11,
+    "shortcuts": 34,
+    "start_action_shortcuts": 30,
+    "entry_panel_candidates": 31
   },
   "default_system_prompt": "sha256:cc82d8e411e8fdbea01e7b3e367d4632ce6ed712a05b0dc3b292e8be953e0394",
   "resolved_actions": {
@@ -69,11 +69,20 @@
     "structure_score_prompt:long": "sha256:f51f4dc8b22205455bc3ee3610a4e21e04c61f3c881fdf90c5e27d426eaad0cc",
     "extract_screenshot_text:short": "sha256:6817720aeb5a1ff6605d7fcb61ca65cca020fe8722710e929500f1ab4817ccd2",
     "extract_screenshot_text:long": "sha256:e3994f27fd9bd8da714e26f6ddb7c1bba78d656a2f1854306840b74878b16fc0",
-    "command_copilot:short": "sha256:2a9c538c4f1f3e27c823d53d2493fa075b4b3ec62b69c6df798d4b14ade61559",
-    "command_copilot:long": "sha256:b5f51273d8e1695161538784bb5eb5f4c176e35916095e2e72cccd238e94603c"
+    "command_copilot:short": "sha256:1cc029b8a9974aa21dadc5a83f21360d67f88f80f4afa7563e3e82057163767d",
+    "command_copilot:long": "sha256:0f15cf91bdca5d25d9ff72d348d379aafe494cb00cc8e04e4d75e077abacd0dc",
+    "command_generate:short": "sha256:6ed62f6a10ef36c6f62501005964fb3d130c0fa3056393c6aeba884eefd94918",
+    "command_generate:long": "sha256:dbce7fdeb2ecd6483e7bb38837ca25e6e9dbb0d3c58aaf8c6210f01e6fc34abe",
+    "command_coach:short": "sha256:d762d46eff20a3809bffda6e3a4c0aa3e31c6a735a58cd760cb49d6f84ae08fe",
+    "command_coach:long": "sha256:9ecac564f8149af06348b088a454d8d2183635378cbb7299eafd7c12cfb4ba46",
+    "advisory_board:short": "sha256:c4653273f3adabd856cfdecbb02af0bdcb8c1b6311d47df5097f487b6fbc5fca",
+    "advisory_board:long": "sha256:3593d42486dabd656ea25e4a5a9e1a244c731d328a8c7349ad716027067ee7ad",
+    "insight_engine:short": "sha256:a31fea5b2ce285ebd075815a1830ae6878b4f8ba1cf16792a6d16acdc4e9b9bd",
+    "insight_engine:long": "sha256:6fa452432c31b0fcb51ae71634cb7b2e9a9272ad10c8dfe0c77ceab43cdd133d"
   },
   "output_profiles": {
     "plain_text": "sha256:053034d73f094295dcda47391a6115377f85806fe8a85b0b4c43363a1d5e6646",
+    "command_readable": "sha256:100173802a62f45b2e9d5e28c53499838ce9882f5a5601d606c3429c78b25198",
     "english_learning_compact": "sha256:676ded82bf463a9348299ad2fb91f043d8b452e8d6290712cac333cd52257127",
     "reading_friction_explain": "sha256:fbf9e8d5825a6ae858e13a0b0b7b8a2d6c7127c00adcdc815a9fab256a4d4db2",
     "reading_friction_practice": "sha256:be5c7af0a5fdd0a2fe7849cf5f428b66d1a9534d922439d69838943c1accd223",
@@ -84,7 +93,7 @@
     "session_handoff": "sha256:bd008a8518ed9802b1b0f183cfa8637efffdbce2b1e141d3645f45b8dc4cdd4e",
     "score_compact": "sha256:15018c5ad770219dd48501bb9c49cbaed347956e9dd94859cf5c0f9eed248cf1"
   },
-  "shortcut_matrix": "sha256:225d94448c7f39e988ef20f3d139a9f43f05a03bfa32fc037650bbba67d520a5",
+  "shortcut_matrix": "sha256:be12e816ae43db1ab9c94e0dd4bb2abb45fec4f988e119c4bec40a85ea8c6461",
   "entry_panel_candidates": {
     "translate_to_traditional_chinese:short": "sha256:3f2b79ca74b9bf97fd16d0e8d27f58bb00654fb39fdffcf07d3794ce3ec2672a",
     "english_companion:short": "sha256:2a6f804cbd2cf280ba5a47c4d690caf8faea6c1819910f5ee72de2ccab875410",
@@ -110,8 +119,12 @@
     "mece_decomposition:short": "sha256:dfc220d10b17bebf3bda09769125df01f8e3db21487d06f75017c02f2e965fe5",
     "minimum_action:short": "sha256:e3e49e97db3d5158011313c530ab4c77fd60eeb927a05487600efacac8a5d9ba",
     "structure_score_prompt:short": "sha256:43bd269415f716becf443984f08331e11b0350ca37cd83191dce3dce0a33ab15",
+    "advisory_board:short": "sha256:f463ea36c8f79deaab4ec6be597ef49423fbaee0d431ea75d36decb12f0a1821",
+    "insight_engine:short": "sha256:205296214936a64926d51f4d2776548b5cd59934ef176069f2a8d84d299baeaf",
     "extract_screenshot_text:short": "sha256:fab7e4655131b01da72ae72b8f9b6a85a84cc6fe9900e70829cbe2d8593112aa",
     "session_handoff:short": "sha256:5e702c523ee8002b366d352941a0d43136dba41435e94bc9ff6a3d65db3c7952",
-    "command_copilot:short": "sha256:2b8479abeec43a7b44c66787c1d5256d2342fcda89e8fb8666f0298fbd0b8afc"
+    "command_copilot:short": "sha256:ba05fd5e91ea44c4434e7ba47424528d644d7877ecc09d0aff2cb613940834db",
+    "command_generate:short": "sha256:f92f3b1be9d501a74b045cf771e561d086ec4932aaf39ed256de132a9542ec45",
+    "command_coach:short": "sha256:453c705d223b744d3bd0b01cd332f5a21f111da0bea3eff40c99f736640e8a5e"
   }
 }

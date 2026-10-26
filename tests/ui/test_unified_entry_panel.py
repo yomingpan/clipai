@@ -1,4 +1,5 @@
 import tkinter as tk
+from dataclasses import replace
 
 import customtkinter as ctk
 import pytest
@@ -13,9 +14,29 @@ from ClipAI.core.commands import (
     UseEntryPanelClipboard,
 )
 from ClipAI.core.models import DisplayMetrics, EntryActionRef, EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds
-from ClipAI.ui.base_dialog import ACTION_HOVER_COLOR
+from ClipAI.ui.base_dialog import ACTION_COLOR, ACTION_HOVER_COLOR, MODEL_COLOR
 from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
 from ClipAI.ui.unified_entry_panel import EntryPanelIntentAdapter, UnifiedEntryPanelDialog, _body_render_key, _source_preview_text
+from ClipAI.services.entry_panel import EntryPanelCoordinator
+from ClipAI.app.config_loader import load_config_bundle
+
+
+def test_panel_enter_climbs_nested_ctk_widget_without_keyboard_confirm_settle():
+    """Panel opens from a held Alt intent, so Enter has no Popup focus-settle gate."""
+    from types import SimpleNamespace
+    invoked = []
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog.is_primary_content_mounted = lambda: True
+    button = SimpleNamespace(master=None, invoke=lambda: invoked.append(True))
+    nested = SimpleNamespace(master=SimpleNamespace(master=button))
+    assert dialog._on_enter(SimpleNamespace(widget=nested)) == "break"
+    assert invoked == [True]
+
+
+def test_recent_tile_tooltip_keeps_complete_copy_in_specified_order():
+    from ClipAI.ui.unified_entry_panel import recent_tile_tooltip
+    option = EntryPanelOption(1, "完整標題", "說明", action=EntryActionRef("a", "short"), long_action=EntryActionRef("a", "long"), long_label="深入分析", enabled=False, disabled_reason="目前無法使用")
+    assert recent_tile_tooltip(option) == "完整標題\n說明\n長按:深入分析\n目前無法使用"
 
 
 @pytest.mark.integration
@@ -37,6 +58,7 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
     master.withdraw()
     dialog = None
     host = None
+    commands = []
     try:
         host = PrimarySurfaceHost(
             master,
@@ -46,7 +68,7 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         lease = host.acquire()
         dialog = UnifiedEntryPanelDialog(
             master,
-            lambda _command: None,
+            commands.append,
             NativeSurface(),
             MetricsReader(),
             primary_surface_host=host,
@@ -76,7 +98,38 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         )
         master.update()
 
+        assert not dialog._numeric_hint_label.winfo_ismapped()
+        assert (
+            dialog._source_preview_label.winfo_rooty()
+            - (title_label.winfo_rooty() + title_label.winfo_height())
+            < 24
+        )
+        assert dialog._escape_button.cget('text') == '\u00d7'
+        assert dialog._escape_button.cget('width') == dialog._escape_button.cget('height') == 18
+        assert dialog._escape_button.cget('corner_radius') == 9
+        assert dialog._escape_button.cget('border_width') == 0
+        assert dialog._escape_button.cget('text_color') == '#8A8A8A'
+        assert dialog._back_button.cget('text_color') == '#8A8A8A'
+        assert dialog._escape_tooltip.text == 'Esc 關閉'
+
         assert dialog._use_clipboard_button.winfo_ismapped()
+        assert dialog._use_clipboard_button.cget("width") == 136
+        assert dialog._first_focus_target() is dialog._use_clipboard_button
+        dialog.reveal()
+        master.update()
+        assert dialog._use_clipboard_button.cget("text") == "使用剪貼簿（Enter）"
+        focus = dialog._window.focus_get()
+        focus.event_generate("<Return>")
+        master.update()
+        assert commands[-1] == UseEntryPanelClipboard("panel-1")
+        dialog.apply(replace(snapshot, source_preview=None))
+        master.update()
+        assert dialog._use_clipboard_button.cget("text") == "使用剪貼簿"
+        assert dialog._use_clipboard_button.cget("width") == 136
+        focus = dialog._window.focus_get()
+        while focus is not None:
+            assert focus is not dialog._use_clipboard_button
+            focus = getattr(focus, "master", None)
         assert (
             dialog._use_clipboard_button.winfo_rootx() + dialog._use_clipboard_button.winfo_width()
             <= dialog._window.winfo_rootx() + dialog._window.winfo_width()
@@ -109,16 +162,89 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
                     slot,
                     f"最近 {slot}",
                     action=EntryActionRef("shorten_content", "short"),
-                ) for slot in range(3)),
+                ) for slot in range(1, 4)),
                 *(EntryPanelOption(
                     slot,
                     f"情境 {slot}",
                     category_id=f"category-{slot}",
-                ) for slot in range(3, 7)),
+                ) for slot in range(4, 8)),
             ),
         )
+        titles = ("中文長標題" * 20, "日本語の長いタイトル" * 20, "Very long English title " * 20)
+        root_snapshot = replace(root_snapshot, header_hint="數字已改:1–3 最近、4–7 分類", options=tuple(
+            replace(option, label=titles[index], long_action=EntryActionRef("shorten_content", "long"), long_label="深入版本") if index < 3 else option
+            for index, option in enumerate(root_snapshot.options)
+        ))
+        bounds_before = dialog._window.geometry()
         dialog.show(root_snapshot)
         master.update_idletasks()
+        assert dialog._window.geometry() == bounds_before
+        assert dialog._numeric_hint_label.cget("text") == "數字已改:1–3 最近、4–7 分類"
+        recent_cards = dialog._option_buttons[:3]
+        assert dialog._numeric_hint_label.winfo_ismapped()
+        assert all(card.cget("height") == 80 for card in recent_cards)
+        assert max(card.winfo_width() for card in recent_cards)-min(card.winfo_width() for card in recent_cards) <= 1
+        assert len({card.winfo_y() for card in recent_cards}) == 1
+        assert [card.winfo_x() for card in recent_cards] == sorted(card.winfo_x() for card in recent_cards)
+        assert len({card._recent_title.winfo_y() for card in recent_cards}) == 1
+        assert all(card._recent_title.cget("anchor") == "nw" for card in recent_cards)
+        recent_cards[0].focus_set()
+        master.update()
+        assert recent_cards[0]._recent_tooltip._job is None
+        assert recent_cards[0]._recent_tooltip._window is None
+        assert recent_cards[0].cget("border_color") == "#454545"
+        navigation_key = tk.Event()
+        navigation_key.keysym = "Tab"
+        navigation_key.char = ""
+        dialog._on_key(navigation_key)
+        recent_cards[1].focus_set()
+        master.update()
+        assert recent_cards[1].cget("border_color") == ACTION_COLOR
+        for card, title in zip(recent_cards, titles):
+            assert card.winfo_width() >= 60
+            assert card._recent_badge.cget("width") == 14
+            assert card._recent_badge.cget("fg_color") == "transparent"
+            assert card._recent_badge.cget("text_color") == ACTION_COLOR
+            assert card._recent_badge.winfo_x() < card.winfo_width() / 8
+            assert card._recent_long_hint.winfo_y() == card._recent_badge.winfo_y()
+            assert card._recent_long_hint.winfo_x() > card._recent_badge.winfo_x()
+            assert card._recent_title.winfo_y() >= card._recent_badge.winfo_y() + card._recent_badge.winfo_height()
+            assert card._recent_title.winfo_x() < card.winfo_width() / 8
+            assert card._recent_title.cget("text").endswith("…")
+            assert len(card._recent_title.cget("text").splitlines()) <= 2
+            assert card._recent_long_hint.cget("text") == "長按"
+            assert card._recent_tooltip.text.startswith(title+"\n")
+            card.focus_set()
+            master.update()
+            assert card._recent_tooltip._job is None
+            assert card._recent_tooltip._window is None
+            card._canvas.event_generate("<Enter>")
+            assert card._recent_tooltip._job is not None
+            card._recent_tooltip._hide()
+            assert dialog._window.geometry() == bounds_before
+        dialog._hold_controllers[1]["begin"]()
+        dialog._hold_controllers[1]["cancel"]()
+        assert recent_cards[0]._recent_title.cget("text").endswith("…")
+        dialog.apply(replace(root_snapshot, header_hint=""))
+        master.update_idletasks()
+        assert not dialog._numeric_hint_label.winfo_ismapped()
+        recent_heading = next(child for child in dialog._body.winfo_children() if isinstance(child, ctk.CTkLabel) and child.cget("text") == "最近使用")
+        title_to_source = dialog._source_preview_label.winfo_rooty() - (title_label.winfo_rooty() + title_label.winfo_height())
+        source_to_recent = recent_heading.winfo_rooty() - (dialog._source_preview_label.winfo_rooty() + dialog._source_preview_label.winfo_height())
+        assert 0 <= title_to_source <= 8
+        assert 8 <= source_to_recent <= 24
+        assert source_to_recent > title_to_source
+        long_preview = EntryInputSourcePreview("selection_text", "很長的選取文字" * 30)
+        dialog.apply(replace(root_snapshot, header_hint="", source_preview=long_preview))
+        master.update_idletasks()
+        source_label = dialog._source_preview_label
+        assert source_label.winfo_rootx() + source_label.winfo_width() <= dialog._shell.winfo_rootx() + dialog._shell.winfo_width() - 12
+        assert source_label.cget("text").endswith("…")
+        assert "\n" not in source_label.cget("text")
+        dialog.apply(replace(root_snapshot, header_hint="", source_preview=EntryInputSourcePreview("failed", "來源錯誤" * 30, True)))
+        master.update_idletasks()
+        assert source_label.winfo_rootx() + source_label.winfo_width() < dialog._retry_input_button.winfo_rootx()
+        assert source_label.cget("text").endswith("…")
         divider = next(
             child
             for child in dialog._body.winfo_children()
@@ -128,6 +254,27 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         assert dialog._density.get() == 1
         assert divider.winfo_height() >= 2
         assert all(card.winfo_height() >= 48 for card in dialog._option_buttons)
+
+        coordinator = EntryPanelCoordinator(load_config_bundle().entry_panel)
+        coordinator.open("panel-1", preparing=True)
+        waiting_message = coordinator.show_input_progress("waiting_for_window").message
+        preparing = replace(
+            root_snapshot, status="preparing", message="正在讀取來源內容…",
+            options=tuple(replace(option, pending=option.action is not None) for option in root_snapshot.options),
+        )
+        dialog.apply(preparing)
+        cards = tuple(dialog._option_buttons)
+        assert all(card._recent_badge.cget("text_color") == MODEL_COLOR for card in cards[:3])
+        dialog.apply(replace(preparing, message=waiting_message))
+        master.update_idletasks()
+        assert tuple(dialog._option_buttons) == cards
+        assert dialog._message_label.cget("text") == waiting_message
+        assert dialog._message_label.cget("text_color") != "#F6A9A9"
+        dialog._escape_button.invoke()
+        assert commands[-1] == CloseEntryPanel("panel-1")
+        dialog.apply(root_snapshot)
+        master.update_idletasks()
+        assert dialog._message_label is None
     finally:
         if host is not None:
             host.close()
@@ -200,6 +347,79 @@ def test_intent_adapter_emits_one_action_selection_until_projection_changes() ->
     assert commands == [
         EntryPanelActionSelected("panel-1", option.action),
     ]
+
+
+def test_intent_adapter_selects_the_long_action_and_falls_back_to_short() -> None:
+    commands = []
+    adapter = EntryPanelIntentAdapter(commands.append)
+    long_action = EntryActionRef("shorten_content", "long")
+    with_long = EntryPanelOption(
+        1,
+        "Shorten",
+        action=EntryActionRef("shorten_content", "short"),
+        long_action=long_action,
+        long_label="Shorten lightly",
+    )
+    without_long = EntryPanelOption(
+        2,
+        "Translate",
+        action=EntryActionRef("translate_to_english", "short"),
+    )
+    snapshot = EntryPanelSnapshot(
+        "panel-1",
+        "scene",
+        options=(with_long, without_long),
+    )
+
+    adapter.apply(snapshot)
+    adapter.select(with_long, press="long")
+    adapter.apply(replace(snapshot, message="selection settled"))
+    adapter.select(without_long, press="long")
+
+    assert commands == [
+        EntryPanelActionSelected("panel-1", long_action),
+        EntryPanelActionSelected("panel-1", without_long.action),
+    ]
+
+
+def test_keyboard_number_hold_uses_one_controller_across_auto_repeat() -> None:
+    events = []
+
+    class Window:
+        def __init__(self) -> None:
+            self.jobs = []
+
+        def after(self, _delay, callback):
+            self.jobs.append(callback)
+            return callback
+
+        def after_cancel(self, callback) -> None:
+            if callback in self.jobs:
+                self.jobs.remove(callback)
+
+    controller = {
+        "begin": lambda: events.append("begin"),
+        "settle": lambda: events.append("settle") or True,
+        "select": lambda reached: events.append(("select", reached)),
+        "cancel": lambda: events.append("cancel"),
+    }
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog._window = Window()
+    dialog._primary_surface_host = None
+    dialog._primary_surface_lease = None
+    dialog._hold_controllers = {1: controller}
+    dialog._key_hold = None
+    dialog._key_release_job = None
+    dialog._intent = type("Intent", (), {"select_slot": lambda _self, slot: events.append(("slot", slot))})()
+    event = type("Event", (), {"char": "1", "keysym": "1"})()
+
+    dialog._on_key(event)
+    dialog._on_key_release(event)
+    dialog._on_key(event)
+    dialog._on_key_release(event)
+    dialog._window.jobs.pop()()
+
+    assert events == ["begin", "settle", ("select", True)]
 
 
 def test_disabled_option_does_not_emit_action_intent() -> None:
@@ -315,6 +535,69 @@ def test_option_card_callback_reads_latest_option_after_in_place_update(monkeypa
     card.bindings["<Button-1>"]()
 
     assert selected == [latest]
+
+
+def test_option_card_release_selects_short_or_long_and_ignores_orphan_release(monkeypatch) -> None:
+    class Widget:
+        jobs = []
+
+        def __init__(self, _parent=None, **_kwargs) -> None:
+            self.bindings = {}
+
+        def grid_columnconfigure(self, *_args, **_kwargs) -> None: pass
+        def bind(self, sequence, callback, add=None) -> None: self.bindings[sequence] = callback
+        def configure(self, **_kwargs) -> None: pass
+        def grid(self, **_kwargs) -> None: pass
+        def grid_configure(self, **_kwargs) -> None: pass
+        def grid_forget(self) -> None: pass
+        def after_idle(self, callback) -> None: callback()
+        def place(self, **_kwargs) -> None: pass
+        def place_configure(self, **_kwargs) -> None: pass
+        def destroy(self) -> None: pass
+
+        def after(self, _delay, callback):
+            self.jobs.append(callback)
+            return callback
+
+        def after_cancel(self, callback) -> None:
+            if callback in self.jobs:
+                self.jobs.remove(callback)
+
+    selected = []
+    monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkFrame", Widget)
+    monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkLabel", Widget)
+    monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkFont", lambda **_kwargs: object())
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog._intent = type(
+        "Intent",
+        (),
+        {"select": lambda _self, option, *, press="short": selected.append((option, press))},
+    )()
+    dialog._option_buttons = []
+    dialog._option_updaters = []
+    dialog._hold_controllers = {}
+    option = EntryPanelOption(
+        1,
+        "Shorten",
+        action=EntryActionRef("shorten_content", "short"),
+        long_action=EntryActionRef("shorten_content", "long"),
+        long_label="Shorten lightly",
+    )
+    card = dialog._create_option_card(
+        object(),
+        option,
+        EntryPanelSnapshot("panel-1", "scene"),
+    )
+
+    card.bindings["<ButtonRelease-1>"]()
+    card.bindings["<ButtonPress-1>"]()
+    for _ in range(12):
+        Widget.jobs.pop(0)()
+    card.bindings["<ButtonRelease-1>"]()
+    card.bindings["<ButtonPress-1>"]()
+    card.bindings["<ButtonRelease-1>"]()
+
+    assert selected == [(option, "long"), (option, "short")]
 
 
 def test_projection_text_respects_density_and_keeps_disabled_reason() -> None:
@@ -513,6 +796,30 @@ def test_current_bounds_is_projected_by_primary_host() -> None:
     assert dialog.current_bounds() == PopupBounds(135, 95, 440, 330)
 
 
+def test_reclaim_cancels_only_panel_scheduled_work_without_closing_shared_host() -> None:
+    events = []
+    dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
+    dialog._snapshot = object()
+    dialog._schedule_lifecycle = type(
+        "ScheduleLifecycle",
+        (),
+        {"cancel_scheduled": lambda _self: events.append("panel-jobs-cancelled")},
+    )()
+    dialog._density_tooltip = type(
+        "Tooltip",
+        (),
+        {"_hide": lambda _self: events.append("tooltip-hidden")},
+    )()
+    dialog._escape_tooltip = type(
+        'Tooltip', (), {'_hide': lambda _self: events.append('escape-tooltip-hidden')}
+    )()
+
+    dialog.close()
+
+    assert dialog._snapshot is None
+    assert events == ["tooltip-hidden", 'escape-tooltip-hidden', "panel-jobs-cancelled"]
+
+
 def test_close_releases_projection_without_destroying_shared_host() -> None:
     events: list[str] = []
 
@@ -527,9 +834,77 @@ def test_close_releases_projection_without_destroying_shared_host() -> None:
     dialog = UnifiedEntryPanelDialog.__new__(UnifiedEntryPanelDialog)
     dialog._window = Window()
     dialog._lifecycle = Lifecycle()
+    dialog._schedule_lifecycle = type(
+        "ScheduleLifecycle", (), {"cancel_scheduled": lambda _self: events.append("cancelled")}
+    )()
+    dialog._density_tooltip = type(
+        "Tooltip", (), {"_hide": lambda _self: events.append("tooltip-hidden")}
+    )()
+    dialog._escape_tooltip = type(
+        'Tooltip', (), {'_hide': lambda _self: events.append('escape-tooltip-hidden')}
+    )()
     dialog._snapshot = object()
 
     dialog.close()
 
-    assert events == []
+    assert events == ["tooltip-hidden", 'escape-tooltip-hidden', "cancelled"]
     assert dialog._snapshot is None
+
+
+def test_question_card_emits_panel_slot_intent_and_respects_pending():
+    panel = EntryPanelCoordinator(load_config_bundle().entry_panel)
+    snapshot = panel.open("question", preparing=True)
+    commands = []
+    adapter = EntryPanelIntentAdapter(commands.append)
+    adapter.apply(snapshot)
+    adapter.select(snapshot.options[-1])
+    assert commands == []
+    snapshot = panel.complete_input_preparation(EntryInputSourcePreview("selection_text", "text"))
+    adapter.apply(snapshot)
+    adapter.select(snapshot.options[-1])
+    assert commands == [EntryPanelSlotSelected("question", 8)]
+
+
+@pytest.mark.integration
+def test_fixed_question_card_renders_last_and_dispatches_slot_eight():
+    class NativeSurface:
+        def activate(self, _window_id): return True
+        def hide_from_task_switcher(self, _window_id): pass
+    class MetricsReader:
+        def current(self): return DisplayMetrics(1.0, 0, 0, 1920, 1080, 420, 320)
+    master = ctk.CTk()
+    master.withdraw()
+    host = None
+    dialog = None
+    commands = []
+    try:
+        host = PrimarySurfaceHost(master, PrimarySurfaceSpec(PopupBounds(268, 220, 400, 600)), NativeSurface())
+        lease = host.acquire()
+        dialog = UnifiedEntryPanelDialog(
+            master, commands.append, NativeSurface(), MetricsReader(),
+            primary_surface_host=host, primary_surface_lease=lease,
+        )
+        panel = EntryPanelCoordinator(load_config_bundle().entry_panel)
+        snapshot = panel.open("question-smoke", recent=(EntryActionRef("shorten_content", "short"),), preparing=True)
+        dialog.apply(snapshot)
+        assert host.mount(lease, dialog)
+        assert host.show(lease)
+        dialog.reveal()
+        master.update()
+        dialog._option_buttons[-1]._canvas.event_generate("<Button-1>", x=5, y=5)
+        master.update()
+        assert commands == []
+        snapshot = panel.complete_input_preparation(EntryInputSourcePreview("selection_text", "frozen text"))
+        dialog.apply(snapshot)
+        master.update()
+        question = dialog._option_buttons[-1]
+        assert question.winfo_rooty() > dialog._option_buttons[-2].winfo_rooty()
+        question._canvas.event_generate("<Button-1>", x=5, y=5)
+        master.update()
+        assert commands == [EntryPanelSlotSelected("question-smoke", 8)]
+    finally:
+        if dialog is not None:
+            dialog.close()
+        if host is not None:
+            host.close()
+        master.destroy()

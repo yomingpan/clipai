@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "gate": "controlled-baseline-pairing",
+  "method": "unique_dispatch_within_250ms_of_controlled_target_paste",
+  "controlled_pastes": 20,
+  "matched_interactions": 20,
+  "ambiguous_or_missing": 0,
+  "unpaired_dispatches": 0,
+  "content_recorded": false,
+  "passed": true
+}

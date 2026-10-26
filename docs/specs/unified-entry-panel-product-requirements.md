@@ -1,6 +1,6 @@
 # 統一入口浮動面板：產品需求與互動規格
 
-狀態：產品決策已收斂，待進入架構規劃
+狀態：本次數字鍵、方塊與鍵盤復原遷移已完成 S8 驗證，見 [ADR-0022](../adr/0022-right-alt-inline-pill-and-input-recovery.md)。
 
 本文件定義 ClipAI 統一入口浮動面板的使用者需求、資訊架構與可驗收互動。它刻意不定義程式模組、資料結構、事件流、儲存方式或技術選型；那些屬於下一階段的架構規劃。
 
@@ -26,7 +26,7 @@ ClipAI 是使用者思考與寫作時的輕量副駕。它要降低「看見一�
 
 本需求包含：
 
-- 以單按 `Alt` 長按開啟的游標附近浮動面板。
+- 以單獨長按 `Left Alt` 開啟的游標附近浮動面板。
 - 三個旗艦情境、工具類 action、最近使用 action、鍵盤數字選取、滑鼠點選、Back 漸進返回、Esc 關閉，以及資訊密度切換。
 - 現有 action 的產品分類、首頁優先級與進階入口。
 
@@ -43,7 +43,7 @@ ClipAI 是使用者思考與寫作時的輕量副駕。它要降低「看見一�
 
 ### 3.1 開啟
 
-- 使用者必須單獨連續按住 `Alt` **500ms** 才開啟面板；500ms 是全產品統一的長按判斷準則。
+- 使用者必須單獨連續按住 `Left Alt` **500ms** 才開啟面板；500ms 與 Right Alt 聽寫共用門檻。Right Alt 不開啟 Panel。依據：`tests/platform/test_entry_panel_hotkey.py`、`test_right_alt_hotkey.py`。
 - 500ms 前放開 Alt、按下其他 modifier 或其他按鍵，面板不得開啟，也不得殘留半開、閃爍或延遲彈出的狀態。
 - 已存在的 `Ctrl + Alt + 數字` 直接快捷鍵維持原有意義。完整 chord 走既有直接快捷鍵，不得同時開啟面板或重複觸發 action。
 - 面板出現在游標附近，而非固定佔據螢幕邊緣。它要像 tray 選單一樣輕，不得變成常駐側欄。
@@ -74,7 +74,9 @@ ClipAI 是使用者思考與寫作時的輕量副駕。它要降低「看見一�
 
 - 根目錄最上方直接呈現最近三個成功完成的 action，以橫向、等權重的三個按鈕顯示。
 - 三個按鈕可直接滑鼠點選，不需要先點「最近使用」。
-- 根目錄數字 `0`、`1`、`2` 分別直接執行第一、第二、第三個最近使用的 action。
+- 根目錄數字 `1`、`2`、`3` 分別直接執行第一、第二、第三個最近使用的 action。
+- 根目錄 `0` 只顯示「最近使用改為 1–3」，不執行 Action；前五次開啟在 header 顯示「數字已改:1–3 最近、4–7 分類」。依據：`tests/services/test_entry_panel.py`、`tests/app/test_runtime_user_preferences.py`。
+- 三個等寬方塊高 66、最小寬 60、內距 10、數字徽章 16；標題最多兩行，超出加 …，有長按版本時顯示「長按」。滑鼠與鍵盤 tooltip 依序顯示完整標題、說明、長按版本、停用原因；不得改變 shell 尺寸。依據：`tests/ui/test_unified_entry_panel.py`、`tests/ui/test_text_layout.py`。
 - 最近使用依最後一次**成功完成**排序；同一 action 只保留最新一筆，避免三格都是同一個功能。
 - 最近使用只呈現 action 名稱與必要的輕量提示，不呈現使用者原文、剪貼簿內容、結果全文或其他私人脈絡。
 - 若歷史少於三個 action，只顯示實際存在的按鈕，缺少的數字不對應任何 action；三個旗艦情境和工具仍正常顯示。
@@ -86,10 +88,12 @@ ClipAI 是使用者思考與寫作時的輕量副駕。它要降低「看見一�
 
 | 數字 | 入口 | 使用者問題 | 進入後的目的 |
 | --- | --- | --- | --- |
-| `3` | 看得懂 | 「這段內容到底在說什麼？」 | 轉譯、說明、閱讀與英文理解 |
-| `4` | 寫得出 | 「我知道意思，但怎麼寫成可用文字？」 | 翻譯、壓縮、改寫與語音成稿 |
-| `5` | 想清楚 | 「我還沒準備好下結論，怎麼釐清？」 | 結構、盲點、取捨與下一個問題 |
-| `6` | 工具 | 「我需要先把內容或脈絡拿進來。」 | OCR、交接與指令審查等工具性能力 |
+| `4` | 看得懂 | 「這段內容到底在說什麼？」 | 轉譯、說明、閱讀與英文理解 |
+| `5` | 寫得出 | 「我知道意思，但怎麼寫成可用文字？」 | 翻譯、壓縮、改寫與語音成稿 |
+| `6` | 想清楚 | 「我還沒準備好下結論，怎麼釐清？」 | 結構、盲點、取捨與下一個問題 |
+| `7` | 工具 | 「我需要先把內容或脈絡拿進來。」 | OCR、交接與指令審查等工具性能力 |
+
+數字對應依據：`tests/services/test_entry_panel.py` 與 `tests/app/test_entry_panel_config.py`。
 
 根目錄不得加入搜尋欄。搜尋只在「更多功能」內出現，避免讓首次使用者一打開就要先猜關鍵字。
 
@@ -101,7 +105,7 @@ ClipAI 是使用者思考與寫作時的輕量副駕。它要降低「看見一�
 - 旗艦 action 必須是使用者最常需要、最容易理解且最能代表該情境的四個能力，而不是依設定檔或技術順序排列。
 - 情境頁底部提供 `+ 更多［情境］功能`。它是中性、低權重的延伸入口，不得使用醒目主題色。
 - 「更多功能」頁才顯示搜尋欄與進階 action。進階功能仍可直接點選，但不能搶走四個旗艦 action 的第一視線。
-- 工具頁只呈現真實可呼叫的工具類 action；不放導覽、教學或設定項目。
+- 工具頁只呈現真實可呼叫的工具類 action；不放導覽、產品操作教學或設定項目。「指令教練」是以輸入內容產生教學結果的 Action，不是產品導覽。
 
 ## 6. Action 分類與優先級
 
@@ -112,7 +116,7 @@ ClipAI 是使用者思考與寫作時的輕量副駕。它要降低「看見一�
 | 看得懂 | 翻譯成繁體中文 (`translate_to_traditional_chinese`)、English Companion (`english_companion`)、朋友方式說明 (`explain_like_friend`)、讀懂這段英文 (`reading_friction`) | 文章架構與重要觀點 (`article_structure`)、抽取核心關鍵字 (`extract_keywords`) |
 | 寫得出 | 翻譯成英文 (`translate_to_english`)、縮短內容 (`shorten_content`)、私下口吻改寫 (`personal_style_informal`)、語音成稿編輯 (`intent_preserving_dictation_editor`) | Capture an Expression (`expression_retrieval`)、正式口述講稿 (`personal_style_oral`)、正式重點稿 (`personal_style_presentation`) |
 | 想清楚 | 麥肯錫金字塔 (`pyramid_position`)、反向挑戰 (`critical_thinking`)、權衡透視 (`tradeoff_perspective`)、提出一個值得思考的問題 (`reflective_question`) | 為想法命名 (`name_idea`)、概念命名 (`name_concept_carefully`)、照亮不變的本質 (`illuminate_essence`)、保存暫時觀點 (`temporary_viewpoint`)、MECE 拆解 (`mece_decomposition`)、最小行動 (`minimum_action`)、SCORE 需求整理 (`structure_score_prompt`) |
-| 工具 | OCR／擷取截圖文字 (`extract_screenshot_text`)、AI 對話交接 (`session_handoff`)、Command Copilot (`command_copilot`) | 目前無；未來只有真正的工具型 action 才能加入 |
+| 工具 | OCR／擷取截圖文字 (`extract_screenshot_text`)、AI 對話交接 (`session_handoff`)、指令風險檢查 (`command_copilot`)、需求轉指令 (`command_generate`) | 指令教練 (`command_coach`) |
 
 分類背後的使用者語言必須保持一致：
 
@@ -155,9 +159,9 @@ Header 由左至右是非 root 才顯示的 Back、產品識別、單一密度�
 
 ### 流程 A：熟練使用者重複上一個 action
 
-1. 使用者在目前內容上單獨按住 `Alt` 500ms。
+1. 使用者在目前內容上單獨按住 `Left Alt` 500ms。
 2. 游標附近出現面板，根目錄頂端已直接顯示三個最近成功 action。
-3. 使用者按 `0`、`1`、`2`，或直接點其中一個按鈕。
+3. 使用者按 `1`、`2`、`3`，或直接點其中一個按鈕。
 4. 該 action 立即進入可見的執行回應；使用者不需要再進「最近使用」第二層。
 
 ### 流程 B：不確定要用哪個功能的使用者
@@ -177,7 +181,8 @@ Header 由左至右是非 root 才顯示的 Back、產品識別、單一密度�
 這裡不是測試架構設計，而是使用者可感知的交付底線。實作階段必須以 Unit Test 與 Integration Test 驗證它們。
 
 - 500ms 長按、提前放開、短按既有快捷鍵、數字鍵與滑鼠選取不會互相重複觸發。
-- 最近使用只列成功完成的唯一 action，排序、空狀態與 `0`–`2` 對應正確。
+- 最近使用只列成功完成的唯一 action，排序、空狀態與 `1`–`3` 對應正確。
+- 可用的「使用剪貼簿（Enter）」先取得焦點，顯示 focus ring；選項消失後須清除該狀態並移交焦點。Enter 支援 CTk 內層控制項。依據：`tests/ui/test_unified_entry_panel.py`。
 - 根目錄、情境頁與更多頁的 Back 路徑正確；Esc 在任頁立即關閉，且右上文案固定為 `Esc 關閉`。
 - 詳細／精簡切換只改變資訊密度，不改變 action 行為或導覽位置；Tooltip 可被滑鼠與鍵盤使用者理解。
 - 在真實 Windows 桌面環境中，面板能在游標附近開啟、可用滑鼠點選、鍵盤焦點穩定，且 header 文字與 toggle 不重疊。

@@ -6,7 +6,7 @@ import tkinter as tk
 import customtkinter as ctk
 
 from ClipAI.core.commands import CloseShortcutGuide, ControlSurfaceActivated, ControlSurfaceReleased, SelectShortcutGuideItem
-from ClipAI.core.hotkeys import GRAVE_KEY_TOKEN
+from ClipAI.core.hotkeys import GRAVE_KEY_TOKEN, RIGHT_ALT_TOKEN
 from ClipAI.core.models import ControlSurfaceRef, ShortcutGuideItem, ShortcutGuideSnapshot
 from ClipAI.core.ports import NativeWindowSurface
 from ClipAI.ui.window_icons import CUSTOMTKINTER_ICON_DELAY_MS, destroy_window_icons, install_clipai_window_icons
@@ -17,11 +17,18 @@ _KEY_ROWS = (
     (("Q", "q"), ("W", "w"), ("E", "e"), ("R", "r"), ("T", "t"), ("Y", "y"), ("U", "u"), ("I", "i"), ("O", "o"), ("P", "p")),
     (("A", "a"), ("S", "s"), ("D", "d"), ("F", "f"), ("G", "g"), ("H", "h"), ("J", "j"), ("K", "k"), ("L", "l")),
     (("Z", "z"), ("X", "x"), ("C", "c"), ("V", "v"), ("B", "b"), ("N", "n"), ("M", "m")),
-    (("Ctrl", "ctrl"), ("Alt", "alt")),
+    (("Ctrl", "ctrl"), ("Alt", "alt"), ("Right Alt", RIGHT_ALT_TOKEN)),
 )
 _KEY_DEFAULT = ("gray84", "gray22")
 _KEY_SELECTED = ("#D8EAFB", "#244D73")
 _KEY_PRESSED = ("#C7E8CB", "#236B38")
+
+
+def guide_instruction(item: ShortcutGuideItem) -> str:
+    if item.key_tokens == frozenset({RIGHT_ALT_TOKEN}):
+        return "單獨按右 Alt，放開時判定短按或長按。練習模式不會執行 Action；Esc 關閉指南。"
+    modifiers = " + ".join(item.display_hotkey.split(" + ")[:-1])
+    return f"請按住 {modifiers}，再按一個功能鍵。練習模式不會執行 Action；Esc 關閉指南。"
 
 
 class ShortcutGuideDialog:
@@ -108,8 +115,7 @@ class ShortcutGuideDialog:
         self._rebuild_list(snapshot)
         item = next((entry for entry in snapshot.items if entry.shortcut_id == snapshot.selected_shortcut_id), None)
         if item is not None:
-            modifiers = " + ".join(item.display_hotkey.split(" + ")[:-1])
-            self._instruction.configure(text=f"請按住 {modifiers}，再按一個功能鍵。練習模式不會執行 Action；Esc 關閉指南。")
+            self._instruction.configure(text=guide_instruction(item))
         self._apply_keyboard(item, snapshot.pressed_keys)
         self._status.configure(text=snapshot.status_text)
         self._apply_detail(item)

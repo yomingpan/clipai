@@ -140,3 +140,21 @@ def test_contextual_question_excludes_follow_up_from_baseline_actions() -> None:
     ))
 
     assert model.enabled_actions == ("copy",)
+
+
+def test_retryable_workflow_projects_regenerate_without_mutating_output_actions() -> None:
+    snapshot = SessionSnapshot(
+        "workflow-1",
+        1,
+        SessionStatus.REQUESTING_PROVIDER,
+        "action",
+        "Action",
+        "model",
+        available_actions=("copy",),
+        can_regenerate=True,
+    )
+
+    model = project_popup_presentation(snapshot)
+
+    assert snapshot.available_actions == ("copy",)
+    assert model.enabled_actions == ("copy", "regenerate")

@@ -45,3 +45,15 @@ def test_popup_layout_clamps_to_small_work_area() -> None:
     bounds = PopupLayoutPolicy().calculate(DisplayMetrics(2.0, 0, 0, 800, 600, 400, 300))
     assert bounds.width <= 480
     assert bounds.height <= 420
+
+
+@pytest.mark.parametrize("scale", [1.0, 1.25, 1.5, 2.0])
+@pytest.mark.parametrize("work_x", [-1920, 0, 1920])
+def test_default_bottom_center_uses_monitor_work_area_and_physical_size(scale, work_x) -> None:
+    metrics = DisplayMetrics(scale, work_x, 50, 1920, 1040, work_x + 200, 200)
+    bounds = PopupLayoutPolicy().calculate(metrics)
+    assert bounds.x == work_x + (1920 - int(bounds.width * scale)) // 2
+    assert bounds.y == 50 + 1040 - int(bounds.height * scale) - int(16 * scale)
+    assert PopupLayoutPolicy().calculate(
+        DisplayMetrics(scale, work_x, 50, 1920, 1040, work_x + 1500, 800)
+    ) == bounds

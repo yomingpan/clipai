@@ -27,7 +27,7 @@ def test_entry_panel_catalog_compiles_configured_category_and_candidate(tmp_path
 schema_version: 2
 categories:
   - id: understand
-    slot: 3
+    slot: 4
     label: 看得懂
     description: 這段內容到底在說什麼？
     flagship:
@@ -44,7 +44,7 @@ categories:
         candidate_presentations=(_presentation("english_companion", "long"),),
     )
 
-    category = catalog.category_for_slot(3)
+    category = catalog.category_for_slot(4)
     assert category.label == "看得懂"
     assert category.flagship[0].action == EntryActionRef("english_companion", "long")
 
@@ -56,13 +56,13 @@ def test_entry_panel_catalog_rejects_duplicate_root_slots(tmp_path: Path) -> Non
 schema_version: 2
 categories:
   - id: understand
-    slot: 3
+    slot: 4
     label: 看得懂
     description: 理解
     flagship: []
     advanced: []
   - id: write
-    slot: 3
+    slot: 4
     label: 寫得出
     description: 表達
     flagship: []
@@ -71,7 +71,7 @@ categories:
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="duplicate category slot: 3"):
+    with pytest.raises(ConfigError, match="duplicate category slot: 4"):
         load_entry_panel_catalog(
             path,
             actions=load_config_bundle().actions,
@@ -96,7 +96,7 @@ def test_entry_panel_catalog_limits_scene_to_four_flagships(tmp_path: Path) -> N
             "schema_version: 2",
             "categories:",
             "  - id: understand",
-            "    slot: 3",
+            "    slot: 4",
             "    label: 看得懂",
             "    description: 理解",
             "    flagship:",
@@ -130,7 +130,7 @@ def test_entry_panel_catalog_rejects_duplicate_action_reference(tmp_path: Path) 
 schema_version: 2
 categories:
   - id: understand
-    slot: 3
+    slot: 4
     label: 看得懂
     description: 理解
     flagship:
@@ -158,7 +158,7 @@ def test_entry_panel_skeleton_rejects_legacy_candidate_copy(tmp_path: Path) -> N
 schema_version: 2
 categories:
   - id: understand
-    slot: 3
+    slot: 4
     label: 看得懂
     description: 理解
     flagship:
@@ -178,7 +178,7 @@ categories:
         )
 
 
-def test_entry_panel_catalog_reserves_root_slots_three_through_six(tmp_path: Path) -> None:
+def test_entry_panel_catalog_reserves_root_slots_four_through_seven(tmp_path: Path) -> None:
     path = tmp_path / "entry_panel.yaml"
     path.write_text(
         """
@@ -194,7 +194,7 @@ categories:
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="slot must be one of: 3, 4, 5, 6"):
+    with pytest.raises(ConfigError, match="slot must be one of: 4, 5, 6, 7"):
         load_entry_panel_catalog(
             path,
             actions=load_config_bundle().actions,
@@ -209,13 +209,13 @@ def test_entry_panel_catalog_rejects_duplicate_category_ids(tmp_path: Path) -> N
 schema_version: 2
 categories:
   - id: understand
-    slot: 3
+    slot: 4
     label: 看得懂
     description: 理解
     flagship: []
     advanced: []
   - id: understand
-    slot: 4
+    slot: 5
     label: 寫得出
     description: 表達
     flagship: []
@@ -236,17 +236,17 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
     catalog = load_config_bundle().entry_panel
 
     expected = {
-        3: (
+        4: (
             "understand",
             ("translate_to_traditional_chinese", "english_companion", "explain_like_friend", "reading_friction"),
             ("article_structure", "extract_keywords"),
         ),
-        4: (
+        5: (
             "write",
             ("translate_to_english", "shorten_content", "personal_style_informal", "intent_preserving_dictation_editor"),
             ("expression_retrieval", "personal_style_oral", "personal_style_presentation"),
         ),
-        5: (
+        6: (
             "think",
             ("pyramid_position", "critical_thinking", "tradeoff_perspective", "reflective_question"),
             (
@@ -257,12 +257,14 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
                 "mece_decomposition",
                 "minimum_action",
                 "structure_score_prompt",
+                "advisory_board",
+                "insight_engine",
             ),
         ),
-        6: (
+        7: (
             "tools",
-            ("extract_screenshot_text", "session_handoff", "command_copilot"),
-            (),
+            ("extract_screenshot_text", "session_handoff", "command_copilot", "command_generate"),
+            ("command_coach",),
         ),
     }
     actual = {
@@ -309,5 +311,5 @@ def test_config_bundle_exposes_disabled_entry_panel_catalog() -> None:
     bundle = load_config_bundle()
 
     assert bundle.app.entry_panel_enabled is True
-    assert bundle.entry_panel.category_for_slot(3).category_id == "understand"
+    assert bundle.entry_panel.category_for_slot(4).category_id == "understand"
     assert bundle.schema_versions.entry_panel == 2

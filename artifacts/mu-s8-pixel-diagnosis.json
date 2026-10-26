@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-10-21T01:17:58.784359+00:00",
+  "scope": "controlled_inline_onscreen_pixel_presence",
+  "status": "fail",
+  "edge_pixels_checked": 236,
+  "black_fringe_pixels": 236,
+  "edge_passed": false,
+  "body_pixels_observed": 0,
+  "matching_pixels": 0,
+  "geometry_matches": true,
+  "iterations_per_mode": 1,
+  "observed_runs": 2,
+  "pixel_presence_upper_bound_ms": {
+    "minimal": {
+      "count": 1,
+      "median_ms": 101.912,
+      "p95_ms": 101.912,
+      "max_ms": 101.912
+    },
+    "choice": {
+      "count": 1,
+      "median_ms": 66.474,
+      "p95_ms": 66.474,
+      "max_ms": 66.474
+    }
+  },
+  "screen_grab_ms": {
+    "count": 2,
+    "median_ms": 41.262,
+    "p95_ms": 42.216,
+    "max_ms": 42.216
+  },
+  "samples_until_observed": {
+    "min": 1,
+    "median": 1.0,
+    "max": 1
+  },
+  "failures": [],
+  "pixel_data_saved": false,
+  "limits": "8x8 background patch only; fixed controlled window position; screen-capture sampling delay included; no physical HID, microphone, Provider, Paste, or target insertion."
+}

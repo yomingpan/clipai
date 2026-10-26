@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import pytest
 
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
@@ -17,7 +18,9 @@ from ClipAI.core.models import (
 from ClipAI.services.entry_panel import EntryPanelCoordinator
 from ClipAI.services.recent_actions import RecentActionHistory
 from ClipAI.core.commands import UseEntryPanelClipboard
+from ClipAI.core.commands import CloseEntryPanel, EntryPanelInputPreparationProgress
 from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest, SelectionSource
+from ClipAI.platform.external_window import SystemExternalWindowActivator
 
 
 class Presenter:
@@ -71,6 +74,16 @@ class Workflows:
             before_first_projection("workflow-1")
         return ActionStartAdmission("accepted", workflow_id="workflow-1")
 
+    def entry_panel_question_block_reason(self, target):
+        if target.document is not None and target.document.image is not None:
+            return "Text is required."
+        return self.block_reason
+
+    def open_contextual_question(self, *, input_target, before_first_projection):
+        self.starts.append(("question", input_target))
+        before_first_projection("workflow-1")
+        return ActionStartAdmission("accepted", workflow_id="workflow-1")
+
     def entry_panel_action_block_reason(self, _action):
         return self.block_reason
 
@@ -80,12 +93,12 @@ class Activator:
         self.outcome = outcome
         self.targets = []
 
-    def activate(self, target, cancellation):
+    def activate(self, target, cancellation, *, wait_policy=None, on_waiting=None):
         del cancellation
         self.targets.append(target)
         return self.outcome
 
-    def confirm(self, _target, _cancellation=None):
+    def confirm(self, _target, _cancellation=None, *, wait_policy=None, on_waiting=None):
         return self.outcome
 
 
@@ -115,6 +128,7 @@ def make_module(
     supervisor=None,
     events: list[str] | None = None,
     recent_actions: RecentActionHistory | None = None,
+    consume_numeric_hint=lambda: False,
 ):
     bundle = load_config_bundle()
     coordinator = EntryPanelCoordinator(bundle.entry_panel)
@@ -143,8 +157,19 @@ def make_module(
         enqueue=commands.append,
         presenter=presenter,
         recent_actions=recent_actions,
+        consume_numeric_hint=consume_numeric_hint,
     )
     return module, coordinator, presenter, supervisor, workflows, activator, inputs, commands, external
+
+
+def test_numeric_migration_hint_is_consumed_only_for_a_new_panel_lifetime():
+    calls = []
+    module, _, presenter, *_ = make_module(consume_numeric_hint=lambda: calls.append(True) or True)
+    first = module.open()
+    second = module.open()
+    assert first.panel_id == second.panel_id
+    assert first.header_hint == "數字已改:1–3 最近、4–7 分類"
+    assert calls == [True]
 
 
 def complete_external_preparation(module, supervisor, commands) -> str:
@@ -152,6 +177,127 @@ def complete_external_preparation(module, supervisor, commands) -> str:
     supervisor.work[task_id]()
     module.handle(commands.pop(0))
     return task_id
+
+
+@pytest.mark.parametrize("activation_delay, confirmation_delay, expected", [
+    (0, 0, "idle"), (0.3, 0.3, "idle"), (0.54, 0, "idle"),
+    (0, 2.8, "idle"), (1.8, 0.8, "idle"), (1.8, 1.4, "error"),
+])
+def test_real_focus_wait_shares_budget_and_projects_only_actual_waiting(
+    monkeypatch, activation_delay, confirmation_delay, expected,
+):
+    clock = [0.0]
+    capture_done = [False]
+    capture_completed_at = [0.0]
+    monkeypatch.setattr("ClipAI.platform.external_window.time.monotonic", lambda: clock[0])
+    class SlowInputs(Inputs):
+        def prepare_input(self, cancellation=None, *, target=None, request=None):
+            # Reading selected text has its own timeout, outside the focus budget.
+            clock[0] += 5.0
+            capture_done[0] = True
+            capture_completed_at[0] = clock[0]
+            return super().prepare_input(cancellation, target=target, request=request)
+    inputs = SlowInputs()
+    def wait(seconds):
+        clock[0] += seconds
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _: False,
+        target_is_valid=lambda _: True,
+        target_is_foreground=lambda _: (
+            clock[0] - capture_completed_at[0] >= confirmation_delay - 1e-9
+            if capture_done[0] else clock[0] >= activation_delay - 1e-9
+        ),
+        activate_target=lambda _: True,
+        wait=wait,
+    )
+    module, coordinator, presenter, supervisor, workflows, _, _, commands, _ = make_module(
+        external_window_activator=activator, input_resolver=inputs,
+    )
+    module.open()
+    before = len(presenter.snapshots)
+    supervisor.work[next(iter(supervisor.work))]()
+    assert len(presenter.snapshots) == before  # worker only enqueues typed commands
+    notices = [command for command in commands if isinstance(command, EntryPanelInputPreparationProgress) and command.phase == "waiting_for_window"]
+    expected_notices = int(activation_delay > 0.5) + int(confirmation_delay > 0 and activation_delay + confirmation_delay > 0.5)
+    assert len(notices) == expected_notices
+    while commands:
+        command = commands.pop(0)
+        module.handle(command)
+        if isinstance(command, EntryPanelInputPreparationProgress):
+            assert coordinator.snapshot.status == "preparing"
+            expected_message = "正在等待原視窗就緒…（Esc 可取消）" if command.phase == "waiting_for_window" else "正在讀取來源內容…"
+            assert coordinator.snapshot.message == expected_message
+    assert inputs.calls == 1
+    assert coordinator.snapshot.status == expected
+    assert clock[0] - 5.0 == pytest.approx(min(activation_delay + confirmation_delay, 3.0), abs=0.04)
+    assert not workflows.starts
+    if expected == "error":
+        assert coordinator.snapshot.message == "等待原視窗就緒逾時，請重試。"
+        assert coordinator.snapshot.source_preview.kind == "failed"
+    else:
+        assert coordinator.snapshot.message == ""
+
+
+@pytest.mark.parametrize("transition", ["success", "failure", "retry", "close", "reopen"])
+def test_late_wait_notice_cannot_overwrite_terminal_or_replaced_preparation(transition):
+    class ReportingActivator(Activator):
+        def activate(self, target, cancellation, *, wait_policy=None, on_waiting=None):
+            on_waiting()
+            return super().activate(target, cancellation)
+    activator = ReportingActivator(ExternalWindowActivationOutcome(
+        "activated" if transition == "success" else "target_focus_timeout",
+    ))
+    module, coordinator, presenter, supervisor, _, _, _, commands, _ = make_module(
+        external_window_activator=activator,
+    )
+    panel_id = module.open().panel_id
+    supervisor.work[next(iter(supervisor.work))]()
+    notice, terminal = commands[0], commands[-1]
+    module.handle(terminal)
+    if transition == "retry":
+        module.handle(RetryEntryPanelInput(panel_id))
+    elif transition in {"close", "reopen"}:
+        module.handle(CloseEntryPanel(panel_id))
+        if transition == "reopen":
+            module.open()
+    before = coordinator.snapshot
+    renders = len(presenter.snapshots)
+    module.handle(notice)
+    assert coordinator.snapshot == before
+    assert len(presenter.snapshots) == renders
+
+
+def test_close_during_slow_native_wait_cancels_worker_and_never_captures(monkeypatch):
+    class CancellableSupervisor(Supervisor):
+        def submit(self, task_id, work, on_unhandled_error, *, task_class="interactive", cancellation_hook=None):
+            super().submit(task_id, work, on_unhandled_error, task_class=task_class)
+            self.cancel_hook = cancellation_hook
+        def cancel(self, task_id):
+            super().cancel(task_id)
+            self.cancel_hook()
+    clock = [0.0]
+    monkeypatch.setattr("ClipAI.platform.external_window.time.monotonic", lambda: clock[0])
+    def wait(seconds):
+        clock[0] += seconds
+        while commands:
+            module.handle(commands.pop(0))
+        if clock[0] >= 0.8:
+            assert module.request_escape()
+    activator = SystemExternalWindowActivator(
+        modifier_is_pressed=lambda _: False, target_is_valid=lambda _: True,
+        target_is_foreground=lambda _: False, activate_target=lambda _: True, wait=wait,
+    )
+    module, coordinator, presenter, supervisor, workflows, _, inputs, commands, _ = make_module(
+        external_window_activator=activator, supervisor=CancellableSupervisor(),
+    )
+    panel_id = module.open().panel_id
+    supervisor.work[next(iter(supervisor.work))]()
+    assert any(snapshot and "等待原視窗" in snapshot.message for snapshot in presenter.snapshots)
+    assert coordinator.snapshot is None
+    assert clock[0] == pytest.approx(0.8, abs=0.021)
+    assert inputs.calls == 0
+    assert not commands
+    assert not workflows.starts
 
 
 def test_external_source_is_captured_before_panel_and_work_starts_after_projection() -> None:
@@ -242,25 +388,68 @@ def test_entry_panel_action_trace_links_panel_to_admitted_workflow(caplog) -> No
     assert "press_type=short" in trace
 
 
-def test_explicit_clipboard_choice_uses_frozen_input_and_rejects_other_panel():
+@pytest.mark.parametrize('reason', ['uia_unsupported', 'uia_no_ranges', 'source_changed'])
+def test_unknown_capture_auto_uses_frozen_clipboard_only_in_entry_panel(reason):
     inputs = Inputs(PreparedInput(
         clipboard_text_document=InputDocument("original clipboard", "clipboard"),
-        selection_outcome=SelectionCaptureOutcome(reason="uia_unsupported"),
+        selection_outcome=SelectionCaptureOutcome(reason=reason),
     ))
     module, coordinator, presenter, supervisor, workflows, activator, _, commands, _ = make_module(input_resolver=inputs)
     panel_id = module.open().panel_id
     complete_external_preparation(module, supervisor, commands)
-    assert coordinator.snapshot.source_preview.clipboard_override_available
-    module.select_action(EntryActionRef("shorten_content", "short"))
-    assert not workflows.starts
-    module.handle(UseEntryPanelClipboard("stale-panel"))
-    assert coordinator.snapshot.source_preview.kind == "failed"
-    inputs.prepared = PreparedInput(clipboard_text_document=InputDocument("changed", "clipboard"))
-    module.handle(UseEntryPanelClipboard(panel_id))
     assert coordinator.snapshot.source_preview.kind == "clipboard_text"
+    assert coordinator.snapshot.source_preview.clipboard_override_available
+    module.handle(UseEntryPanelClipboard("stale-panel"))
+    assert coordinator.snapshot.source_preview.kind == "clipboard_text"
+    inputs.prepared = PreparedInput(clipboard_text_document=InputDocument("changed", "clipboard"))
     module.select_action(EntryActionRef("shorten_content", "short"))
     assert workflows.starts[-1][3].document.text == "original clipboard"
     assert inputs.calls == 1
+
+
+def test_modifier_timeout_requires_explicit_frozen_clipboard_intent(monkeypatch):
+    prepared = PreparedInput(
+        clipboard_text_document=InputDocument('original clipboard', 'clipboard'),
+        selection_outcome=SelectionCaptureOutcome(reason='modifier_timeout'))
+    choices = []
+    original = PreparedInput.use_clipboard
+    def choose(value):
+        choices.append(value)
+        return original(value)
+    monkeypatch.setattr(PreparedInput, 'use_clipboard', choose)
+    inputs = Inputs(prepared)
+    module, coordinator, _, supervisor, workflows, _, _, commands, _ = make_module(input_resolver=inputs)
+    panel_id = module.open().panel_id
+    complete_external_preparation(module, supervisor, commands)
+    preview = coordinator.snapshot.source_preview
+    assert preview.kind == 'failed'
+    assert preview.summary == '請先放開按鍵，再按重試。'
+    assert preview.clipboard_override_available
+    assert choices == []
+    module.handle(UseEntryPanelClipboard('stale-panel'))
+    assert choices == []
+    assert coordinator.snapshot.source_preview == preview
+    inputs.prepared = PreparedInput(clipboard_text_document=InputDocument('changed', 'clipboard'))
+    module.handle(UseEntryPanelClipboard(panel_id))
+    assert choices == [prepared]
+    assert coordinator.snapshot.source_preview.kind == 'clipboard_text'
+    module.select_action(EntryActionRef('shorten_content', 'short'))
+    assert workflows.starts[-1][3].document.text == 'original clipboard'
+    assert inputs.calls == 1
+
+
+def test_unknown_capture_with_empty_clipboard_stays_retryable():
+    inputs = Inputs(PreparedInput(
+        selection_outcome=SelectionCaptureOutcome(reason="uia_timeout"),
+    ))
+    module, coordinator, _presenter, supervisor, workflows, _activator, _, commands, _ = make_module(input_resolver=inputs)
+
+    module.open()
+    complete_external_preparation(module, supervisor, commands)
+
+    assert coordinator.snapshot.source_preview.kind == "failed"
+    module.select_action(EntryActionRef("shorten_content", "short"))
+    assert workflows.starts == []
 
 
 def test_source_binding_precedes_panel_projection_and_reaches_capture():
@@ -316,12 +505,12 @@ def test_external_capture_does_not_recapture_after_confirmed_focus_loss() -> Non
             self.foreground = False
             self.activations = 0
 
-        def activate(self, _target, _cancellation):
+        def activate(self, _target, _cancellation, *, wait_policy=None, on_waiting=None):
             self.activations += 1
             self.foreground = True
             return ExternalWindowActivationOutcome("activated")
 
-        def confirm(self, _target, _cancellation=None):
+        def confirm(self, _target, _cancellation=None, *, wait_policy=None, on_waiting=None):
             if self.foreground:
                 return ExternalWindowActivationOutcome("activated")
             return ExternalWindowActivationOutcome("target_changed", "target changed")
@@ -361,11 +550,11 @@ def test_external_capture_fails_closed_without_using_untrusted_clipboard() -> No
         def __init__(self) -> None:
             self.activations = 0
 
-        def activate(self, _target, _cancellation):
+        def activate(self, _target, _cancellation, *, wait_policy=None, on_waiting=None):
             self.activations += 1
             return ExternalWindowActivationOutcome("activated")
 
-        def confirm(self, _target, _cancellation=None):
+        def confirm(self, _target, _cancellation=None, *, wait_policy=None, on_waiting=None):
             return ExternalWindowActivationOutcome("target_changed", "target changed")
 
     activator = UnstableActivator()
@@ -393,10 +582,10 @@ def test_external_capture_logs_stage_and_identity_without_clipboard_content(
     caplog,
 ) -> None:
     class ConfirmationFailureActivator:
-        def activate(self, _target, _cancellation):
+        def activate(self, _target, _cancellation, *, wait_policy=None, on_waiting=None):
             return ExternalWindowActivationOutcome("activated")
 
-        def confirm(self, _target, _cancellation=None):
+        def confirm(self, _target, _cancellation=None, *, wait_policy=None, on_waiting=None):
             return ExternalWindowActivationOutcome(
                 "target_changed",
                 "target changed",
@@ -509,7 +698,7 @@ def test_provider_busy_still_prepares_but_never_queues_an_action() -> None:
     workflows.block_reason = "AI 正在回答，完成後再選擇功能。"
     module.open()
     complete_external_preparation(module, supervisor, commands)
-    scene = coordinator.select_digit("4").snapshot
+    scene = coordinator.select_digit("5").snapshot
 
     module.select_action(EntryActionRef("shorten_content", "short"))
 
@@ -530,7 +719,7 @@ def test_mode_compatibility_disables_only_incompatible_actions() -> None:
     module.open()
     complete_external_preparation(module, supervisor, commands)
 
-    tools_scene = coordinator.select_digit("6").snapshot
+    tools_scene = coordinator.select_digit("7").snapshot
     ocr = next(
         option
         for option in tools_scene.options
@@ -564,7 +753,7 @@ def test_availability_refresh_preserves_navigation_and_frozen_input() -> None:
     module, coordinator, _presenter, supervisor, workflows, _activator, _inputs, commands, _external = make_module()
     module.open()
     complete_external_preparation(module, supervisor, commands)
-    before = coordinator.select_digit("4").snapshot
+    before = coordinator.select_digit("5").snapshot
     workflows.block_reason = "AI 正在回答，完成後再選擇功能。"
 
     module.refresh_availability()
@@ -590,7 +779,7 @@ def test_density_toggle_projects_immediately_and_requests_persistence() -> None:
 def test_back_preserves_pending_panel_lifecycle_and_root_is_a_noop() -> None:
     module, coordinator, presenter, supervisor, _workflows, _activator, _inputs, _commands, _external = make_module()
     opened = module.open()
-    scene = coordinator.select_digit("4").snapshot
+    scene = coordinator.select_digit("5").snapshot
     coordinator.toggle_density()
 
     module.handle(EntryPanelBack(opened.panel_id))
@@ -611,10 +800,67 @@ def test_escape_closes_from_non_root_and_cancels_preparation() -> None:
     module, coordinator, presenter, supervisor, _workflows, _activator, _inputs, _commands, _external = make_module()
     panel_id = module.open().panel_id
     task_id = next(iter(supervisor.work))
-    coordinator.select_digit("4")
+    coordinator.select_digit("5")
 
     assert module.request_escape() is True
 
     assert coordinator.snapshot is None
     assert task_id in supervisor.cancelled
     assert presenter.snapshots[-1] is None
+
+
+@pytest.mark.parametrize("via_hold", [False, True])
+def test_question_uses_frozen_panel_input_and_hands_off_surface(via_hold):
+    from ClipAI.core.commands import EntryPanelDigitPressed, EntryPanelSlotSelected
+    from ClipAI.core.models import ModifierHoldId
+    module, coordinator, presenter, supervisor, workflows, _, inputs, commands, _ = make_module()
+    hold_id = ModifierHoldId(8)
+    root = module.open(hold_id)
+    module.handle(EntryPanelSlotSelected(root.panel_id, 8))
+    assert workflows.starts == []
+    complete_external_preparation(module, supervisor, commands)
+    inputs.prepared = PreparedInput(selection_document=InputDocument("changed", "selection"))
+    command = EntryPanelDigitPressed(hold_id, "8") if via_hold else EntryPanelSlotSelected(root.panel_id, 8)
+    module.handle(command)
+    assert workflows.starts[0][0] == "question"
+    assert workflows.starts[0][1].document.text == "selected at open"
+    assert inputs.calls == 1
+    assert coordinator.snapshot is None
+    assert presenter.popup_transitions == [(root.panel_id, "workflow-1")]
+
+
+@pytest.mark.parametrize("image_only", [False, True])
+def test_question_unavailable_for_empty_input_and_image_only_clipboard(image_only):
+    from ClipAI.core.commands import EntryPanelSlotSelected
+    from ClipAI.core.models import ImageContent
+    module, coordinator, presenter, supervisor, workflows, _, _, commands, _ = make_module(
+        input_resolver=Inputs(PreparedInput(clipboard_image=ImageContent(b"image", "image/png") if image_only else None)),
+    )
+    root = module.open()
+    complete_external_preparation(module, supervisor, commands)
+    option = next(item for item in coordinator.snapshot.options if item.slot == 8)
+    assert not option.enabled
+    assert option.disabled_reason
+    module.handle(EntryPanelSlotSelected(root.panel_id, 8))
+    assert workflows.starts == []
+    assert presenter.popup_transitions == []
+
+
+def test_question_requires_explicit_clipboard_choice_when_selection_is_unknown():
+    from ClipAI.core.commands import EntryPanelSlotSelected
+    inputs = Inputs(PreparedInput(
+        clipboard_text_document=InputDocument("frozen clipboard", "clipboard"),
+        selection_outcome=SelectionCaptureOutcome(reason="uia_unsupported"),
+    ))
+    module, coordinator, presenter, supervisor, workflows, _, _, commands, _ = make_module(input_resolver=inputs)
+    root = module.open()
+    complete_external_preparation(module, supervisor, commands)
+    question = next(item for item in coordinator.snapshot.options if item.slot == 8)
+    assert not question.enabled
+    assert coordinator.snapshot.source_preview.clipboard_override_available
+    module.handle(EntryPanelSlotSelected(root.panel_id, 8))
+    assert workflows.starts == []
+    module.handle(UseEntryPanelClipboard(root.panel_id))
+    module.handle(EntryPanelSlotSelected(root.panel_id, 8))
+    assert workflows.starts[0][1].document.text == "frozen clipboard"
+    assert inputs.calls == 1
