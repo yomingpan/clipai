@@ -9,7 +9,7 @@ from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelInlineDi
 from ClipAI.core.models import ActionFeedbackContract, ControlSurfaceRef, FeedbackReason, OutputOperationResult, PasteOutcome, PasteTarget, PopupBounds, WorkflowAttention, WorkflowStep
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureSurfaceContext, VoiceDraftInsertion, VoiceFollowUpInsertion, VoiceLanguage, VoiceOrigin, VoiceProjection
-from ClipAI.ui.base_dialog import BaseResultSurface, _VoiceWaveIndicator
+from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface, _VoiceWaveIndicator
 from ClipAI.ui.inline_dictation_owner import InlineDictationInterfaceOwner
 from ClipAI.ui.popup_control import PopupControlRegistered, PopupControlShown, PopupOwnedDialogOpened, ToolkitFocusEntered
 from ClipAI.ui.result_dialog import LatestSnapshotMailbox, ResultDialogPresenter, _SessionView, _content_render_key, _voice_status_word, workflow_render_patch
@@ -45,16 +45,42 @@ def test_late_inline_refinement_cannot_close_a_newer_window() -> None:
 
 
 
-def test_voice_waveform_uses_canvas_and_packs_after_right_anchors() -> None:
-    source = inspect.getsource(BaseResultSurface._build)
-    creation = source.index("self.voice_input_button = _VoiceWaveIndicator")
-    overflow = source.index("self._overflow_button = self.add_action_slot", creation)
-    waveform = source.index('self.voice_input_button.pack(side="left"', overflow)
+@pytest.mark.integration
+def test_real_popup_removes_and_restores_voice_control_in_the_action_row() -> None:
+    import customtkinter as ctk
+    from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
 
-    assert creation < overflow < waveform
-    assert 'self._action_tooltips["voice_input"] = _Tooltip' in source
-    assert "self.action_status_label = ctk.CTkLabel(\n            self.actions" in source
-    assert "width=68" in source
+    root = ctk.CTk()
+    root.withdraw()
+    try:
+        host = PrimarySurfaceHost(root, PrimarySurfaceSpec(PopupBounds(20, 20, 400, 336)), None)
+        dialog = BaseDialog(
+            title="Voice Input", width=400, height=336, master=root, show_on_create=False,
+            primary_surface_host=host, primary_surface_lease=host.acquire(),
+        )
+        try:
+            surface = BaseResultSurface(dialog)
+            button = surface.voice_input_button
+            assert button.winfo_manager() == ""
+            state = dict(word="語音", level=0.0, listening=False, silence=False,
+                         enabled=True, active=False, command=lambda: None, tooltip="Voice Input")
+
+            surface.configure_voice_action(**state)
+            original_actions = surface.actions.pack_slaves()
+            assert button in original_actions
+            assert original_actions.index(surface._overflow_button) < original_actions.index(button)
+
+            surface.configure_voice_action(**state, visible=False)
+            assert button.winfo_manager() == ""
+
+            surface.configure_voice_action(**state)
+            assert surface.actions.pack_slaves() == original_actions
+        finally:
+            dialog.close()
+    finally:
+        for job in root.tk.call("after", "info"):
+            root.after_cancel(job)
+        root.destroy()
 
 
 def test_voice_waveform_animation_uses_only_the_dialog_lifecycle() -> None:
@@ -711,6 +737,37 @@ def test_completed_popup_offers_voice_follow_up_and_emits_typed_start() -> None:
     assert isinstance(events[-1], StartPopupVoiceCapture)
     assert events[-1].workflow_id == "s1"
     assert isinstance(events[-1].capture_id, VoiceCaptureId)
+
+
+@pytest.mark.parametrize("capability", [
+    VoiceCapabilityPhase.SETUP_REQUIRED,
+    VoiceCapabilityPhase.DISABLING,
+    VoiceCapabilityPhase.DISABLED,
+    VoiceCapabilityPhase.DISABLE_FAILED,
+    VoiceCapabilityPhase.CLEANUP_UNCONFIRMED,
+])
+def test_popup_hides_voice_control_when_voice_is_off(capability: VoiceCapabilityPhase) -> None:
+    presenter, events = presenter_with_selection(None)
+    view = presenter._views["s1"]
+    snapshot = SessionSnapshot("s1", 1, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "m")
+    presenter._configure_voice_control(snapshot, view)
+    start_voice = view.surface.voice_action["command"]
+    assert callable(start_voice)
+
+    presenter._voice_projection = replace(presenter._voice_projection, capability=capability)
+    stale_capture = replace(snapshot, voice_capture_id=VoiceCaptureId("old-capture"),
+                            voice_capture_phase=VoiceCapturePhase.LISTENING)
+    presenter._configure_voice_control(stale_capture, view)
+
+    assert view.surface.voice_action["visible"] is False
+    assert view.surface.voice_action["command"] is None
+    start_voice()
+    assert not any(isinstance(event, StartPopupVoiceCapture) for event in events)
+
+    presenter._voice_projection = replace(presenter._voice_projection, capability=VoiceCapabilityPhase.READY)
+    presenter._configure_voice_control(snapshot, view)
+    assert view.surface.voice_action.get("visible", True) is True
+    assert view.surface.voice_action["enabled"] is True
 
 
 def test_contextual_question_opens_standard_composer_and_emits_initial_submit() -> None:

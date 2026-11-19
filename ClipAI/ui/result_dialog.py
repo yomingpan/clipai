@@ -1110,6 +1110,14 @@ class ResultDialogPresenter:
 
     def _configure_voice_control(self, snapshot: SessionSnapshot, view: _SessionView) -> None:
         global_projection = getattr(self, "_voice_projection", None)
+        capability = global_projection.capability if global_projection is not None else VoiceCapabilityPhase.SETUP_REQUIRED
+        visible = capability not in {
+            VoiceCapabilityPhase.SETUP_REQUIRED,
+            VoiceCapabilityPhase.DISABLING,
+            VoiceCapabilityPhase.DISABLED,
+            VoiceCapabilityPhase.DISABLE_FAILED,
+            VoiceCapabilityPhase.CLEANUP_UNCONFIRMED,
+        }
         capture_id = snapshot.voice_capture_id
         phase = snapshot.voice_capture_phase
         level = snapshot.voice_audio_level
@@ -1129,7 +1137,7 @@ class ResultDialogPresenter:
             phase = global_projection.capture_phase
             silence_detected = global_projection.silence_detected
 
-        if capture_id is not None and phase is not None:
+        if visible and capture_id is not None and phase is not None:
             finalizing = phase in {
                 VoiceCapturePhase.STOP_REQUESTED,
                 VoiceCapturePhase.FINALIZING,
@@ -1170,8 +1178,6 @@ class ResultDialogPresenter:
             view.surface.set_follow_up_send_enabled(False)
             return
 
-        projection = global_projection
-        capability = projection.capability if projection is not None else VoiceCapabilityPhase.SETUP_REQUIRED
         ready_status = snapshot.status in {SessionStatus.VOICE_REVIEW, SessionStatus.CONTEXT_QUESTION} or (
             snapshot.status in {SessionStatus.COMPLETED, SessionStatus.FAILED, SessionStatus.STOPPED}
             and snapshot.active_invocation_id is None
@@ -1186,7 +1192,7 @@ class ResultDialogPresenter:
         }:
             tooltip = "Voice Input is available after the current answer finishes"
         elif capability is not VoiceCapabilityPhase.READY:
-            tooltip = projection.message if projection is not None and projection.message else "Set up Voice Input from the tray"
+            tooltip = global_projection.message if global_projection is not None and global_projection.message else "Set up Voice Input from the tray"
         else:
             tooltip = "Click to start Voice Input (Ctrl+Alt+W); audio is not saved"
         view.surface.configure_voice_action(
@@ -1198,6 +1204,7 @@ class ResultDialogPresenter:
             enabled=enabled,
             tooltip=tooltip,
             active=False,
+            visible=visible,
         )
         set_countdown_warning = getattr(view.dialog, "set_countdown_warning", None)
         if callable(set_countdown_warning):
@@ -1208,6 +1215,8 @@ class ResultDialogPresenter:
         )
 
     def _start_popup_voice(self, workflow_id: str) -> None:
+        if self._voice_projection is None or self._voice_projection.capability is not VoiceCapabilityPhase.READY:
+            return
         view = self._interactive_view(workflow_id)
         if view is None:
             return

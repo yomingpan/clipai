@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from ClipAI.app.runtime_voice_input import VoiceInputRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureAdmission
-from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureTimeout, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoiceSilenceWatchdogExpired
+from ClipAI.core.commands import ShortcutPressInvoked
+from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoiceSetup, OpenVoicePermissionSettings, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, VoiceCaptureTimeout, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureWatchdogExpired, VoiceDisablePreferenceSaved, VoiceDisableShutdownCompleted, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, InlineOrigin, PasteOutcome, PasteTarget, ShortcutPressId
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCapturePhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
@@ -969,7 +970,52 @@ def test_disable_waits_for_persisted_preference_after_engine_shutdown() -> None:
     assert runtime.handle(VoiceDisablePreferenceSaved(disable)) is True
 
 
-def test_unready_ptt_opens_setup_without_creating_a_workflow_or_capture() -> None:
+def test_disabled_inline_shortcut_is_silent_and_does_not_capture_target() -> None:
+    controller, engine, notifier = VoiceInputController(enabled=True), Engine(), Notifier()
+    disable = VoiceDisableId("disable-silent")
+    controller.request_disable(disable)
+    controller.complete_disable_shutdown(disable)
+    controller.complete_disable_preference(disable)
+    targets = []
+    runtime = VoiceInputRuntimeModule(
+        controller=controller, engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: targets.append("read"), notifier=notifier,
+    )
+
+    for _ in range(2):
+        assert runtime.toggle_inline_dictation() is False
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(1, "voice_input")) is False
+    assert notifier.messages == []
+    assert engine.calls == []
+    assert targets == []
+
+
+def test_disabled_ptt_opens_a_typing_draft_only_on_short_invocation() -> None:
+    controller, engine, workflows = VoiceInputController(enabled=True), Engine(), Workflows()
+    disable = VoiceDisableId("disable-ptt")
+    controller.request_disable(disable)
+    controller.complete_disable_shutdown(disable)
+    controller.complete_disable_preference(disable)
+    target = PasteTarget("hwnd:1", 1, "Editor", "private", 1)
+    runtime = VoiceInputRuntimeModule(
+        controller=controller, engine=engine, workflows=workflows,
+        paste_target_reader=lambda: target,
+    )
+
+    runtime.handle_shortcut_started(ShortcutPressStarted(1, "voice_input"))
+    runtime.handle_shortcut_invoked(ShortcutPressInvoked(1, "voice_input", "long"))
+    runtime.handle_shortcut_ended(ShortcutPressEnded(1, "voice_input", "released"))
+    assert workflows.created == []
+
+    runtime.handle_shortcut_started(ShortcutPressStarted(2, "voice_input"))
+    assert workflows.created == []
+    runtime.handle_shortcut_invoked(ShortcutPressInvoked(2, "voice_input", "short"))
+    runtime.handle_shortcut_ended(ShortcutPressEnded(2, "voice_input", "released"))
+    assert [created_target for _, created_target in workflows.created] == [target]
+    assert engine.calls == []
+
+
+def test_unready_voice_shortcuts_are_silent_until_explicit_setup() -> None:
     engine, workflows, setup = Engine(), Workflows(), Setup()
     runtime = VoiceInputRuntimeModule(
         controller=VoiceInputController(),
@@ -979,10 +1025,13 @@ def test_unready_ptt_opens_setup_without_creating_a_workflow_or_capture() -> Non
         setup_presenter=setup,
     )
 
-    assert runtime.handle_shortcut_started(ShortcutPressStarted(1, "voice_input")) is True
-    assert setup.shown == 1
+    assert runtime.handle_shortcut_started(ShortcutPressStarted(1, "voice_input")) is False
+    assert runtime.toggle_inline_dictation() is False
+    assert setup.shown == 0
     assert workflows.created == []
     assert engine.calls == []
+    assert runtime.handle(OpenVoiceSetup()) is True
+    assert setup.shown == 1
 
 
 def test_ptt_from_voice_review_reuses_its_workflow_and_frozen_selection() -> None:

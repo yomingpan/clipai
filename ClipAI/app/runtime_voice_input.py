@@ -14,7 +14,7 @@ from ClipAI.core.commands import CancelInlineDictation, CopyInlineDictation, Dis
 from ClipAI.core.commands import CancelVoiceCapture, DisableVoiceInput, EnableVoiceInput, OpenVoicePermissionSettings, OpenVoiceSetup, RetryVoiceInputSetup, SetVoiceLanguage, ShortcutPressEnded, ShortcutPressInvoked, ShortcutPressStarted, StartPopupVoiceCapture, StopVoiceCapture, UpdateVoiceDraft, VoiceCaptureCountdownTick, VoiceCaptureCountdownTickForCapture, VoiceCaptureHoldElapsed, VoiceCaptureTimeout, VoiceCaptureWatchdogExpired, VoiceDisableShutdownCompleted, VoiceDisablePreferenceSaved, VoiceEngineEventReceived, VoiceLanguagePreferenceSaved, VoicePreferenceSaved, VoiceSilenceWatchdogExpired
 from ClipAI.core.models import ControlSurfaceRef, InlineInputMode, InlineOrigin, PasteTarget, PressType, ShortcutPressId
 from ClipAI.core.ports import InlineDictationPresenter, UserNotifier, VoiceInputEngine, VoiceSetupPresenter
-from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureTarget, VoiceDraftTarget, VoiceInlineTarget, VoiceEngineListening, VoiceEngineEnded, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
+from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureAdmission, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureTarget, VoiceDraftTarget, VoiceInlineTarget, VoiceEngineListening, VoiceEngineEnded, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
 from ClipAI.services.voice_input import FinalizeVoiceDraft, FinalizeVoiceFollowUp, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceFollowUp, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
 from ClipAI.services.voice_input import CancelInlinePaste, CancelInlineRefinement, CloseInlineTerminal, CopyInlineText, PresentInlineChoice, PresentInlineCopyState, PresentInlinePasteOutcome, PresentInlineRecovery, PresentInlineCancelUnconfirmed, PasteInlineDictation, DiscardInlineDictation
@@ -119,34 +119,22 @@ class VoiceInputRuntimeModule:
         return False
 
     def handle_shortcut_started(self, command: ShortcutPressStarted) -> bool:
+        if self._controller.projection.capability in {VoiceCapabilityPhase.SETUP_REQUIRED, VoiceCapabilityPhase.DISABLED}:
+            return False
         if self._controller.has_pending_inline_choice():
             self._notify_shortcut_rejected("Finish or cancel the pending dictation first.")
             return False
-        focused_surface = self._focused_surface_reader()
-        admission = self._workflows.admit_voice_capture(VoiceCaptureIntent(
-            "shortcut",
-            focused_surface=focused_surface,
-            active_voice_workflow_id=self._controller.projection.workflow_id,
-        ))
+        admission = self._admit_shortcut()
         if admission.kind == "rejected":
             self._notify_shortcut_rejected(admission.message)
             return False
         if admission.kind == "continue":
             return True
-        if self._controller.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED:
-            if self._setup_presenter is not None:
-                self._setup_presenter.show_voice_setup()
-            return True
         if admission.kind in {"voice_review", "follow_up"}:
             assert admission.target is not None
             frozen = admission.target
         else:
-            target = self._capture_external_target() or self._paste_target_reader()
-            workflow_id = admission.workflow_id or uuid.uuid4().hex
-            frozen = VoiceDraftTarget(workflow_id, 0, target, 0, 0)
-        if admission.kind == "create":
-            assert isinstance(frozen, VoiceDraftTarget)
-            self._workflows.create_voice_workflow(frozen.workflow_id, frozen.paste_target)
+            frozen = self._create_shortcut_draft(admission.workflow_id)
         self._pending_presses[command.press_id] = frozen
         self._arm_mic_hold(command.press_id)
         return True
@@ -156,7 +144,30 @@ class VoiceInputRuntimeModule:
             self._notifier.notify("Voice Input", message)
 
     def handle_shortcut_invoked(self, command: ShortcutPressInvoked) -> bool:
+        if command.press_type != "short" or self._controller.projection.capability not in {
+            VoiceCapabilityPhase.SETUP_REQUIRED, VoiceCapabilityPhase.DISABLED,
+        }:
+            return True
+        admission = self._admit_shortcut()
+        if admission.kind == "rejected":
+            self._notify_shortcut_rejected(admission.message)
+            return False
+        if admission.kind == "create":
+            self._create_shortcut_draft(admission.workflow_id)
         return True
+
+    def _admit_shortcut(self) -> VoiceCaptureAdmission:
+        return self._workflows.admit_voice_capture(VoiceCaptureIntent(
+            "shortcut",
+            focused_surface=self._focused_surface_reader(),
+            active_voice_workflow_id=self._controller.projection.workflow_id,
+        ))
+
+    def _create_shortcut_draft(self, workflow_id: str | None) -> VoiceDraftTarget:
+        target = self._capture_external_target() or self._paste_target_reader()
+        workflow_id = workflow_id or uuid.uuid4().hex
+        self._workflows.create_voice_workflow(workflow_id, target)
+        return VoiceDraftTarget(workflow_id, 0, target, 0, 0)
 
     def handle_shortcut_ended(self, command: ShortcutPressEnded) -> bool:
         self._cancel_mic_hold(command.press_id)
@@ -205,6 +216,8 @@ class VoiceInputRuntimeModule:
             self._execute(transition)
 
     def toggle_inline_dictation(self, press_type: PressType = "short") -> bool:
+        if self._controller.projection.capability in {VoiceCapabilityPhase.SETUP_REQUIRED, VoiceCapabilityPhase.DISABLED}:
+            return False
         active = self._controller.active_inline_capture_id()
         interaction_id = self._controller.active_inline_interaction_id() or ""
         mode: str = ""
@@ -223,10 +236,6 @@ class VoiceInputRuntimeModule:
                     return False
                 _trace_inline("choice_shortcut", old_interaction_id or "", outcome=press_type)
                 self._execute(transition)
-                return True
-            if self._controller.projection.capability is VoiceCapabilityPhase.SETUP_REQUIRED:
-                if self._setup_presenter is not None:
-                    self._setup_presenter.show_voice_setup()
                 return True
             target = self._capture_external_target()
             mode = self._inline_input_mode_reader()

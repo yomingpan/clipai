@@ -157,9 +157,10 @@ without presenting new evidence that makes the plan unsafe or impossible.
 
 ### 3.6 Setup, consent, and Tray
 
-- First PTT while Voice Input is not ready opens a retriable first-use setup
-  surface. It
-  does not create a Voice Workflow, retain a Paste Target, or start capture.
+- When Voice Input has not been enabled or is disabled, a short `Ctrl+Alt+W`
+  press opens the editable draft on release if no primary Popup is open.
+  Holding the shortcut and using inline dictation are silent no-ops. The user
+  opens microphone setup explicitly from the Tray.
 - Setup explains that the microphone is active only during PTT, audio is
   processed by the configured Browser Speech provider, ClipAI does not retain
   audio, and transcript evaluation/storage is not enabled.
@@ -175,8 +176,8 @@ without presenting new evidence that makes the plan unsafe or impossible.
   target is not activated.
 - It never turns the setup press into a late recording, even if the physical
   keys still appear held.
-- Dismissing or declining setup leaves Voice Input not ready. The next shortcut
-  returns to setup.
+- Dismissing or declining setup leaves Voice Input not ready; the user may open
+  setup again from the Tray.
 - A permanently blocked permission is distinct from a dismissed setup. The UI
   provides a repair path to Windows/browser settings instead of repeatedly
   issuing an ineffective request.
@@ -184,8 +185,8 @@ without presenting new evidence that makes the plan unsafe or impossible.
   state.
 - Tray provides Enable Voice Input, Disable Voice Input, and Manage Microphone
   Permission actions with state-appropriate labels.
-- Enable Voice Input opens the same retriable setup surface used by the first
-  shortcut. Manage Microphone Permission opens the external repair path; it does
+- Enable Voice Input opens the retriable setup surface. Manage Microphone
+  Permission opens the external repair path; it does
   not change ClipAI enablement state.
 - Disable means ClipAI will not start capture. It does not claim to revoke an
   OS/browser permission already stored outside ClipAI.

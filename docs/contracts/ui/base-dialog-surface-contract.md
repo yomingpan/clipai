@@ -110,6 +110,7 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
   `Ctrl+V` 在編輯與閱讀模式都一律產生外部 Paste intent，不得原生貼入
   Popup。`Ctrl+Enter` 只切換編輯／閱讀呈現；Paste 按鈕在兩種模式都可明確
   觸發外部貼上。
+- 語音輸入未設定、停用中或已停用時，Popup 隱藏語音控制項。文字草稿仍可編輯。
 - 在 Voice Review 中，使用者以 `Ctrl+/` 明確開啟 Follow-up 後，下一次
   `Ctrl+Alt+W` 必須以 Follow-up 作為 Voice capture destination；未開啟時才
   繼續 Voice Draft。Presenter 只讀取並回報 Follow-up 可見狀態，runtime 保留

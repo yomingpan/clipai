@@ -1517,7 +1517,6 @@ class BaseResultSurface:
             side="right",
             padx=(12, 0),
         )
-        self.voice_input_button.pack(side="left", padx=(0, 5))
         self.action_status_label = ctk.CTkLabel(
             self.actions,
             text="",
@@ -2003,6 +2002,7 @@ class BaseResultSurface:
         tooltip: str,
         countdown_seconds: int | None = None,
         finishing: bool = False,
+        visible: bool = True,
     ) -> None:
         self.voice_input_button.update_state(
             word=word,
@@ -2010,11 +2010,17 @@ class BaseResultSurface:
             listening=listening,
             silence=silence,
             command=command,
-            enabled=enabled,
+            enabled=enabled and visible,
             active=active,
             countdown_seconds=countdown_seconds,
             finishing=finishing,
         )
+        if not visible:
+            self.voice_input_button.pack_forget()
+            self._action_tooltips["voice_input"]._hide()
+            return
+        if not self.voice_input_button.winfo_manager():
+            self.voice_input_button.pack(side="left", padx=(0, 5), after=self._overflow_button)
         self.set_action_tooltip("voice_input", tooltip)
 
     def insert_follow_up_text(self, text: str) -> None:
