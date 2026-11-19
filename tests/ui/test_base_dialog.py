@@ -14,7 +14,6 @@ from ClipAI.core.models import ActionFeedbackContract, FeedbackReason, PasteTarg
 from ClipAI.core.popup_presentation import PopupFeedbackModel, PopupPresentationModel
 from ClipAI.ui.base_dialog import (
     ACTION_ICON_FONT_FAMILY,
-    ACTION_COLOR,
     ACTION_HOVER_COLOR,
     CONTENT_COLOR,
     CHECK_ICON,
@@ -22,6 +21,7 @@ from ClipAI.ui.base_dialog import (
     DISPLAY_BREAK_HINT,
     DISPLAY_BREAK_TAG,
     PASTE_ICON,
+    POPUP_ACTION_HOVER_COLOR,
     POPUP_FONT_SIZES,
     PRESENTATION_TAG_FONTS,
     PRESENTATION_TAG_STYLES,
@@ -1744,8 +1744,8 @@ def test_standard_result_action_idle_style_is_uniform() -> None:
 
     assert StandardResultActions.style_for(spec, False) == {
         "text": SPEAKER_ICON,
-        "fg_color": ACTION_COLOR,
-        "hover_color": ACTION_HOVER_COLOR,
+        "fg_color": "transparent",
+        "hover_color": POPUP_ACTION_HOVER_COLOR,
         "text_color": CONTENT_COLOR,
     }
 

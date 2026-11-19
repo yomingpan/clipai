@@ -312,7 +312,9 @@ SPEAKER_ACTIVE_HOVER_COLOR = "#991B1B"
 FOLLOW_ACTIVE_COLOR = "#305B9C"
 ANALYZING_COLOR = "#707070"
 MODEL_COLOR = "#6E6C69"
-CONTENT_COLOR = "#D8E0E8"
+CONTENT_COLOR = "#F0EEE9"
+POPUP_ACTION_HOVER_COLOR = "#414347"
+POPUP_SOURCE_COLOR = "#B6B9BE"
 TC_FONT_FAMILY = "Microsoft JhengHei UI"
 ACTION_ICON_FONT_FAMILY = "Segoe MDL2 Assets"
 POPUP_FONT_SIZES: Mapping[str, int] = {
@@ -514,9 +516,9 @@ class _VoiceWaveIndicator(tk.Canvas):
             pass
 
 PRESENTATION_TAG_STYLES: dict[str, dict[str, object]] = {
-    "heading_1": {"foreground": "#8EC5FF", "spacing1": 10, "spacing3": 6},
-    "heading_2": {"foreground": "#A9D4FF", "spacing1": 9, "spacing3": 5},
-    "heading_3": {"foreground": "#C5E2FF", "spacing1": 8, "spacing3": 4},
+    "heading_1": {"foreground": CONTENT_COLOR, "spacing1": 12, "spacing3": 5},
+    "heading_2": {"foreground": CONTENT_COLOR, "spacing1": 10, "spacing3": 4},
+    "heading_3": {"foreground": POPUP_SOURCE_COLOR, "spacing1": 8, "spacing3": 4},
     "bold": {"foreground": "#FFFFFF"},
     "italic": {"foreground": "#AFC0D2"},
     "paragraph": {"spacing3": 10},
@@ -1274,8 +1276,8 @@ class StandardResultActions:
         if not active:
             return {
                 "text": spec.icon,
-                "fg_color": ACTION_COLOR,
-                "hover_color": ACTION_HOVER_COLOR,
+                "fg_color": "transparent",
+                "hover_color": POPUP_ACTION_HOVER_COLOR,
                 "text_color": CONTENT_COLOR,
             }
         return {
@@ -1541,10 +1543,10 @@ class BaseResultSurface:
             anchor="w",
             justify="left",
             font=ctk.CTkFont(family=TC_FONT_FAMILY, size=POPUP_FONT_SIZES["interface"]),
-            text_color=ANALYZING_COLOR,
+            text_color=POPUP_SOURCE_COLOR,
             wraplength=0,
         )
-        self.source_label.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 0))
+        self.source_label.grid(row=3, column=0, sticky="ew", padx=12, pady=(3, 2))
 
         self.content_text = _PresentationTextbox(
             self.root,
@@ -1559,6 +1561,7 @@ class BaseResultSurface:
             scrollbar_button_hover_color="#5A5A5A",
             height=170,
             pady=0,
+            spacing2=3,
         )
         install_ime_halfwidth_punctuation_fix(self.content_text)
         install_select_all_shortcut(self.content_text)
@@ -2107,8 +2110,8 @@ class BaseResultSurface:
             width=width,
             height=22,
             corner_radius=6,
-            fg_color=ACTION_COLOR,
-            hover_color=ACTION_HOVER_COLOR,
+            fg_color="transparent",
+            hover_color=POPUP_ACTION_HOVER_COLOR,
             text_color=text_color,
             font=ctk.CTkFont(
                 family=ACTION_ICON_FONT_FAMILY if icon else TC_FONT_FAMILY,

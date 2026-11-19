@@ -298,7 +298,7 @@ actions:
       - If any English is present, choose exactly one useful English word or phrase that appears literally in the input. When the input is one English word or phrase, use that exact item.
       - If the input is Chinese-only, teach exactly one natural English expression for its most likely everyday meaning.
 
-      Put only the expression on the first line. Do not attach any spoken/written or formal/informal label to that line. Then use one very short Traditional Chinese paragraph (at most two sentences) to explain it in plain everyday language and show a concrete situation where people naturally use it. Avoid formulaic wording such as「X 指……」and generic claims about success or approval. Give one natural, practical English example on its own line.
+      Put only the expression on the first line. Do not attach any spoken/written or formal/informal label to that line. Then use one very short Traditional Chinese paragraph (at most two sentences) to explain it in plain everyday language and show a concrete situation where people naturally use it. Start that paragraph with the core meaning in Markdown bold, without a section label, so it can be read at a glance. Avoid formulaic wording such as「X 指……」and generic claims about success or approval. Give one natural, practical English example on its own line.
 
       After the example, add a separate `語感：` line only when it is useful to distinguish spoken from written usage or formal from informal usage. Avoid forcing a simplistic label: say when the expression works naturally in both. If it is mainly written or formal, mention that gently and provide the closest expression people normally use in everyday conversation.
 

@@ -10,7 +10,7 @@ resources:
     sha256: 01ef2431fefa14c83961350bf4ef6ce71eb3f3b4709eca0bc03f297710ab4dcd
   actions:
     path: actions.yaml
-    sha256: e5f19dcccaebb36259ab518fd48a833f27c18c10eec306b0945622047e8ec5a2
+    sha256: 1267e62bd7acf918c216e68be866cebfe556f52096c9ef7f1946c035348f3982
   output_profiles:
     path: output_profiles.yaml
     sha256: d8431d388db5216768b0f554882b38857de47e19d2944f4f749fbeaf3508668c
