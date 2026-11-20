@@ -320,7 +320,7 @@ def test_intent_adapter_emits_typed_mouse_and_keyboard_commands() -> None:
         (EntryInputSourcePreview("preparing"), "正在讀取選取內容…"),
         (EntryInputSourcePreview("selection_text", "selected"), "選取文字：selected"),
         (EntryInputSourcePreview("clipboard_text", "copied"), "剪貼簿文字：copied"),
-        (EntryInputSourcePreview("clipboard_image"), "剪貼簿截圖"),
+        (EntryInputSourcePreview("clipboard_image"), "剪貼簿圖片"),
         (EntryInputSourcePreview("workflow_selection", "chosen"), "Popup 選取文字：chosen"),
         (EntryInputSourcePreview("workflow_result", "result"), "目前結果：result"),
         (EntryInputSourcePreview("failed", "target changed"), "讀取失敗：target changed"),

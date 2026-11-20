@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionLanguagePackIdentity, ActionLanguageProvenance, FeedbackReason, InputDocument, InputTarget, ResolvedAction
+from ClipAI.core.models import ActionFeedbackContract, ActionInvocation, ActionLanguagePackIdentity, ActionLanguageProvenance, FeedbackReason, ImageContent, InputDocument, InputTarget, ResolvedAction
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.services.workflow_controller import CONTEXTUAL_SOURCE_MAX_CHARS, WorkflowController
 
@@ -74,6 +74,28 @@ def test_contextual_source_capture_enters_question_state_with_fixed_snapshot() -
     assert snapshot.contextual_source_kind == "selection"
     assert snapshot.source_preview == "Selection: fixed source"
     assert snapshot.question_composer_revision == 1
+
+
+@pytest.mark.parametrize("image_source", ["clipboard", "screenshot"])
+def test_clipboard_image_preview_is_restored_when_returning_to_its_result(image_source) -> None:
+    workflow = controller()
+    resolved = action()
+    image = InputDocument("", image_source, image=ImageContent(b"image", "image/png"))
+    first = invocation("image")
+    workflow.begin_invocation(first, resolved)
+    result = workflow.complete(first, resolved, image, "image result", ("copy",))
+    assert result is not None
+    assert result.source_preview == "剪貼簿圖片"
+    assert result.input_source == image_source
+
+    second = invocation("text", parent="image")
+    workflow.begin_invocation(second, resolved)
+    result = workflow.complete(second, resolved, InputDocument("words", "clipboard"), "text result", ("copy",))
+    assert result is not None
+    assert result.source_preview == "Clipboard: words"
+    previous = workflow.navigate_back()
+    assert previous is not None
+    assert previous.source_preview == "剪貼簿圖片"
 
 
 def test_contextual_source_capture_rejects_stale_and_oversized_results() -> None:

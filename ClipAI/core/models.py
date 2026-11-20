@@ -20,6 +20,7 @@ ManagedUpdatePhase = Literal[
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
 MessageRole = Literal["system", "user", "assistant"]
 ImageSource = Literal["clipboard"]
+CLIPBOARD_IMAGE_LABEL = "剪貼簿圖片"
 InputMode = Literal["clipboard", "clipboard_image", "selection_or_clipboard"]
 OutputMode = Literal["popup"]
 ExternalFallback = Literal["selection_or_clipboard", "clipboard"]
@@ -629,6 +630,7 @@ class WorkflowStep:
     provider: str = ""
     model: str = ""
     action_language: ActionLanguageProvenance | None = None
+    source_preview: str = ""
 
 
 @dataclass(frozen=True)
@@ -713,7 +715,7 @@ class PreparedInput:
         if document is None:
             return ""
         if document.image is not None:
-            return "剪貼簿圖片"
+            return CLIPBOARD_IMAGE_LABEL
         text = " ".join(document.text.split())
         return "剪貼簿：" + (text if len(text) <= 90 else text[:89].rstrip() + "…")
 

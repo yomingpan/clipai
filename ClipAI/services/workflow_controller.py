@@ -5,7 +5,7 @@ import threading
 import uuid
 from dataclasses import replace
 
-from ClipAI.core.models import ActionInvocation, InputDocument, InputRecovery, InputTarget, PreparedInput, PresentationDocument, ResolvedAction, WorkflowStep
+from ClipAI.core.models import CLIPBOARD_IMAGE_LABEL, ActionInvocation, InputDocument, InputRecovery, InputTarget, PreparedInput, PresentationDocument, ResolvedAction, WorkflowStep
 from ClipAI.core.ports import ResultPresenter
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureDestination, VoiceCaptureId, VoiceDraftTarget, VoiceFollowUpTarget, VoiceProjection
@@ -342,6 +342,16 @@ class WorkflowController:
             if self._snapshot.active_invocation_id != invocation.invocation_id or self._active_token.is_cancelled:
                 return None
             kept = self._snapshot.steps[: self._snapshot.displayed_step_index + 1]
+            source_preview = _source_preview(document)
+            if (
+                action.id == "contextual_question"
+                and self._snapshot.contextual_source_text
+                and self._snapshot.contextual_source_kind in {"selection", "clipboard"}
+            ):
+                source_preview = _source_preview(InputDocument(
+                    self._snapshot.contextual_source_text,
+                    self._snapshot.contextual_source_kind,
+                ))
             step = WorkflowStep(
                 step_id=invocation.invocation_id,
                 action_id=action.id,
@@ -358,18 +368,9 @@ class WorkflowController:
                 provider=provider,
                 model=model,
                 action_language=action.action_language,
+                source_preview=source_preview,
             )
             steps = (*kept, step)
-            source_preview = _source_preview(document)
-            if (
-                action.id == "contextual_question"
-                and self._snapshot.contextual_source_text
-                and self._snapshot.contextual_source_kind in {"selection", "clipboard"}
-            ):
-                source_preview = _source_preview(InputDocument(
-                    self._snapshot.contextual_source_text,
-                    self._snapshot.contextual_source_kind,
-                ))
             self._snapshot = self._snapshot.evolve(
                 status=SessionStatus.COMPLETED,
                 status_text="Completed",
@@ -466,6 +467,7 @@ class WorkflowController:
                     action_id=step.action_id,
                     content=step.result_text,
                     original_input=step.input_text,
+                    source_preview=step.source_preview or self._snapshot.source_preview,
                     error="",
                     displayed_step_index=index,
                     can_navigate_back=index > 0,
@@ -678,6 +680,8 @@ class WorkflowController:
 
 
 def _source_preview(document: InputDocument, limit: int = 90) -> str:
+    if document.image is not None:
+        return CLIPBOARD_IMAGE_LABEL
     compact = " ".join(document.text.split())
     if len(compact) > limit:
         compact = f"{compact[: limit - 1]}..."

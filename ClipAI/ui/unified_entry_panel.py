@@ -17,7 +17,7 @@ from ClipAI.core.commands import (
     RetryEntryPanelInput,
     UseEntryPanelClipboard,
 )
-from ClipAI.core.models import EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds, PressType
+from ClipAI.core.models import CLIPBOARD_IMAGE_LABEL, EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds, PressType
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
 from ClipAI.ui.ime_composition import install_ime_composition_font
 from ClipAI.ui.base_dialog import (
@@ -1179,7 +1179,7 @@ def _source_preview_text(preview: EntryInputSourcePreview | None) -> str:
         "preparing": "正在讀取選取內容…",
         "selection_text": "選取文字",
         "clipboard_text": "剪貼簿文字",
-        "clipboard_image": "剪貼簿截圖",
+        "clipboard_image": CLIPBOARD_IMAGE_LABEL,
         "workflow_selection": "Popup 選取文字",
         "workflow_result": "目前結果",
         "failed": "讀取失敗",
