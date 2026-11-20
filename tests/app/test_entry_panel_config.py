@@ -239,7 +239,7 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
         4: (
             "understand",
             ("translate_to_traditional_chinese", "english_companion", "explain_like_friend", "reading_friction"),
-            ("article_structure", "extract_keywords"),
+            ("article_structure", "check_claim_evidence", "extract_keywords"),
         ),
         5: (
             "write",
@@ -250,13 +250,15 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
             "think",
             ("pyramid_position", "critical_thinking", "tradeoff_perspective", "reflective_question"),
             (
+                "mece_decomposition",
+                "swot_analysis",
+                "premortem",
+                "structure_score_prompt",
+                "minimum_action",
                 "name_idea",
                 "name_concept_carefully",
                 "illuminate_essence",
                 "temporary_viewpoint",
-                "mece_decomposition",
-                "minimum_action",
-                "structure_score_prompt",
                 "advisory_board",
                 "insight_engine",
             ),

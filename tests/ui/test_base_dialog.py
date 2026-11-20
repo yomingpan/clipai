@@ -22,6 +22,7 @@ from ClipAI.ui.base_dialog import (
     DISPLAY_BREAK_TAG,
     PASTE_ICON,
     POPUP_ACTION_HOVER_COLOR,
+    POPUP_ACTION_SUCCESS_COLOR,
     POPUP_FONT_SIZES,
     PRESENTATION_TAG_FONTS,
     PRESENTATION_TAG_STYLES,
@@ -1164,7 +1165,7 @@ def test_action_slot_selects_text_font_only_for_word_labels(monkeypatch) -> None
         def pack(self, **_options) -> None:
             pass
 
-    monkeypatch.setattr(ctk, "CTkButton", Button)
+    monkeypatch.setattr("ClipAI.ui.base_dialog._PopupActionButton", Button)
     monkeypatch.setattr(ctk, "CTkFont", lambda **options: options)
     surface = BaseResultSurface.__new__(BaseResultSurface)
     surface.actions = object()
@@ -1910,7 +1911,7 @@ def test_copy_and_archive_feedback_use_green_check_icon() -> None:
     for spec in (copy, archive):
         style = StandardResultActions.style_for(spec, True)
         assert style["text"] == CHECK_ICON
-        assert style["fg_color"] == "#00B04F"
+        assert style["fg_color"] == POPUP_ACTION_SUCCESS_COLOR
 
 
 def test_pin_icons_use_stable_icon_font_glyphs() -> None:

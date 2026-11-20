@@ -20,6 +20,10 @@ candidates:
     press_type: short
     label: 文章架構與重要觀點
     description: 整理文章結構與關鍵論點。
+  - action_id: check_claim_evidence
+    press_type: short
+    label: 檢查論點與證據
+    description: 找出原文怎麼支持主張，以及推論還缺哪一步。
   - action_id: extract_keywords
     press_type: short
     label: 抽取核心關鍵字
@@ -54,20 +58,40 @@ candidates:
     description: 依個人風格整理成重點清楚的正式稿。
   - action_id: pyramid_position
     press_type: short
-    label: 麥肯錫金字塔
+    label: 理出主張
     description: 先釐清主張，再整理支持它的理由。
   - action_id: critical_thinking
     press_type: short
-    label: 反向挑戰
+    label: 找出盲點
     description: 從相反角度找出盲點與薄弱假設。
   - action_id: tradeoff_perspective
     press_type: short
-    label: 權衡透視
+    label: 比較取捨
     description: 看見選項之間真正需要交換的代價。
   - action_id: reflective_question
     press_type: short
-    label: 提出一個值得思考的問題
+    label: 找個值得問的問題
     description: 找出最能推進理解的下一個問題。
+  - action_id: mece_decomposition
+    press_type: short
+    label: 拆解問題（MECE）
+    description: 把問題分成幾個面向，檢查彼此是否重疊、還漏了什麼。
+  - action_id: swot_analysis
+    press_type: short
+    label: SWOT 分析
+    description: 從內部優劣勢與外部機會、威脅評估一項策略。
+  - action_id: premortem
+    press_type: short
+    label: 預演失敗
+    description: 假設計畫失敗，找出可能原因、早期警訊與預防措施。
+  - action_id: structure_score_prompt
+    press_type: short
+    label: SCORE 需求整理
+    description: 用 SCORE 結構釐清需求與背景。
+  - action_id: minimum_action
+    press_type: short
+    label: 最小行動
+    description: 找出能推進事情的最小下一步。
   - action_id: name_idea
     press_type: short
     label: 為想法命名
@@ -84,18 +108,6 @@ candidates:
     press_type: short
     label: 保存暫時觀點
     description: 將尚未定論的觀點整理成可回看的版本。
-  - action_id: mece_decomposition
-    press_type: short
-    label: MECE 拆解
-    description: 用不重疊、無遺漏的方式拆解問題。
-  - action_id: minimum_action
-    press_type: short
-    label: 最小行動
-    description: 找出能推進事情的最小下一步。
-  - action_id: structure_score_prompt
-    press_type: short
-    label: SCORE 需求整理
-    description: 用 SCORE 結構釐清需求與背景。
   - action_id: advisory_board
     press_type: short
     label: 顧問團

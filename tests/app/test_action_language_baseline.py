@@ -120,7 +120,7 @@ def test_action_language_inventory_and_prompt_contract_are_frozen() -> None:
         for variant in action.get("press_variants", {}).values()
     ]
 
-    assert len(actions) == 31
+    assert len(actions) == 34
     assert len(explicit_variants) == 6
     assert len(shortcut_payload["shortcuts"]) == 34
     assert sum(
@@ -131,7 +131,7 @@ def test_action_language_inventory_and_prompt_contract_are_frozen() -> None:
     assert sum(
         len(category.flagship) + len(category.advanced)
         for category in load_config_bundle().entry_panel.categories
-    ) == 31
+    ) == 34
 
     localized_actions = language_payload["actions"].values()
     prompts = [action["prompt"] for action in localized_actions]

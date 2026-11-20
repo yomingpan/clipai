@@ -47,14 +47,14 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "When the input is Chinese-only" in action.system_prompt
     assert "do not refuse merely because no English is present" in action.system_prompt
     assert "concrete real-life situation" in action.system_prompt
-    assert "Avoid formulaic wording" in action.prompt
     assert "Put only the expression on the first line" in action.prompt
-    assert "Do not attach any spoken/written or formal/informal label" in action.prompt
+    assert action.prompt.index("core Traditional Chinese meaning") < action.prompt.index("one natural, practical English example")
     assert "After the example, add a separate `語感：` line" in action.prompt
     assert "mark each conversational option with `（口語常用）`" in action.prompt
     assert "記憶：" in action.prompt
     profile = bundle.output_profiles.get(action.output_profile)
     assert "without any spoken/written or formal/informal label" in profile.instruction
+    assert "followed immediately by one practical English example" in profile.instruction
     assert "After the example, add a separate `語感：` line" in profile.instruction
     assert "mark conversational alternatives with `（口語常用）`" in profile.instruction
     assert bundle.schema_versions.app == 2
@@ -625,7 +625,7 @@ def test_thinking_actions_have_distinct_outputs_and_ai_boundaries() -> None:
         "tradeoff_perspective": {
             "name": "權衡透視",
             "hotkey": "ctrl+alt+d",
-            "prompt_markers": ("## 觀點", "## 價值與取捨", "## 兩邊的代價", "## 需要你判斷"),
+            "prompt_markers": ("## 觀點", "## 價值與取捨", "## 兩邊的代價", "## 什麼條件會改變選擇？"),
             "does_not": "不替你排序價值、決定可接受的代價或做出最後選擇",
         },
     }
@@ -651,7 +651,8 @@ def test_thinking_actions_have_distinct_outputs_and_ai_boundaries() -> None:
 
     assert "不要先列出多套框架" in bundle.actions.get("mece_decomposition").system_prompt
     assert "只提出一個行動" in bundle.actions.get("minimum_action").system_prompt
-    assert "不替使用者排序價值" in bundle.actions.get("tradeoff_perspective").system_prompt
+    assert "保留使用者對價值排序和最後選擇的決定權" in bundle.actions.get("tradeoff_perspective").system_prompt
+    assert "最值得查的一項資訊" in bundle.actions.get("tradeoff_perspective").prompt
 
 
 def test_popup_prompts_do_not_repeat_action_titles_as_the_first_heading() -> None:
@@ -669,7 +670,8 @@ def test_popup_prompts_do_not_repeat_action_titles_as_the_first_heading() -> Non
         assert heading not in bundle.actions.get(action_id).prompt
 
     assert "## 核心理由" in bundle.actions.get("pyramid_position").prompt
-    assert "## 重要觀點" in bundle.actions.get("article_structure").prompt
+    article = bundle.actions.get("article_structure").prompt
+    assert article.index("核心結論") < article.index("## 重要觀點") < article.index("## 論述脈絡")
     assert "## 為什麼值得思考" in bundle.actions.get("reflective_question").prompt
     assert "## 為什麼是這一步" in bundle.actions.get("minimum_action").prompt
     assert "## 閱讀提示" in bundle.actions.get("extract_keywords").prompt

@@ -113,9 +113,9 @@ ClipAI 是使用者思考與寫作時的輕量副駕。它要降低「看見一�
 
 | 類別 | 第一層旗艦 action（`1`–`4`） | 進階功能 |
 | --- | --- | --- |
-| 看得懂 | 翻譯成繁體中文 (`translate_to_traditional_chinese`)、English Companion (`english_companion`)、朋友方式說明 (`explain_like_friend`)、讀懂這段英文 (`reading_friction`) | 文章架構與重要觀點 (`article_structure`)、抽取核心關鍵字 (`extract_keywords`) |
+| 看得懂 | 翻譯成繁體中文 (`translate_to_traditional_chinese`)、English Companion (`english_companion`)、朋友方式說明 (`explain_like_friend`)、讀懂這段英文 (`reading_friction`) | 文章架構與重要觀點 (`article_structure`)、檢查論點與證據 (`check_claim_evidence`)、抽取核心關鍵字 (`extract_keywords`) |
 | 寫得出 | 翻譯成英文 (`translate_to_english`)、縮短內容 (`shorten_content`)、私下口吻改寫 (`personal_style_informal`)、語音成稿編輯 (`intent_preserving_dictation_editor`) | Capture an Expression (`expression_retrieval`)、正式口述講稿 (`personal_style_oral`)、正式重點稿 (`personal_style_presentation`) |
-| 想清楚 | 麥肯錫金字塔 (`pyramid_position`)、反向挑戰 (`critical_thinking`)、權衡透視 (`tradeoff_perspective`)、提出一個值得思考的問題 (`reflective_question`) | 為想法命名 (`name_idea`)、概念命名 (`name_concept_carefully`)、照亮不變的本質 (`illuminate_essence`)、保存暫時觀點 (`temporary_viewpoint`)、MECE 拆解 (`mece_decomposition`)、最小行動 (`minimum_action`)、SCORE 需求整理 (`structure_score_prompt`) |
+| 想清楚 | 理出主張 (`pyramid_position`)、找出盲點 (`critical_thinking`)、比較取捨 (`tradeoff_perspective`)、找個值得問的問題 (`reflective_question`) | 拆解問題（MECE） (`mece_decomposition`)、SWOT 分析 (`swot_analysis`)、預演失敗 (`premortem`)、SCORE 需求整理 (`structure_score_prompt`)、最小行動 (`minimum_action`)、為想法命名 (`name_idea`)、概念命名 (`name_concept_carefully`)、照亮不變的本質 (`illuminate_essence`)、保存暫時觀點 (`temporary_viewpoint`)、顧問團 (`advisory_board`)、洞察引擎 (`insight_engine`) |
 | 工具 | OCR／擷取截圖文字 (`extract_screenshot_text`)、AI 對話交接 (`session_handoff`)、指令風險檢查 (`command_copilot`)、需求轉指令 (`command_generate`) | 指令教練 (`command_coach`) |
 
 分類背後的使用者語言必須保持一致：

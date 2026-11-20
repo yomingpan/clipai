@@ -23,6 +23,8 @@ categories:
     advanced:
       - action_id: article_structure
         press_type: short
+      - action_id: check_claim_evidence
+        press_type: short
       - action_id: extract_keywords
         press_type: short
 
@@ -70,6 +72,16 @@ categories:
       - action_id: reflective_question
         press_type: short
     advanced:
+      - action_id: mece_decomposition
+        press_type: short
+      - action_id: swot_analysis
+        press_type: short
+      - action_id: premortem
+        press_type: short
+      - action_id: structure_score_prompt
+        press_type: short
+      - action_id: minimum_action
+        press_type: short
       - action_id: name_idea
         press_type: short
       - action_id: name_concept_carefully
@@ -77,12 +89,6 @@ categories:
       - action_id: illuminate_essence
         press_type: short
       - action_id: temporary_viewpoint
-        press_type: short
-      - action_id: mece_decomposition
-        press_type: short
-      - action_id: minimum_action
-        press_type: short
-      - action_id: structure_score_prompt
         press_type: short
       - action_id: advisory_board
         press_type: short

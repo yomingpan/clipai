@@ -20,6 +20,10 @@ candidates:
     press_type: short
     label: 文章の構造と重要観点
     description: 文章の構造と重要な論点を整理します。
+  - action_id: check_claim_evidence
+    press_type: short
+    label: 主張と根拠を確認
+    description: 原文の根拠が主張をどこまで支えるか、推論の抜けを確認する。
   - action_id: extract_keywords
     press_type: short
     label: 中核キーワードを抽出
@@ -68,6 +72,26 @@ candidates:
     press_type: short
     label: 考える価値のある問いを一つ
     description: 理解を最も前に進める次の問いを見つけます。
+  - action_id: mece_decomposition
+    press_type: short
+    label: MECEで分解
+    description: 重複と漏れがないように問題を分解します。
+  - action_id: swot_analysis
+    press_type: short
+    label: SWOT 分析
+    description: 内部の強み・弱みと外部の機会・脅威から戦略を検討する。
+  - action_id: premortem
+    press_type: short
+    label: 失敗を事前に想定する
+    description: 計画が失敗したと仮定し、原因、早期兆候、予防策を考える。
+  - action_id: structure_score_prompt
+    press_type: short
+    label: SCOREで要件を整理
+    description: SCOREの構造で要件と背景を明確にします。
+  - action_id: minimum_action
+    press_type: short
+    label: 最小の次の行動
+    description: 物事を前に進める最小の次の一歩を見つけます。
   - action_id: name_idea
     press_type: short
     label: 考えに名前を付ける
@@ -84,18 +108,6 @@ candidates:
     press_type: short
     label: 暫定的な見方を保存
     description: まだ結論の出ていない見方を後で振り返れる形に整えます。
-  - action_id: mece_decomposition
-    press_type: short
-    label: MECEで分解
-    description: 重複と漏れがないように問題を分解します。
-  - action_id: minimum_action
-    press_type: short
-    label: 最小の次の行動
-    description: 物事を前に進める最小の次の一歩を見つけます。
-  - action_id: structure_score_prompt
-    press_type: short
-    label: SCOREで要件を整理
-    description: SCOREの構造で要件と背景を明確にします。
   - action_id: advisory_board
     press_type: short
     label: アドバイザリーボード

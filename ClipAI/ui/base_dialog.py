@@ -310,11 +310,12 @@ ACTION_HOVER_COLOR = "#2879B8"
 SPEAKER_ACTIVE_COLOR = "#7F1D1D"
 SPEAKER_ACTIVE_HOVER_COLOR = "#991B1B"
 FOLLOW_ACTIVE_COLOR = "#305B9C"
-ANALYZING_COLOR = "#707070"
+ANALYZING_COLOR = "#A6A9AE"
 MODEL_COLOR = "#6E6C69"
 CONTENT_COLOR = "#F0EEE9"
 POPUP_ACTION_HOVER_COLOR = "#414347"
 POPUP_SOURCE_COLOR = "#B6B9BE"
+POPUP_ACTION_SUCCESS_COLOR = "#176B43"
 TC_FONT_FAMILY = "Microsoft JhengHei UI"
 ACTION_ICON_FONT_FAMILY = "Segoe MDL2 Assets"
 POPUP_FONT_SIZES: Mapping[str, int] = {
@@ -1127,8 +1128,8 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
         tooltip="Copy result (Ctrl+C)",
         active_icon=CHECK_ICON,
         active_tooltip="Copy accepted (Ctrl+C)",
-        active_color="#00B04F",
-        active_hover_color="#00B04F",
+        active_color=POPUP_ACTION_SUCCESS_COLOR,
+        active_hover_color=POPUP_ACTION_SUCCESS_COLOR,
     ),
     ResultActionSpec(slot_id="paste", icon=PASTE_ICON, tooltip="Paste result to target"),
     ResultActionSpec(
@@ -1137,8 +1138,8 @@ STANDARD_RESULT_ACTIONS: tuple[ResultActionSpec, ...] = (
         tooltip="Archive result (Ctrl+S)",
         active_icon=CHECK_ICON,
         active_tooltip="Archive accepted (Ctrl+S)",
-        active_color="#00B04F",
-        active_hover_color="#00B04F",
+        active_color=POPUP_ACTION_SUCCESS_COLOR,
+        active_hover_color=POPUP_ACTION_SUCCESS_COLOR,
     ),
     ResultActionSpec(
         slot_id="regenerate",
@@ -1286,6 +1287,23 @@ class StandardResultActions:
             "hover_color": spec.active_hover_color,
             "text_color": CONTENT_COLOR,
         }
+
+
+class _PopupActionButton(ctk.CTkButton):
+    """Expose the action to Tk keyboard traversal with a visible focus ring."""
+
+    def __init__(self, master, **kwargs) -> None:
+        super().__init__(master, border_color="#8EC5FF", **kwargs)
+        takefocus = self.register(lambda _path: int(self.cget("state") == "normal"))
+        tk.Frame.configure(self, takefocus=takefocus)
+        tk.Misc.bind(self, "<FocusIn>", lambda _event: self.configure(border_width=2), add="+")
+        tk.Misc.bind(self, "<FocusOut>", lambda _event: self.configure(border_width=0), add="+")
+        for key in ("<Return>", "<KP_Enter>", "<space>"):
+            tk.Misc.bind(self, key, self._invoke_from_keyboard, add="+")
+
+    def _invoke_from_keyboard(self, _event) -> str:
+        self.invoke()
+        return "break"
 
 
 class BaseResultSurface:
@@ -2104,7 +2122,7 @@ class BaseResultSurface:
         side: Literal["left", "right"] = "left",
         padx: tuple[int, int] = (0, 5),
     ) -> ctk.CTkButton:
-        button = ctk.CTkButton(
+        button = _PopupActionButton(
             self.overflow_actions if overflow else self.actions,
             text=label,
             width=width,

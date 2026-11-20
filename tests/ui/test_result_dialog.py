@@ -46,7 +46,9 @@ def test_late_inline_refinement_cannot_close_a_newer_window() -> None:
 
 
 @pytest.mark.integration
-def test_real_popup_removes_and_restores_voice_control_in_the_action_row() -> None:
+def test_real_popup_action_row_supports_voice_visibility_and_keyboard_focus() -> None:
+    import tkinter as tk
+
     import customtkinter as ctk
     from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
 
@@ -75,6 +77,27 @@ def test_real_popup_removes_and_restores_voice_control_in_the_action_row() -> No
 
             surface.configure_voice_action(**state)
             assert surface.actions.pack_slaves() == original_actions
+
+            copied = []
+            surface.standard_actions.configure(on_copy=lambda: copied.append(True))
+            copy = surface._action_buttons["copy"]
+            dialog.show()
+            root.update()
+            previous = copy.tk_focusPrev()
+            tk.Misc.focus_force(previous)
+            previous.event_generate("<Tab>")
+            root.update()
+            assert copy.cget("border_width") == 2
+            assert copy.focus_get() is copy
+            assert copy.cget("state") == "normal"
+            copy.event_generate("<Return>")
+            assert copied == [True]
+            surface.pulse_standard_action_error("copy")
+            assert copy.cget("text") == "!"
+            assert copy.cget("border_width") == 2
+            surface.set_standard_action_enabled("copy", False)
+            copy.event_generate("<space>")
+            assert copied == [True]
         finally:
             dialog.close()
     finally:

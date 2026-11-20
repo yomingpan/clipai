@@ -490,3 +490,42 @@ actions:
   - key_pattern_missing
   - framing_misleading
   - other
+- id: check_claim_evidence
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.2
+  feedback_reason_ids:
+  - source_misread
+  - evidence_invented
+  - inference_gap_missing
+  - other
+- id: swot_analysis
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.3
+  feedback_reason_ids:
+  - scope_unclear
+  - factor_misclassified
+  - evidence_invented
+  - other
+- id: premortem
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.3
+  feedback_reason_ids:
+  - plan_misread
+  - risk_ungrounded
+  - response_not_actionable
+  - other

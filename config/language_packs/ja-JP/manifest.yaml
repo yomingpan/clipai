@@ -3,17 +3,17 @@ pack_id: ja-JP
 locale: ja-JP
 display_name: 日本語
 pack_version: 1.2.2
-feature_contract_hash: sha256:701c643676f19dfca7707d3109cd540662e4bc2c9afc602ffbd53da47dbaf3dc
+feature_contract_hash: sha256:2a44df56b4adc3bf2ad20063d232e9072039ff129566560ce046ccbe5e496e68
 resources:
   app:
     path: app.yaml
     sha256: 5b600fdf340406155ef963062d496df72ec10ff26ff0d531cb2f7206cece087c
   actions:
     path: actions.yaml
-    sha256: 613553c219cb02b47318fb39421a04ad916b009c50405dbd731d7c7f079b5521
+    sha256: 5eba6e962d3890246c92b3b16ad0c8f8d6bbe29dbfe08f0031c5de54191a1e93
   output_profiles:
     path: output_profiles.yaml
     sha256: bbcf8fb76a872ed2dc62ea94255d7d60d0f58d5b78b3963400bb2dfe18c4ca5c
   entry_panel:
     path: entry_panel.yaml
-    sha256: e60e579220aa3e1c312c4a98995773724373d7b779f97d2527f485ccb6c44488
+    sha256: dca3ae6ec4de58aedd2f9f2827740b5d1487121f616a0393c35c266181f22bef
