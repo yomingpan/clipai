@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-10-21T13:36:57.894395+00:00",
+  "scope": "inline_tk_to_dwm_settlement",
+  "device_class": {
+    "os_build": "10.0.26200",
+    "logical_processors": 8,
+    "work_area_pixels": [
+      2560,
+      1380
+    ],
+    "dpi_scale": 1.25,
+    "tcl_patchlevel": "8.6.12"
+  },
+  "iterations_per_mode": 20,
+  "interval_ms": 250,
+  "status": "pass",
+  "phase_ms": {
+    "minimal.initial": {
+      "count": 20,
+      "median_ms": 30.593,
+      "p95_ms": 44.599,
+      "max_ms": 77.915
+    },
+    "minimal.refining": {
+      "count": 20,
+      "median_ms": 17.434,
+      "p95_ms": 18.591,
+      "max_ms": 25.865
+    },
+    "minimal.recovery": {
+      "count": 20,
+      "median_ms": 65.034,
+      "p95_ms": 90.398,
+      "max_ms": 223.955
+    },
+    "choice.initial": {
+      "count": 20,
+      "median_ms": 39.586,
+      "p95_ms": 40.7,
+      "max_ms": 41.896
+    },
+    "choice.refining": {
+      "count": 20,
+      "median_ms": 16.478,
+      "p95_ms": 16.8,
+      "max_ms": 17.094
+    },
+    "choice.recovery": {
+      "count": 20,
+      "median_ms": 50.03,
+      "p95_ms": 50.749,
+      "max_ms": 50.761
+    },
+    "choice.selection": {
+      "count": 20,
+      "median_ms": 65.935,
+      "p95_ms": 75.423,
+      "max_ms": 99.779
+    }
+  },
+  "work_area_bounds_checks": 60,
+  "work_area_bounds_failures": 0,
+  "content_recorded": false,
+  "limits": "Tk show/update_idletasks to DwmFlush; no pixel observer, physical HID, microphone, Provider, Paste, or target insertion.",
+  "initial_budget_ms": 51.7,
+  "initial_budget_passed": true
+}

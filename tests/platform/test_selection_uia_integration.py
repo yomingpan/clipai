@@ -27,6 +27,7 @@ def test_real_uia_selected_same_text_and_caret_only(tmp_path):
         env={**os.environ, "PYTHONPATH": os.pathsep.join([str(Path(__file__).resolve().parents[2])] + [str(Path(p).resolve()) for p in sys.path if p])},
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
     )
+    probe = WindowsSelectionProbe(timeout_sec=5)
     try:
         text = "prefix\n反白內容：α + β = 3\nsuffix"
         for sequence, (start, length) in enumerate([(7, 15), (7, 15), (7, 0)], 1):
@@ -44,7 +45,6 @@ def test_real_uia_selected_same_text_and_caret_only(tmp_path):
                     pass
                 time.sleep(0.05)
             assert payload is not None, "test UI host did not become ready"
-            probe = WindowsSelectionProbe(timeout_sec=5)
             target = ExternalWindowRef(payload["window_token"], payload["process_id"], 0)
             activation = SystemExternalWindowActivator().activate(target, CancellationToken())
             assert activation.activated, activation
@@ -56,9 +56,12 @@ def test_real_uia_selected_same_text_and_caret_only(tmp_path):
             if length:
                 assert result.text == payload["selected"]
     finally:
-        if process.poll() is None:
-            process.kill()
-        process.communicate(timeout=5)
+        try:
+            probe.stop()
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=5)
 
 
 def _host(command_path: Path, ready_path: Path) -> None:

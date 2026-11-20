@@ -11,12 +11,25 @@ from ClipAI.core.commands import OpenContextualQuestion, SpeakSelectionOrClipboa
 from ClipAI.providers.settings import ProviderCredential
 
 
+@pytest.mark.parametrize("configured,expected", [(None, True), (False, False), (True, True)])
+def test_selection_standby_is_enabled_by_default_and_can_be_disabled(tmp_path, configured, expected):
+    import yaml
+    payload = yaml.safe_load(Path("config/config.yaml").read_text(encoding="utf-8"))
+    if configured is not None:
+        payload["app"]["selection_uia_standby"] = configured
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    app, *_ = load_app_config(path)
+    assert app.selection_uia_standby is expected
+
+
 def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     bundle = load_config_bundle()
 
     assert bundle.providers.active == "gemini"
     assert bundle.runtime.maintenance_workers == 1
     assert bundle.voice_input.backend == "edge_webview2_browser_speech"
+    assert bundle.voice_input.webview2_runtime_major is None
     assert bundle.app.modifier_mode == "ctrl_alt"
     assert bundle.tts.japanese_voice == "ja-JP-NanamiNeural"
     assert "1–2 秒看懂" in bundle.app.system_prompt
@@ -34,14 +47,14 @@ def test_config_bundle_loads_typed_provider_and_action_settings() -> None:
     assert "When the input is Chinese-only" in action.system_prompt
     assert "do not refuse merely because no English is present" in action.system_prompt
     assert "concrete real-life situation" in action.system_prompt
-    assert "Avoid formulaic wording" in action.prompt
     assert "Put only the expression on the first line" in action.prompt
-    assert "Do not attach any spoken/written or formal/informal label" in action.prompt
+    assert action.prompt.index("core Traditional Chinese meaning") < action.prompt.index("one natural, practical English example")
     assert "After the example, add a separate `語感：` line" in action.prompt
     assert "mark each conversational option with `（口語常用）`" in action.prompt
     assert "記憶：" in action.prompt
     profile = bundle.output_profiles.get(action.output_profile)
     assert "without any spoken/written or formal/informal label" in profile.instruction
+    assert "followed immediately by one practical English example" in profile.instruction
     assert "After the example, add a separate `語感：` line" in profile.instruction
     assert "mark conversational alternatives with `（口語常用）`" in profile.instruction
     assert bundle.schema_versions.app == 2
@@ -61,6 +74,15 @@ def test_voice_input_config_rejects_unsupported_engine_paths() -> None:
         _parse_voice_input({"backend": "openai"})
     with pytest.raises(ConfigError, match="auto_start"):
         _parse_voice_input({"backend": "edge_webview2_browser_speech", "auto_start": True})
+
+
+def test_voice_input_config_accepts_an_optional_webview2_runtime_major() -> None:
+    assert _parse_voice_input({}).webview2_runtime_major is None
+    assert _parse_voice_input({"webview2_runtime_major": 152}).webview2_runtime_major == 152
+
+    for value in (0, -1, True, "152", 152.0):
+        with pytest.raises(ConfigError, match="webview2_runtime_major"):
+            _parse_voice_input({"webview2_runtime_major": value})
 
 
 def test_v4_context_actions_have_expected_hotkeys_and_support_multimodal_input() -> None:
@@ -475,9 +497,10 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
     payload = yaml.safe_load(Path("config/shortcuts.yaml").read_text(encoding="utf-8"))
     start_actions = [item for item in payload["shortcuts"] if item["command"] == "start_action"]
 
-    assert len(start_actions) == 27
+    assert len(start_actions) == 31
     assert {item["id"]: item["hotkey"] for item in payload["shortcuts"]} == {
-        "voice_input": "ctrl+alt+w",
+            "voice_input": "ctrl+alt+w",
+            "inline_dictation": "right_alt",
         "contextual_question": "ctrl+alt+r",
         "translate_to_traditional_chinese": "ctrl+alt+1",
         "translate_to_english": "ctrl+alt+2",
@@ -500,13 +523,17 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
         "extract_keywords": "ctrl+alt+e",
         "structure_score_prompt": "ctrl+alt+f",
         "extract_screenshot_text": "ctrl+alt+g",
+        "explain_chart": "ctrl+alt+h",
         "speak_selection_or_clipboard": "ctrl+alt+q",
         "shorten_content": "ctrl+alt+x",
         "intent_preserving_dictation_editor": "ctrl+alt+~",
             "command_copilot": "ctrl+alt+c",
+            "command_generate": "ctrl+alt+b",
             "personal_style_informal": "ctrl+alt+i",
             "personal_style_oral": "ctrl+alt+o",
             "personal_style_presentation": "ctrl+alt+p",
+            "advisory_board": "ctrl+alt+j",
+            "insight_engine": "ctrl+alt+k",
         }
     for shortcut in start_actions:
         for press_type in ("short", "long"):
@@ -517,10 +544,11 @@ def test_every_start_action_shortcut_has_feedback_for_short_and_long_press() -> 
             assert resolved.feedback_contract.reasons[-1].id == "other"
             assert 4 <= len(resolved.feedback_contract.reasons) <= 5
 
-    non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
-    assert [(item["id"], item["command"]) for item in non_action] == [
-        ("voice_input", "push_to_talk"),
-        ("contextual_question", "open_contextual_question"),
+        non_action = [item for item in payload["shortcuts"] if item["command"] != "start_action"]
+        assert [(item["id"], item["command"]) for item in non_action] == [
+            ("voice_input", "push_to_talk"),
+            ("inline_dictation", "inline_dictation"),
+            ("contextual_question", "open_contextual_question"),
         ("speak_selection_or_clipboard", "speak_selection_or_clipboard")
     ]
     assert bundle.shortcuts.resolve("contextual_question", "short") == OpenContextualQuestion()
@@ -556,7 +584,7 @@ def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
     action = bundle.actions.get("name_concept_carefully")
     shortcut = bundle.shortcuts.definition("name_concept_carefully")
 
-    assert action.name == "概念命名"
+    assert action.name == "找概念或解釋術語"
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
@@ -565,14 +593,12 @@ def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
     assert action.press_variants == {}
     assert shortcut.hotkey == "ctrl+alt+n"
     assert shortcut.action_id == action.id
-    assert "找到、驗證或暫時探索" in action.system_prompt
     assert "已有詞彙，需要解釋" in action.system_prompt
-    assert "已成熟的想法" in action.system_prompt
-    assert "尚模糊的想法" in action.system_prompt
+    assert "只有近似概念時" in action.system_prompt
     assert "正式術語／慣用說法／流行用語" in action.system_prompt
-    assert "未確認候選" in action.system_prompt
+    assert "不要自創概念名" in action.system_prompt
     assert "前三行嚴格少於 180 個中文字" in action.prompt
-    assert "暫不命名" in action.system_prompt
+    assert "找不到貼切的既有詞" in action.system_prompt
     assert "核心詞：" in action.prompt
     assert "說明：" in action.prompt
     assert "提醒：" in action.prompt
@@ -598,7 +624,7 @@ def test_thinking_actions_have_distinct_outputs_and_ai_boundaries() -> None:
         "tradeoff_perspective": {
             "name": "權衡透視",
             "hotkey": "ctrl+alt+d",
-            "prompt_markers": ("## 觀點", "## 價值與取捨", "## 兩邊的代價", "## 需要你判斷"),
+            "prompt_markers": ("## 觀點", "## 價值與取捨", "## 兩邊的代價", "## 什麼條件會改變選擇？"),
             "does_not": "不替你排序價值、決定可接受的代價或做出最後選擇",
         },
     }
@@ -624,7 +650,8 @@ def test_thinking_actions_have_distinct_outputs_and_ai_boundaries() -> None:
 
     assert "不要先列出多套框架" in bundle.actions.get("mece_decomposition").system_prompt
     assert "只提出一個行動" in bundle.actions.get("minimum_action").system_prompt
-    assert "不替使用者排序價值" in bundle.actions.get("tradeoff_perspective").system_prompt
+    assert "保留使用者對價值排序和最後選擇的決定權" in bundle.actions.get("tradeoff_perspective").system_prompt
+    assert "最值得查的一項資訊" in bundle.actions.get("tradeoff_perspective").prompt
 
 
 def test_popup_prompts_do_not_repeat_action_titles_as_the_first_heading() -> None:
@@ -642,7 +669,8 @@ def test_popup_prompts_do_not_repeat_action_titles_as_the_first_heading() -> Non
         assert heading not in bundle.actions.get(action_id).prompt
 
     assert "## 核心理由" in bundle.actions.get("pyramid_position").prompt
-    assert "## 重要觀點" in bundle.actions.get("article_structure").prompt
+    article = bundle.actions.get("article_structure").prompt
+    assert article.index("核心結論") < article.index("## 重要觀點") < article.index("## 論述脈絡")
     assert "## 為什麼值得思考" in bundle.actions.get("reflective_question").prompt
     assert "## 為什麼是這一步" in bundle.actions.get("minimum_action").prompt
     assert "## 閱讀提示" in bundle.actions.get("extract_keywords").prompt
@@ -711,12 +739,12 @@ def test_session_handoff_preserves_reasoning_continuity_for_a_new_ai_session() -
     assert "None identified." in profile.instruction
 
 
-def test_command_copilot_combines_command_generation_and_risk_review() -> None:
+def test_command_copilot_keeps_shortcut_but_only_reviews_risk() -> None:
     bundle = load_config_bundle()
     action = bundle.actions.get("command_copilot")
     shortcut = bundle.shortcuts.definition("command_copilot")
 
-    assert action.name == "Command Copilot｜指令轉譯與風險審查"
+    assert action.name == "指令風險檢查"
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
@@ -726,7 +754,8 @@ def test_command_copilot_combines_command_generation_and_risk_review() -> None:
     assert shortcut.hotkey == "ctrl+alt+c"
     assert shortcut.action_id == action.id
     assert action.feedback_contract is not None
-    assert "自然語言意圖或既有 command" in action.system_prompt
+    assert "不因輸入是中文或含有程式碼而切換任務" in action.system_prompt
+    assert "不自行補成可執行 commands" in action.system_prompt
     assert "不得為了縮短或安全而改變原 command 的行為" in action.system_prompt
     assert "風險層級" in action.prompt
     assert "更安全的做法" in action.prompt

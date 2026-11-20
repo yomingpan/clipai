@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "scope": "single_pc_fixed_wav_exploratory_attempt_inventory",
+  "baseline_status": "not_established",
+  "selection": "all_six_saved_fixed_wav_minimal_reports_through_2026-09-28",
+  "assessment_counts_not_failure_rates": {
+    "fail": 3,
+    "pass": 3
+  },
+  "attempts": [
+    {
+      "artifact": "inline-controlled-audio-minimal-2",
+      "source_report": "report.json",
+      "mode": "minimal",
+      "scenario": "raw",
+      "recorded_status": "fail",
+      "reassessed_status": "fail",
+      "checks": {
+        "target_readback": "fail",
+        "app_trace_validity": "pass",
+        "single_app_interaction": "pass",
+        "frozen_mode": "pass",
+        "app_terminal": "pass",
+        "delivery_path": "pass",
+        "stop_gesture": "pass"
+      },
+      "audio_replay_timing": "not_covered",
+      "literal_character_comparison_status": "not_covered"
+    },
+    {
+      "artifact": "inline-controlled-audio-minimal-3",
+      "source_report": "report.json",
+      "mode": "minimal",
+      "scenario": "raw",
+      "recorded_status": "pass",
+      "reassessed_status": "pass",
+      "checks": {
+        "target_readback": "pass",
+        "app_trace_validity": "pass",
+        "single_app_interaction": "pass",
+        "frozen_mode": "pass",
+        "app_terminal": "pass",
+        "delivery_path": "pass",
+        "stop_gesture": "pass"
+      },
+      "audio_replay_timing": "not_covered",
+      "literal_character_comparison_status": "not_covered"
+    },
+    {
+      "artifact": "inline-controlled-audio-minimal-4",
+      "source_report": "report.json",
+      "mode": "minimal",
+      "scenario": "raw",
+      "recorded_status": "pass",
+      "reassessed_status": "pass",
+      "checks": {
+        "target_readback": "pass",
+        "audio_replay_during_capture": "pass",
+        "app_trace_validity": "pass",
+        "single_app_interaction": "pass",
+        "frozen_mode": "pass",
+        "app_terminal": "pass",
+        "delivery_path": "pass",
+        "stop_gesture": "pass"
+      },
+      "audio_replay_timing": "pass",
+      "literal_character_comparison_status": "not_covered"
+    },
+    {
+      "artifact": "inline-controlled-audio-refine-minimal-1",
+      "source_report": "report.json",
+      "mode": "minimal",
+      "scenario": "refine",
+      "recorded_status": "fail",
+      "reassessed_status": "fail",
+      "checks": {
+        "target_readback": "fail",
+        "audio_replay_during_capture": "pass",
+        "app_trace_validity": "pass",
+        "single_app_interaction": "pass",
+        "frozen_mode": "pass",
+        "app_terminal": "pass",
+        "delivery_path": "fail",
+        "stop_gesture": "fail"
+      },
+      "audio_replay_timing": "pass",
+      "literal_character_comparison_status": "not_applicable"
+    },
+    {
+      "artifact": "inline-controlled-audio-refine-minimal-2",
+      "source_report": "report.json",
+      "mode": "minimal",
+      "scenario": "refine",
+      "recorded_status": "fail",
+      "reassessed_status": "fail",
+      "checks": {
+        "target_readback": "pass",
+        "audio_replay_during_capture": "pass",
+        "app_trace_validity": "pass",
+        "single_app_interaction": "pass",
+        "frozen_mode": "pass",
+        "app_terminal": "pass",
+        "delivery_path": "fail",
+        "stop_gesture": "fail"
+      },
+      "audio_replay_timing": "pass",
+      "literal_character_comparison_status": "not_applicable"
+    },
+    {
+      "artifact": "inline-controlled-audio-refine-minimal-3",
+      "source_report": "report.json",
+      "mode": "minimal",
+      "scenario": "refine",
+      "recorded_status": "pass",
+      "reassessed_status": "pass",
+      "checks": {
+        "target_readback": "pass",
+        "audio_replay_during_capture": "pass",
+        "app_trace_validity": "pass",
+        "single_app_interaction": "pass",
+        "frozen_mode": "pass",
+        "app_terminal": "pass",
+        "delivery_path": "pass",
+        "stop_gesture": "pass"
+      },
+      "audio_replay_timing": "pass",
+      "literal_character_comparison_status": "not_applicable"
+    }
+  ],
+  "limits": [
+    "attempts_span_harness_and_hotkey_code_changes",
+    "speaker_playback_does_not_independently_confirm_microphone_input",
+    "one_pc_and_no_representative_distribution",
+    "choice_fixed_wav_attempt_not_yet_available"
+  ]
+}

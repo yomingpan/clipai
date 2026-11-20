@@ -3,6 +3,8 @@ from __future__ import annotations
 from ClipAI.core.models import PasteTarget
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceOrigin
+from ClipAI.core.voice import VoiceCaptureId, VoiceEngineEnded
+from ClipAI.services.voice_input import VoiceInputController, RestoreVoiceReview
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.core.models import ActionInvocation, InputDocument, InputTarget, ResolvedAction
 
@@ -32,6 +34,24 @@ def controller(text: str = "hello", presenter: Presenter | None = None) -> Workf
         ),
         presenter or Presenter(),
     )
+
+
+def test_empty_voice_settlement_leaves_real_workflow_finalizing_state() -> None:
+    workflow = controller("")
+    voice = VoiceInputController(enabled=True)
+    target = workflow.freeze_voice_insertion(0, 0)
+    assert target is not None
+    capture = VoiceCaptureId("empty-voice")
+    workflow.project_voice_capture(voice.request_capture(capture, target).projection)
+    workflow.project_voice_capture(voice.request_stop(capture).projection)
+    assert workflow.snapshot.status is SessionStatus.VOICE_FINALIZING
+
+    settled = voice.observe_engine(VoiceEngineEnded(capture))
+    workflow.project_voice_capture(settled.projection)
+    assert isinstance(settled.effects[0], RestoreVoiceReview)
+    workflow.restore_voice_review(settled.effects[0].target, settled.effects[0].message)
+
+    assert workflow.snapshot.status is SessionStatus.VOICE_REVIEW
 
 
 def test_workflow_controller_applies_voice_transition_and_renders_once() -> None:

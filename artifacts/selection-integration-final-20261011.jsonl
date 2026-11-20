@@ -1,0 +1,1 @@
+{"schema": 1, "gate": "selection-integration-smoke", "target": "tests/platform/test_selection_uia_integration.py", "exit_code": 0, "passed_cases": 1, "passed": true, "content_recorded": false, "device_evidence": true}

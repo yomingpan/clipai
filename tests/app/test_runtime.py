@@ -10,9 +10,117 @@ from ClipAI.app.runtime_provider_configuration import ProviderConfigurationRunti
 from ClipAI.app.runtime_action_feedback import ActionFeedbackRuntimeModule
 from ClipAI.app.runtime_user_preferences import UserPreferencesRuntimeModule
 from ClipAI.app.runtime_workflows import VoiceCaptureIntent, WorkflowRuntimeModule
-from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefreshProviderModels, ReloadConfiguration, ResetFirstUseHints, SelectActionLanguagePack, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
+from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession, CloseSession, CopyResult, ExportDiagnostics, ExternalForegroundChanged, FollowUp, InterruptionRequested, InterruptAll, InterruptCurrent, OpenContextualQuestion, OpenProviderSettings, PasteOperationCompleted, PasteResult, RefineVoiceDraftInPlace, RefreshProviderModels, RegenerateResult, ReloadConfiguration, ResetFirstUseHints, SelectActionLanguagePack, SelectProvider, SelectProviderModel, SetFirstUseHintsEnabled, SetSpeechSpeed, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, SubmitActionFeedback, SubmitContextualQuestion, TogglePin, ToggleSpeech, ValidateAndSaveProviderSettings, WorkflowAttentionCompleted
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
-from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ActionInvocation, ControlSurfaceRef, EntryActionRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
+from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ActionInvocation, ControlSurfaceRef, EntryActionRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InlineOrigin, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
+from ClipAI.core.commands import CancelInlineDictation, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired
+from ClipAI.app.runtime import _VOICE_COMMANDS
+
+
+def test_new_voice_commands_are_in_runtime_routing_whitelist() -> None:
+    assert {ToggleInlineDictation, ConfirmInlineDictation, CancelInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired} <= set(_VOICE_COMMANDS)
+
+
+def test_inline_physical_press_routes_preview_events_and_release_intent_separately():
+    from types import SimpleNamespace
+    from ClipAI.core.commands import ShortcutPressStarted, ShortcutPressThresholdReached, ShortcutPressEnded
+    from ClipAI.services.shortcut_catalog import ShortcutCatalog
+    runtime, *_ = make_runtime(include_inline=True)
+    events, intents = [], []
+    runtime._voice_input_module = SimpleNamespace(handle_inline_shortcut_event=events.append, handle=intents.append)
+    started = ShortcutPressStarted(1, "inline")
+    threshold = ShortcutPressThresholdReached(1, "inline")
+    ended = ShortcutPressEnded(1, "inline", "released")
+    for event in (started, threshold): runtime.enqueue(event)
+    runtime.drain_commands()
+    assert events == [started, threshold]
+    assert intents == []
+    runtime.enqueue(ShortcutPressInvoked(1, "inline", "long"))
+    runtime.enqueue(ended)
+    runtime.drain_commands()
+    assert intents == [ToggleInlineDictation("long")]
+    assert events == [started, threshold, ended]
+
+
+def test_inline_view_cancel_routes_to_voice_module_with_its_interaction_id() -> None:
+    class VoiceModule:
+        def __init__(self) -> None:
+            self.commands = []
+
+        def handle(self, command) -> None:
+            self.commands.append(command)
+
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    voice = VoiceModule()
+    runtime._voice_input_module = voice
+    command = CancelInlineDictation("inline-old")
+
+    runtime.enqueue(command)
+    runtime.drain_commands()
+
+    assert voice.commands == [command]
+
+
+def test_inline_paste_uses_output_operation_without_creating_workflow() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    target = PasteTarget("hwnd:1", 1, "Editor", "private", 1)
+
+    runtime._result_output_module.paste_inline("spoken words", target, "inline-1", "paste-1")
+    assert view.snapshots == []
+    assert view.output_results == []
+    assert isinstance(runtime._result_output_module._paste_operations.active.origin, InlineOrigin)
+    assert len(supervisor.work) == 1
+    next(iter(supervisor.work.values()))()
+    runtime.drain_commands()
+
+    assert outputs.pasted == ["spoken words"]
+    assert outputs.paste_targets == [target]
+    assert view.output_results == []
+
+
+def test_inline_paste_begin_failure_reports_terminal_acknowledgement() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    module = runtime._result_output_module
+    completions = []
+    module._inline_paste_completion_sink = completions.append
+
+    def fail_begin(_intent):
+        raise RuntimeError("begin unavailable")
+
+    module._operations.begin = fail_begin
+    module.paste_inline("spoken words", PasteTarget("hwnd:1", 1, "Editor", "private", 1), "inline-1", "paste-1")
+
+    assert len(completions) == 1
+    assert completions[0].origin == InlineOrigin("inline-1")
+    assert completions[0].operation_id == "paste-1"
+    assert completions[0].outcome.state == "failed"
+
+
+def test_explicit_inline_discard_before_dispatch_does_not_copy_dictation_to_clipboard() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    target = PasteTarget("hwnd:1", 1, "Editor", "private", 1)
+    original_clipboard = outputs.clipboard_bits
+    runtime._result_output_module.paste_inline("spoken words", target, "inline-1", "paste-1")
+
+    assert runtime._result_output_module.cancel_operation("paste-1") == ("paste-1",)
+    runtime.drain_commands()
+
+    assert outputs.pasted == []
+    assert outputs.copied == []
+    assert outputs.clipboard_bits == original_clipboard
+    assert view.output_results == []
+
+
+def test_explicit_inline_copy_uses_output_owner_and_does_not_project_workflow_result() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime._result_output_module.copy_inline("complete original text", "inline-1", "copy-1")
+
+    assert outputs.copied == []
+    supervisor.work["copy-1"]()
+    runtime.drain_commands()
+
+    assert outputs.copied == ["complete original text"]
+    assert view.output_results == []
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCaptureSurfaceContext, VoiceFollowUpTarget, VoiceOrigin
 from ClipAI.services.action_catalog import ActionCatalog
@@ -141,6 +249,7 @@ class FakeExecute:
         self.bindings = []
         self.follow_ups = []
         self.actions = []
+        self.refinements = []
 
     def execute(self, action, controller) -> None:
         pass
@@ -156,6 +265,9 @@ class FakeExecute:
 
     async def execute_follow_up_invocation(self, *args, **kwargs) -> None:
         self.follow_ups.append((args, kwargs))
+
+    async def execute_refine_voice_draft_invocation(self, *args, **kwargs) -> None:
+        self.refinements.append((args, kwargs))
 
 
 class ContextResolver:
@@ -209,6 +321,7 @@ class FakePasteOperations:
                 request.operation_id,
                 request.workflow_id,
                 PasteOutcome("failed", "not_dispatched", "not_required", "Paste still in progress."),
+                request.origin,
             ))
             return False
         self.active = request
@@ -281,7 +394,7 @@ class FakePasteOperations:
     def _complete(self, request: PasteRequest, outcome: PasteOutcome) -> None:
         if self.active is not request:
             return
-        self.completion_sink(PasteOperationCompleted(request.operation_id, request.workflow_id, outcome))
+        self.completion_sink(PasteOperationCompleted(request.operation_id, request.workflow_id, outcome, request.origin))
         self.active = None
         self.running = False
 
@@ -431,6 +544,9 @@ class Operation:
 
 
 class OperationTracker:
+    def set_ready(self, ready: bool) -> None:
+        self.events.append(("ready", ready))
+
     def __init__(self) -> None:
         self.events: list[tuple[str, ...]] = []
         self.stopped = False
@@ -579,7 +695,7 @@ class PopupSpeech:
             self.cancel_operation(self.current[0])
 
 
-def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, personal_styles=None, entry_panel=None, recent_actions=None, recent_action_sink=None, action_language=None):
+def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics_exporter=None, notifier=None, speech_coordinator=None, model_preferences=None, reload_provider_settings=None, validate_provider_credential=None, build_provider_candidate=None, discover_provider_models=None, action_feedback=None, guidance_preferences=None, guidance_preferences_presenter=None, speech_speed_presenter=None, submit_error=None, include_voice_input: bool = False, include_inline: bool = False, personal_styles=None, entry_panel=None, recent_actions=None, recent_action_sink=None, action_language=None):
     action = ActionDefinition(
         "a",
         "Action",
@@ -599,6 +715,13 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
             "Do not change meaning",
             (FeedbackReason("meaning_lost", "Meaning lost"),),
         ),
+    )
+    refine = ActionDefinition(
+        "intent_preserving_dictation_editor",
+        "Refine dictation",
+        "Preserve intent.",
+        "{input}",
+        {},
     )
     view = FakeView()
     supervisor = FakeSupervisor(submit_error)
@@ -633,8 +756,10 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
     ]
     if include_voice_input:
         shortcut_definitions.append(ShortcutDefinition("voice_input", "ctrl+alt+w", "push_to_talk"))
+    if include_inline:
+        shortcut_definitions.append(ShortcutDefinition("inline", "right_alt", "inline_dictation"))
     shortcuts = ShortcutCatalog(shortcut_definitions)
-    actions = ActionCatalog([action, shorten])
+    actions = ActionCatalog([action, shorten, refine])
     execute_action = FakeExecute()
     provider_configuration = ProviderConfigurationCoordinator(snapshot, backend)
     incident_reporter = IncidentReporter()
@@ -867,6 +992,28 @@ def test_contextual_shortcut_on_focused_result_opens_existing_composer_only() ->
     assert controller.snapshot.question_composer_revision == before_revision + 1
     assert {key for key in supervisor.work if key.startswith("context-source:")} == before_capture_tasks
     assert controller.snapshot.active_invocation_id is None
+
+
+def test_regenerate_cancels_the_active_provider_invocation_and_starts_a_new_identity() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    controller = workflow(view, workflow_id)
+    original_id = controller.snapshot.active_invocation_id
+    assert original_id is not None
+
+    runtime.enqueue(RegenerateResult(workflow_id))
+    runtime.drain_commands()
+
+    regenerated_id = controller.snapshot.active_invocation_id
+    assert regenerated_id is not None
+    assert regenerated_id != original_id
+    assert original_id in supervisor.cancelled
+    assert regenerated_id in supervisor.work
+
+    supervisor.work[regenerated_id]()
+    assert view.execute_action.invocations[-1].invocation_id == regenerated_id
 
 
 def test_missing_personal_style_stops_before_workflow_and_provider_execution() -> None:
@@ -1500,8 +1647,17 @@ def test_global_speech_command_is_supervised_without_creating_session() -> None:
     assert speech.calls == ["run"]
 
 
-@pytest.mark.parametrize("reason", ["unsupported", "timeout", "source_changed", "cancelled"])
-def test_global_speech_unknown_selection_reports_failure_without_breaking_pump(reason) -> None:
+@pytest.mark.parametrize('reason,advice', [
+    ('uia_unsupported', '請先反白一段文字，或改用剪貼簿。'),
+    ('uia_timeout', '建議重新開啟 ClipAI。'),
+    ('uia_text_failed', '建議重新開啟 ClipAI。'),
+    ('uia_provider_failed', '建議重新開啟 ClipAI。'),
+    ('uia_focus_restore_failed', '建議重新開啟 ClipAI。'),
+    ('source_changed', '請點回原本的視窗後再試一次。'),
+    ('modifier_timeout', '請先放開 Ctrl／Alt 等按鍵，再試一次。'),
+    ('cancelled', ''),
+])
+def test_global_speech_unknown_selection_reports_failure_without_breaking_pump(reason, advice) -> None:
     from ClipAI.core.models import SelectionCaptureOutcome, SelectionCaptureRequest
     from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechVoiceSelector
 
@@ -1543,7 +1699,8 @@ def test_global_speech_unknown_selection_reports_failure_without_breaking_pump(r
         assert notifier.messages == []
     else:
         assert "無法確認反白內容" in view.output_results[-1].error.message
-        assert "無法確認反白內容" in notifier.messages[-1][1]
+        assert notifier.messages[-1][1].startswith('讀不到反白的文字：')
+        assert advice in notifier.messages[-1][1]
     assert speech.current_identity is None
     assert view.snapshots == []
 
@@ -1639,6 +1796,37 @@ def test_short_escape_uses_latest_operation_without_stopping_older_workflow() ->
 
     assert speech.current_identity is None
     assert workflow(view, workflow_id).snapshot.active_invocation_id == invocation_id
+
+
+def test_unfocused_unpinned_popup_escape_cancels_then_closes() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    assert runtime._workflow_module.unpinned_foreground_popup_id() == workflow_id
+
+    runtime.enqueue(InterruptCurrent())
+    runtime.drain_commands()
+    assert runtime._workflow_module.controller_for(workflow_id) is not None
+
+    runtime.enqueue(InterruptCurrent())
+    runtime.drain_commands()
+    assert runtime._workflow_module.controller_for(workflow_id) is None
+
+
+def test_unfocused_pinned_popup_escape_never_closes() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+    runtime.enqueue(TogglePin(workflow_id))
+    runtime.drain_commands()
+    assert runtime._workflow_module.unpinned_foreground_popup_id() is None
+
+    runtime.enqueue(InterruptCurrent())
+    runtime.enqueue(InterruptCurrent())
+    runtime.drain_commands()
+    assert runtime._workflow_module.controller_for(workflow_id) is not None
 
 
 def test_short_escape_closes_focused_popup_without_stopping_unowned_speech() -> None:
@@ -2459,7 +2647,7 @@ def test_copy_prefers_selected_command_text() -> None:
     runtime.enqueue(CopyResult(session_id, " selected ", "copy-op"))
     runtime.drain_commands()
     _supervisor.work["copy-op"]()
-    assert outputs.copied == ["selected"]
+    assert outputs.copied == [" selected "]
 
 
 def test_stop_releases_listener_supervisor_and_view() -> None:
@@ -2479,6 +2667,90 @@ def test_runtime_starts_and_stops_foreground_monitor() -> None:
 
     assert monitor.started is True
     assert monitor.stopped is True
+
+
+def test_runtime_starts_background_components_before_input_and_stops_them() -> None:
+    runtime, _view, _supervisor, _outputs, listener = make_runtime()
+    events = []
+
+    class Component:
+        def start(self): events.append("component:start")
+        def stop(self): events.append("component:stop")
+
+    runtime._background_components = (Component(),)
+    runtime._hotkey_registrar = lambda *_args: events.append("input:start") or listener
+
+    runtime.start()
+    runtime.stop()
+
+    assert events[:2] == ["component:start", "input:start"]
+    assert "component:stop" in events
+
+
+def test_runtime_shutdown_continues_after_one_teardown_fails() -> None:
+    runtime, view, supervisor, _outputs, listener = make_runtime()
+    events = []
+
+    class BrokenComponent:
+        def start(self): pass
+        def stop(self):
+            events.append("component:failed")
+            raise RuntimeError("stop failed")
+
+    runtime._background_components = (BrokenComponent(),)
+    runtime.start()
+    runtime.stop()
+
+    assert events == ["component:failed"]
+    assert listener.stopped and supervisor.closed and view.stopped
+
+
+def test_run_forever_cleans_up_when_start_fails() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+
+    class BrokenComponent:
+        def start(self): raise RuntimeError("start failed")
+        def stop(self): pass
+
+    runtime._background_components = (BrokenComponent(),)
+
+    with pytest.raises(RuntimeError, match="start failed"):
+        runtime.run_forever()
+
+    assert supervisor.closed and view.stopped
+
+
+def test_run_forever_reports_started_after_components_and_before_view_loop() -> None:
+    runtime, view, _supervisor, _outputs, listener = make_runtime()
+    events: list[str] = []
+
+    class Component:
+        def start(self): events.append("component:start")
+        def stop(self): pass
+
+    runtime._background_components = (Component(),)
+    runtime._hotkey_registrar = lambda *_args: events.append("input:start") or listener
+    view.run = lambda _pump: events.append("view:run")
+
+    runtime.run_forever(on_started=lambda: events.append("runtime:started"))
+
+    assert events == ["component:start", "input:start", "runtime:started", "view:run"]
+
+
+def test_run_forever_does_not_report_started_when_component_start_fails() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+    started: list[bool] = []
+
+    class BrokenComponent:
+        def start(self): raise RuntimeError("start failed")
+        def stop(self): pass
+
+    runtime._background_components = (BrokenComponent(),)
+
+    with pytest.raises(RuntimeError, match="start failed"):
+        runtime.run_forever(on_started=lambda: started.append(True))
+
+    assert started == []
 
 
 def test_tray_exit_uses_typed_shutdown_command() -> None:
@@ -2707,6 +2979,139 @@ def test_dispatched_voice_paste_closes_the_unpinned_workflow_before_the_next_sho
 
     assert runtime._workflow_module.controller_for(workflow_id) is None
     assert runtime._workflow_module.has_foreground_workflow() is False
+
+
+def test_dispatched_action_paste_allows_next_voice_shortcut_to_create_fresh_draft() -> None:
+    runtime, view, _supervisor, _outputs, _listener = make_runtime(include_voice_input=True)
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    workflow_id = view.snapshots[-1].session_id
+
+    runtime.enqueue(PasteOperationCompleted(
+        "paste-op",
+        workflow_id,
+        PasteOutcome("dispatched_unconfirmed", "dispatched_unconfirmed", "restored"),
+    ))
+    runtime.drain_commands()
+
+    assert runtime._workflow_module.controller_for(workflow_id) is not None
+    assert runtime._workflow_module.has_foreground_workflow() is False
+    assert runtime._user_control.focused_surface is None
+
+    admission = runtime._workflow_module.admit_voice_capture(VoiceCaptureIntent("shortcut"))
+
+    assert admission.kind == "create"
+    assert admission.message == ""
+
+
+def test_new_voice_workflow_is_an_editable_standby_draft_before_microphone_open() -> None:
+    runtime, _view, _supervisor, _outputs, _listener = make_runtime()
+
+    controller = runtime._workflow_module.create_voice_workflow(
+        "standby-voice-workflow",
+        None,
+    )
+
+    assert controller.snapshot.status is SessionStatus.VOICE_REVIEW
+    assert controller.snapshot.status_text == ""
+    assert controller.snapshot.available_actions == ("copy", "paste", "follow_up", "refine")
+    assert controller.snapshot.result_completeness == "complete"
+
+
+def test_refine_voice_draft_freezes_selection_before_submitting_provider_work() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(workflow_id, None)
+    controller._snapshot = controller.snapshot.evolve(
+        content="rough voice draft",
+        voice_origin=VoiceOrigin(None, "rough voice draft", 4),
+    )
+
+    runtime.enqueue(RefineVoiceDraftInPlace(workflow_id, 4, 6, 11))
+    runtime.drain_commands()
+
+    invocation_id = controller.snapshot.active_invocation_id
+    assert invocation_id is not None
+    assert invocation_id in supervisor.work
+    supervisor.work[invocation_id]()
+    args, kwargs = view.execute_action.refinements[0]
+    invocation = args[1]
+    assert invocation.input_target.document == InputDocument("voice", "voice_draft", workflow_id=workflow_id)
+    assert kwargs["target"].expected_revision == 4
+    assert kwargs["target"].selection_start == 6
+    assert kwargs["target"].selection_end == 11
+
+
+def test_refine_voice_draft_without_selection_targets_the_whole_draft() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(workflow_id, None)
+    controller._snapshot = controller.snapshot.evolve(
+        content="whole draft",
+        voice_origin=VoiceOrigin(None, "whole draft", 2),
+    )
+
+    runtime.enqueue(RefineVoiceDraftInPlace(workflow_id, 2, 5, 5))
+    runtime.drain_commands()
+    invocation_id = controller.snapshot.active_invocation_id
+    assert invocation_id is not None
+    supervisor.work[invocation_id]()
+
+    args, kwargs = view.execute_action.refinements[0]
+    assert args[1].input_target.document == InputDocument("whole draft", "voice_draft", workflow_id=workflow_id)
+    assert (kwargs["target"].selection_start, kwargs["target"].selection_end) == (0, 11)
+
+
+def test_refine_voice_draft_rejects_a_non_visible_workflow() -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(workflow_id, None)
+    controller._snapshot = controller.snapshot.evolve(
+        content="voice draft",
+        voice_origin=VoiceOrigin(None, "voice draft", 1),
+    )
+    record = runtime._workflow_module._records[workflow_id]
+    runtime._workflow_module._records[workflow_id] = replace(record, presentation="headless")
+
+    runtime.enqueue(RefineVoiceDraftInPlace(workflow_id, 1, 0, 5))
+    runtime.drain_commands()
+
+    assert view.execute_action.refinements == []
+    assert supervisor.work == {}
+    assert controller.snapshot.content == "voice draft"
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_revision", "selection", "active_invocation_id"),
+    (
+        (SessionStatus.COMPLETED, 4, (0, 5), None),
+        (SessionStatus.VOICE_REVIEW, 3, (0, 5), None),
+        (SessionStatus.VOICE_REVIEW, 4, (5, 6), None),
+        (SessionStatus.VOICE_REVIEW, 4, (0, 5), "already-active"),
+    ),
+)
+def test_refine_voice_draft_rejects_invalid_or_stale_intent_without_provider_submission(
+    status,
+    expected_revision,
+    selection,
+    active_invocation_id,
+) -> None:
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    workflow_id = "voice-workflow"
+    controller = runtime._workflow_module.create_voice_workflow(workflow_id, None)
+    controller._snapshot = controller.snapshot.evolve(
+        status=status,
+        content="voice draft",
+        voice_origin=VoiceOrigin(None, "voice draft", 4),
+        active_invocation_id=active_invocation_id,
+    )
+
+    runtime.enqueue(RefineVoiceDraftInPlace(workflow_id, expected_revision, *selection))
+    runtime.drain_commands()
+
+    assert view.execute_action.refinements == []
+    assert supervisor.work == {}
+    assert controller.snapshot.content == "voice draft"
 
 
 def test_completion_for_non_foreground_workflow_does_not_release_current_foreground() -> None:
@@ -2943,3 +3348,72 @@ def test_unfocused_input_recovery_expiry_closes_only_matching_workflow():
     runtime.enqueue(ExpireInputRecovery(controller.snapshot.session_id, recovery.recovery_id))
     runtime.drain_commands()
     assert controller.snapshot.status is SessionStatus.CLOSED
+
+
+@pytest.mark.parametrize("source", ["selection", "clipboard"])
+def test_panel_question_admission_uses_frozen_source_without_capture_or_provider(source):
+    from ClipAI.core.models import InputTarget
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    transitions = []
+    admission = runtime._workflow_module.open_contextual_question(
+        input_target=InputTarget("external_text", InputDocument("frozen panel text", source)),
+        before_first_projection=transitions.append,
+    )
+    assert admission.accepted
+    controller = runtime._workflow_module.controller_for(admission.workflow_id)
+    assert controller.snapshot.status is SessionStatus.CONTEXT_QUESTION
+    assert controller.snapshot.contextual_source_text == "frozen panel text"
+    assert controller.snapshot.contextual_source_kind == source
+    assert controller.snapshot.active_invocation_id is None
+    assert supervisor.work == {}
+    assert view.execute_action.follow_ups == []
+    assert transitions == [admission.workflow_id]
+    runtime.enqueue(SubmitContextualQuestion(admission.workflow_id, "Why?"))
+    runtime.drain_commands()
+    invocation_id = controller.snapshot.active_invocation_id
+    supervisor.work[invocation_id]()
+    continuation = view.execute_action.follow_ups[-1][0][0]
+    assert continuation.question == "Why?"
+    request = continuation.build_request(default_system_prompt="", action_system_prompt=lambda: "", model="model", default_temperature=0.2)
+    assert request.messages[1].content == "<source_context>\nfrozen panel text\n</source_context>"
+
+
+@pytest.mark.parametrize("image_only", [False, True])
+def test_panel_question_rejects_invalid_source_before_surface_handoff(image_only):
+    from ClipAI.core.models import ImageContent, InputTarget
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    transitions = []
+    admission = runtime._workflow_module.open_contextual_question(
+        input_target=InputTarget("external_text", InputDocument("", "clipboard", image=ImageContent(b"image", "image/png")) if image_only else InputDocument("x" * 40_001, "selection")),
+        before_first_projection=transitions.append,
+    )
+    assert not admission.accepted
+    assert transitions == []
+    assert supervisor.work == {}
+    assert view.execute_action.follow_ups == []
+
+
+def test_panel_question_on_existing_result_preserves_workflow_and_source_identity():
+    from ClipAI.core.models import InputTarget
+    runtime, view, supervisor, _outputs, _listener = make_runtime()
+    runtime.enqueue(StartAction("a", "short"))
+    runtime.drain_commands()
+    controller = workflow(view, view.snapshots[-1].session_id)
+    invocation_id = controller.snapshot.active_invocation_id
+    supervisor.work[invocation_id]()
+    invocation = view.execute_action.invocations[-1]
+    controller.complete(invocation, view.actions.resolve("a", "short"), InputDocument("source", "selection"), "answer", ("follow_up",))
+    workflow_id = controller.snapshot.session_id
+    target = InputTarget("workflow_result", InputDocument("answer", "workflow_result", workflow_id, controller.snapshot.steps[-1].step_id))
+    before = controller.snapshot.question_composer_revision
+    tasks_before = set(supervisor.work)
+    transitions = []
+    admission = runtime._workflow_module.open_contextual_question(input_target=target, before_first_projection=transitions.append)
+    assert admission.workflow_id == workflow_id
+    assert controller.snapshot.question_composer_revision == before + 1
+    assert controller.snapshot.steps[-1].result_text == "answer"
+    assert set(supervisor.work) == tasks_before
+    assert transitions == [workflow_id]
+    stale = InputTarget("workflow_result", InputDocument("stale", "workflow_result", "missing-workflow", "missing-step"))
+    assert not runtime._workflow_module.open_contextual_question(input_target=stale, before_first_projection=transitions.append).accepted
+    assert transitions == [workflow_id]

@@ -83,6 +83,10 @@ Base dialog surface 必須提供一致的視覺語言。
 - 內容容器應有清楚邊界，但不得用過度裝飾搶走內容注意力。
 - 基礎 border 是狀態語言，不只是裝飾。
 - Header 應顯示目前 surface 的明確標題。
+- Result Popup 優先呈現正文。標題層級以字重、字級和留白區分；來源文字次於正文，仍須可辨識。
+- 選單與結果的來源預覽將已確認的剪貼簿影像顯示為「剪貼簿圖片」。返回先前的結果時，來源預覽隨該步驟一起恢復。
+- Result Popup 操作列的閒置按鈕使用透明背景，滑鼠懸停時顯示底色。進行中與完成狀態在原按鈕位置顯示對應圖示與提示。
+- 操作列的啟用按鈕可用 Tab 聚焦，焦點外框在操作回饋期間仍可見。Enter 與空白鍵沿用按鈕原本的命令。
 - 尺寸必須有合理 minsize，避免內容在小視窗中擠壓到不可用。
 - Position 支援 center 與 cursor 附近定位。
 - 色彩必須服務狀態辨識，不應製造驚喜或分散注意力。
@@ -110,6 +114,7 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
   `Ctrl+V` 在編輯與閱讀模式都一律產生外部 Paste intent，不得原生貼入
   Popup。`Ctrl+Enter` 只切換編輯／閱讀呈現；Paste 按鈕在兩種模式都可明確
   觸發外部貼上。
+- 語音輸入未設定、停用中或已停用時，Popup 隱藏語音控制項。文字草稿仍可編輯。
 - 在 Voice Review 中，使用者以 `Ctrl+/` 明確開啟 Follow-up 後，下一次
   `Ctrl+Alt+W` 必須以 Follow-up 作為 Voice capture destination；未開啟時才
   繼續 Voice Draft。Presenter 只讀取並回報 Follow-up 可見狀態，runtime 保留
@@ -137,6 +142,10 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
   Voice Listening／Finalizing 保持 non-activating，直到進入 Voice Review 才提出
   初始焦點請求。只有 toolkit 確認焦點位於該 Popup 內，Presenter 才能回報
   confirmed activation；焦點呼叫失敗不得被投影成 focused state。
+- 初始 focus 最多立即嘗試一次並以 32ms 間隔重試四次；成功條件是 Popup 真正取得
+  native foreground，而不是特定 content child 是否持有 caret。重試用盡後仍保留
+  pending，只有 foreground poll 確認 ownership 時才補做一次。Voice capture active
+  期間不得由 FocusOut 或 foreground poll 推導使用者已離開 Popup。
 - Toolkit focus 已進入 Popup、但 native foreground 尚未成立時，`PopupControl`
   必須維持 unfocused projection，並以 generation-bound、有限次
   的重新採樣等待兩軸確認。Popup 內的明確 pointer press 可透過既有
@@ -152,6 +161,21 @@ Base dialog surface 應定義穩定的 standard action slots。這些 slots 是 
   insertion projection 可以替換 widget 內容。文字修改必須由 widget mutation 事件
   回報，不得等到 physical key release 才觀察；同一個 editor 任一時刻只能綁定
   一個 mutation handler，snapshot refresh 不得累積 callback。
+- 進入 editing 必須先設 normal、移除所有 display break hints，再綁定唯一
+  `<<Modified>>` handler；切回 reading 必須先解除 handler、套用 display-only hints，
+  再設 disabled。`semantic_content()`、selection offsets 與所有 output intent 都先 strip
+  hints。禁止在 editable 文字注入 hint 或以 timer 正規化，確保 BackSpace、方向鍵與
+  caret 永遠作用於使用者看得見的 canonical 字元。
+- Popup 內容文字的單擊與拖曳維持字元粒度；雙擊選字後拖曳按字詞擴選；三擊選
+  語意段落後拖曳按段落擴選。Voice Draft 以空白行為段落邊界；唯讀結果使用
+  presentation block 邊界。視覺折行與 display-only hints 不得切斷段落。
+  `normal` 與 `disabled` 共用選取手勢，但 `disabled` 不得接受文字編輯。
+  文字框的 Ctrl+C 必須在 Tk 原生 Copy 之前進入唯一 typed Copy intent；
+  不得同時發生原生剪貼簿寫入與 Popup output operation。
+  內容區右鍵選單提供「複製」與「全選」；無非空 selection 時「複製」停用，
+  不得使用 Popup Copy 按鈕的全文 fallback。有效 selection 的首尾空白與換行
+  屬於使用者選取內容，Copy／Paste／Archive 必須保留；僅全空白 selection
+  視為無語意選取。
 - Paste target 無效、已關閉或無法成為 foreground 時，系統不得向其他視窗
   fallback 或盲送 `Ctrl+V`，必須恢復 surface 並顯示失敗狀態。
 
@@ -215,6 +239,9 @@ state change。Toolkit focus、activation、geometry 與 close events 可以在 
 - 在 BaseDialog 中直接決定 action variant 或 prompt。
 
 Base dialog surface 對 projection 的反應只能改變 UI state，例如文字、enabled state、focus、border color、button state、visibility。
+Header、Action、speaking、feedback 與 guidance 的宣告式投影唯一入口是
+`BaseResultSurface.render(PopupPresentationModel)`；其 widget setter 為 private implementation
+detail，content 與 flash 不得進入該 model。
 
 ## Current Implementation Notes
 

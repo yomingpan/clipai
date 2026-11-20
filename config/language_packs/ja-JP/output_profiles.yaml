@@ -2,6 +2,10 @@ schema_version: 1
 profiles:
   plain_text:
     instruction: ''
+  command_readable:
+    instruction: |-
+      説明文中のコマンド、subcommand、説明対象の主要な引数はMarkdownの太字で示す。例：「**git status** で変更を確認し、**git commit** でステージ済み内容をcommitする」。行内コマンドを単一backtickで囲まない。識別すべき部分だけを強調し、文全体や段落全体を太字にしない。
+      コピーや手入力に使う完全なコマンドは、実際のshellに合う独立したfenced code blockに保ち、block内に太字記号を入れない。コマンドの文字、引用、shell構文に必要なbacktickは原文どおり保ち、一括文字置換をしない。Actionが指定する順序と区画数を維持し、書式のために見出し、説明、例を追加しない。
   english_learning_compact:
     instruction: 最初の行に対象の英語表現を一つだけ置く。続けて日本語で意味と具体的な使用場面を短く説明し、自然な英語例を一つ示す。必要なら `語感：` で話し言葉・書き言葉やフォーマル度を説明し、`類義：` で近い表現を1〜3個、最後に `記憶：` で短い覚え方を示す。Markdown見出しや余分な区画は使わない。
   reading_friction_explain:

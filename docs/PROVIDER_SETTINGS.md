@@ -15,6 +15,9 @@ in-flight request or an existing workflow's follow-up context.
 3. Use **Refresh Models** to request a fresh OpenAI, Gemini, or custom-gateway
    catalog. Anthropic uses the local catalog in `config/config.yaml` in this
    release.
+   Refresh uses a newly entered key when present, otherwise the saved key.
+   It never saves the key or clears the editor; **Validate and Save** validates
+   and persists the edited key, then clears it only after successful saving.
 4. After editing `.env` manually, choose **Reload Configuration**. ClipAI keeps
    the previous runtime settings if the file is invalid or incomplete.
 

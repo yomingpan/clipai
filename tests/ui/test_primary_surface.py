@@ -152,6 +152,19 @@ def test_host_owns_drag_and_resize_for_every_mounted_view() -> None:
     assert window.events[-1] == ("geometry", "460x350+50+60")
 
 
+def test_known_position_and_native_id_skip_redundant_layout_flushes() -> None:
+    host, window, _native = make_host()
+    lease = host.acquire()
+    host.mount(lease, View())
+    baseline_updates = window.events.count("update")
+
+    host.resize(460, 350, x=90, y=100)
+    host.apply_visibility("visible_no_activate")
+
+    assert window.events.count("update") == baseline_updates
+    assert ("geometry", "460x350+90+100") in window.events
+
+
 def test_result_presenter_builds_existing_popup_content_in_primary_host(monkeypatch) -> None:
     events = []
 
@@ -178,8 +191,9 @@ def test_result_presenter_builds_existing_popup_content_in_primary_host(monkeypa
             return True
 
     class Surface:
-        def __init__(self, dialog):
+        def __init__(self, dialog, *, key_state_reader):
             events.append(("surface", dialog))
+            assert key_state_reader("enter") is False
             self.close_button = type("Button", (), {"configure": lambda _self, **_kwargs: events.append("close-bound")})()
             self.pin_button = type("Button", (), {"configure": lambda _self, **_kwargs: events.append("pin-bound")})()
         def bind_clipboard_choice(self, callback):
@@ -200,6 +214,7 @@ def test_result_presenter_builds_existing_popup_content_in_primary_host(monkeypa
     presenter._display_metrics = Metrics()
     presenter._layout_policy = Layout()
     presenter._native_window_surface = "native"
+    presenter._key_state_reader = lambda _token: False
 
     presenter._create_view("workflow-1")
 
@@ -244,7 +259,8 @@ def test_popup_callbacks_bind_once_and_feedback_reads_the_live_step(monkeypatch)
             pass
 
     class Surface:
-        def __init__(self, _dialog):
+        def __init__(self, _dialog, *, key_state_reader):
+            assert key_state_reader("enter") is False
             self.close_button = Button()
             self.pin_button = Button()
             self.binding_counts = {"back": 0, "actions": 0, "feedback": 0}
@@ -270,6 +286,7 @@ def test_popup_callbacks_bind_once_and_feedback_reads_the_live_step(monkeypatch)
     presenter._display_metrics = Metrics()
     presenter._layout_policy = Layout()
     presenter._native_window_surface = "native"
+    presenter._key_state_reader = lambda _token: False
     submitted = []
     presenter._submit_feedback = lambda workflow, step, *_args: submitted.append((workflow, step))
 

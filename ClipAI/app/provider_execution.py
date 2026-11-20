@@ -12,6 +12,11 @@ T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
 
+def _is_cancelling(task: asyncio.Task[Any]) -> bool:
+    cancelling = getattr(task, "cancelling", None)
+    return bool(cancelling()) if cancelling is not None else False
+
+
 class AsyncLifecycle(Protocol):
     async def start(self) -> None: ...
     async def close(self) -> None: ...
@@ -42,6 +47,8 @@ class ProviderExecutionModule:
         on_result: Callable[[T], None],
         on_error: Callable[[BaseException], None],
         on_cancelled: Callable[[], None],
+        *,
+        timeout_seconds: float | None = None,
     ) -> None:
         with self._lock:
             if self._closed:
@@ -56,8 +63,32 @@ class ProviderExecutionModule:
                         self._loop_tasks[operation_id] = task
                 try:
                     try:
-                        await self._await_lifecycle_start()
-                        result = await work()
+                        async def execute() -> T:
+                            await self._await_lifecycle_start()
+                            return await work()
+
+                        execution = asyncio.create_task(execute())
+
+                        def consume_late_completion(done: asyncio.Task[T]) -> None:
+                            try:
+                                done.exception()
+                            except asyncio.CancelledError:
+                                pass
+                            finally:
+                                with self._lock:
+                                    self._cancellation_requested.discard(done)
+
+                        execution.add_done_callback(consume_late_completion)
+                        try:
+                            result = await asyncio.wait_for(
+                                asyncio.shield(execution), timeout=timeout_seconds
+                            )
+                        finally:
+                            if not execution.done():
+                                with self._lock:
+                                    if not self._closed and not _is_cancelling(execution):
+                                        self._cancellation_requested.add(execution)
+                                        execution.cancel()
                     except asyncio.CancelledError:
                         if not self._is_closed():
                             on_cancelled()
@@ -162,7 +193,7 @@ class ProviderExecutionModule:
             if task is not current and not task.done()
         )
         for task in pending:
-            if task not in already_cancelling:
+            if task not in already_cancelling and not _is_cancelling(task):
                 task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)

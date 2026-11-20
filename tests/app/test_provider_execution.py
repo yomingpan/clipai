@@ -158,6 +158,106 @@ def test_running_provider_operation_is_cancelled_and_settled() -> None:
     module.shutdown()
 
 
+def test_provider_operation_deadline_settles_a_hung_request_as_error() -> None:
+    module = ProviderExecutionModule()
+    started = threading.Event()
+    settled = threading.Event()
+    outcomes: list[str] = []
+
+    async def work():
+        started.set()
+        await asyncio.Event().wait()
+
+    try:
+        module.start(
+            "inline-refine-1", work,
+            lambda _result: outcomes.append("result"),
+            lambda error: (outcomes.append(type(error).__name__), settled.set()),
+            lambda: outcomes.append("cancelled"),
+            timeout_seconds=0.05,
+        )
+        assert started.wait(timeout=1)
+        assert settled.wait(timeout=1), "a hung refinement must leave the refining state"
+        assert outcomes == ["TimeoutError"]
+    finally:
+        module.shutdown()
+
+
+def test_provider_deadline_settles_even_when_work_suppresses_cancellation() -> None:
+    module = ProviderExecutionModule()
+    started = threading.Event()
+    release = threading.Event()
+    late_finished = threading.Event()
+    settled = threading.Event()
+    outcomes: list[str] = []
+
+    async def work():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            while not release.is_set():
+                await asyncio.sleep(0.01)
+            late_finished.set()
+            return "late result"
+
+    try:
+        module.start(
+            "inline-refine-suppressed", work,
+            lambda _result: outcomes.append("late result delivered"),
+            lambda error: (outcomes.append(type(error).__name__), settled.set()),
+            lambda: outcomes.append("cancelled"),
+            timeout_seconds=0.05,
+        )
+        assert started.wait(timeout=1)
+        assert settled.wait(timeout=0.3), "deadline must settle without waiting for cancellation cooperation"
+        release.set()
+        assert late_finished.wait(timeout=1)
+        threading.Event().wait(0.05)
+        assert outcomes == ["TimeoutError"]
+    finally:
+        release.set()
+        module.shutdown()
+
+
+def test_provider_deadline_during_shared_start_does_not_cancel_later_requests() -> None:
+    allow_start = threading.Event()
+    first_settled = threading.Event()
+    second_settled = threading.Event()
+    outcomes: list[str] = []
+
+    class Lifecycle:
+        async def start(self) -> None:
+            while not allow_start.is_set():
+                await asyncio.sleep(0.01)
+
+        async def close(self) -> None:
+            pass
+
+    module = ProviderExecutionModule(Lifecycle())
+    try:
+        module.start(
+            "inline-refine-1", lambda: asyncio.sleep(0),
+            lambda _result: outcomes.append("unexpected first result"),
+            lambda error: (outcomes.append(type(error).__name__), first_settled.set()),
+            lambda: outcomes.append("unexpected first cancellation"),
+            timeout_seconds=0.05,
+        )
+        assert first_settled.wait(timeout=1)
+        allow_start.set()
+        module.start(
+            "next-operation", lambda: asyncio.sleep(0, result="ready"),
+            lambda result: (outcomes.append(result), second_settled.set()),
+            lambda _error: outcomes.append("unexpected second error"),
+            lambda: outcomes.append("unexpected second cancellation"),
+        )
+        assert second_settled.wait(timeout=1)
+        assert outcomes == ["TimeoutError", "ready"]
+    finally:
+        allow_start.set()
+        module.shutdown()
+
+
 def test_duplicate_provider_operation_identity_is_rejected() -> None:
     module = ProviderExecutionModule()
     started = threading.Event()

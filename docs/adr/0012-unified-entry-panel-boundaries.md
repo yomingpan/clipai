@@ -61,11 +61,14 @@ has closed or reopened.
 - External target validation/activation remains a platform capability behind an
   opaque core port. Selection capture reuses `InputResolver` and the one
   `ClipboardTransactionCoordinator`. The platform activator may retry the exact
-  captured, still-valid target within its existing bounded timeout; it does not
-  substitute another foreground window or extend the activation bound. After
-  input resolution, runtime confirms that the same target still owns foreground;
-  a failed confirmation retries the full activation/capture once and then fails
-  closed instead of admitting an untrusted clipboard fallback.
+  captured, still-valid target within the caller's bounded timeout; it does not
+  substitute another foreground window. After input resolution, runtime confirms
+  that the same target still owns foreground without recapturing input. Entry
+  preparation shares 3 seconds across activation and confirmation, excluding
+  selection reading, and projects actual waiting after 500 ms through an
+  identity-scoped typed progress command. Confirmation timeout fails closed;
+  only explicit Retry creates a new preparation and budget. See
+  `docs/contracts/services/selection-capture-contract.md` for the current policy.
 - `WorkflowRuntimeModule.start_action` is the only Action admission seam for
   both legacy shortcuts and the Panel.
 - `WorkflowController` emits a minimal accepted-step identity only after it

@@ -157,9 +157,10 @@ without presenting new evidence that makes the plan unsafe or impossible.
 
 ### 3.6 Setup, consent, and Tray
 
-- First PTT while Voice Input is not ready opens a retriable first-use setup
-  surface. It
-  does not create a Voice Workflow, retain a Paste Target, or start capture.
+- When Voice Input has not been enabled or is disabled, a short `Ctrl+Alt+W`
+  press opens the editable draft on release if no primary Popup is open.
+  Holding the shortcut and using inline dictation are silent no-ops. The user
+  opens microphone setup explicitly from the Tray.
 - Setup explains that the microphone is active only during PTT, audio is
   processed by the configured Browser Speech provider, ClipAI does not retain
   audio, and transcript evaluation/storage is not enabled.
@@ -175,8 +176,8 @@ without presenting new evidence that makes the plan unsafe or impossible.
   target is not activated.
 - It never turns the setup press into a late recording, even if the physical
   keys still appear held.
-- Dismissing or declining setup leaves Voice Input not ready. The next shortcut
-  returns to setup.
+- Dismissing or declining setup leaves Voice Input not ready; the user may open
+  setup again from the Tray.
 - A permanently blocked permission is distinct from a dismissed setup. The UI
   provides a repair path to Windows/browser settings instead of repeatedly
   issuing an ineffective request.
@@ -184,8 +185,8 @@ without presenting new evidence that makes the plan unsafe or impossible.
   state.
 - Tray provides Enable Voice Input, Disable Voice Input, and Manage Microphone
   Permission actions with state-appropriate labels.
-- Enable Voice Input opens the same retriable setup surface used by the first
-  shortcut. Manage Microphone Permission opens the external repair path; it does
+- Enable Voice Input opens the retriable setup surface. Manage Microphone
+  Permission opens the external repair path; it does
   not change ClipAI enablement state.
 - Disable means ClipAI will not start capture. It does not claim to revoke an
   OS/browser permission already stored outside ClipAI.
@@ -221,6 +222,20 @@ without presenting new evidence that makes the plan unsafe or impossible.
   identities and has not received the typed release/abandon event from the
   Shortcut owner. The engine adapter never reads keyboard state or autonomously
   chooses to restart.
+- A Web Speech `network` error ends the current capture through the existing
+  typed `unavailable` failure with a connection remedy. It is not treated as
+  no-speech and cannot trigger the natural-end restart path, including when it
+  arrives after Stop. Cancel keeps its discard decision. Finalized content
+  already accepted by the controller is preserved for explicit recovery.
+- Inline refinement has a 75-second operation deadline covering provider
+  transport startup and response. If it expires, the Provider Execution owner
+  cancels that operation and reports failure through the typed settlement;
+  Inline Dictation retains the original text for an explicit raw-paste or
+  discard decision. Settlement does not wait for a provider coroutine to
+  cooperate with cancellation; any late result is quarantined. It must not
+  remain in the refining state indefinitely. The typed settlement distinguishes
+  `timed_out`, `unavailable`, `cancelled`, and other failures; timeout and
+  unavailable recovery name the cause without exposing provider response text.
 - Release, Stop, Cancel, Popup close, Disable, listener shutdown, and application
   shutdown create an irreversible stop gate. No subsequent event can restart
   microphone use for that capture.

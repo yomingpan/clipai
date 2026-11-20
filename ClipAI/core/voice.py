@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
+
+from ClipAI.core.models import ControlSurfaceRef
 
 if TYPE_CHECKING:
-    from ClipAI.core.models import PasteTarget
+    from ClipAI.core.models import InlineInputMode, PasteTarget, PasteOutcome
 
 
 class VoiceLanguage(str):
@@ -60,6 +62,7 @@ class VoiceCapturePhase(str, Enum):
 class VoiceCaptureDestination(str, Enum):
     VOICE_DRAFT = "voice_draft"
     FOLLOW_UP = "follow_up"
+    INLINE = "inline"
 
 
 @dataclass(frozen=True)
@@ -179,7 +182,16 @@ class VoiceFollowUpTarget:
     workflow_id: str
 
 
-VoiceCaptureTarget: TypeAlias = VoiceDraftTarget | VoiceFollowUpTarget
+@dataclass(frozen=True)
+class VoiceInlineTarget:
+    """A non-Workflow dictation target frozen when capture is requested."""
+
+    interaction_id: str
+    paste_target: PasteTarget | None
+    mode: InlineInputMode = "choice"
+
+
+VoiceCaptureTarget: TypeAlias = VoiceDraftTarget | VoiceFollowUpTarget | VoiceInlineTarget
 
 
 @dataclass(frozen=True)
@@ -236,3 +248,51 @@ class VoiceProjection:
     silence_detected: bool = False
     capture_destination: VoiceCaptureDestination | None = None
     remaining_seconds: int | None = None
+    pending_language: VoiceLanguage | None = None
+
+
+@dataclass(frozen=True)
+class VoiceCaptureIntent:
+    """Explicit request for a Voice capture destination."""
+
+    trigger: Literal["shortcut", "popup"]
+    workflow_id: str | None = None
+    focused_surface: ControlSurfaceRef | None = None
+    active_voice_workflow_id: str | None = None
+
+
+@dataclass(frozen=True)
+class VoiceCaptureAdmission:
+    """Immutable destination decision shared by both Voice triggers."""
+
+    kind: Literal["create", "voice_review", "follow_up", "continue", "rejected"]
+    workflow_id: str | None = None
+    target: VoiceDraftTarget | VoiceFollowUpTarget | None = None
+    message: str = ""
+
+
+InlineDictationPhase: TypeAlias = Literal[
+    "starting", "listening", "finalizing", "cancelling", "awaiting",
+    "refining", "pasting", "settled", "recovery", "cancel_unconfirmed", "closed",
+]
+InlineDelivery: TypeAlias = Literal["raw", "refine"]
+InlineCaptureNotice: TypeAlias = VoiceTransportFailure | Literal["no_speech", "time_limit", "missing_segment", "cancel_timeout"]
+
+
+@dataclass(frozen=True)
+class InlineDictationView:
+    """Complete interaction projection, produced only by the Voice owner."""
+
+    interaction_id: str
+    phase: InlineDictationPhase = "starting"
+    chosen: InlineDelivery | None = None
+    preview_refine: bool = False
+    allow_refine: bool = True
+    audio_level: float = 0.0
+    silence_detected: bool = False
+    countdown_seconds: int | None = None
+    text: str = field(default="", repr=False)
+    message: str = ""
+    paste_outcome: PasteOutcome | None = None
+    copy_state: Literal["idle", "pending", "succeeded", "failed"] = "idle"
+    capture_notice: InlineCaptureNotice | None = None

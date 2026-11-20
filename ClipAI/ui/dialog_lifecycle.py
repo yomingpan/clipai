@@ -31,12 +31,7 @@ class DialogLifecycle:
         if self._closed:
             return
         self._closed = True
-        for job_id in list(self._scheduled_jobs):
-            try:
-                self._root.after_cancel(job_id)
-            except tk.TclError:
-                pass
-        self._scheduled_jobs.clear()
+        self.cancel_scheduled()
 
         for unsubscribe in list(self._unsubscribers):
             unsubscribe()
@@ -51,6 +46,14 @@ class DialogLifecycle:
             self._root.destroy()
         except tk.TclError:
             pass
+
+    def cancel_scheduled(self) -> None:
+        for job_id in list(self._scheduled_jobs):
+            try:
+                self._root.after_cancel(job_id)
+            except tk.TclError:
+                pass
+        self._scheduled_jobs.clear()
 
     def schedule(self, delay_ms: int, callback: Callable[[], None]) -> str:
         def run_once() -> None:

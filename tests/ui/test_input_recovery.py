@@ -19,6 +19,17 @@ def recovery_snapshot():
         source_preview=prepared.clipboard_preview(), status_text=recovery.message, input_recovery=recovery)
 
 
+@pytest.fixture(scope="module")
+def recovery_root():
+    import customtkinter as ctk
+    root = ctk.CTk()
+    root.withdraw()
+    yield root
+    for job in root.tk.call("after", "info"):
+        root.after_cancel(job)
+    root.destroy()
+
+
 def test_recovery_projection_exposes_only_frozen_choice_and_hides_on_resume():
     snapshot = recovery_snapshot()
     model = project_popup_presentation(snapshot)
@@ -33,14 +44,13 @@ def test_recovery_projection_exposes_only_frozen_choice_and_hides_on_resume():
 
 
 @pytest.mark.integration
-def test_real_popup_recovery_button_is_read_only_and_resumes_without_rebuilding():
+def test_real_popup_recovery_button_is_read_only_and_resumes_without_rebuilding(recovery_root):
     import customtkinter as ctk
     from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
     from ClipAI.core.models import PopupBounds
     from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
 
-    root = ctk.CTk()
-    root.withdraw()
+    root = recovery_root
     dialog = None
     try:
         host = PrimarySurfaceHost(root, PrimarySurfaceSpec(PopupBounds(20, 20, 400, 336)), None)
@@ -64,7 +74,6 @@ def test_real_popup_recovery_button_is_read_only_and_resumes_without_rebuilding(
     finally:
         if dialog is not None:
             dialog.close()
-        root.destroy()
 
 
 def test_coalesced_new_recovery_replaces_old_guidance_even_when_message_is_equal():
@@ -78,3 +87,59 @@ def test_coalesced_new_recovery_replaces_old_guidance_even_when_message_is_equal
         ),
     )
     assert workflow_render_patch(old, current).content
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("held_on_focus", [False, True, None])
+def test_real_popup_enter_confirms_on_fresh_release_once_and_hidden_choice_cannot_fire(held_on_focus, recovery_root):
+    import customtkinter as ctk
+    from ClipAI.ui.base_dialog import BaseDialog, BaseResultSurface
+    from ClipAI.core.models import PopupBounds
+    from ClipAI.ui.primary_surface import PrimarySurfaceHost, PrimarySurfaceSpec
+    root = recovery_root
+    host = PrimarySurfaceHost(root, PrimarySurfaceSpec(PopupBounds(20, 20, 400, 336)), None)
+    dialog = BaseDialog(title="Recovery", width=400, height=336, master=root, show_on_create=False, primary_surface_host=host, primary_surface_lease=host.acquire())
+    try:
+        held = [held_on_focus]
+        surface = BaseResultSurface(dialog, key_state_reader=lambda _token: held[0])
+        selected = []
+        surface.bind_clipboard_choice(selected.append)
+        model = project_popup_presentation(recovery_snapshot())
+        surface.render(model)
+        assert surface.clipboard_choice_button.cget("text") == "使用剪貼簿執行（Enter）"
+        dialog.show()
+        surface.content_text.focus_force()
+        root.update()
+        if held_on_focus is not False:
+            # External key-down was never delivered to this Popup. Its first
+            # delivered event can be an auto-repeat after the settle period.
+            delay = ctk.BooleanVar(root, False)
+            root.after(350, lambda: delay.set(True))
+            root.wait_variable(delay)
+        surface.content_text.event_generate("<KeyPress-Return>")
+        surface.content_text.event_generate("<KeyRelease-Return>")
+        root.update()
+        assert selected == []
+        held[0] = False
+        settled = ctk.BooleanVar(root, False)
+        root.after(350, lambda: settled.set(True))
+        root.wait_variable(settled)
+        surface.content_text.event_generate("<KeyPress-Return>")
+        root.update()
+        assert selected == []
+        surface.content_text.event_generate("<KeyRelease-Return>")
+        root.update()
+        assert selected == ["choice"]
+        surface.render(model)
+        assert surface.clipboard_choice_button.cget("state") == "disabled"
+        surface.clipboard_choice_button.invoke()
+        assert selected == ["choice"]
+        surface.render(replace(model, input_recovery_id=None, clipboard_choice_available=False))
+        surface.content_text.event_generate("<KeyPress-Return>")
+        surface.content_text.event_generate("<KeyRelease-Return>")
+        root.update()
+        assert selected == ["choice"]
+        surface.render(model)
+        assert surface.clipboard_choice_button.cget("state") == "disabled"
+    finally:
+        dialog.close()

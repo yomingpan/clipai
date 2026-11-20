@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Unified Entry Panel is a short-lived Action launcher. It is not a Workflow,
+The Unified Entry Panel is a short-lived launcher for Actions and the explicit contextual-question intent. It is not a Workflow,
 chat, result Popup, shortcut catalog or execution pipeline. It presents recent
 successful Action references and a configuration-backed information hierarchy,
 then requests admission through the existing Workflow runtime.
@@ -58,6 +58,10 @@ header control and `Ctrl+Z` navigate More → scene → root; Back at root is a
 no-op and never closes. Navigation preserves Panel lifecycle, source preview,
 density, pending/error projection and frozen input.
 
+The close control uses the same subdued × icon as the result Popup and retains
+the “Esc 關閉” tooltip. The Back control remains a distinct, subdued navigation
+action; icon styling does not change either typed intent or key binding.
+
 The Panel closes only after `ActionStartAdmission.accepted`. A rejected or
 blocked admission keeps the same Panel and projects the authoritative reason.
 An accepted admission identifies its Workflow. Runtime registers a visual
@@ -81,8 +85,10 @@ presentation actuation only and does not merge Panel navigation with
   occurs.
 - Otherwise the Panel captures one opaque external-window reference at open.
   After the Panel is projected, preparation restores and validates that exact
-  target, waits for modifiers to release, captures every supported input fact
-  through the existing `InputResolver`, then confirms the same target still owns
+  target and captures every supported input fact through the existing
+  `InputResolver`. Source-bound read-only UIA runs while modifiers may remain
+  held; only an authorized compatibility Copy path waits for release. Preparation
+  then confirms the same target still owns
   foreground. Confirmation may wait within a bounded, cancellation-aware window
   for the exact target to recover from an IME transient. Expiry fails closed and
   does not automatically repeat selection capture.
@@ -100,13 +106,24 @@ presentation actuation only and does not merge Panel navigation with
   membership/history; it never substitutes the current Foreground Workflow.
 - Cancellation and stale completion do not weaken the existing clipboard
   transaction restoration rules.
+- `allows_entry_panel_clipboard_fallback` owns the automatic frozen-input choice:
+  unknown, no modifier-release requirement, and frozen text/image available.
+  `modifier_timeout` projects “請先放開按鍵，再按重試。” without automatically
+  calling `use_clipboard()`. The current Panel may still receive the explicit
+  `UseEntryPanelClipboard` intent; stale Panel IDs do nothing and the chosen input
+  is the frozen clipboard, never a later live value. Other unknown outcomes retain
+  the existing automatic frozen-clipboard behavior for Actions. The stored
+  bundle preserves the original selection outcome; the question entry requires
+  explicit clipboard choice in this case, so the preview keeps that control
+  available. See
+  [ADR-0021](../../adr/0021-selection-modifier-release-scoped-to-copy-fallback.md).
 
 ## Catalog and numeric rules
 
 - Candidate order、category copy 與 flagship/advanced membership 來自
   `config/entry_panel.yaml`。Candidate Action `label/description` 來自 process
   啟動時選定且完整驗證的 Action Language Pack。
-- Recent slots are `0`–`2`, root category slots are `3`–`6`, and scene flagship
+- Recent slots are `1`–`3`, root category slots are `4`–`7`, and scene flagship
   slots are `1`–`4`. More/search has no digit mapping.
 - Each candidate explicitly names Action ID and press type. The catalog rejects
   unknown Actions/variants, duplicates, invalid slots and more than four
@@ -123,6 +140,26 @@ presentation actuation only and does not merge Panel navigation with
   re-projected through the new active pack without persisting localized text.
 
 ## Recent success
+
+Root digit 0 never admits an Action and visibly reports 最近使用改為 1–3.
+The first five Panel lifetimes show 數字已改:1–3 最近、4–7 分類 in a
+reserved header strip; the shared user-preference gate persists the bounded
+count. Tests: `tests/services/test_entry_panel.py`,
+`tests/app/test_runtime_entry_panel.py`, `tests/app/test_runtime_user_preferences.py`.
+
+Recent cards form three equal columns: height 66, minimum width 60, padding 10,
+badge 16, at most two measured title lines with …, and 長按 when a long variant
+exists. Display fitting never changes canonical titles. Tooltip order is full
+title → description → 長按:… → disabled reason, available on hover and keyboard
+focus. The shell bounds stay unchanged. Tests: `tests/ui/test_unified_entry_panel.py`
+and `tests/ui/test_text_layout.py`.
+
+An available clipboard choice is the first focus target, with a fixed-width
+136 control reading 使用剪貼簿（Enter） and a focus ring. apply remembers its
+previous focus before hiding it, clears that label and moves focus to the next
+target. Enter climbs event.widget.master to the first invoke(). Panel does not
+use KeyboardConfirmGate because its long-Alt opening is explicit. The real
+nested CTk Return/focus and unchanged geometry are covered by the Panel tests.
 
 - Only a `WorkflowStep` accepted by `WorkflowController.complete` is eligible.
 - Runtime resolves follow-up steps to the root catalog Action. Synthetic roots,
@@ -151,3 +188,29 @@ UI lifecycle tests additionally lock `_body_render_key` to topology and visible
 static detail only. Per-option `enabled/pending/disabled_reason` changes update
 existing cards in place. Both updater and click callback read the latest option;
 opening and preparation settlement must not rebuild the body.
+
+
+## Fixed contextual-question entry
+
+The root always presents `8 問這段` after category 7, at the bottom of the root. Slots 1–3 remain
+recent Actions and 4–7 remain categories. Slot 8 is root-only, available through
+mouse, focused keyboard selection and the identity-scoped held-Alt digit path.
+It is an `EntryPanelOption.command`, never a fabricated YAML Action or a recent
+Action entry. The coordinator emits a typed `EntryPanelDecision.command`;
+widgets continue to enqueue `EntryPanelSlotSelected` only.
+
+The entry carries the same pending and unavailable feedback as other content
+operations. It resolves `selection_or_clipboard` exclusively from frozen
+`PreparedInput`; unknown selection, image-only input and failed preparation must
+not silently fall back. An explicit clipboard override uses that frozen bundle.
+External text starts the existing contextual-question Workflow with no second
+capture and no provider invocation before explicit question submission. Text
+length is validated before replacing the Panel. Workflow-result input retains
+its original Workflow/step identity and opens that Workflow's existing composer;
+its history, canonical content and contextual source remain intact.
+
+`WorkflowController.can_open_question_composer` owns composer availability.
+Workflow runtime owns source-lineage validation, admission and membership. Every
+accepted question uses the same Panel/Workflow pre-projection handoff as Action
+admission. Rejection keeps the Panel and displays the reason. The shortcut keeps
+its existing focused-Popup and external-capture semantics.

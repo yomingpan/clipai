@@ -2,6 +2,19 @@
 
 Status: ready for implementation review
 
+2026-10-21 interaction migration: recent 1–3 / categories 4–7, root-0 guidance,
+first-five-open header guidance, fixed recent tiles and clipboard Enter focus
+are implemented. [ADR-0022](../adr/0022-right-alt-inline-pill-and-input-recovery.md)
+links passing service/UI tests and [S8 gate](../../artifacts/mu-s8-release.jsonl).
+The existing shared preference gate stores the bounded hint count; no second
+configuration writer was introduced (`tests/app/test_runtime_user_preferences.py`).
+Active zh-TW/ja-JP feature_contract_hash is
+`sha256:701c643676f19dfca7707d3109cd540662e4bc2c9afc602ffbd53da47dbaf3dc`,
+validated by the language-pack loader tests after atomic YAML/hash updates.
+The 2026-10-26 Command Actions split keeps the four-flagship limit and adds
+generation plus coaching through the existing catalogs; see the
+[Command Actions contract](../contracts/services/command-actions-contract.md).
+
 Branch: `codex/unified-entry-panel-development-plan`
 
 Primary inputs: [product requirements](./unified-entry-panel-product-requirements.md)
@@ -199,7 +212,7 @@ explicit and recent replay remains accurate.
 schema_version: 1
 categories:
   - id: understand
-    slot: 3
+    slot: 4
     label: 看得懂
     description: 這段內容到底在說什麼？
     flagship:
@@ -214,7 +227,7 @@ Rules:
 
 - category count, IDs, root slots, names, descriptions, candidate order,
   flagship/advanced membership and copy come from configuration;
-- recent slots `0–2`, category slots `3–6` and scene flagship slots `1–4`
+- recent slots `1–3`, category slots `4–7` and scene flagship slots `1–4`
   remain schema rules from the PRD;
 - candidate copy may override the Action name for this surface, but prompt,
   input mode, output profile and provider policy remain in `ActionCatalog`;

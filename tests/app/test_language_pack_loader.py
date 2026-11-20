@@ -92,7 +92,7 @@ def _build_valid_config(root: Path) -> Path:
             "categories": [
                 {
                     "id": "understand",
-                    "slot": 3,
+                    "slot": 4,
                     "label": "看得懂",
                     "description": "理解內容",
                     "flagship": [

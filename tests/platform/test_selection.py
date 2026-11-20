@@ -108,7 +108,15 @@ def test_selection_capture_restores_original_non_text_content() -> None:
     assert clipboard.image == image
 
 
-def test_selection_capture_waits_for_physical_hotkey_modifiers_to_be_released() -> None:
+def test_selection_capture_waits_for_physical_hotkey_modifiers_to_be_released(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    # This is an ordering test, not a 10 ms Windows scheduling benchmark.
+    now = [0.0]
+    def wait(seconds):
+        now[0] += max(seconds, 0.001)
+    monkeypatch.setattr("ClipAI.services.selection_capture.time",
+                        SimpleNamespace(monotonic=lambda: now[0], sleep=wait))
     clipboard = Clipboard("original")
     physical_modifiers = {"ctrl": True, "alt": True, "shift": False}
     checks = 0
@@ -138,6 +146,58 @@ def test_selection_capture_waits_for_physical_hotkey_modifiers_to_be_released() 
 
     assert selection.capture().text == "selected text"
     assert clipboard.value == "original"
+
+
+def test_read_only_probe_never_polls_modifiers_and_checks_source_three_times() -> None:
+    clipboard = Clipboard("original")
+    events: list[str] = []
+
+    class OrderedProbe(Probe):
+        def source_is_current(self, source):
+            events.append("source")
+            return True
+
+        def probe(self, source, cancellation):
+            events.append("probe")
+            return SelectionCaptureOutcome(status="none", strategy="uia")
+
+    selection = reader(
+        clipboard,
+        probe=OrderedProbe(),
+        modifier_is_pressed=lambda _modifier: pytest.fail('read-only probe must not poll modifiers'),
+        modifier_release_timeout_sec=0.1,
+        poll_sec=0,
+    )
+
+    assert selection.capture().status == "none"
+    assert events[:4] == ["source", "probe", "source", "source"]
+
+
+def test_modifier_timeout_probes_first_and_never_copies_or_writes() -> None:
+    clipboard = Clipboard("original")
+    events = []
+
+    class RejectProbe(Probe):
+        def source_is_current(self, source):
+            events.append('source')
+            return True
+
+        def probe(self, source, cancellation):
+            events.append('probe')
+            return SelectionCaptureOutcome(selection_detected=True)
+
+    outcome = reader(
+        clipboard,
+        probe=RejectProbe(),
+        modifier_is_pressed=lambda modifier: modifier == "ctrl",
+        modifier_release_timeout_sec=0,
+        poll_sec=0,
+        copy_selection=lambda: pytest.fail('held copy is forbidden'),
+    ).capture()
+
+    assert (outcome.status, outcome.reason) == ("unknown", "modifier_timeout")
+    assert clipboard.writes == []
+    assert events == ['source', 'probe', 'source']
 
 
 def test_selection_capture_does_not_copy_or_mutate_clipboard_when_modifiers_stay_pressed() -> None:
@@ -220,6 +280,7 @@ def test_selection_capture_observes_operation_cancellation() -> None:
 @pytest.mark.parametrize("outcome", [
     SelectionCaptureOutcome("  selected\n\t", "selected", strategy="uia"),
     SelectionCaptureOutcome(status="none", strategy="uia"),
+    SelectionCaptureOutcome(status="none", reason='uia_caret_only', strategy="uia"),
     SelectionCaptureOutcome(reason="uia_unsupported", strategy="uia"),
     SelectionCaptureOutcome(reason="uia_timeout", strategy="uia"),
 ])
@@ -227,7 +288,7 @@ def test_native_probe_preserves_all_states_without_touching_clipboard(outcome):
     clipboard = Clipboard("old text")
     probe = Probe()
     probe.probe = lambda source, cancellation: outcome
-    selection = reader(clipboard, probe=probe, modifier_is_pressed=lambda _: True)
+    selection = reader(clipboard, probe=probe, modifier_is_pressed=lambda _: pytest.fail('no copy path must not poll modifiers'))
     assert selection.capture() == outcome
     assert clipboard.writes == []
 
@@ -293,6 +354,73 @@ def test_verified_copy_capability_does_not_override_source_change():
     assert clipboard.writes == []
 
 
+def test_focus_restoration_rebaselines_same_window_before_staleness_check():
+    clipboard = Clipboard("original")
+    original = SelectionSource(ExternalWindowRef("hwnd:1", 42, 0), "hwnd:2")
+    restored = SelectionSource(original.window, "hwnd:3")
+    events = []
+
+    class RestoringProbe(Probe):
+        def capture_source(self, target=None):
+            events.append(("capture", target))
+            return original if target is None else restored
+
+        def source_is_current(self, source):
+            events.append(("current", source))
+            return source == original if len([event for event in events if event[0] == "current"]) == 1 else source == restored
+
+        def probe(self, source, cancellation):
+            events.append(("probe", source))
+            return SelectionCaptureOutcome(
+                "restored selection",
+                "selected",
+                strategy="uia",
+                selection_detected=True,
+                focus_restored=True,
+            )
+
+    outcome = reader(clipboard, probe=RestoringProbe()).capture()
+
+    assert outcome.text == "restored selection"
+    assert events == [
+        ("capture", None),
+        ("current", original),
+        ("probe", original),
+        ("capture", original.window),
+        ("current", restored),
+        ("current", restored),
+    ]
+
+
+@pytest.mark.parametrize('window,pid', [('hwnd:9', 42), ('hwnd:1', 99)])
+def test_focus_restoration_to_different_window_discards_selected_text(window, pid):
+    clipboard = Clipboard("original")
+    original = SelectionSource(ExternalWindowRef("hwnd:1", 42, 0), "hwnd:2")
+    wrong = SelectionSource(ExternalWindowRef(window, pid, 0), "hwnd:a")
+
+    class RestoringProbe(Probe):
+        def capture_source(self, target=None):
+            return original if target is None else wrong
+
+        def probe(self, source, cancellation):
+            return SelectionCaptureOutcome(
+                "wrong source text",
+                "selected",
+                strategy="uia",
+                selection_detected=True,
+                focus_restored=True,
+            )
+
+    outcome = reader(clipboard, probe=RestoringProbe()).capture()
+
+    assert (outcome.status, outcome.reason, outcome.text) == ("unknown", "source_changed", "")
+
+
+def test_focus_restored_capability_must_be_boolean():
+    with pytest.raises(ValueError, match="focus_restored"):
+        SelectionCaptureOutcome(focus_restored="true")  # type: ignore[arg-type]
+
+
 def test_source_is_frozen_before_panel_focus_changes():
     clipboard = Clipboard("old text")
     probe = Probe()
@@ -322,10 +450,61 @@ def test_late_native_success_is_discarded_after_cancellation():
 
 
 def test_selection_diagnostics_never_include_source_text(caplog):
+    clipboard = Clipboard("private clipboard")
     probe = Probe()
-    probe.probe = lambda *args: SelectionCaptureOutcome("private selected text", "selected", strategy="uia")
+    probe.probe = lambda *args: SelectionCaptureOutcome(
+        reason="selection_only_copy_available",
+        strategy="uia",
+        copy_selection_only=True,
+        focus_restored=True,
+    )
     with caplog.at_level("INFO", logger="clipai.selection"):
-        reader(Clipboard("private clipboard"), probe=probe).capture()
+        reader(
+            clipboard,
+            probe=probe,
+            copy_selection=lambda: clipboard.write_text("private selected text"),
+            timeout_sec=0.001,
+            poll_sec=0,
+        ).capture()
     assert "status=selected" in caplog.text
+    assert "focus_restored=True" in caplog.text
     assert "private selected text" not in caplog.text
     assert "private clipboard" not in caplog.text
+
+
+def test_release_then_changed_source_is_rejected_before_copy():
+    clipboard = Clipboard('original')
+    probe = Probe()
+    released = [False]
+    probe.source_is_current = lambda _: not released[0]
+    def modifiers(_key):
+        released[0] = True
+        return False
+    result = reader(clipboard, probe=probe, modifier_is_pressed=modifiers,
+                    copy_selection=lambda: pytest.fail('wrong source copy')).capture()
+    assert (result.status, result.reason, result.strategy) == ('unknown', 'source_changed', 'uia')
+    assert clipboard.writes == []
+
+
+def test_no_ranges_without_evidence_never_blind_copies():
+    clipboard = Clipboard('original')
+    probe = Probe()
+    probe.probe = lambda *args: SelectionCaptureOutcome(reason='uia_no_ranges')
+    result = reader(clipboard, probe=probe,
+        modifier_is_pressed=lambda _: pytest.fail('no copy capability'),
+        copy_selection=lambda: pytest.fail('blind copy')).capture()
+    assert result.reason == 'uia_no_ranges'
+    assert clipboard.writes == []
+
+
+def test_probe_exception_returns_capture_failed_without_copy():
+    clipboard = Clipboard('original')
+    probe = Probe()
+    def fail(*args):
+        raise OSError('fixture provider failure')
+    probe.probe = fail
+    result = reader(clipboard, probe=probe,
+        modifier_is_pressed=lambda _: pytest.fail('probe must come first'),
+        copy_selection=lambda: pytest.fail('failed probe copy')).capture()
+    assert result.reason == 'capture_failed'
+    assert clipboard.writes == []

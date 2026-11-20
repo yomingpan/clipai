@@ -24,6 +24,18 @@ _Avoid_: Popup launch, Panel closure
 Editable canonical text belonging to one Workflow, formed from finalized Voice Input segments and explicit user edits. It exists only for that Workflow's lifetime and excludes interim recognition.
 _Avoid_: Transcript, recording
 
+**Inline Dictation**:
+A non-Workflow voice interaction that captures text for one frozen external target and continues through a delivery decision, optional refinement, and the resulting Paste Operation or discard. The decision may come from a choice or the stop gesture.
+_Avoid_: Voice Workflow, Voice Draft
+
+**Inline Input Mode**:
+The user-selected interaction style for Inline Dictation: a choice-based mode or a minimal mode that derives raw versus refined delivery from the stop gesture. One interaction retains the mode selected when it starts.
+_Avoid_: Workflow mode, provider mode
+
+**Inline Interaction ID**:
+The opaque identity of one Inline Dictation journey. It correlates capture, refinement and Paste acknowledgements without acting as a Workflow identity or replacing any operation identity.
+_Avoid_: workflow ID, paste ID
+
 **Follow-up Continuation**:
 An explicitly submitted question-and-answer extension of an existing Workflow, rooted in either an Action result or that Workflow's canonical Voice Draft.
 _Avoid_: Chat session, new Workflow
@@ -37,7 +49,7 @@ currently held modifiers and is not an Action identity.
 _Avoid_: Chord, gesture (when referring to one Action intent)
 
 **Paste Operation**:
-An explicit attempt to deliver canonical Workflow content to one captured
+An explicit attempt to deliver canonical content to one captured
 external target. Each Paste Operation has its own identity and preserves the
 truth of whether delivery was not dispatched or dispatched without confirmation.
 _Avoid_: Paste action, keyboard job
@@ -51,3 +63,9 @@ _Avoid_: Paste completion, successful paste
 The promise that temporary clipboard use either restores every original format
 or stops before Paste Dispatch. Partial restoration does not satisfy this promise.
 _Avoid_: Best-effort restore
+
+**Prepared Managed Payload**:
+A verified managed release placed at a target location with its runtime
+dependencies prepared and its identity checked. It is ready for either a
+managed version or the stable launcher, but has not been published as either.
+_Avoid_: Candidate Version
