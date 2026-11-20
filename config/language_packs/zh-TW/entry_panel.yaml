@@ -16,6 +16,10 @@ candidates:
     press_type: short
     label: 讀懂這段英文
     description: 找出造成閱讀卡頓的語句並說清楚。
+  - action_id: explain_chart
+    press_type: short
+    label: 讀懂圖表
+    description: 找出圖表的重點，帶你回到原圖核對。
   - action_id: article_structure
     press_type: short
     label: 文章架構與重要觀點

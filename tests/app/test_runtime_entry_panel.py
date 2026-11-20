@@ -5,13 +5,22 @@ import pytest
 
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
-from ClipAI.core.commands import EntryPanelBack, EntryPanelToggleDensity, RetryEntryPanelInput, SetEntryPanelDensity
+from ClipAI.core.commands import (
+    EntryPanelActionSelected,
+    EntryPanelBack,
+    EntryPanelOpenMore,
+    EntryPanelSlotSelected,
+    EntryPanelToggleDensity,
+    RetryEntryPanelInput,
+    SetEntryPanelDensity,
+)
 from ClipAI.core.models import (
     ActionStartAdmission,
     ActiveWorkflowContext,
     EntryActionRef,
     ExternalWindowActivationOutcome,
     ExternalWindowRef,
+    ImageContent,
     InputDocument,
     PreparedInput,
 )
@@ -734,6 +743,42 @@ def test_mode_compatibility_disables_only_incompatible_actions() -> None:
     assert ocr.enabled is False
     assert "截圖" in ocr.disabled_reason
     assert text_action.enabled is True
+
+
+@pytest.mark.parametrize("image", [None, ImageContent(b"chart", "image/png")])
+def test_chart_action_from_understand_more_uses_frozen_screenshot(image) -> None:
+    inputs = Inputs(
+        PreparedInput(
+            selection_document=InputDocument("selected text", "selection"),
+            clipboard_image=image,
+        )
+    )
+    module, coordinator, presenter, supervisor, workflows, _, _, commands, _ = make_module(
+        input_resolver=inputs,
+    )
+    root = module.open()
+    complete_external_preparation(module, supervisor, commands)
+    module.handle(EntryPanelSlotSelected(root.panel_id, 4))
+    module.handle(EntryPanelOpenMore(root.panel_id))
+
+    option = next(option for option in coordinator.snapshot.options if option.action is not None)
+    assert option.action == EntryActionRef("explain_chart", "short")
+    assert option.enabled is (image is not None)
+
+    inputs.prepared = PreparedInput(clipboard_image=ImageContent(b"new clipboard", "image/png"))
+    module.handle(EntryPanelActionSelected(root.panel_id, option.action))
+
+    assert inputs.calls == 1
+    if image is None:
+        assert "截圖" in option.disabled_reason
+        assert workflows.starts == []
+        assert presenter.popup_transitions == []
+        return
+
+    (start,) = workflows.starts
+    assert start[:3] == ("explain_chart", "short", "popup")
+    assert start[3].document == InputDocument("", "screenshot", image=image)
+    assert presenter.popup_transitions == [(root.panel_id, "workflow-1")]
 
 
 def test_action_rechecks_runtime_availability_at_selection_intent() -> None:

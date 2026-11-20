@@ -16,6 +16,10 @@ candidates:
     press_type: short
     label: この英文を読み解く
     description: 英文を読みにくくしている表現を見つけ、わかりやすく説明します。
+  - action_id: explain_chart
+    press_type: short
+    label: グラフを読み解く
+    description: グラフの要点と、元の図で根拠を確認する方法を示します。
   - action_id: article_structure
     press_type: short
     label: 文章の構造と重要観点

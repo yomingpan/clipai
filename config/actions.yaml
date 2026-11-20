@@ -402,6 +402,19 @@ actions:
   - missing_or_question_wrong
   - source_or_format_unusable
   - other
+- id: explain_chart
+  input_mode: clipboard_image
+  external_fallback: clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.0
+  feedback_reason_ids:
+  - chart_reading_inaccurate
+  - evidence_hard_to_find
+  - conclusion_overstated
+  - other
 - id: extract_screenshot_text
   input_mode: clipboard_image
   external_fallback: clipboard

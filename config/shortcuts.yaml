@@ -118,6 +118,11 @@ shortcuts:
     command: start_action
     action_id: extract_screenshot_text
 
+  - id: explain_chart
+    hotkey: ctrl+alt+h
+    command: start_action
+    action_id: explain_chart
+
   - id: speak_selection_or_clipboard
     hotkey: ctrl+alt+q
     command: speak_selection_or_clipboard

@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "inventory": {
-    "actions": 35,
+    "actions": 36,
     "explicit_variants": [
       "translate_to_english:long",
       "english_companion:long",
@@ -11,9 +11,9 @@
       "extract_screenshot_text:long"
     ],
     "output_profiles": 11,
-    "shortcuts": 34,
-    "start_action_shortcuts": 30,
-    "entry_panel_candidates": 35
+    "shortcuts": 35,
+    "start_action_shortcuts": 31,
+    "entry_panel_candidates": 36
   },
   "default_system_prompt": "sha256:cc82d8e411e8fdbea01e7b3e367d4632ce6ed712a05b0dc3b292e8be953e0394",
   "resolved_actions": {
@@ -67,6 +67,8 @@
     "shorten_content:long": "sha256:5e36a394fb2357e80831a9a510db8c1ad1481d1e958113fd2039d208a1d326a8",
     "structure_score_prompt:short": "sha256:c2a97ac71435331faea091928afd275eba84c8e077be011d0b5252e9fd40931b",
     "structure_score_prompt:long": "sha256:f51f4dc8b22205455bc3ee3610a4e21e04c61f3c881fdf90c5e27d426eaad0cc",
+    "explain_chart:short": "sha256:cbc90f1c21899b4e2b9702e3ba40c938686ae830fce175785cf6287196d99c1e",
+    "explain_chart:long": "sha256:92f71281754e1c7eb1c9e31a10d236286e18616c71bda2e8cd151a4a9d9c3cf8",
     "extract_screenshot_text:short": "sha256:6817720aeb5a1ff6605d7fcb61ca65cca020fe8722710e929500f1ab4817ccd2",
     "extract_screenshot_text:long": "sha256:e3994f27fd9bd8da714e26f6ddb7c1bba78d656a2f1854306840b74878b16fc0",
     "command_copilot:short": "sha256:1cc029b8a9974aa21dadc5a83f21360d67f88f80f4afa7563e3e82057163767d",
@@ -101,12 +103,13 @@
     "session_handoff": "sha256:bd008a8518ed9802b1b0f183cfa8637efffdbce2b1e141d3645f45b8dc4cdd4e",
     "score_compact": "sha256:15018c5ad770219dd48501bb9c49cbaed347956e9dd94859cf5c0f9eed248cf1"
   },
-  "shortcut_matrix": "sha256:be12e816ae43db1ab9c94e0dd4bb2abb45fec4f988e119c4bec40a85ea8c6461",
+  "shortcut_matrix": "sha256:641ee77679384678e07e371673ff54ef05a311d46f7c0b72ae94c398d48c37dc",
   "entry_panel_candidates": {
     "translate_to_traditional_chinese:short": "sha256:3f2b79ca74b9bf97fd16d0e8d27f58bb00654fb39fdffcf07d3794ce3ec2672a",
     "english_companion:short": "sha256:2a6f804cbd2cf280ba5a47c4d690caf8faea6c1819910f5ee72de2ccab875410",
     "explain_like_friend:short": "sha256:3389b48879f6b3756b00ab7e4fb1b5bf25c456ff0611373a7e90080040326143",
     "reading_friction:short": "sha256:2e6dfb85bdb8e4521a400dc5232f414ad6d9ea75367e87ae43182b21e5b0fdf8",
+    "explain_chart:short": "sha256:166e74b15585ab98dfb928611bc4e7928edc95cd1a98c64da52baf53175a0534",
     "article_structure:short": "sha256:49fa176f835aa61aae239952fbd62de84bdc0d427734aa4b3943ddc047b9c45b",
     "check_claim_evidence:short": "sha256:2d5cb48977cfa534838393ac37eb5f430e8898a8733418f51c84cc7e7ad97ebd",
     "extract_keywords:short": "sha256:f2a6e9f53a58a694db44cbeab9516c1c65a9fe27a41c59f3371c1c81079be2db",

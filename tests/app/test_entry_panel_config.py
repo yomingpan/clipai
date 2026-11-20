@@ -239,7 +239,7 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
         4: (
             "understand",
             ("translate_to_traditional_chinese", "english_companion", "explain_like_friend", "reading_friction"),
-            ("article_structure", "check_claim_evidence", "extract_keywords"),
+            ("explain_chart", "article_structure", "check_claim_evidence", "extract_keywords"),
         ),
         5: (
             "write",

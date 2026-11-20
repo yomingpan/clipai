@@ -21,6 +21,8 @@ categories:
           action_id: reading_friction
           press_type: long
     advanced:
+      - action_id: explain_chart
+        press_type: short
       - action_id: article_structure
         press_type: short
       - action_id: check_claim_evidence
