@@ -21,6 +21,10 @@ Right Alt 的意圖在放開時才成立；0.5 秒門檻事件只預覽。Inline
 - UI owner 只接收 open、完整 view、close；以 interaction identity 拒絕舊投影及
   回呼。Pill 只持有 hover、animation、click lock 與 toolkit 資源。見
   [owner 測試](../../tests/ui/test_inline_dictation_owner.py)。
+- `InlineDictationView` 是唯一的呈現投影，包含以 interaction identity 限定的
+  terminal dismissal。`choice_ready`、`recovery_visible_requested` 與
+  `copy_result` 由已接受的轉移明確產生，只記錄不含內容的診斷資料；重複投影
+  不產生事件。見 [runtime 測試](../../tests/app/test_runtime_voice_input.py)。
 - 顯示依序為 anchor/DPI、place、記憶體背景擷取、draw、deiconify、
   show_without_activation、prevent_click_activation、animation。映射後先刷新
   Tk 的原生外框，再套用 native policy；外框必須在後續事件後仍有

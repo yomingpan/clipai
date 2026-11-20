@@ -17,7 +17,7 @@ from ClipAI.core.ports import InlineDictationPresenter, UserNotifier, VoiceInput
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCaptureAdmission, VoiceCaptureId, VoiceCapturePhase, VoiceCaptureTarget, VoiceDraftTarget, VoiceInlineTarget, VoiceEngineListening, VoiceEngineEnded, VoiceEngineSetupFailed, VoiceLanguageChangeId, VoiceProjection, VoiceTransportFailure
 from ClipAI.services.voice_input import CancelVoiceCapture as CancelVoiceCaptureEffect
 from ClipAI.services.voice_input import FinalizeVoiceDraft, FinalizeVoiceFollowUp, PersistVoiceDisabled, PersistVoiceEnabled, PersistVoiceLanguage, PrepareVoiceSetup, RestoreVoiceFollowUp, RestoreVoiceReview, ShutdownVoiceEngine, StartVoiceCapture, StopVoiceCapture as StopVoiceCaptureEffect, VoiceEffect, VoiceInputController, VoiceTransition
-from ClipAI.services.voice_input import CancelInlinePaste, CancelInlineRefinement, CloseInlineTerminal, CopyInlineText, PresentInlineChoice, PresentInlineCopyState, PresentInlinePasteOutcome, PresentInlineRecovery, PresentInlineCancelUnconfirmed, PasteInlineDictation, DiscardInlineDictation
+from ClipAI.services.voice_input import CancelInlinePaste, CancelInlineRefinement, CopyInlineText, PasteInlineDictation, DiscardInlineDictation
 
 
 VOICE_MIC_HOLD_SECONDS = 0.18
@@ -485,6 +485,9 @@ class VoiceInputRuntimeModule:
                 controller.project_voice_capture(transition.projection)
         for effect in transition.effects:
             self._execute_effect(effect)
+        if transition.inline_trace is not None:
+            trace = transition.inline_trace
+            _trace_inline(trace.stage, trace.interaction_id, outcome=trace.outcome)
 
     def _execute_effect(self, effect: VoiceEffect) -> None:
         if isinstance(effect, PrepareVoiceSetup):
@@ -512,8 +515,6 @@ class VoiceInputRuntimeModule:
             controller = self._workflows.controller_for(effect.target.workflow_id)
             if controller is not None:
                 controller.restore_voice_review(effect.target, effect.message)
-        elif isinstance(effect, PresentInlineChoice):
-            _trace_inline("choice_ready", effect.interaction_id, outcome="raw_only" if not effect.allow_refine else "raw_or_refine")
         elif isinstance(effect, PasteInlineDictation):
             _trace_inline("refine_requested" if effect.refine else "paste_requested", effect.interaction_id,
                           operation_id=effect.operation_id)
@@ -534,19 +535,8 @@ class VoiceInputRuntimeModule:
         elif isinstance(effect, CancelInlinePaste):
             _trace_inline("paste_cancel_requested", effect.interaction_id, operation_id=effect.operation_id)
             self._cancel_inline_paste(effect.operation_id)
-        elif isinstance(effect, PresentInlinePasteOutcome):
-            pass
-        elif isinstance(effect, PresentInlineRecovery):
-            _trace_inline("recovery_visible_requested", effect.interaction_id)
-        elif isinstance(effect, PresentInlineCancelUnconfirmed):
-            pass
-        elif isinstance(effect, PresentInlineCopyState):
-            if effect.state in {"succeeded", "failed"}:
-                _trace_inline("copy_result", effect.interaction_id, outcome=effect.state)
         elif isinstance(effect, CopyInlineText):
             self._copy_inline(effect.text, effect.interaction_id, effect.operation_id)
-        elif isinstance(effect, CloseInlineTerminal):
-            pass
         elif isinstance(effect, DiscardInlineDictation):
             _trace_inline("discard_terminal", effect.interaction_id, outcome="failed" if effect.message else "discarded")
         elif isinstance(effect, FinalizeVoiceDraft):

@@ -7,7 +7,8 @@ from ClipAI.core.commands import DisableVoiceInput, EnableVoiceInput, OpenVoiceS
 from ClipAI.core.models import ControlSurfaceRef, InlineOrigin, PasteOutcome, PasteTarget, ShortcutPressId
 from ClipAI.core.state import SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceCapabilityPhase, VoiceCapturePhase, VoiceDisableId, VoiceDraftTarget, VoiceEngineEnded, VoiceEngineFinalSegment, VoiceEngineListening, VoiceEngineSetupBlocked, VoiceFollowUpTarget, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
-from ClipAI.services.voice_input import CancelInlinePaste, DiscardInlineDictation, PresentInlineCopyState, VoiceInputController
+from ClipAI.services.voice_input import CancelInlinePaste, DiscardInlineDictation, VoiceInputController
+from ClipAI.core.commands import VoiceFinalizeWatchdogExpired
 from ClipAI.core.commands import CancelInlineDictation, CopyInlineDictation, DismissInlineDictationTerminal, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationCopyCompleted, InlineDictationRefineSettled, InlineDictationRefineCancelAccepted, PasteOperationCompleted
 
 
@@ -307,33 +308,37 @@ def test_inline_stage_log_links_separate_ids_without_content_or_target_title(cap
     runtime.handle(VoiceEngineEventReceived(VoiceEngineFinalSegment(capture_id, 0, "private dictated words")))
     runtime.handle(VoiceCaptureTimeout(capture_id))
     runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture_id)))
+    assert not runtime.handle(VoiceEngineEventReceived(VoiceEngineEnded(capture_id)))
 
     trace = "\n".join(record.getMessage() for record in caplog.records if record.name == "clipai.inline_trace")
     assert f"interaction_id={interaction_id}" in trace
     assert f"capture_id={capture_id}" in trace
     assert "stage=listening" in trace
     assert "stage=recognition_settled" in trace
-    assert "stage=choice_ready" in trace
+    assert trace.count("stage=choice_ready") == 1
+    assert "outcome=raw_or_refine" in trace
     assert "monotonic_ns=" in trace
     assert "private dictated words" not in trace
     assert "private target title" not in trace
 
 
-def test_inline_recovery_trace_records_only_outcomes(caplog) -> None:
+def test_inline_discard_trace_records_outcome_without_message(caplog) -> None:
     import logging
 
     caplog.set_level(logging.INFO, logger="clipai.inline_trace")
+    engine, presenter = Engine(), InlinePresenter()
     runtime = VoiceInputRuntimeModule(
-        controller=VoiceInputController(enabled=True), engine=Engine(), workflows=Workflows(),
-        paste_target_reader=lambda: None, inline_presenter=InlinePresenter(),
+        controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
+        paste_target_reader=lambda: None, inline_presenter=presenter,
     )
-    runtime._execute_effect(PresentInlineCopyState("interaction-1", "succeeded"))
-    runtime._execute_effect(DiscardInlineDictation("interaction-1", "Voice Input cancellation timed out."))
+    assert runtime.handle(ToggleInlineDictation())
+    capture_id = engine.calls[-1][1]
+    interaction_id = presenter.interaction_ids[0]
+    assert runtime.handle(CancelInlineDictation(interaction_id))
+    assert runtime.handle(VoiceFinalizeWatchdogExpired(capture_id))
 
     trace = "\n".join(record.getMessage() for record in caplog.records if record.name == "clipai.inline_trace")
-    assert "stage=copy_result interaction_id=interaction-1" in trace
-    assert "outcome=succeeded" in trace
-    assert "stage=discard_terminal interaction_id=interaction-1" in trace
+    assert f"stage=discard_terminal interaction_id={interaction_id}" in trace
     assert "outcome=failed" in trace
     assert "Voice Input cancellation timed out." not in trace
 
@@ -413,7 +418,10 @@ def test_inline_does_not_reuse_a_stale_foreground_target_when_capture_probe_fail
     assert pasted == []
 
 
-def test_inline_recovery_copy_is_explicit_and_reports_matching_completion() -> None:
+def test_inline_recovery_copy_is_explicit_and_reports_matching_completion(caplog) -> None:
+    import logging
+
+    caplog.set_level(logging.INFO, logger="clipai.inline_trace")
     engine, presenter, copies = Engine(), InlinePresenter(), []
     runtime = VoiceInputRuntimeModule(
         controller=VoiceInputController(enabled=True), engine=engine, workflows=Workflows(),
@@ -433,7 +441,14 @@ def test_inline_recovery_copy_is_explicit_and_reports_matching_completion() -> N
     assert not runtime.handle(CopyInlineDictation(interaction_id))
     assert not runtime.handle(InlineDictationCopyCompleted(interaction_id, "stale"))
     assert runtime.handle(InlineDictationCopyCompleted(interaction_id, copies[0][2]))
+    assert not runtime.handle(InlineDictationCopyCompleted(interaction_id, copies[0][2]))
     assert presenter.copy_states[-1] == (interaction_id, "succeeded")
+
+    trace = "\n".join(record.getMessage() for record in caplog.records if record.name == "clipai.inline_trace")
+    assert trace.count(f"stage=recovery_visible_requested interaction_id={interaction_id}") == 1
+    assert trace.count(f"stage=copy_result interaction_id={interaction_id}") == 1
+    assert "outcome=succeeded" in trace
+    assert "complete original text" not in trace
 
 
 def test_cancel_inline_choice_closes_without_pasting():
