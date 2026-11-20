@@ -583,7 +583,7 @@ def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
     action = bundle.actions.get("name_concept_carefully")
     shortcut = bundle.shortcuts.definition("name_concept_carefully")
 
-    assert action.name == "概念命名"
+    assert action.name == "找概念或解釋術語"
     assert action.input_mode == "selection_or_clipboard"
     assert action.external_fallback == "selection_or_clipboard"
     assert action.output_mode == "popup"
@@ -592,14 +592,12 @@ def test_concept_naming_calibrates_terms_and_preserves_uncertainty() -> None:
     assert action.press_variants == {}
     assert shortcut.hotkey == "ctrl+alt+n"
     assert shortcut.action_id == action.id
-    assert "找到、驗證或暫時探索" in action.system_prompt
     assert "已有詞彙，需要解釋" in action.system_prompt
-    assert "已成熟的想法" in action.system_prompt
-    assert "尚模糊的想法" in action.system_prompt
+    assert "只有近似概念時" in action.system_prompt
     assert "正式術語／慣用說法／流行用語" in action.system_prompt
-    assert "未確認候選" in action.system_prompt
+    assert "不要自創概念名" in action.system_prompt
     assert "前三行嚴格少於 180 個中文字" in action.prompt
-    assert "暫不命名" in action.system_prompt
+    assert "找不到貼切的既有詞" in action.system_prompt
     assert "核心詞：" in action.prompt
     assert "說明：" in action.prompt
     assert "提醒：" in action.prompt

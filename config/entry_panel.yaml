@@ -74,6 +74,8 @@ categories:
     advanced:
       - action_id: mece_decomposition
         press_type: short
+      - action_id: first_principles
+        press_type: short
       - action_id: swot_analysis
         press_type: short
       - action_id: premortem

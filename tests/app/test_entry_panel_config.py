@@ -251,6 +251,7 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
             ("pyramid_position", "critical_thinking", "tradeoff_perspective", "reflective_question"),
             (
                 "mece_decomposition",
+                "first_principles",
                 "swot_analysis",
                 "premortem",
                 "structure_score_prompt",

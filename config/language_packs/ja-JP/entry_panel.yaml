@@ -76,6 +76,10 @@ candidates:
     press_type: short
     label: MECEで分解
     description: 重複と漏れがないように問題を分解します。
+  - action_id: first_principles
+    press_type: short
+    label: 基本条件から考え直す（第一原理）
+    description: 目的、既知の条件、仮定を分けて、取り得る方法を考え直す。
   - action_id: swot_analysis
     press_type: short
     label: SWOT 分析
@@ -94,15 +98,15 @@ candidates:
     description: 物事を前に進める最小の次の一歩を見つけます。
   - action_id: name_idea
     press_type: short
-    label: 考えに名前を付ける
+    label: 考えに仮の名前を付ける
     description: まだ固まりきっていない考えに名前を付けます。
   - action_id: name_concept_carefully
     press_type: short
-    label: 概念を慎重に命名
-    description: 概念の名前と境界を慎重に定めます。
+    label: 概念を探す・用語を解説する
+    description: 近い既存の概念を探すか、選んだ用語を解説します。
   - action_id: illuminate_essence
     press_type: short
-    label: 変わらない本質を照らす
+    label: 長く使える原則を見つける
     description: 変化する細部から比較的安定した核心を見つけます。
   - action_id: temporary_viewpoint
     press_type: short

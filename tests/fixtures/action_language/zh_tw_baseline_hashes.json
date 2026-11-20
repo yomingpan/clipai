@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "inventory": {
-    "actions": 34,
+    "actions": 35,
     "explicit_variants": [
       "translate_to_english:long",
       "english_companion:long",
@@ -13,7 +13,7 @@
     "output_profiles": 11,
     "shortcuts": 34,
     "start_action_shortcuts": 30,
-    "entry_panel_candidates": 34
+    "entry_panel_candidates": 35
   },
   "default_system_prompt": "sha256:cc82d8e411e8fdbea01e7b3e367d4632ce6ed712a05b0dc3b292e8be953e0394",
   "resolved_actions": {
@@ -27,12 +27,12 @@
     "translate_to_traditional_chinese:long": "sha256:ba640309b9361a2acec87a4bb903a2d53311f6c780bb09868bb00366e89b957c",
     "translate_to_english:short": "sha256:0e05ddf38edd76f2f44a3b30259a5de8f61a0a6fa3be2c55471f2fc1d471941a",
     "translate_to_english:long": "sha256:a7bac1c1201950115e6f0a3ec88be1ab00d3fe3f18a56f4eb1dfdc43eb2c3951",
-    "name_idea:short": "sha256:27bab614e422e9567bd5cd63eb63cc6e03e35bc55811737385fc3f5fb468c5d8",
-    "name_idea:long": "sha256:1ba59bc8050f9faff2851088fed8fb014568b713e1c4077cb9e6821ab8167e07",
-    "name_concept_carefully:short": "sha256:8f19d0faaf17e96e29c87fdf56abf78ced2237b8279e86ff4b0a23b182c9bf07",
-    "name_concept_carefully:long": "sha256:3ea1316d222ac1d59ebd55ce464cd616e6d69a5e9e6eee7f9e7bee1e6eb93b17",
-    "illuminate_essence:short": "sha256:98e04b9f335a295b91d2ae1e6f1a79c4c45a058ec00ab89a1191a5eabfad9d15",
-    "illuminate_essence:long": "sha256:4672dc5798a4b69eed08f8a8a76ff449ecc1fc06f136402c440fd822142f846a",
+    "name_idea:short": "sha256:abce80e16acefc4b745e3684a1b6502d803810552f31f24445a8635e8f5a7bf6",
+    "name_idea:long": "sha256:5befd07f860a9b7dc922d887be192fb58b69cbc014cd3334c6c4ecc3508effc0",
+    "name_concept_carefully:short": "sha256:7cec6220d017be32b7b2fd284bcd3780957c16c7ffdfb924348ff920c36ed96d",
+    "name_concept_carefully:long": "sha256:d6599e4ac0080639a2d3847503139aa6ff8dacf5438194c2d8b01db8667e77fc",
+    "illuminate_essence:short": "sha256:51bf04915547c95f44d8723d567aac10146b371c263fb97729d2bd87c6f42cef",
+    "illuminate_essence:long": "sha256:1500faafc781886b6713d0568691bf6487945ab870a5193651a784feb349fbdf",
     "pyramid_position:short": "sha256:50adfe0231f65e6c767b9b3555d469c77974f30031abee263b2b9109f8b8b30b",
     "pyramid_position:long": "sha256:95fd297218661cc6f8a3ff88bbe08b7abca23b81b993b936a0f177eccca0dbc5",
     "explain_like_friend:short": "sha256:50187a1f921d01525464a2b2d3464e1f9d8cff0a477cdfdcc90863a6d723f402",
@@ -84,7 +84,9 @@
     "swot_analysis:short": "sha256:c2c6b0c06cbe944ce505330c02d0daccb819c15e3769b06a4b3c7c7fd1d6aa09",
     "swot_analysis:long": "sha256:50505f59d47661070d467df2db5f92047f6f464377878f1f7a8a9116e1dd1381",
     "premortem:short": "sha256:975d6bd792bd4cfd1ec6cc7e753c30e315f7f5c1cf223ef9ce98382e962a93b6",
-    "premortem:long": "sha256:4ff55e4b05ef002fd6267e9074d825440e5bb723f95e3d595e7fa2c5035b5dd3"
+    "premortem:long": "sha256:4ff55e4b05ef002fd6267e9074d825440e5bb723f95e3d595e7fa2c5035b5dd3",
+    "first_principles:short": "sha256:6b0a3a13db42ad0e2c4409baa330e19845558eb86d46d7cf6be27a5fc3713357",
+    "first_principles:long": "sha256:6b2bcaf5f271c9fc685b2ba4d1dc8dea2560a7ebfa8861e9b244c34637f86a92"
   },
   "output_profiles": {
     "plain_text": "sha256:053034d73f094295dcda47391a6115377f85806fe8a85b0b4c43363a1d5e6646",
@@ -120,13 +122,14 @@
     "tradeoff_perspective:short": "sha256:6bcbbf8798b41e5dc27e8ab4fa092d179121a82f63771537c0c4276731e6385e",
     "reflective_question:short": "sha256:55018231c761ccc105ab3441f4b9b834eeb662752b64f4ef4dbeb23304aa80f8",
     "mece_decomposition:short": "sha256:099071a1e4cf4504ecddaad1bfc3a59503fb590720eabc7e8330685ab03911ee",
+    "first_principles:short": "sha256:ec57aed0d5a8a50936255184c8cdbc06868bab14a1262d3e06ccc7bb68b2f5a8",
     "swot_analysis:short": "sha256:f1ed6392a8a3590c0769fa2984bf62fdb13008af0eeb971969af2ff096c43402",
     "premortem:short": "sha256:32a0fd76f8aa90d4ba9a8ef5d9912b76049106b36a4b52e67ec02669904af8e4",
     "structure_score_prompt:short": "sha256:43bd269415f716becf443984f08331e11b0350ca37cd83191dce3dce0a33ab15",
     "minimum_action:short": "sha256:e3e49e97db3d5158011313c530ab4c77fd60eeb927a05487600efacac8a5d9ba",
-    "name_idea:short": "sha256:0bd3bf5fa6e5d4d2c7f7469b8726102a69a394b32ccca49b2ad6577c758f55f6",
-    "name_concept_carefully:short": "sha256:4e9bf4a6c09b3c2fd112f296e5ad7f35543029bea0d86f4f6291c2d8d9990a74",
-    "illuminate_essence:short": "sha256:ee955548bec783811f6b01ab015b3cd8b3dcd5e1e4402eed32011369fecbf63e",
+    "name_idea:short": "sha256:5f77c133697f86ad1b06d86cfff772b6f1f941ba0ba3084dc0df9156103f1c77",
+    "name_concept_carefully:short": "sha256:2b9e110b875141f6643f9516b699c399bb5843f555470015aa8c43a557a5180a",
+    "illuminate_essence:short": "sha256:2522942f74c8c467c4d1b692f96e08f4e430b23211f74e8c065f250b3f4ff054",
     "temporary_viewpoint:short": "sha256:9d92e9cf843c3f5e323cca7c899bf858fc9f7ed988fdcdd7b7fab55a7c7543c0",
     "advisory_board:short": "sha256:f463ea36c8f79deaab4ec6be597ef49423fbaee0d431ea75d36decb12f0a1821",
     "insight_engine:short": "sha256:205296214936a64926d51f4d2776548b5cd59934ef176069f2a8d84d299baeaf",

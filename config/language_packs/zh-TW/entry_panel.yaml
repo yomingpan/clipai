@@ -76,6 +76,10 @@ candidates:
     press_type: short
     label: 拆解問題（MECE）
     description: 把問題分成幾個面向，檢查彼此是否重疊、還漏了什麼。
+  - action_id: first_principles
+    press_type: short
+    label: 從基本條件重想（第一性原理）
+    description: 拆開目標、已知條件和假設，重新推導可行做法。
   - action_id: swot_analysis
     press_type: short
     label: SWOT 分析
@@ -94,16 +98,16 @@ candidates:
     description: 找出能推進事情的最小下一步。
   - action_id: name_idea
     press_type: short
-    label: 為想法命名
+    label: 替想法取個暫名
     description: 替一個暫時成形的想法找出名稱。
   - action_id: name_concept_carefully
     press_type: short
-    label: 概念命名
-    description: 審慎界定概念的名稱與邊界。
+    label: 找概念或解釋術語
+    description: 找出貼切的既有概念，或解釋你選取的詞。
   - action_id: illuminate_essence
     press_type: short
-    label: 照亮不變的本質
-    description: 從變動細節中找出較穩定的核心。
+    label: 找出可長期保留的原則
+    description: 想像工具或做法改變，找出仍值得保留的原則。
   - action_id: temporary_viewpoint
     press_type: short
     label: 保存暫時觀點
