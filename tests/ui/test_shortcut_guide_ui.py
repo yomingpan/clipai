@@ -26,6 +26,12 @@ def test_keyboard_map_contains_every_configured_trigger_key() -> None:
     assert trigger_tokens <= displayed_tokens
 
 
+def test_solo_right_alt_instruction_does_not_prompt_an_empty_modifier_chord():
+    from ClipAI.ui.shortcut_guide import guide_instruction
+    item = ShortcutGuideItem("inline", "right_alt", "Right Alt", frozenset({"altgr"}), "聽寫", "")
+    assert guide_instruction(item) == "單獨按右 Alt，放開時判定短按或長按。練習模式不會執行 Action；Esc 關閉指南。"
+
+
 def test_clipai_window_icon_resource_exists() -> None:
     assert files("ClipAI.ui").joinpath("assets", "clipai.ico").is_file()
 

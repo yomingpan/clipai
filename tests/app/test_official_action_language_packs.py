@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ClipAI.app.language_pack_loader import (
     ActionLanguagePackLoader,
     LanguagePackRegistryEntry,
@@ -9,6 +11,9 @@ from ClipAI.app.language_pack_loader import (
 from ClipAI.app.config_loader import load_config_bundle
 from ClipAI.core.models import ActionDefinition, EntryActionRef
 from ClipAI.services.entry_panel import EntryPanelCoordinator
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load(pack_id: str):
@@ -52,9 +57,9 @@ def test_japanese_candidate_compiles_as_one_complete_pack() -> None:
     assert pack.descriptor.identity.pack_id == "ja-JP"
     assert pack.descriptor.identity.locale == "ja-JP"
     assert pack.descriptor.display_name == "日本語"
-    assert len(pack.action_definitions) == 27
-    assert len(pack.output_profiles) == 10
-    assert len(pack.entry_panel_candidates) == 27
+    assert len(pack.action_definitions) == 37
+    assert len(pack.output_profiles) == 11
+    assert len(pack.entry_panel_candidates) == 37
     assert pack.entry_panel_candidates[0].label == "繁体字中国語に翻訳"
 
 
@@ -69,6 +74,12 @@ def test_official_registry_releases_both_complete_packs_in_product_order() -> No
         "繁體中文",
         "日本語",
     )
+
+
+def test_content_addressed_language_pack_resources_checkout_with_stable_line_endings() -> None:
+    attributes = (PROJECT_ROOT / ".gitattributes").read_text(encoding="utf-8")
+
+    assert "config/language_packs/*/*.yaml text eol=lf" in attributes.splitlines()
 
 
 def test_japanese_pack_preserves_fixed_output_language_semantics() -> None:
@@ -135,7 +146,7 @@ def test_language_pack_content_changes_action_version_identity() -> None:
     assert traditional_chinese.version_context != japanese.version_context
 
 
-def test_japanese_pack_projects_entry_panel_recents_scenes_and_search() -> None:
+def test_japanese_pack_projects_entry_panel_recents_and_full_category_lists() -> None:
     bundle = load_config_bundle(action_language_pack=_load("ja-JP"))
     panel = EntryPanelCoordinator(bundle.entry_panel)
 
@@ -145,11 +156,9 @@ def test_japanese_pack_projects_entry_panel_recents_scenes_and_search() -> None:
     )
     assert root.options[0].label == "内容を短くする"
 
-    scene = panel.select_digit("5").snapshot
+    scene = panel.select_digit("6").snapshot
     assert scene.options[0].label == "ピラミッドで立場を整理"
 
-    panel.open_more()
-    search = panel.set_search("概念")
-    assert tuple(option.action.action_id for option in search.options) == (
-        "name_concept_carefully",
-    )
+    concept = next(option for option in scene.options if option.action == EntryActionRef("name_concept_carefully", "short"))
+    assert concept.label == "概念を探す・用語を解説する"
+    assert concept.slot is None

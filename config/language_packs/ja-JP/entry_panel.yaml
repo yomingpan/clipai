@@ -16,10 +16,18 @@ candidates:
     press_type: short
     label: この英文を読み解く
     description: 英文を読みにくくしている表現を見つけ、わかりやすく説明します。
+  - action_id: explain_chart
+    press_type: short
+    label: グラフを読み解く
+    description: グラフの要点と、元の図で根拠を確認する方法を示します。
   - action_id: article_structure
     press_type: short
     label: 文章の構造と重要観点
     description: 文章の構造と重要な論点を整理します。
+  - action_id: check_claim_evidence
+    press_type: short
+    label: 主張と根拠を確認
+    description: 原文の根拠が主張をどこまで支えるか、推論の抜けを確認する。
   - action_id: extract_keywords
     press_type: short
     label: 中核キーワードを抽出
@@ -40,6 +48,10 @@ candidates:
     press_type: short
     label: 音声入力を意図どおりの文章に整える
     description: 話し手の意図を保ちながら、音声入力を使える文章に整えます。
+  - action_id: describe_in_english
+    press_type: short
+    label: 英語で言ってみる
+    description: 文章や画像の要点を英語の一文にして読み上げます。
   - action_id: expression_retrieval
     press_type: short
     label: 表現を一つ定着させる
@@ -68,34 +80,54 @@ candidates:
     press_type: short
     label: 考える価値のある問いを一つ
     description: 理解を最も前に進める次の問いを見つけます。
+  - action_id: mece_decomposition
+    press_type: short
+    label: MECEで分解
+    description: 重複と漏れがないように問題を分解します。
+  - action_id: first_principles
+    press_type: short
+    label: 基本条件から考え直す（第一原理）
+    description: 目的、既知の条件、仮定を分けて、取り得る方法を考え直す。
+  - action_id: swot_analysis
+    press_type: short
+    label: SWOT 分析
+    description: 内部の強み・弱みと外部の機会・脅威から戦略を検討する。
+  - action_id: premortem
+    press_type: short
+    label: 失敗を事前に想定する
+    description: 計画が失敗したと仮定し、原因、早期兆候、予防策を考える。
+  - action_id: structure_score_prompt
+    press_type: short
+    label: SCOREで要件を整理
+    description: SCOREの構造で要件と背景を明確にします。
+  - action_id: minimum_action
+    press_type: short
+    label: 最小の次の行動
+    description: 物事を前に進める最小の次の一歩を見つけます。
   - action_id: name_idea
     press_type: short
-    label: 考えに名前を付ける
+    label: 考えに仮の名前を付ける
     description: まだ固まりきっていない考えに名前を付けます。
   - action_id: name_concept_carefully
     press_type: short
-    label: 概念を慎重に命名
-    description: 概念の名前と境界を慎重に定めます。
+    label: 概念を探す・用語を解説する
+    description: 近い既存の概念を探すか、選んだ用語を解説します。
   - action_id: illuminate_essence
     press_type: short
-    label: 変わらない本質を照らす
+    label: 長く使える原則を見つける
     description: 変化する細部から比較的安定した核心を見つけます。
   - action_id: temporary_viewpoint
     press_type: short
     label: 暫定的な見方を保存
     description: まだ結論の出ていない見方を後で振り返れる形に整えます。
-  - action_id: mece_decomposition
+  - action_id: advisory_board
     press_type: short
-    label: MECEで分解
-    description: 重複と漏れがないように問題を分解します。
-  - action_id: minimum_action
+    label: アドバイザリーボード
+    description: 多様な顧問の視点で助言とトレードオフを示します。
+  - action_id: insight_engine
     press_type: short
-    label: 最小の次の行動
-    description: 物事を前に進める最小の次の一歩を見つけます。
-  - action_id: structure_score_prompt
-    press_type: short
-    label: SCOREで要件を整理
-    description: SCOREの構造で要件と背景を明確にします。
+    label: インサイトエンジン
+    description: 非自明で根拠のある洞察を掘り起こします。
   - action_id: extract_screenshot_text
     press_type: short
     label: スクリーンショットから文字を抽出
@@ -106,5 +138,13 @@ candidates:
     description: 次のAI対話へ持ち込める引き継ぎ内容を整理します。
   - action_id: command_copilot
     press_type: short
-    label: Command Copilot｜コマンド変換とリスク審査
-    description: 使用予定のコマンドを確認し、意味とリスクを理解できるよう支援します。
+    label: コマンドのリスク確認
+    description: 既存コマンドの影響、リスク、復旧条件を確認する。
+  - action_id: command_generate
+    press_type: short
+    label: 要望をコマンドに
+    description: 音声や文章の要望を、短く理解しやすく手入力できるコマンドにする。
+  - action_id: command_coach
+    press_type: short
+    label: コマンドコーチ
+    description: 要望の分解と組み立てを学び、覚え方と小さな練習で応用する。

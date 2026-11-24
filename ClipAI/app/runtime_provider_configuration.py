@@ -135,6 +135,8 @@ class ProviderConfigurationRuntimeModule:
     def _project(self, update: ProviderConfigurationUpdate) -> None:
         if update.ignored:
             return
+        if self._operation_tracker is not None:
+            self._operation_tracker.set_ready(not self._coordinator.active_binding.readiness_issues)
         if self._provider_selection_presenter is not None:
             self._provider_selection_presenter.set_provider_selection(self._coordinator.provider_selection())
         if self._model_selection_presenter is not None:

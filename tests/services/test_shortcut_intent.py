@@ -1,4 +1,4 @@
-from ClipAI.core.commands import OpenContextualQuestion, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction
+from ClipAI.core.commands import OpenContextualQuestion, ShortcutPressInvoked, SpeakSelectionOrClipboard, StartAction, ToggleInlineDictation
 from ClipAI.core.models import ShortcutDefinition, ShortcutPressId
 from ClipAI.services.shortcut_catalog import ShortcutCatalog
 from ClipAI.services.shortcut_intent import ShortcutIntentCoordinator
@@ -9,6 +9,7 @@ def coordinator() -> ShortcutIntentCoordinator:
         ShortcutDefinition("action", "ctrl+alt+8", "start_action", "english"),
         ShortcutDefinition("speech", "ctrl+alt+q", "speak_selection_or_clipboard"),
         ShortcutDefinition("question", "ctrl+alt+r", "open_contextual_question"),
+        ShortcutDefinition("inline", "ctrl+alt+m", "inline_dictation"),
     ]))
 
 
@@ -26,3 +27,9 @@ def test_contextual_question_has_its_own_typed_intent() -> None:
     command = coordinator().resolve(ShortcutPressInvoked(ShortcutPressId(2), "question", "short"))
 
     assert isinstance(command, OpenContextualQuestion)
+
+
+def test_inline_dictation_short_and_long_press_keep_distinct_stop_intents() -> None:
+    intents = coordinator()
+    assert intents.resolve(ShortcutPressInvoked(ShortcutPressId(3), "inline", "short")) == ToggleInlineDictation("short")
+    assert intents.resolve(ShortcutPressInvoked(ShortcutPressId(4), "inline", "long")) == ToggleInlineDictation("long")

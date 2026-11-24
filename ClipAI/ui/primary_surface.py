@@ -203,7 +203,7 @@ class PrimarySurfaceHost:
         x: int | None = None,
         y: int | None = None,
     ) -> None:
-        bounds = self.current_bounds()
+        bounds = None if x is not None and y is not None else self.current_bounds()
         target_x = x if x is not None else (bounds.x if bounds is not None else 0)
         target_y = y if y is not None else (bounds.y if bounds is not None else 0)
         self._window.geometry(f"{width}x{height}+{target_x}+{target_y}")
@@ -267,7 +267,6 @@ class PrimarySurfaceHost:
         return not self.is_closed and lease in self._leases
 
     def _toolkit_child_id(self) -> int:
-        self._window.update_idletasks()
         return int(self._window.winfo_id())
 
     def _activate_native_window(self, window: tk.Misc) -> bool:

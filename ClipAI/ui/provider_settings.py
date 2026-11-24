@@ -124,7 +124,7 @@ class ProviderSettingsDialog:
         self._save.configure(state=enabled, text="Validating..." if pending and state.operation_kind == "save" else "Validate and Save")
         self._refresh.configure(state=enabled, text="Refreshing..." if pending and state.operation_kind == "refresh" else "Refresh Models")
         self._message.configure(text=state.message)
-        if state.operation_state == "succeeded":
+        if state.operation_kind == "save" and state.operation_state == "succeeded":
             self._api_key.delete(0, "end")
         self._window.deiconify()
         self._window.lift()
@@ -231,11 +231,11 @@ class ProviderSettingsDialog:
         option = self._option(provider)
         connection = (
             ModelCatalogConnection(
-                base_url=self._gateway_url.get().strip(),
+                base_url=self._gateway_url.get().strip() if option and option.capabilities.custom_endpoint else "",
                 api_key=self._api_key.get().strip(),
                 fallback_model=self._selected_model(provider),
             )
-            if option and option.capabilities.custom_endpoint
+            if option is not None
             else None
         )
         self._command_sink(RefreshProviderModels(provider, uuid.uuid4().hex, connection))

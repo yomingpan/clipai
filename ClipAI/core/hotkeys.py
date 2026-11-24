@@ -2,6 +2,8 @@ from __future__ import annotations
 
 
 GRAVE_KEY_TOKEN = "grave"
+RIGHT_ALT_HOTKEY = "right_alt"
+RIGHT_ALT_TOKEN = "altgr"
 GRAVE_KEY_ALIASES = {"`", "~", GRAVE_KEY_TOKEN}
 MODIFIER_KEYS = frozenset({"ctrl", "alt", "shift"})
 
@@ -10,6 +12,8 @@ def canonicalize_hotkey(hotkey: str, modifier_mode: str = "ctrl_alt") -> str:
     normalized = hotkey.strip().lower()
     if not normalized:
         return ""
+    if normalized == RIGHT_ALT_HOTKEY:
+        return normalized
     prefix_map = {
         "alt_shift": "alt+shift+",
         "ctrl_shift": "ctrl+shift+",
@@ -25,11 +29,15 @@ def canonicalize_hotkey(hotkey: str, modifier_mode: str = "ctrl_alt") -> str:
 
 
 def parse_hotkey_tokens(hotkey: str) -> frozenset[str]:
+    if hotkey.strip().lower() == RIGHT_ALT_HOTKEY:
+        return frozenset({RIGHT_ALT_TOKEN})
     tokens = {part.strip().lower() for part in hotkey.split("+") if part.strip()}
     return frozenset(GRAVE_KEY_TOKEN if token in GRAVE_KEY_ALIASES else token for token in tokens)
 
 
 def display_hotkey(hotkey: str) -> str:
+    if hotkey == RIGHT_ALT_HOTKEY:
+        return "Right Alt"
     labels = {
         "ctrl": "Ctrl",
         "alt": "Alt",

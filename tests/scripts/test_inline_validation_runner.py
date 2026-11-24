@@ -1,0 +1,336 @@
+import json
+from pathlib import Path
+import subprocess
+
+import pytest
+
+from scripts.run_inline_dictation_validation import reassess_attended_report, requested_layers_pass, run_layer
+
+
+@pytest.fixture(autouse=True)
+def isolated_local_app_data(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local-app-data"))
+
+
+def test_requested_desktop_layer_must_pass_even_when_fast_layer_passes() -> None:
+    layers = {"fast": {"status": "pass"}, "tk": {"status": "pass"}, "webview": {"status": "blocked"}}
+
+    assert requested_layers_pass(layers, tk=False, webview=False)
+    assert requested_layers_pass(layers, tk=True, webview=False)
+    assert not requested_layers_pass(layers, tk=True, webview=True)
+
+
+def test_webview_initialization_timeout_remains_a_failed_test(tmp_path: Path, monkeypatch) -> None:
+    def fake_run(command, **_kwargs):
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="1" failures="1" errors="0" skipped="0">'
+            '<testcase name="host"><failure message="test_loaded timeout" /></testcase>'
+            '</testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("webview", ("test_host.py",), tmp_path, integration=True, webview=True)
+
+    assert layer["status"] == "fail"
+    assert layer["reason_code"] == "webview_initialization_timeout"
+    assert layer["failed"] == 1
+
+
+def test_webview2_startup_error_is_distinct_from_bridge_timeout(tmp_path: Path, monkeypatch) -> None:
+    def fake_run(command, **_kwargs):
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="1" failures="1" errors="0" skipped="0">'
+            '<testcase name="host"><failure message="test_loaded timeout">'
+            'WebView2 initialization failed with exception: E_UNEXPECTED'
+            '</failure></testcase></testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("webview", ("test_host.py",), tmp_path, integration=True, webview=True)
+
+    assert layer["status"] == "fail"
+    assert layer["reason_code"] == "webview2_initialization_failed"
+
+
+def test_webview_profile_permission_denial_blocks_without_claiming_pass(tmp_path: Path, monkeypatch) -> None:
+    def fake_run(command, **_kwargs):
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="2" failures="0" errors="2" skipped="0">'
+            '<testcase name="first"><error message="PermissionError: [WinError 5] InlineValidationProfiles">'
+            'tests/platform/test_voice_webview_host_integration.py:36: in webview_profile_root'
+            '</error></testcase>'
+            '<testcase name="second"><error message="PermissionError: [WinError 5] InlineValidationProfiles">'
+            'tests/platform/test_voice_webview_host_integration.py:36: in webview_profile_root'
+            '</error></testcase></testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("webview", ("test_host.py",), tmp_path, integration=True, webview=True)
+
+    assert layer["status"] == "blocked"
+    assert layer["reason_code"] == "webview_profile_permission_denied"
+    assert layer["failed"] == 2
+    assert not requested_layers_pass({"fast": {"status": "pass"}, "webview": layer}, tk=False, webview=True)
+
+
+def test_webview_profile_permission_denial_with_test_failure_remains_failed(tmp_path: Path, monkeypatch) -> None:
+    def fake_run(command, **_kwargs):
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="2" failures="1" errors="1" skipped="0">'
+            '<testcase name="setup"><error message="PermissionError: [WinError 5] InlineValidationProfiles">'
+            'in webview_profile_root</error></testcase>'
+            '<testcase name="host"><failure message="bridge assertion failed" /></testcase>'
+            '</testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("webview", ("test_host.py",), tmp_path, integration=True, webview=True)
+
+    assert layer["status"] == "fail"
+    assert layer["reason_code"] == ""
+
+
+def test_skipped_required_desktop_case_blocks_the_layer(tmp_path: Path, monkeypatch) -> None:
+    def fake_run(command, **_kwargs):
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="2" failures="0" errors="0" skipped="1">'
+            '<testcase name="window" /><testcase name="native_focus"><skipped message="no foreground" /></testcase>'
+            '</testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("tk", ("test_window.py",), tmp_path, integration=True)
+
+    assert layer["status"] == "blocked"
+    assert layer["reason_code"] == "required_desktop_case_skipped"
+    assert layer["passed"] == 1
+    assert layer["skipped"] == 1
+
+
+def test_tcl_initialization_error_blocks_desktop_layer_without_claiming_pass(tmp_path: Path, monkeypatch) -> None:
+    def fake_run(command, **_kwargs):
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="2" failures="1" errors="0" skipped="0">'
+            '<testcase name="window"><failure message="_tkinter.TclError">'
+            '_tkinter.TclError: could not read tk.tcl</failure></testcase>'
+            '<testcase name="layout" />'
+            '</testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("tk", ("test_window.py",), tmp_path, integration=True)
+
+    assert layer["status"] == "blocked"
+    assert layer["reason_code"] == "tcl_initialization_failed"
+    assert not requested_layers_pass({"fast": {"status": "pass"}, "tk": layer}, tk=True, webview=False)
+
+
+def test_desktop_layer_uses_local_app_data_for_webview_profile(tmp_path: Path, monkeypatch) -> None:
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text('<testsuite tests="1" failures="0" errors="0" skipped="0"><testcase name="host" /></testsuite>', encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    layer = run_layer("webview", ("test_host.py",), evidence, integration=True, webview=True)
+
+    basetemp = Path(next(item.removeprefix("--basetemp=") for item in commands[0] if item.startswith("--basetemp=")))
+    assert layer["status"] == "pass"
+    assert basetemp.is_relative_to(tmp_path / "local-app-data" / "ClipAI" / "InlineValidation")
+    assert not basetemp.is_relative_to(tmp_path / "evidence")
+    assert "--capture=sys" not in commands[0]
+    assert layer["pytest_capture"] == "fd"
+
+
+def test_tk_layer_keeps_temporary_files_with_its_evidence(tmp_path: Path, monkeypatch) -> None:
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        report = next(item.removeprefix("--junitxml=") for item in command if item.startswith("--junitxml="))
+        Path(report).write_text(
+            '<testsuite tests="1" failures="0" errors="0" skipped="0"><testcase name="window" /></testsuite>',
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("scripts.run_inline_dictation_validation.subprocess.run", fake_run)
+    layer = run_layer("tk", ("test_window.py",), tmp_path, integration=True)
+
+    basetemp = Path(next(item.removeprefix("--basetemp=") for item in commands[0] if item.startswith("--basetemp=")))
+    assert layer["status"] == "pass"
+    assert basetemp == tmp_path / "tk-tmp"
+    assert "--capture=sys" in commands[0]
+    assert layer["pytest_capture"] == "sys"
+
+
+def test_attended_manifest_rechecks_raw_evidence_instead_of_old_verdict(tmp_path: Path) -> None:
+    run = tmp_path / "attended-run"
+    run.mkdir()
+    report = run / "report.json"
+    report.write_text(json.dumps({
+        "status": "fail", "mode_requested": "minimal", "scenario_requested": "raw",
+        "target": {"text_policy": "exact"}, "run_nonce": "run-1",
+    }), encoding="utf-8")
+
+    def target(kind: str, ns: int, *, digest: str, pastes: int) -> dict:
+        return {
+            "kind": kind, "run_nonce": "run-1", "monotonic_ns": ns,
+            "target": {
+                "sha256": digest, "utf8_bytes": 0 if digest == "empty" else 4,
+                "matches_expected": digest == "expected", "paste_count": pastes,
+                "foreground_hwnd": 42, "target_hwnd": 42, "target_is_foreground": True,
+            },
+            "clipboard": {"status": "observed", "formats": [{"id": 13, "bytes": 8, "sha256": "original"}]},
+        }
+
+    records = [target("ready", 1, digest="empty", pastes=0),
+               target("paste_observed", 2, digest="expected", pastes=1),
+               target("observation", 3, digest="expected", pastes=1)]
+    (run / "target.jsonl").write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
+
+    def trace(stage: str, ns: int, *, mode: str = "", outcome: str = "") -> str:
+        return (f"Inline trace monotonic_ns={ns} stage={stage} interaction_id=inline-1 "
+                f"capture_id= operation_id= mode={mode} outcome={outcome}")
+
+    lines = [trace("capture_requested", 10, mode="minimal"), trace("listening", 11),
+             trace("stop_requested", 12, outcome="short"), trace("recognition_settled", 13),
+             trace("paste_requested", 14), trace("paste_terminal", 15, outcome="dispatched_unconfirmed")]
+    (run / "inline-trace.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    reassessed = reassess_attended_report(report)
+    assert reassessed["status"] == "pass"
+    assert reassessed["checks"]["stop_gesture"] == "pass"
+    assert reassessed["literal_character_comparison"] == {"status": "not_covered"}
+
+    old_report = json.loads(report.read_text(encoding="utf-8"))
+    old_report["audio_replay"] = {
+        "source": "fixed_wav_speaker_playback",
+        "sha256": "a" * 64,
+        "playback_returned": True,
+    }
+    report.write_text(json.dumps(old_report), encoding="utf-8")
+    with_audio = reassess_attended_report(report)
+    assert with_audio["status"] == "pass"
+    assert with_audio["microphone_audio_source"] == "speaker_replay_reported_input_not_independently_confirmed"
+    assert with_audio["audio_replay_sha256"] == "a" * 64
+    assert with_audio["audio_replay_timing"] == "not_covered"
+
+    old_report["audio_replay"]["start_monotonic_ns"] = 11
+    old_report["audio_replay"]["end_monotonic_ns"] = 12
+    report.write_text(json.dumps(old_report), encoding="utf-8")
+    timed = reassess_attended_report(report)
+    assert timed["status"] == "pass"
+    assert timed["audio_replay_timing"] == "pass"
+
+    old_report["audio_replay"]["start_monotonic_ns"] = 13
+    old_report["audio_replay"]["end_monotonic_ns"] = 14
+    report.write_text(json.dumps(old_report), encoding="utf-8")
+    late_replay = reassess_attended_report(report)
+    assert late_replay["status"] == "fail"
+    assert late_replay["audio_replay_timing"] == "fail"
+
+    old_report["audio_replay"].pop("end_monotonic_ns")
+    report.write_text(json.dumps(old_report), encoding="utf-8")
+    assert reassess_attended_report(report)["status"] == "fail"
+    old_report["audio_replay"].pop("start_monotonic_ns")
+    report.write_text(json.dumps(old_report), encoding="utf-8")
+
+    lines[2] = trace("stop_requested", 12, outcome="long")
+    (run / "inline-trace.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    reassessed = reassess_attended_report(report)
+    assert reassessed["status"] == "fail"
+    assert reassessed["checks"]["stop_gesture"] == "fail"
+
+    lines[2] = trace("stop_requested", 12, outcome="short")
+    (run / "inline-trace.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    old_report = json.loads(report.read_text(encoding="utf-8"))
+    old_report["run_nonce"] = "another-run"
+    report.write_text(json.dumps(old_report), encoding="utf-8")
+    assert reassess_attended_report(report)["status"] == "fail"
+
+    (run / "inline-trace.log").unlink()
+    assert reassess_attended_report(report)["status"] == "blocked"
+
+
+def test_attended_manifest_distinguishes_original_from_amended_assessment(tmp_path: Path) -> None:
+    run = tmp_path / "choice-raw"
+    run.mkdir()
+    original = run / "report.json"
+    amended = run / "freeform-assessment.json"
+    common = {"mode_requested": "choice", "scenario_requested": "raw", "run_nonce": "run-1"}
+    original.write_text(json.dumps({**common, "status": "fail", "target": {"text_policy": "exact"}}), encoding="utf-8")
+    amended.write_text(json.dumps({**common, "status": "pass", "target": {"text_policy": "nonempty"}}), encoding="utf-8")
+    events = [
+        {"kind": kind, "run_nonce": "run-1", "monotonic_ns": ns,
+         "target": {"sha256": digest, "utf8_bytes": size, "matches_expected": False,
+                    "paste_count": pastes, "target_is_foreground": True},
+         "clipboard": {"status": "observed", "formats": [{"id": 13, "bytes": 4, "sha256": "saved"}]}}
+        for kind, ns, digest, size, pastes in (
+            ("ready", 1, "empty", 0, 0),
+            ("paste_observed", 2, "spoken", 12, 1),
+            ("observation", 3, "spoken", 12, 1),
+        )
+    ]
+    (run / "target.jsonl").write_text("\n".join(map(json.dumps, events)) + "\n", encoding="utf-8")
+    stages = ("capture_requested", "listening", "stop_requested", "recognition_settled",
+              "choice_ready", "paste_requested", "paste_terminal")
+    (run / "inline-trace.log").write_text("\n".join(
+        f"Inline trace monotonic_ns={index} stage={stage} interaction_id=inline-1 "
+        "capture_id= operation_id= mode=choice "
+        f"outcome={'dispatched_unconfirmed' if stage == 'paste_terminal' else ''}"
+        for index, stage in enumerate(stages, 10)
+    ) + "\n", encoding="utf-8")
+
+    original_result = reassess_attended_report(original)
+    amended_result = reassess_attended_report(amended)
+
+    assert original_result["status"] == "fail"
+    assert amended_result["status"] == "pass"
+    assert original_result["source_report"] == "report.json"
+    assert amended_result["source_report"] == "freeform-assessment.json"
+    assert original_result["text_policy"] == "exact"
+    assert amended_result["text_policy"] == "nonempty"
+    assert original_result["recorded_status"] == "fail"
+    assert amended_result["recorded_status"] == "pass"
+
+
+def test_legacy_attended_report_requires_explicit_text_policy(tmp_path: Path) -> None:
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({
+        "status": "fail", "mode_requested": "choice", "scenario_requested": "raw",
+        "target": {},
+    }), encoding="utf-8")
+
+    result = reassess_attended_report(report)
+
+    assert result == {
+        "artifact": tmp_path.name,
+        "source_report": "report.json",
+        "recorded_status": "fail",
+        "status": "blocked",
+        "reason_code": "legacy_text_policy_unavailable",
+    }

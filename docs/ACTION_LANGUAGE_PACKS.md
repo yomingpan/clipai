@@ -1,6 +1,6 @@
 # Action Language Packs
 
-ClipAI 目前提供繁體中文與日文 Action Language Pack。它會切換 Action 名稱、prompt、feedback 文字、output profile marker，以及 Unified Entry Panel 中 Recent、flagship、More／搜尋結果的 Action 名稱與描述。它不會切換 Panel category、周邊 UI、Voice Input 語言、TTS voice、provider 或 model。
+ClipAI 目前提供繁體中文與日文 Action Language Pack。它會切換 Action 名稱、prompt、feedback 文字、output profile marker，以及 Unified Entry Panel 的最近使用與各分類清單中的 Action 名稱和描述。Panel 分類名稱、周邊 UI、Voice Input 語言、TTS voice、provider 與 model 各由其原有設定決定。
 
 ## 切換語言
 

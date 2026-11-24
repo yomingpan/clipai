@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
-from ClipAI.core.errors import ActionLanguagePackErrorCode
+from ClipAI.core.errors import ActionLanguagePackErrorCode, InlineRefinementFailureReason
 from ClipAI.core.models import EntryActionRef, EntryInputPreparationId, EntryPanelDensity, FeedbackOutcome, InputDocument, InterruptionScope, ModelCatalogConnection, ModifierHoldId, PasteOutcome, PasteTarget, PreparedInput, PressType, ProviderSettingsInput, ResultRoute, ShortcutPressId, ShortcutPressOutcome, SpeechSpeed
-from ClipAI.core.models import ControlSurfaceRef
+from ClipAI.core.models import ControlSurfaceRef, InlineInputMode, OutputOrigin
+from ClipAI.core.models import EntryInputPreparationPhase
+from ClipAI.core.managed_update import FailureCode
+from ClipAI.core.update_preparation import ManagedUpdatePreparationPhase
 from ClipAI.core.voice import VoiceCaptureId, VoiceDisableId, VoiceEngineEvent, VoiceLanguage, VoiceLanguageChangeId, VoiceSetupId
 
 
@@ -13,7 +16,7 @@ from ClipAI.core.voice import VoiceCaptureId, VoiceDisableId, VoiceEngineEvent, 
 class StartAction:
     action_id: str
     press_type: PressType
-    result_route: ResultRoute = "popup"
+    result_route: ResultRoute | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,12 @@ class ShortcutPressStarted:
 
 
 @dataclass(frozen=True)
+class ShortcutPressThresholdReached:
+    press_id: ShortcutPressId
+    shortcut_id: str
+
+
+@dataclass(frozen=True)
 class ShortcutPressInvoked:
     press_id: ShortcutPressId
     shortcut_id: str
@@ -108,6 +117,13 @@ class EntryPanelInputPreparationCompleted:
 
 
 @dataclass(frozen=True)
+class EntryPanelInputPreparationProgress:
+    panel_id: str
+    preparation_id: EntryInputPreparationId
+    phase: EntryInputPreparationPhase
+
+
+@dataclass(frozen=True)
 class EntryPanelInputPreparationFailed:
     panel_id: str
     preparation_id: EntryInputPreparationId
@@ -142,17 +158,6 @@ class EntryPanelSlotSelected:
 
 
 @dataclass(frozen=True)
-class EntryPanelOpenMore:
-    panel_id: str
-
-
-@dataclass(frozen=True)
-class EntryPanelSearchChanged:
-    panel_id: str
-    text: str
-
-
-@dataclass(frozen=True)
 class EntryPanelToggleDensity:
     panel_id: str
 
@@ -170,6 +175,7 @@ class InterruptionRequested:
 ShortcutInputEvent: TypeAlias = (
     ShortcutKeyStateChanged
     | ShortcutPressStarted
+    | ShortcutPressThresholdReached
     | ShortcutPressInvoked
     | ShortcutPressEnded
     | ShortcutAttemptRejected
@@ -192,6 +198,24 @@ class OpenAbout:
 @dataclass(frozen=True)
 class CloseAbout:
     pass
+
+
+@dataclass(frozen=True)
+class CheckForManagedUpdate:
+    operation_id: str = ""
+
+
+@dataclass(frozen=True)
+class ManagedUpdatePreparationProgress:
+    operation_id: str
+    phase: ManagedUpdatePreparationPhase
+
+
+@dataclass(frozen=True)
+class ManagedUpdateCheckCompleted:
+    operation_id: str
+    outcome: Literal["up_to_date", "restarting", "failed"]
+    failure_code: FailureCode | None = None
 
 
 @dataclass(frozen=True)
@@ -286,6 +310,11 @@ class FollowUp:
 
 
 @dataclass(frozen=True)
+class RegenerateResult:
+    workflow_id: str
+
+
+@dataclass(frozen=True)
 class TogglePin:
     session_id: str
 
@@ -300,6 +329,12 @@ class ToggleSpeech:
     session_id: str
     text: str | None = None
     operation_id: str = ""
+
+
+@dataclass(frozen=True)
+class SpeakAcceptedResult:
+    workflow_id: str
+    step_id: str
 
 
 @dataclass(frozen=True)
@@ -336,6 +371,7 @@ class PasteOperationCompleted:
     operation_id: str
     workflow_id: str
     outcome: PasteOutcome
+    origin: OutputOrigin | None = None
 
 
 @dataclass(frozen=True)
@@ -451,6 +487,18 @@ class SpeechSpeedPreferencesCompleted:
 
 
 @dataclass(frozen=True)
+class SetInlineInputMode:
+    mode: InlineInputMode
+    operation_id: str = ""
+
+
+@dataclass(frozen=True)
+class InlineInputModePreferencesCompleted:
+    operation_id: str
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class SetEntryPanelDensity:
     density: EntryPanelDensity
     operation_id: str = ""
@@ -534,6 +582,11 @@ class VoiceCaptureWatchdogExpired:
 
 
 @dataclass(frozen=True)
+class VoiceCaptureHoldElapsed:
+    press_id: ShortcutPressId
+
+
+@dataclass(frozen=True)
 class VoiceCaptureCountdownTick:
     press_id: ShortcutPressId
     remaining_seconds: int
@@ -556,6 +609,66 @@ class VoiceSilenceWatchdogExpired:
 
 
 @dataclass(frozen=True)
+class VoiceFinalizeWatchdogExpired:
+    capture_id: VoiceCaptureId
+
+
+@dataclass(frozen=True)
+class ToggleInlineDictation:
+    press_type: PressType = "short"
+
+
+@dataclass(frozen=True)
+class ConfirmInlineDictation:
+    interaction_id: str
+    refine: bool = False
+
+
+@dataclass(frozen=True)
+class CancelInlineDictation:
+    interaction_id: str
+
+
+@dataclass(frozen=True)
+class InlineDictationRefineSettled:
+    interaction_id: str = ""
+    text: str = ""
+    error: bool = False
+    operation_id: str = ""
+    failure_reason: InlineRefinementFailureReason | None = None
+
+
+@dataclass(frozen=True)
+class InlineDictationRefineCancelAccepted:
+    interaction_id: str
+    operation_id: str
+    accepted: bool
+
+
+@dataclass(frozen=True)
+class InlineDictationRefineCancelTimedOut:
+    interaction_id: str
+    operation_id: str
+
+
+@dataclass(frozen=True)
+class DismissInlineDictationTerminal:
+    interaction_id: str
+
+
+@dataclass(frozen=True)
+class CopyInlineDictation:
+    interaction_id: str
+
+
+@dataclass(frozen=True)
+class InlineDictationCopyCompleted:
+    interaction_id: str
+    operation_id: str
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class SetVoiceLanguage:
     language: VoiceLanguage
     operation_id: VoiceLanguageChangeId = VoiceLanguageChangeId("")
@@ -574,4 +687,12 @@ class UpdateVoiceDraft:
     text: str
 
 
-AppCommand: TypeAlias = ExpireInputRecovery | UseWorkflowClipboard | ShortcutInputEvent | EntryPanelInputPreparationCompleted | EntryPanelInputPreparationFailed | RetryEntryPanelInput | UseEntryPanelClipboard | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelOpenMore | EntryPanelSearchChanged | EntryPanelToggleDensity | EntryPanelBack | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | TogglePin | ShutdownApplication | ToggleSpeech | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureCountdownTick | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft
+@dataclass(frozen=True)
+class RefineVoiceDraftInPlace:
+    workflow_id: str
+    expected_revision: int
+    selection_start: int
+    selection_end: int
+
+
+AppCommand: TypeAlias = ToggleInlineDictation | ConfirmInlineDictation | CancelInlineDictation | InlineDictationRefineSettled | InlineDictationRefineCancelAccepted | InlineDictationRefineCancelTimedOut | DismissInlineDictationTerminal | CopyInlineDictation | InlineDictationCopyCompleted | VoiceFinalizeWatchdogExpired | VoiceCaptureCountdownTickForCapture | VoiceCaptureTimeout | EntryPanelInputPreparationProgress | ExpireInputRecovery | UseWorkflowClipboard | ShortcutInputEvent | EntryPanelInputPreparationCompleted | EntryPanelInputPreparationFailed | RetryEntryPanelInput | UseEntryPanelClipboard | CloseEntryPanel | EntryPanelActionSelected | EntryPanelSlotSelected | EntryPanelToggleDensity | EntryPanelBack | WorkflowStepAccepted | OpenShortcutGuide | OpenAbout | CloseAbout | CheckForManagedUpdate | ManagedUpdatePreparationProgress | ManagedUpdateCheckCompleted | CloseShortcutGuide | SelectShortcutGuideItem | StartAction | OpenContextualQuestion | SubmitContextualQuestion | ContextualSourceCaptured | ContextualSourceCaptureFailed | CloseSession | CancelSession | InterruptCurrent | InterruptAll | ControlSurfaceActivated | ControlSurfaceReleased | CloseProviderSettings | OpenPersonalStyles | ClosePersonalStyles | ImportPersonalStyle | SelectPersonalStyle | PersonalStyleOperationCompleted | CopyResult | PasteResult | PasteOperationCompleted | ExternalForegroundChanged | ArchiveResult | FollowUp | RegenerateResult | RefineVoiceDraftInPlace | TogglePin | ShutdownApplication | ToggleSpeech | SpeakAcceptedResult | SpeakSelectionOrClipboard | ActivateWorkflow | NavigateWorkflowBack | WorkflowAttentionCompleted | ExportDiagnostics | SelectProviderModel | SelectProvider | ReloadConfiguration | SelectActionLanguagePack | ActionLanguagePackSelectionCompleted | OpenProviderSettings | ValidateAndSaveProviderSettings | RefreshProviderModels | SubmitActionFeedback | ActionFeedbackCompleted | SetFirstUseHintsEnabled | ResetFirstUseHints | GuidancePreferencesCompleted | SetSpeechSpeed | SpeechSpeedPreferencesCompleted | SetInlineInputMode | InlineInputModePreferencesCompleted | OpenVoiceSetup | OpenVoicePermissionSettings | EnableVoiceInput | RetryVoiceInputSetup | VoicePreferenceSaved | DisableVoiceInput | VoiceDisableShutdownCompleted | VoiceDisablePreferenceSaved | VoiceEngineEventReceived | StartPopupVoiceCapture | StopVoiceCapture | CancelVoiceCapture | VoiceCaptureHoldElapsed | VoiceCaptureCountdownTick | VoiceCaptureWatchdogExpired | VoiceSilenceWatchdogExpired | SetVoiceLanguage | VoiceLanguagePreferenceSaved | UpdateVoiceDraft

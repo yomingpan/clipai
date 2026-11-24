@@ -56,6 +56,8 @@ def project_popup_presentation(
             snapshot.feedback_message,
         )
     enabled_actions = snapshot.available_actions
+    if snapshot.can_regenerate and "regenerate" not in enabled_actions:
+        enabled_actions = (*enabled_actions, "regenerate")
     if snapshot.status is SessionStatus.CONTEXT_QUESTION:
         enabled_actions = tuple(
             action for action in enabled_actions if action != "follow_up"

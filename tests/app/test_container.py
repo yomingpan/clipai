@@ -1,16 +1,104 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
+from ClipAI.app import container
+from ClipAI.app.application_paths import build_application_paths
 from ClipAI.app.config_loader import load_config_bundle
-from ClipAI.app.container import _build_provider, _build_provider_snapshot, _needs_provider_setup, _resolve_active_credential, _resolve_active_model
+from ClipAI.app.container import _build_provider, _build_provider_snapshot, _resolve_active_credential, _resolve_active_model
 from ClipAI.app.provider_configuration import build_provider_snapshot
 from ClipAI.providers.anthropic import AnthropicProvider
 from ClipAI.providers.fake import FakeProvider
 from ClipAI.providers.gemini import GeminiProvider
 from ClipAI.providers.openai import OpenAIProvider
+from ClipAI.platform.browser_speech import WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT
+
+
+@pytest.fixture
+def stub_desktop_view(monkeypatch) -> None:
+    monkeypatch.setattr(container, "ResultDialogPresenter", lambda **_kwargs: object())
+
+
+def test_runtime_composition_injects_voice_profile_from_application_paths(
+    tmp_path: Path,
+    monkeypatch,
+    stub_desktop_view,
+) -> None:
+    class CompositionReachedVoiceProfile(Exception):
+        pass
+
+    paths = build_application_paths(
+        Path.cwd(),
+        {"LOCALAPPDATA": str(tmp_path / "local-app-data")},
+    )
+
+    def capture_voice_profile(*_args, profile_root: Path, **_kwargs):
+        assert profile_root == paths.voice_profile_root
+        raise CompositionReachedVoiceProfile
+
+    monkeypatch.setattr(
+        container,
+        "BrowserSpeechWebView2Engine",
+        capture_voice_profile,
+    )
+
+    with pytest.raises(CompositionReachedVoiceProfile):
+        container.build_runtime(load_config_bundle(), paths=paths)
+
+
+def test_process_taskbar_identity_is_set_before_root_creation(tmp_path: Path, monkeypatch) -> None:
+    class ReachedRoot(Exception):
+        pass
+
+    calls = []
+
+    class Native:
+        def set_process_taskbar_identity(self, app_id: str) -> bool:
+            calls.append(("identity", app_id))
+            return True
+
+    def create_view(**_kwargs):
+        calls.append(("root", None))
+        raise ReachedRoot
+
+    monkeypatch.setattr(container, "WindowsNativeWindowSurface", Native)
+    monkeypatch.setattr(container, "ResultDialogPresenter", create_view)
+    paths = build_application_paths(Path.cwd(), {"LOCALAPPDATA": str(tmp_path / "local-app-data")})
+    with pytest.raises(ReachedRoot):
+        container.build_runtime(load_config_bundle(), paths=paths)
+    assert calls == [("identity", "ClipAI.Desktop"), ("root", None)]
+
+
+def test_runtime_composition_appends_webview2_speech_fallback_once(
+    tmp_path: Path,
+    monkeypatch,
+    stub_desktop_view,
+) -> None:
+    class CompositionReachedVoiceEngine(Exception):
+        pass
+
+    paths = build_application_paths(
+        Path.cwd(),
+        {"LOCALAPPDATA": str(tmp_path / "local-app-data")},
+    )
+    monkeypatch.setenv(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, "--existing-argument")
+
+    def capture_voice_engine(*_args, **_kwargs):
+        value = __import__("os").environ[WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS]
+        assert value.split().count(WEBVIEW2_SPEECH_CETO_FALLBACK_ARGUMENT) == 1
+        assert "--existing-argument" in value
+        raise CompositionReachedVoiceEngine
+
+    monkeypatch.setattr(container, "BrowserSpeechWebView2Engine", capture_voice_engine)
+
+    with pytest.raises(CompositionReachedVoiceEngine):
+        container.build_runtime(load_config_bundle(), paths=paths)
+
+    with pytest.raises(CompositionReachedVoiceEngine):
+        container.build_runtime(load_config_bundle(), paths=paths)
 
 
 @pytest.mark.parametrize(
@@ -141,7 +229,7 @@ def test_missing_provider_key_is_a_first_run_settings_condition() -> None:
     snapshot = _build_provider_snapshot(load_config_bundle(), {"CLIPAI_PROVIDER": "gemini"})
     binding = next(item for item in snapshot.bindings if item.provider_id == snapshot.active_provider)
 
-    assert _needs_provider_setup(binding.readiness_issues)
+    assert binding.readiness_issues[0].feature == "llm"
 
 
 def test_unconfigured_custom_provider_is_a_nonfatal_first_run_settings_condition() -> None:
@@ -149,4 +237,4 @@ def test_unconfigured_custom_provider_is_a_nonfatal_first_run_settings_condition
     binding = next(item for item in snapshot.bindings if item.provider_id == snapshot.active_provider)
 
     assert binding.readiness_issues[0].code == "provider.gateway_not_configured"
-    assert _needs_provider_setup(binding.readiness_issues)
+    assert binding.readiness_issues[0].feature == "llm"

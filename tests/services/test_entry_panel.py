@@ -10,24 +10,86 @@ def coordinator() -> EntryPanelCoordinator:
     return EntryPanelCoordinator(load_config_bundle().entry_panel)
 
 
-def test_root_digit_opens_configured_scene_with_flagship_slots() -> None:
+def test_root_numeric_migration_reserves_zero_for_visible_feedback_only():
+    panel = coordinator()
+    root = panel.open("migration", recent=(EntryActionRef("shorten_content", "short"),))
+    assert tuple(option.slot for option in root.options) == (1, 4, 5, 6, 7, 8)
+    decision = panel.select_digit("0")
+    assert decision.action is None
+    assert decision.snapshot.message == "最近使用改為 1–3"
+    assert decision.snapshot.page == "root"
+
+
+def test_numeric_hint_is_separate_from_input_lifecycle_feedback():
+    panel = coordinator()
+    root = panel.open("migration", preparing=True, numeric_hint=True)
+    assert root.header_hint == "數字已改:1–3 最近、4–7 分類"
+    assert root.message == "正在讀取來源內容…"
+    ready = panel.complete_input_preparation(EntryInputSourcePreview("selection_text", "captured"))
+    assert ready.header_hint == root.header_hint
+    assert ready.message == ""
+    assert panel.open("after-five").header_hint == ""
+
+
+def test_catalog_projects_a_validated_long_candidate() -> None:
+    bundle = load_config_bundle()
+    candidate = EntryPanelCandidate(
+        EntryActionRef("name_idea", "short"),
+        "Name",
+        "Describe",
+        EntryActionRef("critical_thinking", "long"),
+        "Critique deeply",
+    )
+    catalog = EntryPanelCatalog(
+        (EntryPanelCategory("test", 4, "Test", "Test", (candidate,), ()),),
+        actions=bundle.actions,
+    )
+
+    scene = EntryPanelCoordinator(catalog)
+    scene.open("panel")
+    option = scene.select_digit("4").snapshot.options[0]
+    assert option.long_action == EntryActionRef("critical_thinking", "long")
+    assert option.long_label == "Critique deeply"
+
+
+def test_catalog_rejects_duplicate_long_candidate_reference() -> None:
+    bundle = load_config_bundle()
+    duplicated = EntryActionRef("name_idea", "short")
+    candidate = EntryPanelCandidate(duplicated, "Name", "Describe", duplicated, "Again")
+
+    with pytest.raises(ValueError, match="duplicate entry action"):
+        EntryPanelCatalog(
+            (EntryPanelCategory("test", 4, "Test", "Test", (candidate,), ()),),
+            actions=bundle.actions,
+        )
+
+
+@pytest.mark.parametrize(("slot", "category", "first", "fifth", "count"), [
+    ("4", "understand", "translate_to_traditional_chinese", "explain_chart", 8),
+    ("5", "write", "translate_to_english", "describe_in_english", 8),
+    ("6", "think", "pyramid_position", "mece_decomposition", 16),
+    ("7", "tools", "extract_screenshot_text", "command_coach", 5),
+])
+def test_categories_show_every_action_with_stable_flagship_slots(slot, category, first, fifth, count) -> None:
     panel = coordinator()
     root = panel.open("panel-1")
 
-    scene_decision = panel.select_digit("3")
+    scene_decision = panel.select_digit(slot)
     action_decision = panel.select_digit("1")
     scene = scene_decision.snapshot
 
     assert root.page == "root"
     assert scene.page == "scene"
-    assert scene.category_id == "understand"
-    assert tuple(option.slot for option in scene.options) == (1, 2, 3, 4)
-    assert scene.options[0].action.action_id == "translate_to_traditional_chinese"
-    assert action_decision.action == EntryActionRef("translate_to_traditional_chinese", "short")
+    assert scene.category_id == category
+    assert tuple(option.slot for option in scene.options) == (1, 2, 3, 4) + (None,) * (count - 4)
+    assert scene.options[0].action.action_id == first
+    assert scene.options[4].action.action_id == fifth
+    assert action_decision.action == EntryActionRef(first, "short")
     assert action_decision.snapshot == scene
+    assert panel.back().page == "root"
 
 
-def test_root_projects_only_available_recent_actions_into_zero_based_slots() -> None:
+def test_root_projects_only_available_recent_actions_into_one_based_slots() -> None:
     panel = coordinator()
 
     root = panel.open(
@@ -39,7 +101,7 @@ def test_root_projects_only_available_recent_actions_into_zero_based_slots() -> 
     )
 
     recent = tuple(option for option in root.options if option.action is not None)
-    assert tuple(option.slot for option in recent) == (0, 1)
+    assert tuple(option.slot for option in recent) == (1, 2)
     assert tuple(option.action.action_id for option in recent) == (
         "shorten_content",
         "english_companion",
@@ -55,7 +117,7 @@ def test_root_projects_a_long_press_recent_with_variant_localized_copy() -> None
         recent=(action,),
     )
 
-    recent = root.options[0]
+    recent = next(option for option in root.options if option.slot == 1)
     resolved = bundle.actions.resolve(action.action_id, action.press_type)
     assert resolved.feedback_contract is not None
     assert recent.action == action
@@ -72,21 +134,15 @@ def test_root_ignores_a_stale_recent_reference_instead_of_crashing() -> None:
     assert all(option.action is None for option in root.options)
 
 
-def test_more_and_back_follow_the_progressive_navigation_stack_without_closing_root() -> None:
+def test_back_returns_directly_to_root_without_closing_it() -> None:
     panel = coordinator()
     panel.open("panel-1")
-    scene = panel.select_digit("5").snapshot
+    scene = panel.select_digit("6").snapshot
 
-    more = panel.open_more()
-    returned_scene = panel.back()
     returned_root = panel.back()
     unchanged_root = panel.back()
 
     assert scene.page == "scene"
-    assert more.page == "more"
-    assert more.category_id == "think"
-    assert all(option.slot is None for option in more.options)
-    assert returned_scene.page == "scene"
     assert returned_root.page == "root"
     assert unchanged_root == returned_root
     assert panel.snapshot == returned_root
@@ -101,7 +157,7 @@ def test_preparing_actions_remain_capable_but_are_pending_and_unselectable() -> 
         disabled={policy_blocked: "Provider unavailable"},
     )
 
-    scene = panel.select_digit("4").snapshot
+    scene = panel.select_digit("5").snapshot
     blocked = next(option for option in scene.options if option.action == policy_blocked)
     available = next(option for option in scene.options if option.action != policy_blocked)
 
@@ -113,34 +169,16 @@ def test_preparing_actions_remain_capable_but_are_pending_and_unselectable() -> 
     assert panel.select_digit(str(available.slot)).action is None
 
 
-def test_search_filters_only_the_current_more_page() -> None:
+def test_density_toggle_preserves_category_and_action_order() -> None:
     panel = coordinator()
     panel.open("panel-1")
-    panel.select_digit("5")
-    panel.open_more()
-
-    filtered = panel.set_search("MECE")
-
-    assert filtered.page == "more"
-    assert filtered.search_text == "MECE"
-    assert tuple(option.action.action_id for option in filtered.options) == (
-        "mece_decomposition",
-    )
-
-
-def test_density_toggle_preserves_page_search_and_action_order() -> None:
-    panel = coordinator()
-    panel.open("panel-1")
-    panel.select_digit("5")
-    panel.open_more()
-    detailed = panel.set_search("name")
+    detailed = panel.select_digit("6").snapshot
 
     compact = panel.toggle_density()
 
     assert compact.density == "compact"
     assert compact.page == detailed.page
     assert compact.category_id == detailed.category_id
-    assert compact.search_text == detailed.search_text
     assert compact.options == detailed.options
     assert panel.toggle_density().density == "detailed"
 
@@ -166,7 +204,7 @@ def test_disabled_action_stays_visible_with_reason_and_cannot_be_selected() -> N
         "panel-1",
         disabled={action: "請先完成 Personal Style 設定"},
     )
-    scene = panel.select_digit("4").snapshot
+    scene = panel.select_digit("5").snapshot
 
     decision = panel.select_digit("1")
 
@@ -183,11 +221,10 @@ def test_input_lifecycle_projection_survives_navigation_and_density_changes() ->
         preparing=True,
         source_preview=preview,
     )
-    scene = panel.select_digit("5").snapshot
-    more = panel.open_more()
+    scene = panel.select_digit("6").snapshot
     compact = panel.toggle_density()
 
-    assert root.status == scene.status == more.status == compact.status == "preparing"
+    assert root.status == scene.status == compact.status == "preparing"
     assert compact.source_preview == preview
 
 
@@ -212,7 +249,7 @@ def test_input_completion_and_failure_are_truthful_projection_transitions() -> N
 
 
 def test_catalog_rejects_semantically_invalid_categories_without_yaml_loader() -> None:
-    with pytest.raises(ValueError, match="slot must be one of: 3, 4, 5, 6"):
+    with pytest.raises(ValueError, match="slot must be one of: 4, 5, 6, 7"):
         EntryPanelCatalog(
             (
                 EntryPanelCategory(
@@ -234,7 +271,7 @@ def test_catalog_rejects_unknown_action_without_yaml_loader() -> None:
             (
                 EntryPanelCategory(
                     "understand",
-                    3,
+                    4,
                     "Understand",
                     "Understand",
                     (EntryPanelCandidate(EntryActionRef("unknown", "short"), "Unknown", ""),),
@@ -243,3 +280,22 @@ def test_catalog_rejects_unknown_action_without_yaml_loader() -> None:
             ),
             actions=ActionCatalog([]),
         )
+
+
+def test_question_is_fixed_on_root_and_respects_input_lifecycle():
+    panel = coordinator()
+    root = panel.open("question", preparing=True)
+    assert root.options[-1].slot == 8
+    assert root.options[-1].command == "open_contextual_question"
+    assert root.options[-1].pending
+    assert panel.select_digit("8").command is None
+    panel.complete_input_preparation(EntryInputSourcePreview("selection_text", "text"))
+    assert panel.select_digit("8").command == "open_contextual_question"
+    panel.set_question_availability("unavailable")
+    assert panel.select_digit("8").command is None
+    panel.select_digit("4")
+    assert panel.select_digit("8").command is None
+    root = panel.back()
+    assert root.options[-1].disabled_reason == "unavailable"
+    panel.set_question_availability("")
+    assert panel.select_digit("8").command == "open_contextual_question"

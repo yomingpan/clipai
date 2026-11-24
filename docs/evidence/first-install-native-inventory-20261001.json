@@ -1,0 +1,498 @@
+{
+  "scope": "developer_host_only",
+  "validation_date_local": "2026-10-01",
+  "distribution_admission": "not_covered",
+  "runtime": {
+    "schema_version": 1,
+    "probe_kind": "first-install-candidate-inventory",
+    "created_at": "2026-10-01T11:19:35.226055+00:00",
+    "component": "runtime",
+    "status": "passed",
+    "archive_sha256": "7c45c9622400d578709a9b2cddbe8124cc21d382409d9f13406d706d28e31b14",
+    "selected_files_match_archive": true,
+    "profile": "runtime_copy_excluding_site_packages",
+    "native_files": [
+      {
+        "path": "DLLs/_asyncio.pyd",
+        "size": 59392,
+        "sha256": "3797580a504f0ff84ea7aed8df7b8d61f8519408604b520c75ca79266599ef12",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_bz2.pyd",
+        "size": 73216,
+        "sha256": "e43567beb7f3f9b9b89c6a40e21790170cf0fc98efcad25e6b074c60b73240eb",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_ctypes.pyd",
+        "size": 116224,
+        "sha256": "ce2f528d5d3b91d8ccc4963c7c1685537581304585c9a309dcfbdd5a1a43eaa9",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_ctypes_test.pyd",
+        "size": 25088,
+        "sha256": "f559c57f3c6c8334280dcd227e54ceb5311321a090680aafa7f9d690d5603496",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_decimal.pyd",
+        "size": 248320,
+        "sha256": "471630e0098c6b610bef10ff015dd95d95894048e8f3b74032ccef317da0ae05",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_elementtree.pyd",
+        "size": 121856,
+        "sha256": "bb48410256c0d81f1ab0493103f8d1a0daa1afaad2cba7cf23a069922fd8e6db",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_hashlib.pyd",
+        "size": 54784,
+        "sha256": "1c69cdfde46e4c235f8b4ff9d059d752de288a7f4a1c7f1df0927c9925984f5b",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_lzma.pyd",
+        "size": 152576,
+        "sha256": "61fdbdee731bc3493014b64d14f0c7a6b6950913a40fae3f561dbee9fa078658",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_msi.pyd",
+        "size": 33280,
+        "sha256": "cf29b42b98f1851c7e8507d3c9e549b0e11a32a158ebfe2b4e79a73afa3f1595",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_multiprocessing.pyd",
+        "size": 24064,
+        "sha256": "56440369c73cc7378adcfff3da6338e2e7c937ed62fd60dbcb92bcda0699b8f6",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_overlapped.pyd",
+        "size": 44032,
+        "sha256": "9b631b8f3d78d32e93d2cf31bd4f0988823632ae856c2fb4b6ea9471b20a6f72",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_queue.pyd",
+        "size": 20480,
+        "sha256": "cad613e5524c053dc0e5c497cd4bfde569c3583dc1866c9e4b041b3afccd47da",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_socket.pyd",
+        "size": 71680,
+        "sha256": "8aa5ab82bc2908e122754380b56a92fc92f88e0752f63e3db483d7c43b5cb6f5",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_sqlite3.pyd",
+        "size": 112128,
+        "sha256": "4e7c647350cf4cffec72191e4aa4d51bbe2bb2e8ae79fe9e1135857909067cc7",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_ssl.pyd",
+        "size": 164864,
+        "sha256": "c6871ffbfcc17b66d2b495c9b44fed192fe83e22f7b2f94b00f207525e19559b",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_testbuffer.pyd",
+        "size": 43520,
+        "sha256": "bae29d482b6788e388aa2d59a8d73558f6d1e47b5a45e9844f2f98472a12ac46",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_testcapi.pyd",
+        "size": 297984,
+        "sha256": "1803ba0ffce7f3f11a3781132a1672aa85bb22a3b6787be04b97cdf9d263da94",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_testclinic.pyd",
+        "size": 55296,
+        "sha256": "b4dd3789046d5e47029d5dd7274365ddd416e4f4f4376da104a31693c7a199d6",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_testconsole.pyd",
+        "size": 15360,
+        "sha256": "8dbf51d49d6e12bf71487e0dbbbb0e39af38e5206d591363bdaf94d02e862279",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_testimportmultiple.pyd",
+        "size": 13312,
+        "sha256": "eb5bcb191c7f2096b6967b01a8eebe70ddd61d9290b9a50413276c043612d45a",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_testinternalcapi.pyd",
+        "size": 39936,
+        "sha256": "bfaa839451f45e519d0f29902fad27edf1f3f2619143744320a6f15a658c7bcf",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_testmultiphase.pyd",
+        "size": 27648,
+        "sha256": "67bb7efc1b25dfc69e0515fb938c0a8f0c8220f090eb21e9c2df64a56a681756",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_testsinglephase.pyd",
+        "size": 18432,
+        "sha256": "3825e3f25e5e28c46cb86fe88b47a0f1670ad378a317ce78af09e3b3e94a8bcd",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_tkinter.pyd",
+        "size": 55296,
+        "sha256": "c7909bf5bd200e9f0ca1c008c65fa59a298f955a846031735bc4f37e01ec104c",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_uuid.pyd",
+        "size": 13824,
+        "sha256": "14f024dd8fe2490109f812522daebf61a2f5f8cff80513813db246d6455fcf3f",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_wmi.pyd",
+        "size": 25600,
+        "sha256": "b767ab02b35f5d691142b488807b405663c957e90b84377e639056b84a3288ef",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/_zoneinfo.pyd",
+        "size": 36352,
+        "sha256": "22605c2ed4a7672c65bfdd330c60a3719916ec811ec44c720cf1cc4349c79776",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/libcrypto-3-x64.dll",
+        "size": 7987712,
+        "sha256": "5a4e8f115a4caada73c5f890513b058509885bbb1012f0cb7ab9b5bddedae1dd",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/libffi-8.dll",
+        "size": 28160,
+        "sha256": "cf07f9f0b1c635bdc20a5c81e0808986e14eede4329d2994ccab417f59550638",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/libssl-3-x64.dll",
+        "size": 1583616,
+        "sha256": "cc99a27ecf92c748730827904a6f24e8d70844b69416c989097a67531c35ff83",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/pyexpat.pyd",
+        "size": 210432,
+        "sha256": "6bb4d145099a62c3c4d6718a0fd7e0525d9736d7e584171506c2731fec674dc0",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/select.pyd",
+        "size": 18944,
+        "sha256": "3472a0d2b8c3c6a3f80ea75deb4a8f41c159be541be7fa16337dd18c9067c0e8",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/sqlite3.dll",
+        "size": 1607680,
+        "sha256": "7a424a26235c29e00417fe5e720cb66e107113fdc84a1d0148816ad0b4613bf2",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/tcl86t.dll",
+        "size": 1866480,
+        "sha256": "fbfd065f861ec0a90dd513bc209c56bbc23c54d2839964a0ec2df95848af7860",
+        "authenticode": "Valid",
+        "signer_subject": "CN=Python Software Foundation, O=Python Software Foundation, L=Wolfeboro, S=New Hampshire, C=US"
+      },
+      {
+        "path": "DLLs/tk86t.dll",
+        "size": 1541872,
+        "sha256": "cd2f60075064dfc2e65c88b239a970cb4bd07cb3eec7cc26fb1bf978d4356b08",
+        "authenticode": "Valid",
+        "signer_subject": "CN=Python Software Foundation, O=Python Software Foundation, L=Wolfeboro, S=New Hampshire, C=US"
+      },
+      {
+        "path": "DLLs/unicodedata.pyd",
+        "size": 1127936,
+        "sha256": "8e7401064e85754b8cb27de94c7098b7d798a33c207cec532996036fafbcf429",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "DLLs/winsound.pyd",
+        "size": 18432,
+        "sha256": "7243978c067fbc01e6ab3298ad42c2be43a05b14ee9a40235f8ea6adb2a24b9b",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "Lib/venv/scripts/nt/python.exe",
+        "size": 262144,
+        "sha256": "3b5cc4150dc98800ee46b09034187bb2d8ba3c8ea3368d3a46e9bb42876b58db",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "Lib/venv/scripts/nt/pythonw.exe",
+        "size": 249856,
+        "sha256": "54ec62ab209d92d2c5266725a5d18739708621847e6c000103db22091415c227",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "python.exe",
+        "size": 91648,
+        "sha256": "1a967738a234a3bd90e8fa8b925e20a994326e1eb8b74913026a9449a933e6db",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "python3.dll",
+        "size": 56320,
+        "sha256": "cd42200fb3a7d5bda472d617e1e7a5515798ff0a0a827b9e3aef42acc87347ed",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "python312.dll",
+        "size": 6969856,
+        "sha256": "46561f1d4e29afed8db6b8bcde7be110d56d6598ae78cc0cf10b2db8360d9c5e",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "pythonw.exe",
+        "size": 90112,
+        "sha256": "9f8994b0dae525935f62749023202b79e7937d010bb884cf97172148ef372712",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "tcl/dde1.4/tcldde14.dll",
+        "size": 25088,
+        "sha256": "6b88f753d65c1beb29e681608b49febda726090c5a5d3aa87afa15a002678d3b",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "tcl/reg1.3/tclreg13.dll",
+        "size": 22016,
+        "sha256": "92ffeefcea9bc3c14e9bc3c09c57b9299d7ffbcad2e9da2ed9f9ca9d0e72255e",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "tcl/tix8.4.3/tix84.dll",
+        "size": 370688,
+        "sha256": "f3f650a920d4639c2a7a7c937be4740f0081a6fd7e9b8a4e0d37459afce8c4e3",
+        "authenticode": "NotSigned",
+        "signer_subject": null
+      },
+      {
+        "path": "vcruntime140.dll",
+        "size": 124544,
+        "sha256": "d5e4d9a3e835fa679450145d6a7d94e36573a509317111904d9b3712c30d9066",
+        "authenticode": "Valid",
+        "signer_subject": "CN=Microsoft Windows Software Compatibility Publisher, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+      },
+      {
+        "path": "vcruntime140_1.dll",
+        "size": 49792,
+        "sha256": "1f2d41c4aa5db0bc33ebf7b66d72943a817d7ce6cbe880502a9403823633093f",
+        "authenticode": "Valid",
+        "signer_subject": "CN=Microsoft Windows Software Compatibility Publisher, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+      }
+    ],
+    "notice_files": [
+      {
+        "path": "LICENSE.txt",
+        "size": 25066,
+        "sha256": "886a0ead2d89030ee62dbff52b04e47ab91998341295bb9c56fb952b4e081c7a"
+      },
+      {
+        "path": "tcl/tk8.6/demos/license.terms",
+        "size": 2307,
+        "sha256": "0d1e4405f6273f091732764ed89b57066be63ce64869be6c71ea337dc4f2f9b5"
+      },
+      {
+        "path": "tcl/tk8.6/license.terms",
+        "size": 2307,
+        "sha256": "0d1e4405f6273f091732764ed89b57066be63ce64869be6c71ea337dc4f2f9b5"
+      }
+    ],
+    "bundled_wheel_notices": [
+      {
+        "wheel": "Lib/ensurepip/_bundled/pip-25.0.1-py3-none-any.whl",
+        "path": "pip-25.0.1.dist-info/LICENSE.txt",
+        "size": 1093,
+        "sha256": "634300a669d49aeae65b12c6c48c924c51a4cdf3d1ff086dc3456dc8bcaa2104"
+      }
+    ],
+    "distribution_admission": "not_covered",
+    "notice_component_mapping": "not_covered",
+    "clean_vm_gate": "not_covered",
+    "final_signed_asset": "not_covered",
+    "authenticode_counts": {
+      "NotSigned": 44,
+      "Valid": 4
+    }
+  },
+  "verifier": {
+    "schema_version": 1,
+    "probe_kind": "first-install-candidate-inventory",
+    "created_at": "2026-10-01T11:19:55.197255+00:00",
+    "component": "verifier",
+    "status": "passed",
+    "archive_sha256": "23f50f3458c4c5d0b12217c6a5ddfde0137210a30fa870e98b29827f7b43aba5",
+    "selected_files_match_archive": true,
+    "profile": "verifier_only",
+    "native_files": [
+      {
+        "path": "libcrypto.dll",
+        "size": 1769032,
+        "sha256": "4652e861c0335ee80a51306ceab75aa35c8865b235f97ce7dd5a0fd9dab44b5d",
+        "authenticode": "Valid",
+        "signer_subject": "CN=Microsoft 3rd Party Application Component, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+      },
+      {
+        "path": "ssh-keygen.exe",
+        "size": 879648,
+        "sha256": "b51fdd26be0f7c83398d18e5354a0acb0406a9de25516791758fe63bbe3ae870",
+        "authenticode": "Valid",
+        "signer_subject": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+      }
+    ],
+    "notice_files": [
+      {
+        "path": "LICENSE.txt",
+        "size": 21552,
+        "sha256": "568c41f330a50a7d2d2eba9d3f7807caaaf4e091705ab6652ec26a3f9d1acfdb"
+      },
+      {
+        "path": "NOTICE.txt",
+        "size": 36008,
+        "sha256": "2cd5f5d0064bc909dfe0f0fc8f4787882c7c379f2730d89e5faa0c2bc57c620b"
+      }
+    ],
+    "bundled_wheel_notices": [],
+    "distribution_admission": "not_covered",
+    "notice_component_mapping": "not_covered",
+    "clean_vm_gate": "not_covered",
+    "final_signed_asset": "not_covered",
+    "authenticode_counts": {
+      "Valid": 2
+    }
+  },
+  "existing_synthetic_install_venv_observation": {
+    "runtime_stub_path": "Lib/venv/scripts/nt/python.exe",
+    "stub_sha256": "3b5cc4150dc98800ee46b09034187bb2d8ba3c8ea3368d3a46e9bb42876b58db",
+    "version_venv_matches_stub": true,
+    "launcher_venv_matches_stub": true,
+    "version_venv_authenticode": "NotSigned",
+    "scope": "previous_local_synthetic_bootstrap_probe_only"
+  },
+  "verifier_only_signature_probe": {
+    "clean_vm_gate": "not_covered",
+    "content_recorded": false,
+    "created_at": "2026-10-01T11:23:31.185222+00:00",
+    "distribution_admission": "not_covered",
+    "empty_child_path": true,
+    "fixture_private_key_removed": true,
+    "key_generation_exit_code": 0,
+    "namespace": "clipai.managed-update.manifest.v1",
+    "phase": "complete",
+    "probe_kind": "first-install-local-verifier",
+    "schema_version": 1,
+    "status": "passed",
+    "tamper_rejected": "passed",
+    "test_key_only": true,
+    "test_key_rejected_by_production": "passed",
+    "tool_sha256": "b51fdd26be0f7c83398d18e5354a0acb0406a9de25516791758fe63bbe3ae870",
+    "valid_signature": "passed"
+  },
+  "verifier_only_bootstrap_probe": {
+    "schema_version": 1,
+    "probe_kind": "first-install-local-bootstrap",
+    "created_at": "2026-10-01T11:24:02.113384+00:00",
+    "status": "passed",
+    "synthetic_payload": true,
+    "test_key_only": true,
+    "empty_child_path": true,
+    "bootstrap_source": "development_snapshot",
+    "packaging_source": "development_snapshot",
+    "clean_vm_gate": "not_covered",
+    "trusted_release_bootstrap": "not_covered",
+    "full_app_dependencies": "not_covered",
+    "update_uninstall": "not_covered",
+    "signature_and_license_admission": "not_covered",
+    "without_packaging": {
+      "status": "failed",
+      "phase": "imports",
+      "error_type": "ModuleNotFoundError",
+      "missing_module": "packaging",
+      "fixture_private_key_removed": true
+    },
+    "source_snapshot_sha256": "a81c7c4fc1dfb7c3314d2b1968b4ecbf6093e66f77dbeacc73f8d972491f9efd",
+    "packaging_version": "26.2",
+    "existing_main_missing_module": "yaml",
+    "existing_main_import_exit_code": 0,
+    "engine": {
+      "status": "passed",
+      "phase": "complete",
+      "version_and_launcher_built": true,
+      "marker_and_state_verified": true,
+      "external_python_imports": [
+        "packaging"
+      ],
+      "fixture_private_key_removed": true
+    },
+    "fixture_private_key_removed": true,
+    "elapsed_sec": 42.208
+  }
+}

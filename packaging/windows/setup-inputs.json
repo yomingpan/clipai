@@ -1,0 +1,612 @@
+{
+  "schema_version": 1,
+  "distribution_admission": "approved",
+  "platform": "windows-x64",
+  "python_abi": "cp312",
+  "owner": "ClipAI release maintainer",
+  "runtime": {
+    "release": "https://github.com/astral-sh/python-build-standalone/releases/tag/20260901",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+    "size": 21980728,
+    "sha256": "7c45c9622400d578709a9b2cddbe8124cc21d382409d9f13406d706d28e31b14",
+    "format": "tar.gz",
+    "runtime_version": "3.12.14",
+    "flavor": "x86_64-pc-windows-msvc-install_only_stripped"
+  },
+  "verifier": {
+    "profile": "cryptography-ed25519-sshsig-v1",
+    "version": "50.0.2"
+  },
+  "additional_notices": {
+    "proxy-tools-0.1.0-LICENSE.txt": {
+      "size": 1437,
+      "sha256": "f96cf2b17c9b0cede77438165fdc6ea2f91bedb248d1779538727a2b93d71e12",
+      "source": "https://github.com/jtushman/proxy_tools/blob/ccd35a569b95bec271a59890780c7821756c548a/LICENSE.txt"
+    },
+    "runtime/LICENSE.cpython.txt": {
+      "size": 36935,
+      "sha256": "8fe98bf9822926d854f56ffd8d97877d8b942617aa44eb7ea77fd99e22f2537e",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.cpython.txt"
+    },
+    "runtime/LICENSE.bzip2.txt": {
+      "size": 1780,
+      "sha256": "bd5628cc76fb0ebf9c657d1dd4d1a240a1a7b216c31663e7bbf1131c0b70a910",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.bzip2.txt"
+    },
+    "runtime/LICENSE.expat.txt": {
+      "size": 1165,
+      "sha256": "8a9cfe4b5924f4b25881aa0c9f5e4561c5f31065d0c4a13cdcdbcf917edf39aa",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.expat.txt"
+    },
+    "runtime/LICENSE.libffi.txt": {
+      "size": 1153,
+      "sha256": "9afb8970cd29fc1031fa647278e4bef613399e2e3468a1e3a397f4d158c6101c",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.libffi.txt"
+    },
+    "runtime/LICENSE.liblzma.txt": {
+      "size": 673,
+      "sha256": "d87d218dd908b3243ec4cbc72af400e5b7437513ea9d9229291d0812b8464fec",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.liblzma.txt"
+    },
+    "runtime/LICENSE.libuuid.txt": {
+      "size": 1459,
+      "sha256": "cbccaa3efe07a9a602751375085be572d4410a250b996716fbe8c5255c7ec6f2",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.libuuid.txt"
+    },
+    "runtime/LICENSE.mpdecimal.txt": {
+      "size": 1308,
+      "sha256": "f094277cd46e1f6e4d87916cc4b51e22f613d45eb81f48231c3cb7caf8fc8a6a",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.mpdecimal.txt"
+    },
+    "runtime/LICENSE.openssl-3.txt": {
+      "size": 10352,
+      "sha256": "ed72ce2b51ee58f117e5a021e2e04af158857f40269fbc03491f0b2a99dbcc96",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.openssl-3.txt"
+    },
+    "runtime/LICENSE.sqlite.txt": {
+      "size": 1504,
+      "sha256": "d8eb9aba7ef6b5ed06cb3ec19a7242316af2e5933c638eb67fb781c13884e01d",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.sqlite.txt"
+    },
+    "runtime/LICENSE.tcl.txt": {
+      "size": 2295,
+      "sha256": "41613eabfc08921a7da9c4bfd7f3ce5d5406f55214b253d89f392ed86eebeb8f",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.tcl.txt"
+    },
+    "runtime/LICENSE.tix.txt": {
+      "size": 2880,
+      "sha256": "8cdff3addb9e9eb108c78e2cf5e05f26b216c098304945733bbec382b2eaef66",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.tix.txt"
+    },
+    "runtime/LICENSE.zlib.txt": {
+      "size": 1016,
+      "sha256": "365e36720db366054863235aea5d6f440142ab968834bfaf81fa9d187c99b9b8",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/licenses/LICENSE.zlib.txt"
+    },
+    "runtime/PYTHON.NOTICE.json": {
+      "size": 62407,
+      "sha256": "87c784e89df8e0cbea2986cff27bd2d6be3fb522000c441f48fda16310ebd520",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst#python/PYTHON.json"
+    },
+    "pygame-ce-2.5.3/LGPL.txt": {
+      "size": 26430,
+      "sha256": "a190dc9c8043755d90f8b0a75fa66b9e42d4af4c980bf5ddc633f0124db3cee7",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/LGPL.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.FLAC.txt": {
+      "size": 1522,
+      "sha256": "349b7bdbf2de10e1303fc3e8aa81f944fd2832fe40270e1b805e20b1b131187c",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.FLAC.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.fluidsynth.txt": {
+      "size": 26461,
+      "sha256": "9b872a8a070b8ad329c4bd380fb1bf0000f564c75023ec8e1e6803f15364b9e9",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.fluidsynth.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.freetype.txt": {
+      "size": 6912,
+      "sha256": "650737ec7589c35600de73b0db88dafb314f7e32e7e3cf38d0c87ceb1a7ed31b",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.freetype.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.jpeg.txt": {
+      "size": 3021,
+      "sha256": "2899a194cc43af0cfbeff33cdecfad20de8bbf784155b0cd0217d27c37609a28",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.jpeg.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.modplug.txt": {
+      "size": 59,
+      "sha256": "b64d05522976d26e870bfbbf701e5a89cc5e2ab8fbde677e24f07ddaf0dac7c1",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.modplug.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.mpg123.txt": {
+      "size": 41488,
+      "sha256": "892cd7e1c0b23374c8a82c244f64c30297c1feada0143cfdd9f6a25f445b0dd6",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.mpg123.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.numpy.txt": {
+      "size": 1543,
+      "sha256": "faaa516b85dbf609b0296918d61924e3145c9d2b8d91ea5be93e7ba073a78aa1",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.numpy.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.ogg-vorbis.txt": {
+      "size": 1498,
+      "sha256": "776b6f6ab87afa263d534ad4061b6180149de0fed90e2e18e1592992922327ce",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.ogg-vorbis.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.opus.txt": {
+      "size": 1972,
+      "sha256": "fde149f902d124a8c02a218527c440ee2fab6884323f180061b1405fb06af60e",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.opus.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.opusfile.txt": {
+      "size": 1515,
+      "sha256": "54e125c8250361407b34322e0f328f6bdf7fd30cd4f2941a321e47b41f9c159d",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.opusfile.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.png.txt": {
+      "size": 5479,
+      "sha256": "0ad3bfee8be10e5519949e7af492e36bc349376b75fbeb412229a5967e3e9434",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.png.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.portmidi.txt": {
+      "size": 11342,
+      "sha256": "eb5d0724b2ae76a94ae804c44b3d6cfaaca822b7d42907aefa9256cb93db6fe0",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.portmidi.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.sdl2.txt": {
+      "size": 930,
+      "sha256": "ae4df3759a726538607b84c00ab8f8a5567d9f38ad5397486eb9b5c5f626caef",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.sdl2.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.sdl2_image.txt": {
+      "size": 996,
+      "sha256": "45079362e2230154205413a6940544ca94e3479ccf76205c71c4f542a6815d25",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.sdl2_image.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.sdl2_mixer.txt": {
+      "size": 994,
+      "sha256": "113727180e7956cb9718b03b41da85b63ea54743a33047071a623bf672895a10",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.sdl2_mixer.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.sdl_gfx.txt": {
+      "size": 191,
+      "sha256": "63744690fa28ecf2a9dedacafb08d1209031e7eff1820430d952264f678a1bcf",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.sdl_gfx.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.sse2neon-h.txt": {
+      "size": 1832,
+      "sha256": "ada11c843d252c0b70837629ac7a54a525ecb7d8c0932ebccf863c55dbd32cb1",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.sse2neon-h.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.tiff.txt": {
+      "size": 1160,
+      "sha256": "8eeab3915f97f6f7b62a8008bf77e7ac3bfbb034b04d93cd63aafa10b2dd6614",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.tiff.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.webp.txt": {
+      "size": 1526,
+      "sha256": "17c029a902ad45a199dfe8e3a1c39305ab28d302b0703360c4a27351a4673dcb",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.webp.txt"
+    },
+    "pygame-ce-2.5.3/LICENSE.zlib.txt": {
+      "size": 1562,
+      "sha256": "31010e0bc26df3001c7bb3c1b7a7094a8972bf6d37a5d0c59d3d3c98fbfaf463",
+      "source": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz#pygame_ce-2.5.3/docs/licenses/LICENSE.zlib.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_ttf-LICENSE.txt": {
+      "size": 878,
+      "sha256": "7826eca0a0f7e591f38dd844e207a200aac81a59b20d8a30c3af8c6282af13e6",
+      "source": "https://github.com/libsdl-org/SDL_ttf/releases/download/release-2.24.0/SDL2_ttf-devel-2.24.0-VC.zip#SDL2_ttf-2.24.0/LICENSE.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.opusfile.txt": {
+      "size": 1649,
+      "sha256": "15c55f8c6a88ef9ee9a18ada9dbb2459bebaaf2527c91159fc23818f275f32b2",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/lib/x64/optional/LICENSE.opusfile.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.xmp.txt": {
+      "size": 1132,
+      "sha256": "f3d26f4ea4cd56a6039281a3ec3affca05a36393e8e923b8e676c967a7d34ebb",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/lib/x64/optional/LICENSE.xmp.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.opus.txt": {
+      "size": 2106,
+      "sha256": "113738704d44ece5a62519426b4c661e44b94a7e0d38e2207f321175478c264d",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/lib/x64/optional/LICENSE.opus.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.ogg-vorbis.txt": {
+      "size": 1632,
+      "sha256": "dd292660913d2052c8405bf634e8386908654b4abe60334b721d71de700b3210",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/lib/x64/optional/LICENSE.ogg-vorbis.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.wavpack.txt": {
+      "size": 1582,
+      "sha256": "c580b15e1391e59164d17c642df7019cb11946ab89281b5d781b43c732d4bf97",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/lib/x64/optional/LICENSE.wavpack.txt"
+    },
+    "pygame-ce-2.5.3/SDL2_mixer-LICENSE.txt": {
+      "size": 878,
+      "sha256": "a0e8ce06504966e45088ee1cc7583cc8af9aac615d4cf56d47d847da9cb15139",
+      "source": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip#SDL2_mixer-2.8.0/LICENSE.txt"
+    },
+    "pygame-ce-2.5.3/libxmp-LICENSE.txt": {
+      "size": 3102,
+      "sha256": "6e56b579aff6d27fb16d68158fadf235c52e1cf85f17109be16d217ea5c12baf",
+      "source": "https://github.com/libsdl-org/libxmp/blob/f59573ed254d2c5a5b02bac2d2b09a4496d5d6fc/README"
+    },
+    "pygame-ce-2.5.3/wavpack-LICENSE.txt": {
+      "size": 1557,
+      "sha256": "275d65ec11a78d552d078b9c26d950e3075892bca895a415ceaaec33bcfabff9",
+      "source": "https://github.com/libsdl-org/WavPack/blob/413bcf497a174657d4bd1f857c0ecd27dfb68317/COPYING"
+    },
+    "pygame-ce-2.5.3/harfbuzz-LICENSE.txt": {
+      "size": 1971,
+      "sha256": "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64",
+      "source": "https://github.com/libsdl-org/harfbuzz/blob/e18e66409d0136cc8f8b05aac791f84314520676/COPYING"
+    },
+    "THIRD-PARTY-NOTICE.txt": {
+      "size": 1339,
+      "sha256": "4790add893461276113a62fb16d8dc310aba163e332d28eaa40fe64cb7f4797b",
+      "source": "ClipAI release component attribution"
+    }
+  },
+  "compiler": {
+    "version": "6.7.3",
+    "url": "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe",
+    "size": 10592232,
+    "sha256": "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732",
+    "files": {
+      "Compil32.exe": {
+        "size": 5636240,
+        "sha256": "f59e6adf0c2484e3c191a79d2ad02c7c5e4eb6a0e73763fc295f0c997a23ae73"
+      },
+      "Default.isl": {
+        "size": 21993,
+        "sha256": "42a5f6f7dbbddf26cc278f67db5d894235ce1d126a6856702e31bd02023a1316"
+      },
+      "is7z.dll": {
+        "size": 994960,
+        "sha256": "f97cda058bfe97a7e9ced5cde7018bbc26e35155c3c7405c6146808f8d06806d"
+      },
+      "is7z.dll.issig": {
+        "size": 363,
+        "sha256": "42ac47dfccae85596984b121f5fad33faee6b56d6c50bfc89f31ea96bff7c1b4"
+      },
+      "is7zxa.dll": {
+        "size": 260240,
+        "sha256": "e3cef67858843c554100126f04932be327097777865e4eb82951dd97cdb28942"
+      },
+      "is7zxa.dll.issig": {
+        "size": 365,
+        "sha256": "8a94c3247cf5e99143377c37adbe1d58798c44ada89871707aab7902a3287838"
+      },
+      "is7zxr.dll": {
+        "size": 212112,
+        "sha256": "728b368dc4f2831cc4d13291f46eeaf9f89b7e3a91356cf793c330e953b8e17b"
+      },
+      "is7zxr.dll.issig": {
+        "size": 365,
+        "sha256": "209264d479698ea7e9aa375fa1f692cae01d79a6b023b75716c625a5b821c413"
+      },
+      "isbunzip.dll": {
+        "size": 35616,
+        "sha256": "31d04c1e4bfdfa34704c142fa98f80c0a3076e4b312d6ada57c4be9d9c7dcf26"
+      },
+      "isbunzip.dll.issig": {
+        "size": 366,
+        "sha256": "d446db9995621893741d721434297311576269f1622f0bb103ba48b94b2fa744"
+      },
+      "isbzip.dll": {
+        "size": 39200,
+        "sha256": "8072e83385afc4a84006271a87a11fc0a22b149cbd77322669ca56c470d28ced"
+      },
+      "isbzip.dll.issig": {
+        "size": 364,
+        "sha256": "145612af36209f29ec96669550e5eebca3d2b0240f2e888c35bd599559be9a4a"
+      },
+      "ISCC.exe": {
+        "size": 1456272,
+        "sha256": "0a8757031b33777e4c9cbffee40f11a5062b36d25cbe144c1db73b6102b80ad7"
+      },
+      "ISCmplr.dll": {
+        "size": 1524880,
+        "sha256": "85a1e3090d3a5b85319f001b7c8f9ecfad45f37eff030a67bbe29ef58b7aa2c3"
+      },
+      "ISCmplr.dll.issig": {
+        "size": 367,
+        "sha256": "5c4b4b0fc6958934918c611eb509ecf63827a2bb36ce61fcb538fc5897b3a7ea"
+      },
+      "ISetup-dark.chm": {
+        "size": 698036,
+        "sha256": "9728d2ead794a7a8f9d264a72442506fd0a8dafc0212ca640f5baf19eb7e36f2"
+      },
+      "ISetup.chm": {
+        "size": 698060,
+        "sha256": "7abeabbd058a8ab445dad8341fffa11f319fdc16ae038f20b22b947a79affd2c"
+      },
+      "isfaq.url": {
+        "size": 58,
+        "sha256": "f699ce64c194310524ca1dca5bfc996151619cc5c6731fbc5fa150b59c9d3c72"
+      },
+      "islzma.dll": {
+        "size": 139408,
+        "sha256": "8af307ce3738ab1d37cc7e76b2f76615e2045597d4367c3e40d52b5f2fbd353d"
+      },
+      "islzma.dll.issig": {
+        "size": 365,
+        "sha256": "c49d4b2cc6499846118dc376c9c66081744531edc932ffa979698d68ec0662b2"
+      },
+      "islzma32.exe": {
+        "size": 203408,
+        "sha256": "fd977c3ac44c56997d2b4fd6647e97e2457c43991a6ae26a4b2252c0eabdfebb"
+      },
+      "islzma32.exe.issig": {
+        "size": 367,
+        "sha256": "81039bd05963f8b02e1396a6fb5f3f7df7fd1ce1655f7a960f6c0b549489c562"
+      },
+      "islzma64.exe": {
+        "size": 226448,
+        "sha256": "87a50495aff580b78cad57906a765d3cf28ca508cfa95c24c1247c286ddf71b2"
+      },
+      "islzma64.exe.issig": {
+        "size": 367,
+        "sha256": "e74ea022afb90bbff710d9952a1069767c970484b1be596771ae7d109932f716"
+      },
+      "ISPP.dll": {
+        "size": 1006736,
+        "sha256": "bde04be7f4a55ca56afb6b06600d7cbe8326fac468ac3f2885b80eefb3ed2a7a"
+      },
+      "ISPP.dll.issig": {
+        "size": 364,
+        "sha256": "5f66c7d86af3be12522f044541b747f293c8131268e16d27c622bfc14f7250c9"
+      },
+      "ISPPBuiltins.iss": {
+        "size": 11302,
+        "sha256": "bc765e1121a95dc602ca1248b484418cecc6db9d4b6f4dae58e9a2c35262527c"
+      },
+      "isscint.dll": {
+        "size": 809616,
+        "sha256": "ddd2748bc79122a67eed77f6039f6508245e0aa7f0fdbbfca99d1e922a1e8ce4"
+      },
+      "isscint.dll.issig": {
+        "size": 366,
+        "sha256": "c54c30c27c503e86c70116ca9db840b0b799a0610fd8644dd53194a96afe7207"
+      },
+      "ISSigTool.exe": {
+        "size": 919184,
+        "sha256": "aea490d45665a88c0c832d25647d21c1b87962efedb25668caec05678e0fd7c6"
+      },
+      "isunzlib.dll": {
+        "size": 29472,
+        "sha256": "8287d0e287a66ee78537c8d1d98e426562b95c50f569b92cea9ce36a9fa57e64"
+      },
+      "isunzlib.dll.issig": {
+        "size": 366,
+        "sha256": "0a26dffaa4b47edc9cf6c730bb0cb38dc12a3de94742256aa1c22603e1be9309"
+      },
+      "iszlib.dll": {
+        "size": 34592,
+        "sha256": "14c0d4a2a41572384f8309cdf03de5c6e7ed46bef64cce70d989b2665eff1a47"
+      },
+      "iszlib.dll.issig": {
+        "size": 364,
+        "sha256": "f41ea7cc5f9604bfebba8d101bef7c3f28b9d7e8f4c5c99e71030a28682113f9"
+      },
+      "Languages/Arabic.isl": {
+        "size": 29275,
+        "sha256": "d621121eba68640cc9cb3e1e63593d9b5905c15ab6d1dcfa168df603f52e0cad"
+      },
+      "Languages/Armenian.isl": {
+        "size": 29874,
+        "sha256": "7b7eb4ee3e6494fdfedc2b2487fb6eec217dab734c077ae8a25ffc4a8430df3a"
+      },
+      "Languages/BrazilianPortuguese.isl": {
+        "size": 23900,
+        "sha256": "e7e5e3dbd0ddee4c5a1f502f3035e431a21f87e68cef9a0295680b63ed61200b"
+      },
+      "Languages/Bulgarian.isl": {
+        "size": 35836,
+        "sha256": "b224f7e1b32bc35d413024e68b4fdc100d38f37b1ac9730fdf00cb70195b21f7"
+      },
+      "Languages/Catalan.isl": {
+        "size": 23302,
+        "sha256": "086a53ee6272b194d8aa87aeddac17b7c3bad26929777760e1b00b32e1f9a16b"
+      },
+      "Languages/Corsican.isl": {
+        "size": 26979,
+        "sha256": "7f03fbcd9433f8c7ed95234d8093c3bade32c7fccd6506df793c12329f8b626a"
+      },
+      "Languages/Czech.isl": {
+        "size": 25141,
+        "sha256": "c3054bce85feb47ad22e42aae1715d2cebfdb34564f60427f92865dbbcf520d0"
+      },
+      "Languages/Danish.isl": {
+        "size": 22541,
+        "sha256": "b2a062c2e20b842d13d27d9484ea1b37e251b3e7cf8ad9b0def3dcda9afbd12d"
+      },
+      "Languages/Dutch.isl": {
+        "size": 22311,
+        "sha256": "5013549651ed72b109d912719b8486ce4a516fa7ee00bc77bdfb63358d745a4f"
+      },
+      "Languages/Finnish.isl": {
+        "size": 21576,
+        "sha256": "b30091443cc649dce095470765490fb5791fedf015d96a190e53236b874f9dfd"
+      },
+      "Languages/French.isl": {
+        "size": 27041,
+        "sha256": "145bf4ea34eaa79c52e4fcb77ce3eee9720b0d424c69458cb99592bc52121fba"
+      },
+      "Languages/German.isl": {
+        "size": 25795,
+        "sha256": "f016f4a957de8c59e8db2da788357b4c923cecadca6f0c6eab404fb28015cac9"
+      },
+      "Languages/Hebrew.isl": {
+        "size": 26116,
+        "sha256": "d0e340afaeedb50567cb71f4d793d78aed869ca63ce9fc4abf7631c4a3eff459"
+      },
+      "Languages/Hungarian.isl": {
+        "size": 24310,
+        "sha256": "fc7d177354586d834aa2039e4896181b32ca7085c40aaeedbee3c456a2cdc6a9"
+      },
+      "Languages/Italian.isl": {
+        "size": 24021,
+        "sha256": "18034c57f1133682b1b2e95afa327f232cdcf41bf1a44bc2b5aab1f8d3332a77"
+      },
+      "Languages/Japanese.isl": {
+        "size": 28186,
+        "sha256": "d5450537bb128112347bf86a4bdc3a4be0605414df0bc4fc90f55aaef1ba369b"
+      },
+      "Languages/Korean.isl": {
+        "size": 25204,
+        "sha256": "cb56d6ea5c082bcf6b4acc1ae4c303ba91f662b1d0bfe05e4d3902c38c41e02a"
+      },
+      "Languages/Norwegian.isl": {
+        "size": 22259,
+        "sha256": "19119d601d4c40c0b42a2a99c932d5fc65521c67a01d3803780af2620cdfd5ff"
+      },
+      "Languages/Polish.isl": {
+        "size": 24461,
+        "sha256": "593f14b249afb49d38976816a4a3c73e13e354d1698f9f98d584c1c6c6a18e48"
+      },
+      "Languages/Portuguese.isl": {
+        "size": 23704,
+        "sha256": "ac71fbbf66cd9db15bf675f4a7def2b918b8b2ec783ca485f6c87683fc81d644"
+      },
+      "Languages/Russian.isl": {
+        "size": 33590,
+        "sha256": "81981fe6cfef7f3b2f744beac1494f4d2b29cea69c96a08d1c0a6b79dc0ed8f2"
+      },
+      "Languages/Slovak.isl": {
+        "size": 25829,
+        "sha256": "268b523811052d151a5a50df400df4fdd20eacf87f41500e3639693d6e429bd0"
+      },
+      "Languages/Slovenian.isl": {
+        "size": 21793,
+        "sha256": "c50817284822262070f79006659e5bd6991417477b193ce3f2f44d9a32e131be"
+      },
+      "Languages/Spanish.isl": {
+        "size": 24329,
+        "sha256": "c61ee6287d6a10db186cce43b556422e0a8bc631784132468a9cebca4f2df0d5"
+      },
+      "Languages/Swedish.isl": {
+        "size": 23123,
+        "sha256": "a4fd431e2956c2d76c45fbdc97a55380ae00956854d8233934da03505b390531"
+      },
+      "Languages/Tamil.isl": {
+        "size": 47639,
+        "sha256": "3a45f281e9676dec66c1fef7678778f9c9528065c06cfac7ffa469d131f5a91a"
+      },
+      "Languages/Thai.isl": {
+        "size": 41315,
+        "sha256": "cdc0a1af65ac503ee1f0b5ef9d14d81b8c173ba80a3ce78ba86e15e285a149b3"
+      },
+      "Languages/Turkish.isl": {
+        "size": 24203,
+        "sha256": "21f69297a1d3d9a3407acd2ac43908cf20786fff8ef1c1d98cb9ea544a7a4c2c"
+      },
+      "Languages/Ukrainian.isl": {
+        "size": 33314,
+        "sha256": "fa3e7841017229d14b3b59417fa9aa860a71ce1f683f3fdafdd5bf266a47c668"
+      },
+      "license.txt": {
+        "size": 1521,
+        "sha256": "2e5346868c2a18434489824e11d65c3031620f792fefc415d05f19cd441abf5c"
+      },
+      "Setup.e32": {
+        "size": 4427264,
+        "sha256": "a80d75ba8d8c336050c37f7707de8bb017cc93597329e0ea18d474156b3e0da5"
+      },
+      "Setup.e32.issig": {
+        "size": 365,
+        "sha256": "09dbd2458c48a249eeda5ae2705a4315192cc96ecd1b233136f11799d5dff175"
+      },
+      "SetupClassicIcon.ico": {
+        "size": 4710,
+        "sha256": "fa07ed17dff186a5b46c16861158bf3a36b67d84ff7a7bf9a58eaad28143d827"
+      },
+      "SetupCustomStyle.e32": {
+        "size": 5810688,
+        "sha256": "9675a2a5c78c66b691cc80270031da42bebad5725fbf60853cb4e5f90251bd5e"
+      },
+      "SetupCustomStyle.e32.issig": {
+        "size": 376,
+        "sha256": "cb513ff3e47a9c52341620ebd787e968f9c71fd012c6836e78fb039013e8256f"
+      },
+      "SetupLdr.e32": {
+        "size": 950272,
+        "sha256": "5475964893adbb33ccc420ad4d88bbdff27dfaaca7580cd6058ea2798893490d"
+      },
+      "SetupLdr.e32.issig": {
+        "size": 367,
+        "sha256": "12441b9477b0363993f06e325767f8b925a20e895e364fa8460754ee39ca6c08"
+      },
+      "SetupLdr.e64": {
+        "size": 1422336,
+        "sha256": "e38f2140e6bfd86c6ddc69c98f46475080c75fd5ee4be701ceff9c842c6c5019"
+      },
+      "SetupLdr.e64.issig": {
+        "size": 368,
+        "sha256": "c1bf1b83271edbcb28117fd012edef89be710bfd8ad32c1edee057d664b989be"
+      },
+      "whatsnew.htm": {
+        "size": 102622,
+        "sha256": "4e98f32f91bfaae8c2934152734fe58f4feb5dd6cc1c2b419dc51ead1a3bbbf5"
+      },
+      "WizClassicImage-IS.bmp": {
+        "size": 52574,
+        "sha256": "1b73df0b89a2943f34582cf81c2d8ed7b1ce4cfb54d86ce58ebd6dd0e1e05f5d"
+      },
+      "WizClassicImage.bmp": {
+        "size": 26494,
+        "sha256": "d148dc2569e9abc4b4da650b1920ef1ffdc10bbd6bc2e20a97ce44b1f9f78aea"
+      },
+      "WizClassicSmallImage-IS.bmp": {
+        "size": 4158,
+        "sha256": "ae94cd61179bc1869d0082b1fa8c189f8487d106712b48a2a6c6a035d370bfb4"
+      },
+      "WizClassicSmallImage.bmp": {
+        "size": 1658,
+        "sha256": "a7e560d419e85daf80cce980baa124ef7c73197d0f51a59a19f1866ee8edfe8c"
+      }
+    },
+    "upstream_publisher": "CN=Pyrsys B.V., O=Pyrsys B.V., S=Noord-Holland, C=NL"
+  },
+  "runtime_notice_source": {
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-pc-windows-msvc-pgo-full.tar.zst",
+    "size": 43477314,
+    "sha256": "b7cf8be5cd5222d1e456fbf71257efe558d84fe092757b6892c16584e5df01c2",
+    "purpose": "matching build metadata and license texts; not installed runtime"
+  },
+  "corresponding_sources": {
+    "pygame-ce-2.5.3": {
+      "filename": "pygame_ce-2.5.3.tar.gz",
+      "size": 6987675,
+      "url": "https://files.pythonhosted.org/packages/aa/4b/c08d748c8b082cee786e09b65a126d391c39b28dc75e3cea036b4b47b9dd/pygame_ce-2.5.3.tar.gz",
+      "sha256": "dc04f0bf1a270a84eb371556298a9902b9c4ab08137c9dd10ef03fa4e7fcbfed"
+    }
+  },
+  "pygame_native_notice_sources": {
+    "SDL2_ttf-devel-2.24.0-VC.zip": {
+      "url": "https://github.com/libsdl-org/SDL_ttf/releases/download/release-2.24.0/SDL2_ttf-devel-2.24.0-VC.zip",
+      "size": 11640089,
+      "sha256": "2dea8ea01e04756ead27e196a681034ed71342562a75b512ea279fcdfde83307",
+      "purpose": "license provenance; shipped DLL hashes match x64 SDK bytes"
+    },
+    "SDL2_mixer-devel-2.8.0-VC.zip": {
+      "url": "https://github.com/libsdl-org/SDL_mixer/releases/download/release-2.8.0/SDL2_mixer-devel-2.8.0-VC.zip",
+      "size": 1991107,
+      "sha256": "47a5713937f8d8b903a9c5555fef3ec73a793ef95abdd078773fc11fcb00ec8a",
+      "purpose": "license provenance; shipped DLL hashes match x64 SDK bytes"
+    }
+  },
+  "admission_record": {
+    "review_date": "2026-10-06",
+    "publisher_policy": "unsigned",
+    "review_document": "docs/evidence/third-party-notices-3.7.18-20261006.md",
+    "native_inventory": "docs/evidence/native-components-3.7.18-20261006.json",
+    "supplemental_notice_count": 46,
+    "notice_payload_setup_sha256": "b47cf92c08ceef8b97b77f58c06ccbc78ae4bb5fe8593252022b59c91ee141c9",
+    "notice_payload_bundle_sha256": "02da0d2979a6f536a1ac31bfdae08efece9e99d442db476899711485235c74f9",
+    "notice_payload_kind": "technical input proof; not final official candidate",
+    "device_acceptance": "separate pending gate"
+  }
+}

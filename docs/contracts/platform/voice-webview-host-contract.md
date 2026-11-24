@@ -16,6 +16,14 @@ The browser speech host is infrastructure, not an application surface.
   process exit races with cleanup.
 - Process ownership is unregistered only after the engine has completed its
   bounded settlement and transport cleanup.
+- Before constructing the host engine, the app composition root ensures
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` contains
+  `--disable-features=msSpeechRecognitionServiceUseCetoService`. Injection is
+  idempotent and preserves unrelated existing browser arguments. The platform
+  module only declares these constants and never mutates environment state on
+  import.
+- The shipped configuration uses Evergreen WebView2. An optional runtime-major
+  setting is a rollback seam, not the normal speech-service compatibility path.
 
 - `prepare` and `start` are explicit microphone intents and must realise the
   WinForms host before sending JavaScript to the page.

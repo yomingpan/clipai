@@ -83,6 +83,19 @@ actions:
       - terms_names_or_numbers_wrong
       - unnatural_or_wrong_audience
       - other
+- id: describe_in_english
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup_and_speech
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.1
+  feedback_reason_ids:
+  - meaning_inaccurate
+  - unnatural_or_wrong_audience
+  - useful_detail_missing
+  - other
 - id: name_idea
   input_mode: selection_or_clipboard
   external_fallback: selection_or_clipboard
@@ -402,6 +415,19 @@ actions:
   - missing_or_question_wrong
   - source_or_format_unusable
   - other
+- id: explain_chart
+  input_mode: clipboard_image
+  external_fallback: clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.0
+  feedback_reason_ids:
+  - chart_reading_inaccurate
+  - evidence_hard_to_find
+  - conclusion_overstated
+  - other
 - id: extract_screenshot_text
   input_mode: clipboard_image
   external_fallback: clipboard
@@ -424,7 +450,7 @@ actions:
   input_mode: selection_or_clipboard
   external_fallback: selection_or_clipboard
   output_mode: popup
-  output_profile: plain_text
+  output_profile: command_readable
   prompt_variables:
   - input
   temperature: 0.1
@@ -433,4 +459,113 @@ actions:
   - risk_or_scope_inaccurate
   - safety_check_missing
   - command_behavior_changed
+  - other
+- id: command_generate
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: command_readable
+  prompt_variables:
+  - input
+  temperature: 0.1
+  feedback_reason_ids:
+  - intent_misread
+  - command_too_complex
+  - context_invented
+  - explanation_unclear
+  - other
+- id: command_coach
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: command_readable
+  prompt_variables:
+  - input
+  temperature: 0.1
+  feedback_reason_ids:
+  - intent_misread
+  - explanation_inaccurate
+  - teaching_too_dense
+  - transfer_tip_missing
+  - other
+- id: advisory_board
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.4
+  feedback_reason_ids:
+  - perspectives_too_similar
+  - key_stakeholder_missing
+  - advice_generic_or_vague
+  - recommendation_overreaches
+  - other
+- id: insight_engine
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.4
+  feedback_reason_ids:
+  - insight_is_obvious
+  - insight_unsupported
+  - key_pattern_missing
+  - framing_misleading
+  - other
+- id: check_claim_evidence
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.2
+  feedback_reason_ids:
+  - source_misread
+  - evidence_invented
+  - inference_gap_missing
+  - other
+- id: swot_analysis
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.3
+  feedback_reason_ids:
+  - scope_unclear
+  - factor_misclassified
+  - evidence_invented
+  - other
+- id: premortem
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.3
+  feedback_reason_ids:
+  - plan_misread
+  - risk_ungrounded
+  - response_not_actionable
+  - other
+- id: first_principles
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.2
+  feedback_reason_ids:
+  - goal_distorted
+  - assumption_treated_as_fact
+  - option_not_grounded
+  - validation_unclear
   - other

@@ -1,11 +1,17 @@
 from pathlib import Path
 
 
-def test_voice_deadlines_use_separate_typed_scheduler_instances() -> None:
-    source = Path("ClipAI/app/runtime_voice_input.py").read_text(encoding="utf-8")
+def test_capture_timing_has_one_owner_outside_runtime() -> None:
+    runtime = Path("ClipAI/app/runtime_voice_input.py").read_text(encoding="utf-8")
+    timing = Path("ClipAI/app/voice_capture_timing.py").read_text(encoding="utf-8")
 
-    assert "_VoiceDeadlineScheduler[ShortcutPressId]" in source
-    assert "_VoiceDeadlineScheduler[VoiceCaptureId]" in source
-    assert "_capture_deadlines_by_id" not in source
-    assert "_countdown_watchdogs" not in source
-    assert "dict[ShortcutPressId, object]" not in source
+    assert "VoiceCaptureTiming(" in runtime
+    assert "self._timing.observe(transition.projection)" in runtime
+    assert "_VoiceDeadlineScheduler" not in runtime
+    assert "_press_deadlines" not in runtime
+    assert "_capture_deadlines" not in runtime
+    assert "_silence_watchdogs" not in runtime
+    assert '"deadline"' in timing
+    assert '"countdown"' in timing
+    assert '"silence"' in timing
+    assert '"finalize"' in timing

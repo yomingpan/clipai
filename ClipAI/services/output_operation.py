@@ -4,7 +4,7 @@ import threading
 from dataclasses import dataclass
 
 from ClipAI.core.errors import PASTE_FAILURE_MESSAGES, PasteFailure
-from ClipAI.core.models import InterruptibleOperationRef, OutputActionKind, OutputOperationIntent, OutputOperationResult, PasteOutcome, UserFacingError
+from ClipAI.core.models import InlineOrigin, InterruptibleOperationRef, OutputActionKind, OutputOperationIntent, OutputOperationResult, PasteOutcome, UserFacingError
 from ClipAI.core.ports import OperationHandle, OperationTracker, OutputOperationPresenter
 from ClipAI.services.user_control import InterruptibleOperationLease, UserControlCoordinator
 
@@ -37,7 +37,7 @@ class OutputOperationCoordinator:
             intent.kind,
             workflow_id=intent.workflow_id,
             surface_id=intent.workflow_id if intent.workflow_id != "global" else "",
-        )) if self._user_control is not None else None
+        )) if self._user_control is not None and not isinstance(intent.origin, InlineOrigin) else None
         record = _ActiveOutputOperation(intent, handle, lease)
         key = (intent.workflow_id, intent.kind)
         with self._lock:
@@ -51,9 +51,10 @@ class OutputOperationCoordinator:
                     self._active.pop(key, None)
             self._release(record, "cancelled")
             raise
-        self._presenter.present_output_operation(
-            OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, "pending")
-        )
+        if not isinstance(intent.origin, InlineOrigin):
+            self._presenter.present_output_operation(
+                OutputOperationResult(intent.operation_id, intent.workflow_id, intent.kind, "pending")
+            )
 
     def settle(self, result: OutputOperationResult) -> bool:
         if result.state == "pending":
@@ -69,7 +70,8 @@ class OutputOperationCoordinator:
             self._release(record, result.state)
         except BaseException as exc:
             release_error = exc
-        self._presenter.present_output_operation(result)
+        if not isinstance(record.intent.origin, InlineOrigin):
+            self._presenter.present_output_operation(result)
         if release_error is not None:
             raise release_error
         return True
@@ -157,6 +159,7 @@ def paste_outcome_result(intent: OutputOperationIntent, outcome: PasteOutcome) -
             "failed",
             UserFacingError(outcome.message, "Try again or open diagnostics if the problem continues."),
             reason=outcome.reason,
+            origin=intent.origin,
         )
     return OutputOperationResult(
         intent.operation_id,
@@ -165,4 +168,5 @@ def paste_outcome_result(intent: OutputOperationIntent, outcome: PasteOutcome) -
         outcome.state,
         message=outcome.message,
         reason=outcome.reason,
+        origin=intent.origin,
     )

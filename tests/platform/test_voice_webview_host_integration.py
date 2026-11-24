@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -20,16 +23,36 @@ pytestmark = [
 ]
 
 
+@pytest.fixture
+def webview_profile_root() -> Iterator[Path]:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        pytest.skip("requires a Windows LocalAppData directory")
+    test_root = Path(local_app_data) / "ClipAI" / "InlineValidationProfiles"
+    test_root.mkdir(parents=True, exist_ok=True)
+    profile_root = test_root / uuid4().hex
+    # Keep the inherited ACL: pytest's tmp_path uses mode 0o700, which denied
+    # the WebView2 child process access to its user data folder on Windows.
+    profile_root.mkdir()
+    try:
+        yield profile_root
+    finally:
+        if profile_root.resolve().parent == test_root.resolve():
+            shutil.rmtree(profile_root, ignore_errors=True)
+
+
 class Host:
     def __init__(self, page: Path | None = None, *, profile_root: Path) -> None:
         page = page or Path(__file__).with_name("fixtures") / "voice_webview_test_host.html"
+        staged_page = profile_root / "test-page.html"
+        shutil.copyfile(page, staged_page)
         self.process = subprocess.Popen(
             [
                 sys.executable,
                 "-m",
                 "ClipAI.platform.voice_webview_host",
                 "--test-page",
-                str(page),
+                str(staged_page),
                 "--profile-root",
                 str(profile_root),
             ],
@@ -38,7 +61,9 @@ class Host:
             stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
+            errors="replace",
             bufsize=1,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         )
         self.events: queue.Queue[dict[str, object]] = queue.Queue()
         self.stderr: list[str] = []
@@ -60,6 +85,8 @@ class Host:
                 raise AssertionError(
                     f"Voice test host did not emit {kind!r}; exit={self.process.poll()!r}; stderr={''.join(self.stderr)!r}"
                 ) from exc
+            if event.get("kind") == "test_bridge_timeout":
+                raise AssertionError(f"Voice test host did not emit {kind!r}; bridge timed out after page load; stderr={''.join(self.stderr)!r}")
             if event.get("kind") == kind:
                 return event
 
@@ -90,10 +117,10 @@ class Host:
         self.stderr.extend(self.process.stderr)
 
 
-def test_test_host_releases_fake_setup_and_capture_tracks_before_terminal(tmp_path: Path) -> None:
-    host = Host(profile_root=tmp_path)
+def test_test_host_releases_fake_setup_and_capture_tracks_before_terminal(webview_profile_root: Path) -> None:
+    host = Host(profile_root=webview_profile_root)
     try:
-        assert host.next("test_loaded")["kind"] == "test_loaded"
+        assert host.next("test_loaded", timeout=30)["kind"] == "test_loaded"
         host.send("prepare", setup_id="setup-1", language="zh-TW")
         setup_state = host.next("test_state")
         assert setup_state["setup_track_stops"] == 1
@@ -109,18 +136,18 @@ def test_test_host_releases_fake_setup_and_capture_tracks_before_terminal(tmp_pa
         host.close()
 
 
-def test_host_exits_when_parent_transport_closes(tmp_path: Path) -> None:
-    host = Host(profile_root=tmp_path)
+def test_host_exits_when_parent_transport_closes(webview_profile_root: Path) -> None:
+    host = Host(profile_root=webview_profile_root)
     try:
-        assert host.next("test_loaded")["kind"] == "test_loaded"
+        assert host.next("test_loaded", timeout=30)["kind"] == "test_loaded"
         assert host.close_parent_transport() == 0
     finally:
         host.close()
 
 
-def test_production_host_reports_a_missing_microphone_as_unavailable(tmp_path: Path) -> None:
+def test_production_host_reports_a_missing_microphone_as_unavailable(webview_profile_root: Path) -> None:
     production_page = Path(__file__).parents[2] / "ClipAI" / "platform" / "voice_webview_host.html"
-    page = tmp_path / "no-microphone.html"
+    page = webview_profile_root / "no-microphone.html"
     page.write_text(
         production_page.read_text(encoding="utf-8").replace(
             "<script>",
@@ -135,9 +162,9 @@ Object.defineProperty(navigator, "mediaDevices", {
         ),
         encoding="utf-8",
     )
-    host = Host(page, profile_root=tmp_path)
+    host = Host(page, profile_root=webview_profile_root)
     try:
-        assert host.next("test_loaded")["kind"] == "test_loaded"
+        assert host.next("test_loaded", timeout=30)["kind"] == "test_loaded"
         host.send("start", capture_id="capture-1", language="zh-TW", sequence_start=0)
 
         assert host.next("failed") == {
@@ -152,11 +179,11 @@ Object.defineProperty(navigator, "mediaDevices", {
         host.close()
 
 
-def test_production_host_enters_listening_for_an_allowed_microphone(tmp_path: Path) -> None:
+def test_production_host_enters_listening_for_an_allowed_microphone(webview_profile_root: Path) -> None:
     production_page = Path(__file__).parents[2] / "ClipAI" / "platform" / "voice_webview_host.html"
-    host = Host(production_page, profile_root=tmp_path)
+    host = Host(production_page, profile_root=webview_profile_root)
     try:
-        assert host.next("test_loaded")["kind"] == "test_loaded"
+        assert host.next("test_loaded", timeout=30)["kind"] == "test_loaded"
         host.send("prepare", setup_id="setup-1", language="zh-TW")
         assert host.next("setup_ready")["setup_id"] == "setup-1"
 

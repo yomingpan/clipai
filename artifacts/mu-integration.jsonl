@@ -1,0 +1,4 @@
+{"schema": 1, "step": "S3", "suite": "owned_selection_worker_lifecycle_and_standby", "passed": 13, "failed": 0, "exit": 0, "content_recorded": false, "scope": "owned_process_cleanup_and_clr_readiness", "source_commit": "17385abab256947fd64a446cca77ba2e2368ae78"}
+{"schema": 1, "gate": "mu-ui-integration", "step": "S6", "passed": 7, "failed": 0, "scope": "controlled_tk", "content_recorded": false, "external_app_focus_cases": 0}
+{"schema": 1, "gate": "mu-integration", "step": "S8-root-raster", "suite": "tests/ui/test_inline_pill.py", "passed": 9, "failed": 0, "content_recorded": false, "device_evidence": true}
+{"schema": 1, "gate": "mu-integration", "step": "S9-external-enter", "suite": "tests/ui/test_input_recovery.py", "passed": 4, "failed": 0, "content_recorded": false, "device_evidence": true}

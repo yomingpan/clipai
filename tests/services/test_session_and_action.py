@@ -4,7 +4,9 @@ import asyncio
 import pytest
 from dataclasses import replace
 
-from ClipAI.core.models import SelectionCaptureOutcome, ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
+from ClipAI.core.commands import SpeakAcceptedResult
+from ClipAI.core.models import ImageContent, ResultRoute
+from ClipAI.core.models import SelectionCaptureOutcome, ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputDocument, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
 from ClipAI.core.errors import ProviderResponseError, ProviderUnavailableError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
 from ClipAI.core.voice import VoiceOrigin
@@ -88,7 +90,7 @@ def action() -> ResolvedAction:
     )
 
 
-def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, operation_tracker=None, readiness_issues=(), guidance_preferences=None) -> ActionExecutor:
+def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, operation_tracker=None, readiness_issues=(), guidance_preferences=None, result_speech_sink=None) -> ActionExecutor:
     return ActionExecutor(
         input_resolver=InputResolver(clipboard, selection),
         prompt_builder=PromptBuilder(),
@@ -96,11 +98,33 @@ def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, 
         default_temperature=0.2,
         operation_tracker=operation_tracker,
         guidance_preferences=guidance_preferences,
+        result_speech_sink=result_speech_sink,
     )
 
 
 def binding(provider=None, readiness_issues=(), provider_id="fake") -> ProviderExecutionBinding:
     return ProviderExecutionBinding(provider or FakeProvider("result"), provider_id, "model", readiness_issues)
+
+
+def test_inline_refinement_returns_processed_text_without_workflow() -> None:
+    executor = workflow(FakeClipboard("untouched"), FakeSelection(""))
+    refined = asyncio.run(executor.refine_text(
+        action(), "spoken words", binding=binding(FakeProvider("polished words")),
+        cancellation=CancellationToken(),
+    ))
+
+    assert refined == "polished words"
+
+
+def test_inline_refinement_preserves_original_when_provider_unavailable() -> None:
+    executor = workflow(FakeClipboard("untouched"), FakeSelection(""))
+    issue = ReadinessIssue("missing_credential", "Provider unavailable", "llm")
+    refined = asyncio.run(executor.refine_text(
+        action(), "spoken words", binding=binding(readiness_issues=(issue,)),
+        cancellation=CancellationToken(),
+    ))
+
+    assert refined == "spoken words"
 
 
 def run_invocation(
@@ -111,6 +135,7 @@ def run_invocation(
     provider_id="fake",
     readiness_issues=(),
     resolved_action: ResolvedAction | None = None,
+    result_route: ResultRoute = "popup",
 ) -> WorkflowController:
     presenter = RecordingPresenter()
     controller = WorkflowController(
@@ -118,7 +143,7 @@ def run_invocation(
         presenter,
     )
     resolved = resolved_action or action()
-    invocation = ActionInvocation(invocation_id, "english", resolved.press_type, InputTarget("external_text"), workflow_id="w1")
+    invocation = ActionInvocation(invocation_id, "english", resolved.press_type, InputTarget("external_text"), result_route=result_route, workflow_id="w1")
     controller.begin_invocation(invocation, resolved)
     asyncio.run(use_case.execute_invocation(
         resolved,
@@ -173,11 +198,18 @@ def test_execute_action_uses_selection_before_clipboard() -> None:
     assert session.snapshot.content == "result"
 
 
-@pytest.mark.parametrize("reason", ["unsupported", "uia_timeout", "source_changed", "uia_worker_failed"])
-def test_direct_action_shares_panel_evidence_and_requires_explicit_frozen_clipboard_choice(reason) -> None:
+@pytest.mark.parametrize("reason, status, route", [
+    ("unsupported", "unknown", "popup"),
+    ("uia_timeout", "unknown", "popup"),
+    ("source_changed", "unknown", "popup"),
+    ("uia_worker_failed", "unknown", "popup"),
+    ("uia_unsupported", "unknown", "popup_and_speech"),
+    ("selection_unavailable", "unavailable", "popup_and_speech"),
+])
+def test_direct_action_shares_panel_evidence_and_requires_explicit_frozen_clipboard_choice(reason, status, route) -> None:
     class UnknownSelection:
         def capture(self, cancellation=None, **kwargs):
-            return SelectionCaptureOutcome(reason=reason)
+            return SelectionCaptureOutcome(reason=reason, status=status)
 
     class NeverProvider:
         async def execute(self, *args, **kwargs):
@@ -188,7 +220,7 @@ def test_direct_action_shares_panel_evidence_and_requires_explicit_frozen_clipbo
     selection = UnknownSelection()
     executor = workflow(clipboard, selection)
     panel_input = InputResolver(clipboard, selection).prepare_input()
-    controller = run_invocation(executor, provider=NeverProvider())
+    controller = run_invocation(executor, provider=NeverProvider(), result_route=route)
     recovery = controller.snapshot.input_recovery
     assert recovery is not None
     assert recovery.prepared == panel_input
@@ -200,6 +232,7 @@ def test_direct_action_shares_panel_evidence_and_requires_explicit_frozen_clipbo
     assert choice is not None
     assert controller.consume_clipboard_choice(recovery.recovery_id) is None
     invocation, resolved = choice
+    assert invocation.result_route == route
     controller.begin_invocation(invocation, resolved)
     asyncio.run(executor.execute_invocation(resolved, invocation, controller, binding=binding()))
     assert controller.snapshot.status is SessionStatus.COMPLETED
@@ -265,6 +298,161 @@ def test_execute_invocation_appends_successful_workflow_step() -> None:
     assert controller.snapshot.content == "result"
     assert controller.snapshot.steps[0].input_text == "selected"
     assert controller.snapshot.steps[0].step_id == "i1"
+
+
+@pytest.mark.parametrize("route", ["popup", "popup_and_speech"])
+def test_only_explicit_audio_route_requests_speech_for_an_accepted_popup(route):
+    controller = WorkflowController(
+        SessionSnapshot("w1", 0, SessionStatus.CREATED, "english", "English", "model"),
+        RecordingPresenter(),
+    )
+    resolved = replace(action(), output_mode="popup_and_speech")
+    image = ImageContent(b"dog photo", "image/png")
+    invocation = ActionInvocation(
+        "i1", "english", "short", InputTarget("external_text", InputDocument("", "clipboard", image=image)),
+        result_route=route, workflow_id="w1",
+    )
+    controller.begin_invocation(invocation, resolved)
+    ready = []
+
+    def request_speech(command):
+        assert controller.snapshot.steps[-1].result_text == "A dog jumps."
+        ready.append(command)
+
+    class ImageProvider:
+        async def execute(self, request, cancellation, *, stream):
+            assert image in request.messages[-1].content
+            yield LLMCompleted(LLMResult("A dog jumps.", "fake", request.model))
+
+    asyncio.run(workflow(FakeClipboard(""), FakeSelection(""), result_speech_sink=request_speech).execute_invocation(
+        resolved, invocation, controller, binding=binding(ImageProvider()),
+    ))
+    assert controller.snapshot.status is SessionStatus.COMPLETED
+    assert ready == ([SpeakAcceptedResult("w1", "i1")] if route == "popup_and_speech" else [])
+
+
+def test_refine_voice_draft_replaces_only_the_frozen_range_and_returns_to_review() -> None:
+    presenter = RecordingPresenter()
+    controller = WorkflowController(
+        SessionSnapshot(
+            "w1", 0, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+            content="rough voice draft",
+            voice_origin=VoiceOrigin(None, "rough voice draft", 3),
+            available_actions=("copy", "paste", "follow_up", "refine"),
+        ),
+        presenter,
+    )
+    target = controller.freeze_voice_insertion(6, 11)
+    assert target is not None
+    resolved = replace(
+        action(),
+        id="intent_preserving_dictation_editor",
+        prompt="Refine without changing intent: {input}",
+    )
+    invocation = ActionInvocation(
+        "refine-1",
+        resolved.id,
+        "short",
+        InputTarget("workflow_result", InputDocument("voice", "voice_draft", workflow_id="w1")),
+        workflow_id="w1",
+    )
+    controller.begin_invocation(invocation, resolved)
+
+    asyncio.run(workflow(FakeClipboard(""), FakeSelection("")).execute_refine_voice_draft_invocation(
+        resolved,
+        invocation,
+        controller,
+        binding=binding(FakeProvider("polished")),
+        target=target,
+    ))
+
+    assert controller.snapshot.status is SessionStatus.VOICE_REVIEW
+    assert controller.snapshot.content == "rough polished draft"
+    assert controller.snapshot.voice_origin is not None
+    assert controller.snapshot.voice_origin.text == "rough polished draft"
+    assert controller.snapshot.available_actions == ("copy", "paste", "follow_up", "refine")
+
+
+def test_refine_voice_draft_failure_restores_the_unchanged_review() -> None:
+    class FailingProvider:
+        async def execute(self, request, cancellation, *, stream):
+            raise ProviderResponseError("provider failed")
+            yield
+
+    controller = WorkflowController(
+        SessionSnapshot(
+            "w1", 0, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+            content="keep this draft",
+            voice_origin=VoiceOrigin(None, "keep this draft", 2),
+            available_actions=("copy", "paste", "follow_up", "refine"),
+        ),
+        RecordingPresenter(),
+    )
+    target = controller.freeze_voice_insertion(0, len("keep this draft"))
+    assert target is not None
+    resolved = replace(action(), id="intent_preserving_dictation_editor")
+    invocation = ActionInvocation(
+        "refine-1", resolved.id, "short",
+        InputTarget("workflow_result", InputDocument("keep this draft", "voice_draft", workflow_id="w1")),
+        workflow_id="w1",
+    )
+    controller.begin_invocation(invocation, resolved)
+
+    asyncio.run(workflow(FakeClipboard(""), FakeSelection("")).execute_refine_voice_draft_invocation(
+        resolved,
+        invocation,
+        controller,
+        binding=binding(FailingProvider()),
+        target=target,
+    ))
+
+    assert controller.snapshot.status is SessionStatus.VOICE_REVIEW
+    assert controller.snapshot.content == "keep this draft"
+    assert controller.snapshot.active_invocation_id is None
+    assert controller.snapshot.status_text == "provider failed"
+
+
+def test_cancelled_refine_failure_cannot_restore_over_a_newer_invocation() -> None:
+    controller = WorkflowController(
+        SessionSnapshot(
+            "w1", 0, SessionStatus.VOICE_REVIEW, "voice_input", "Voice Input", "model",
+            content="keep this draft",
+            voice_origin=VoiceOrigin(None, "keep this draft", 2),
+            available_actions=("copy", "paste", "follow_up", "refine"),
+        ),
+        RecordingPresenter(),
+    )
+    target = controller.freeze_voice_insertion(0, 4)
+    assert target is not None
+    resolved = replace(action(), id="intent_preserving_dictation_editor")
+    old = ActionInvocation(
+        "old", resolved.id, "short",
+        InputTarget("workflow_result", InputDocument("keep", "voice_draft", workflow_id="w1")),
+        workflow_id="w1",
+    )
+    newer = ActionInvocation(
+        "new", resolved.id, "short",
+        InputTarget("workflow_result", InputDocument("this", "voice_draft", workflow_id="w1")),
+        workflow_id="w1",
+    )
+
+    class ReplacingFailingProvider:
+        async def execute(self, request, cancellation, *, stream):
+            controller.begin_invocation(newer, resolved)
+            raise ProviderResponseError("late provider failure")
+            yield
+
+    controller.begin_invocation(old, resolved)
+    asyncio.run(workflow(FakeClipboard(""), FakeSelection("")).execute_refine_voice_draft_invocation(
+        resolved,
+        old,
+        controller,
+        binding=binding(ReplacingFailingProvider()),
+        target=target,
+    ))
+
+    assert controller.snapshot.active_invocation_id == "new"
+    assert controller.snapshot.content == "keep this draft"
 
 
 def test_replaced_invocation_cancels_operation_without_late_success() -> None:

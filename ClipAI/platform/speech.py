@@ -4,8 +4,18 @@ import asyncio
 from pathlib import Path
 import tempfile
 import threading
+import edge_tts.communicate as _edge_communicate
+from edge_tts.constants import TRUSTED_CLIENT_TOKEN
 
 from ClipAI.core.models import SpeechRequest
+
+
+LEGACY_EDGE_TTS_WSS_URL = _edge_communicate.WSS_URL
+EDGE_TTS_WSS_URL = (
+    "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+    f"?Ocp-Apim-Subscription-Key={TRUSTED_CLIENT_TOKEN}"
+)
+_EDGE_ENDPOINT_LOCK = threading.Lock()
 
 
 class EdgeSpeechOutput:
@@ -29,13 +39,30 @@ class EdgeSpeechOutput:
             path = Path(tempfile.gettempdir()) / f"clipai-speech-{threading.get_ident()}.mp3"
             try:
                 voice = request.voice_override or self._voice
-                communicate = edge_tts.Communicate(
-                    request.text,
-                    voice,
-                    rate=request.rate_override or self._rate,
-                    volume=self._volume,
-                )
-                asyncio.run(communicate.save(str(path)))
+                # This dependency reads a module-global URL while streaming.
+                # Serialize that narrow boundary across all adapter instances,
+                # keep the import-time fallback, and restore even on exceptions.
+                with _EDGE_ENDPOINT_LOCK:
+                    previous_url = _edge_communicate.WSS_URL
+                    try:
+                        for endpoint in (EDGE_TTS_WSS_URL, LEGACY_EDGE_TTS_WSS_URL):
+                            if self._stop.is_set() or request.cancellation.is_cancelled:
+                                return
+                            _edge_communicate.WSS_URL = endpoint
+                            communicate = edge_tts.Communicate(
+                                request.text, voice,
+                                rate=request.rate_override or self._rate,
+                                volume=self._volume,
+                            )
+                            try:
+                                asyncio.run(communicate.save(str(path)))
+                            except Exception as exc:
+                                if endpoint != EDGE_TTS_WSS_URL or getattr(exc, "status", None) != 403:
+                                    raise
+                            else:
+                                break
+                    finally:
+                        _edge_communicate.WSS_URL = previous_url
                 if self._stop.is_set() or request.cancellation.is_cancelled:
                     return
                 if not pygame.mixer.get_init():

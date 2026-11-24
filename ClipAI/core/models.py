@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Literal, NewType
+from enum import Enum
+from typing import Literal, NewType, TypeAlias
 
 from ClipAI.core.errors import ActionLanguagePackErrorCode, PasteFailureReason
+from ClipAI.core.managed_update import FailureCode
 from ClipAI.core.state import CancellationToken
 
 PressType = Literal["short", "long"]
@@ -12,16 +14,21 @@ ModifierHoldId = NewType("ModifierHoldId", int)
 EntryInputPreparationId = NewType("EntryInputPreparationId", str)
 ShortcutPressOutcome = Literal["released", "cancelled"]
 InterruptionScope = Literal["current", "all"]
+ManagedUpdatePhase = Literal[
+    "unavailable", "idle", "checking", "downloading", "preparing", "up_to_date", "restarting", "failed"
+]
 ShortcutGuidePhase = Literal["listening", "keys_pressed", "recognized", "invalid"]
 MessageRole = Literal["system", "user", "assistant"]
 ImageSource = Literal["clipboard"]
+CLIPBOARD_IMAGE_LABEL = "剪貼簿圖片"
 InputMode = Literal["clipboard", "clipboard_image", "selection_or_clipboard"]
-OutputMode = Literal["popup"]
+OutputMode = Literal["popup", "popup_and_speech"]
 ExternalFallback = Literal["selection_or_clipboard", "clipboard"]
 PersonalStyleMode = Literal["formal", "informal"]
-ResultRoute = Literal["popup", "speech"]
+ResultRoute = OutputMode | Literal["speech"]
 SpeechSpeed = Literal["slow", "normal", "fast", "super_fast"]
 VoiceLanguagePreference = Literal["zh-TW", "en-US"]
+InlineInputMode = Literal["choice", "minimal"]
 ApplicationStatus = Literal["idle", "processing", "success", "warning", "error", "paused"]
 OperationKind = Literal["llm", "tts", "copy", "paste", "archive"]
 FeedbackOutcome = Literal["helpful", "needs_adjustment", "not_applicable"]
@@ -33,6 +40,7 @@ ShortcutCommandKind = Literal[
     "open_contextual_question",
     "speak_selection_or_clipboard",
     "push_to_talk",
+    "inline_dictation",
 ]
 OutputActionKind = Literal["copy", "paste", "archive", "speech"]
 OutputOperationState = Literal[
@@ -57,7 +65,7 @@ ExternalWindowActivationState = Literal[
 ResultCompleteness = Literal["none", "partial", "complete"]
 ActionStartAdmissionState = Literal["accepted", "rejected", "blocked"]
 ActionAdmissionOrigin = Literal["shortcut", "entry_panel"]
-EntryPanelPage = Literal["root", "scene", "more"]
+EntryPanelPage = Literal["root", "scene"]
 EntryPanelDensity = Literal["detailed", "compact"]
 EntryInputPreviewKind = Literal[
     "preparing",
@@ -126,6 +134,9 @@ class EntryPanelOption:
     enabled: bool = True
     pending: bool = False
     disabled_reason: str = ""
+    long_action: EntryActionRef | None = None
+    long_label: str = ""
+    command: Literal["open_contextual_question"] | None = None
 
 
 @dataclass(frozen=True)
@@ -142,16 +153,17 @@ class EntryPanelSnapshot:
     category_id: str = ""
     density: EntryPanelDensity = "detailed"
     options: tuple[EntryPanelOption, ...] = ()
-    search_text: str = ""
     status: Literal["idle", "preparing", "error"] = "idle"
     message: str = ""
     source_preview: EntryInputSourcePreview | None = None
+    header_hint: str = ""
 
 
 @dataclass(frozen=True)
 class EntryPanelDecision:
     snapshot: EntryPanelSnapshot
     action: EntryActionRef | None = None
+    command: Literal["open_contextual_question"] | None = None
 
 
 @dataclass(frozen=True)
@@ -232,6 +244,13 @@ class SpeechSpeedState:
 class VoicePreferencesState:
     enabled: bool = False
     language: VoiceLanguagePreference = "zh-TW"
+    update_pending: bool = False
+
+
+@dataclass(frozen=True)
+class InlineInputModeState:
+    selected_mode: InlineInputMode = "choice"
+    pending_mode: InlineInputMode | None = None
     update_pending: bool = False
 
 
@@ -388,11 +407,25 @@ class UserFacingError:
 
 
 @dataclass(frozen=True)
+class WorkflowOrigin:
+    workflow_id: str
+
+
+@dataclass(frozen=True)
+class InlineOrigin:
+    interaction_id: str
+
+
+OutputOrigin: TypeAlias = WorkflowOrigin | InlineOrigin
+
+
+@dataclass(frozen=True)
 class OutputOperationIntent:
     operation_id: str
     workflow_id: str
     kind: OutputActionKind
     text: str
+    origin: OutputOrigin | None = None
 
 
 @dataclass(frozen=True)
@@ -404,6 +437,7 @@ class OutputOperationResult:
     error: UserFacingError | None = None
     message: str = ""
     reason: PasteFailureReason | None = None
+    origin: OutputOrigin | None = None
 
     def __post_init__(self) -> None:
         common_states = {"pending", "failed", "cancelled"}
@@ -595,6 +629,7 @@ class WorkflowStep:
     provider: str = ""
     model: str = ""
     action_language: ActionLanguageProvenance | None = None
+    source_preview: str = ""
 
 
 @dataclass(frozen=True)
@@ -612,6 +647,8 @@ class UserPreferences:
     voice_input_enabled: bool = False
     voice_language: VoiceLanguagePreference = "zh-TW"
     entry_panel_density: EntryPanelDensity = "detailed"
+    inline_input_mode: InlineInputMode = "choice"
+    entry_numeric_hint_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -677,7 +714,7 @@ class PreparedInput:
         if document is None:
             return ""
         if document.image is not None:
-            return "剪貼簿圖片"
+            return CLIPBOARD_IMAGE_LABEL
         text = " ".join(document.text.split())
         return "剪貼簿：" + (text if len(text) <= 90 else text[:89].rstrip() + "…")
 
@@ -710,7 +747,7 @@ class PreparedInput:
         ):
             raise ValueError("prepared clipboard text must use the clipboard source")
 
-    def resolve(self, mode: InputMode) -> PreparedInputResolution:
+    def resolve(self, mode: InputMode, *, require_selection_evidence: bool = False) -> PreparedInputResolution:
         if self.workflow_document is not None:
             return PreparedInputResolution(document=self.workflow_document)
         if mode == "clipboard_image":
@@ -729,7 +766,10 @@ class PreparedInput:
             mode == "selection_or_clipboard"
             and not self.clipboard_override
             and self.selection_outcome is not None
-            and self.selection_outcome.status in {"unknown", "cancelled"}
+            and (
+                self.selection_outcome.status in {"unknown", "cancelled"}
+                or require_selection_evidence and self.selection_outcome.status == "unavailable"
+            )
         ):
             return PreparedInputResolution(unavailable_reason="selection_unknown")
         if mode == "selection_or_clipboard" and not self.clipboard_override and self.selection_document is not None:
@@ -749,6 +789,88 @@ class PreparedInput:
         )
 
 
+class SelectionGuidanceCategory(str, Enum):
+    ENGINE = "engine"
+    FOCUS = "focus"
+    MODIFIER = "modifier"
+    NO_SELECTION = "no_selection"
+
+
+class SelectionReason(str, Enum):
+    UIA_TIMEOUT = "uia_timeout"
+    UIA_UNAVAILABLE = "uia_unavailable"
+    UIA_WORKER_FAILED = "uia_worker_failed"
+    UIA_INVALID_RESULT = "uia_invalid_result"
+    UIA_INVALID_REQUEST = "uia_invalid_request"
+    UIA_PROVIDER_FAILED = "uia_provider_failed"
+    UIA_FOCUS_RESTORE_FAILED = "uia_focus_restore_failed"
+    UIA_TEXT_FAILED = "uia_text_failed"
+    UIA_SELECTED_TEXT_UNAVAILABLE = "uia_selected_text_unavailable"
+    CAPTURE_FAILED = "capture_failed"
+    COPY_TIMEOUT = "copy_timeout"
+    COPY_FAILED = "copy_failed"
+    SNAPSHOT_FAILED = "snapshot_failed"
+    CLIPBOARD_CHANGED = "clipboard_changed"
+    SOURCE_CHANGED = "source_changed"
+    SOURCE_UNAVAILABLE = "source_unavailable"
+    UIA_SOURCE_MISMATCH = "uia_source_mismatch"
+    UIA_FOCUS_CHANGED = "uia_focus_changed"
+    UIA_SELECTION_CHANGED = "uia_selection_changed"
+    MODIFIER_TIMEOUT = "modifier_timeout"
+    UIA_UNSUPPORTED = "uia_unsupported"
+    UIA_NO_RANGES = "uia_no_ranges"
+    UIA_CARET_ONLY = "uia_caret_only"
+    COPY_EMPTY = "copy_empty"
+    SELECTION_UNAVAILABLE = "selection_unavailable"
+    SELECTION_ONLY_COPY_AVAILABLE = "selection_only_copy_available"
+    UIA_PROTECTED_OR_UNAVAILABLE = "uia_protected_or_unavailable"
+
+
+_REASON_GUIDANCE = {
+    SelectionReason.UIA_TIMEOUT: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_UNAVAILABLE: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_WORKER_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_INVALID_RESULT: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_INVALID_REQUEST: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_PROVIDER_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_FOCUS_RESTORE_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_TEXT_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.UIA_SELECTED_TEXT_UNAVAILABLE: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.CAPTURE_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.COPY_TIMEOUT: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.COPY_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.SNAPSHOT_FAILED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.CLIPBOARD_CHANGED: SelectionGuidanceCategory.ENGINE,
+    SelectionReason.SOURCE_CHANGED: SelectionGuidanceCategory.FOCUS,
+    SelectionReason.SOURCE_UNAVAILABLE: SelectionGuidanceCategory.FOCUS,
+    SelectionReason.UIA_SOURCE_MISMATCH: SelectionGuidanceCategory.FOCUS,
+    SelectionReason.UIA_FOCUS_CHANGED: SelectionGuidanceCategory.FOCUS,
+    SelectionReason.UIA_SELECTION_CHANGED: SelectionGuidanceCategory.FOCUS,
+    SelectionReason.MODIFIER_TIMEOUT: SelectionGuidanceCategory.MODIFIER,
+    SelectionReason.UIA_UNSUPPORTED: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.UIA_NO_RANGES: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.UIA_CARET_ONLY: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.COPY_EMPTY: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.SELECTION_UNAVAILABLE: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.SELECTION_ONLY_COPY_AVAILABLE: SelectionGuidanceCategory.NO_SELECTION,
+    SelectionReason.UIA_PROTECTED_OR_UNAVAILABLE: SelectionGuidanceCategory.NO_SELECTION,
+}
+
+
+def selection_guidance_category(reason: str) -> SelectionGuidanceCategory:
+    try:
+        return _REASON_GUIDANCE[SelectionReason(reason)]
+    except ValueError:
+        return SelectionGuidanceCategory.NO_SELECTION
+
+
+class SelectionOutcomeClass(str, Enum):
+    SELECTED = "selected"
+    CANCELLED = "cancelled"
+    NEEDS_MODIFIER_RELEASE = "needs_modifier_release"
+    UNRESOLVED = "unresolved"
+
+
 @dataclass(frozen=True)
 class SelectionCaptureOutcome:
     text: str = field(default="", repr=False)
@@ -758,10 +880,28 @@ class SelectionCaptureOutcome:
     selection_detected: bool = False
     # Verified source capability, not evidence that a selection currently exists.
     copy_selection_only: bool = False
+    # A verified adapter restored focus only inside the bound top-level source.
+    focus_restored: bool = False
+
+    @property
+    def classification(self) -> SelectionOutcomeClass:
+        if self.status == "selected":
+            return SelectionOutcomeClass.SELECTED
+        if self.status == "cancelled":
+            return SelectionOutcomeClass.CANCELLED
+        if selection_guidance_category(self.reason) is SelectionGuidanceCategory.MODIFIER:
+            return SelectionOutcomeClass.NEEDS_MODIFIER_RELEASE
+        return SelectionOutcomeClass.UNRESOLVED
+
+    @property
+    def needs_modifier_release(self) -> bool:
+        return self.classification is SelectionOutcomeClass.NEEDS_MODIFIER_RELEASE
 
     def __post_init__(self) -> None:
         if type(self.copy_selection_only) is not bool:
             raise ValueError("copy_selection_only must be a boolean")
+        if type(self.focus_restored) is not bool:
+            raise ValueError("focus_restored must be a boolean")
         if self.status not in {"selected", "none", "unavailable", "unknown", "cancelled"}:
             raise ValueError("invalid selection status")
         if self.status == "selected" and not self.text:
@@ -783,7 +923,10 @@ class InputRecovery:
 
     @property
     def message(self) -> str:
-        reason = self.prepared.resolve(self.action.input_mode).unavailable_reason
+        reason = self.prepared.resolve(
+            self.action.input_mode,
+            require_selection_evidence=self.invocation.result_route == "popup_and_speech",
+        ).unavailable_reason
         if reason == "selection_unknown":
             return "這次未能確認反白內容。"
         return "這次沒有取得可用的內容。"
@@ -818,6 +961,17 @@ class EntryPanelSource:
     workflow_id: str = ""
     external_window: ExternalWindowRef | None = None
     selection_request: SelectionCaptureRequest | None = None
+
+
+@dataclass(frozen=True)
+class ExternalWindowWaitPolicy:
+    """One caller's remaining focus-wait budget; capture time is separate."""
+
+    timeout_sec: float = 3.0
+    notice_after_sec: float = 0.5
+
+
+EntryInputPreparationPhase = Literal["waiting_for_window", "reading"]
 
 
 @dataclass(frozen=True)
@@ -867,6 +1021,7 @@ class PasteRequest:
     workflow_id: str
     text: str
     target: PasteTarget
+    origin: OutputOrigin | None = None
 
 
 @dataclass(frozen=True)
@@ -919,6 +1074,14 @@ class ReadinessIssue:
     code: str
     message: str
     feature: str
+
+
+@dataclass(frozen=True)
+class ManagedUpdatePresentation:
+    phase: ManagedUpdatePhase
+    message: str
+    enabled: bool
+    failure_code: FailureCode | None = None
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,10 @@ shortcuts:
     hotkey: ctrl+alt+w
     command: push_to_talk
 
+  - id: inline_dictation
+    hotkey: right_alt
+    command: inline_dictation
+
   - id: contextual_question
     hotkey: ctrl+alt+r
     command: open_contextual_question
@@ -114,9 +118,19 @@ shortcuts:
     command: start_action
     action_id: extract_screenshot_text
 
+  - id: explain_chart
+    hotkey: ctrl+alt+h
+    command: start_action
+    action_id: explain_chart
+
   - id: speak_selection_or_clipboard
     hotkey: ctrl+alt+q
     command: speak_selection_or_clipboard
+
+  - id: describe_in_english
+    hotkey: ctrl+alt+z
+    command: start_action
+    action_id: describe_in_english
 
   - id: shorten_content
     hotkey: ctrl+alt+x
@@ -133,6 +147,11 @@ shortcuts:
     command: start_action
     action_id: command_copilot
 
+  - id: command_generate
+    hotkey: ctrl+alt+b
+    command: start_action
+    action_id: command_generate
+
   - id: personal_style_informal
     hotkey: ctrl+alt+i
     command: start_action
@@ -147,3 +166,13 @@ shortcuts:
     hotkey: ctrl+alt+p
     command: start_action
     action_id: personal_style_presentation
+
+  - id: advisory_board
+    hotkey: ctrl+alt+j
+    command: start_action
+    action_id: advisory_board
+
+  - id: insight_engine
+    hotkey: ctrl+alt+k
+    command: start_action
+    action_id: insight_engine
