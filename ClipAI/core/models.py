@@ -22,10 +22,10 @@ MessageRole = Literal["system", "user", "assistant"]
 ImageSource = Literal["clipboard"]
 CLIPBOARD_IMAGE_LABEL = "剪貼簿圖片"
 InputMode = Literal["clipboard", "clipboard_image", "selection_or_clipboard"]
-OutputMode = Literal["popup"]
+OutputMode = Literal["popup", "popup_and_speech"]
 ExternalFallback = Literal["selection_or_clipboard", "clipboard"]
 PersonalStyleMode = Literal["formal", "informal"]
-ResultRoute = Literal["popup", "speech"]
+ResultRoute = OutputMode | Literal["speech"]
 SpeechSpeed = Literal["slow", "normal", "fast", "super_fast"]
 VoiceLanguagePreference = Literal["zh-TW", "en-US"]
 InlineInputMode = Literal["choice", "minimal"]
@@ -748,7 +748,7 @@ class PreparedInput:
         ):
             raise ValueError("prepared clipboard text must use the clipboard source")
 
-    def resolve(self, mode: InputMode) -> PreparedInputResolution:
+    def resolve(self, mode: InputMode, *, require_selection_evidence: bool = False) -> PreparedInputResolution:
         if self.workflow_document is not None:
             return PreparedInputResolution(document=self.workflow_document)
         if mode == "clipboard_image":
@@ -767,7 +767,10 @@ class PreparedInput:
             mode == "selection_or_clipboard"
             and not self.clipboard_override
             and self.selection_outcome is not None
-            and self.selection_outcome.status in {"unknown", "cancelled"}
+            and (
+                self.selection_outcome.status in {"unknown", "cancelled"}
+                or require_selection_evidence and self.selection_outcome.status == "unavailable"
+            )
         ):
             return PreparedInputResolution(unavailable_reason="selection_unknown")
         if mode == "selection_or_clipboard" and not self.clipboard_override and self.selection_document is not None:
@@ -921,7 +924,10 @@ class InputRecovery:
 
     @property
     def message(self) -> str:
-        reason = self.prepared.resolve(self.action.input_mode).unavailable_reason
+        reason = self.prepared.resolve(
+            self.action.input_mode,
+            require_selection_evidence=self.invocation.result_route == "popup_and_speech",
+        ).unavailable_reason
         if reason == "selection_unknown":
             return "這次未能確認反白內容。"
         return "這次沒有取得可用的內容。"

@@ -781,6 +781,39 @@ def test_chart_action_from_understand_more_uses_frozen_screenshot(image) -> None
     assert presenter.popup_transitions == [(root.panel_id, "workflow-1")]
 
 
+@pytest.mark.parametrize("outcome, needs_confirmation", [
+    (SelectionCaptureOutcome("a dog", "selected"), False),
+    (SelectionCaptureOutcome(status="none"), False),
+    (SelectionCaptureOutcome(status="unknown", reason="uia_unsupported"), True),
+    (SelectionCaptureOutcome(status="unavailable", reason="selection_unavailable"), True),
+])
+def test_english_speech_card_uses_visible_frozen_source(outcome, needs_confirmation):
+    action = EntryActionRef("describe_in_english", "short")
+    image = ImageContent(b"dog", "image/png")
+    text = InputDocument(outcome.text, "selection") if outcome.status == "selected" else None
+    inputs = Inputs(PreparedInput(selection_document=text, clipboard_image=image, selection_outcome=outcome))
+    history = RecentActionHistory()
+    history.record(action)
+    module, coordinator, presenter, supervisor, workflows, _, _, commands, _ = make_module(
+        input_resolver=inputs, recent_actions=history,
+    )
+    root = module.open()
+    complete_external_preparation(module, supervisor, commands)
+    card = next(option for option in coordinator.snapshot.options if option.action == action)
+    assert card.enabled is not needs_confirmation
+    inputs.prepared = PreparedInput(clipboard_image=ImageContent(b"new clipboard", "image/png"))
+    if needs_confirmation:
+        assert coordinator.snapshot.source_preview.clipboard_override_available
+        module.handle(EntryPanelActionSelected(root.panel_id, action))
+        assert not workflows.starts
+        module.handle(UseEntryPanelClipboard(root.panel_id))
+    module.handle(EntryPanelActionSelected(root.panel_id, action))
+    (start,) = workflows.starts
+    assert start[3].document == (text or InputDocument("", "clipboard", image=image))
+    assert presenter.popup_transitions == [(root.panel_id, "workflow-1")]
+    assert inputs.calls == 1
+
+
 def test_action_rechecks_runtime_availability_at_selection_intent() -> None:
     module, coordinator, _presenter, supervisor, workflows, _activator, _inputs, commands, _external = make_module()
     module.open()

@@ -24,7 +24,7 @@ class ResultRouter:
         workflow_id: str = "sequence",
         cancellation: CancellationToken | None = None,
     ) -> None:
-        if route == "popup":
+        if route != "speech":
             popup_sink(result)
             return
         if self._speech_sink is None:

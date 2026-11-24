@@ -14,6 +14,8 @@ from ClipAI.core.commands import ActivateWorkflow, ArchiveResult, CancelSession,
 from ClipAI.core.errors import InputError, PersonalStyleUnavailableError
 from ClipAI.core.models import ActiveWorkflowContext, ActionDefinition, ActionFeedbackContract, ActionInvocation, ControlSurfaceRef, EntryActionRef, EnvironmentSetting, FeedbackReason, GuidancePreferences, InlineOrigin, InputDocument, InputTarget, ModelSelectionState, OutputOperationIntent, PasteOutcome, PasteRequest, PasteTarget, PersonalStyleProfile, ProviderCapabilities, ProviderOption, ProviderSelectionState, ProviderSettingsInput, ProviderSettingsState, ReadinessIssue, ShortcutDefinition, ShortcutObservationSnapshot, ShortcutPressId, UserPreferences, WorkflowStep
 from ClipAI.core.commands import CancelInlineDictation, ToggleInlineDictation, ConfirmInlineDictation, InlineDictationRefineSettled, VoiceFinalizeWatchdogExpired
+from ClipAI.core.commands import SpeakAcceptedResult
+from ClipAI.services.speech_coordinator import SpeechJob as TextSpeechJob
 from ClipAI.app.runtime import _VOICE_COMMANDS
 
 
@@ -667,13 +669,18 @@ class PopupSpeech:
 
     def create_text_job(self, *, operation_id, workflow_id, text):
         self.current = (operation_id, workflow_id)
-        owner = self
-        class Job:
-            def run(self):
-                owner.outputs.spoken.append(text)
-                if owner.current == (operation_id, workflow_id):
-                    owner.current = None
-        return Job()
+
+        def run():
+            self.outputs.spoken.append(text)
+            if self.current == (operation_id, workflow_id):
+                self.current = None
+
+        return TextSpeechJob(operation_id, workflow_id, text, run)
+
+    def try_create_text_job(self, *, operation_id, workflow_id, text):
+        if self.current is not None:
+            return None
+        return self.create_text_job(operation_id=operation_id, workflow_id=workflow_id, text=text)
 
     def create_job(self, *, clipboard_only):
         del clipboard_only
@@ -752,6 +759,7 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
         ShortcutDefinition("contextual_question", "ctrl+alt+r", "open_contextual_question"),
         ShortcutDefinition("a", "ctrl+alt+8", "start_action", "a"),
         ShortcutDefinition("speech", "ctrl+alt+q", "speak_selection_or_clipboard"),
+        ShortcutDefinition("describe", "ctrl+alt+z", "start_action", "describe"),
         ShortcutDefinition("shorten", "ctrl+alt+x", "start_action", "shorten"),
     ]
     if include_voice_input:
@@ -759,7 +767,8 @@ def make_runtime(*, with_tray: bool = False, operation_tracker=None, diagnostics
     if include_inline:
         shortcut_definitions.append(ShortcutDefinition("inline", "right_alt", "inline_dictation"))
     shortcuts = ShortcutCatalog(shortcut_definitions)
-    actions = ActionCatalog([action, shorten, refine])
+    describe = replace(action, id="describe", output_mode="popup_and_speech", personal_style_mode=None)
+    actions = ActionCatalog([action, shorten, refine, describe])
     execute_action = FakeExecute()
     provider_configuration = ProviderConfigurationCoordinator(snapshot, backend)
     incident_reporter = IncidentReporter()
@@ -2761,6 +2770,59 @@ def test_tray_exit_uses_typed_shutdown_command() -> None:
     tray.on_exit()
     runtime.drain_commands()
     assert tray.stopped and listener.stopped and supervisor.closed and view.stopped
+
+
+def test_english_description_shortcut_admits_the_configured_audio_route() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    runtime.enqueue(ShortcutPressInvoked(ShortcutPressId(1), "describe", "short"))
+    runtime.drain_commands()
+    invocation_id = view.snapshots[-1].active_invocation_id
+    supervisor.work[invocation_id]()
+    (invocation,) = view.execute_action.invocations
+    assert invocation.result_route == "popup_and_speech"
+    workflow_id = view.snapshots[-1].session_id
+    assert invocation.workflow_id == workflow_id
+    assert outputs.spoken == []
+    controller = workflow(view, workflow_id)
+    controller.complete(invocation, view.execute_action.actions[-1], InputDocument("dog", "selection"), "A dog jumps.", ("speaker",))
+    runtime.enqueue(RegenerateResult(workflow_id))
+    runtime.drain_commands()
+    supervisor.work[controller.snapshot.active_invocation_id]()
+    assert view.execute_action.invocations[-1].result_route == "popup"
+
+
+def test_panel_audio_result_speaks_only_its_accepted_step() -> None:
+    runtime, view, supervisor, outputs, _listener = make_runtime()
+    document = InputDocument("source", "selection")
+    admission = runtime._workflow_module.start_action(
+        "describe", "short", admission_origin="entry_panel",
+        input_target=InputTarget("external_text", document),
+    )
+    workflow_id = admission.workflow_id
+    controller = workflow(view, workflow_id)
+    invocation_id = controller.snapshot.active_invocation_id
+    supervisor.work[invocation_id]()
+    invocation = view.execute_action.invocations[-1]
+    assert invocation.result_route == "popup_and_speech"
+    controller.complete(invocation, view.execute_action.actions[-1], document, "A dog jumps.", ("speaker", "follow_up"))
+
+    runtime.enqueue(SpeakAcceptedResult(workflow_id, "stale-step"))
+    runtime.drain_commands()
+    assert view.speech_coordinator.current_identity is None
+
+    runtime.enqueue(SpeakAcceptedResult(workflow_id, invocation_id))
+    runtime.drain_commands()
+    original_id = view.speech_coordinator.operation_for(workflow_id)
+    assert original_id != invocation_id
+    assert controller.snapshot.speaking
+    supervisor.work[original_id]()
+    assert outputs.spoken == ["A dog jumps."]
+    assert not controller.snapshot.speaking
+
+    runtime.enqueue(ToggleSpeech(workflow_id, operation_id="newer-speech"))
+    runtime.enqueue(SpeakAcceptedResult(workflow_id, invocation_id))
+    runtime.drain_commands()
+    assert view.speech_coordinator.operation_for(workflow_id) == "newer-speech"
 
 
 def test_speech_runs_as_supervised_output_and_can_stop() -> None:

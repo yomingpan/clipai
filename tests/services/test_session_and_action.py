@@ -4,6 +4,8 @@ import asyncio
 import pytest
 from dataclasses import replace
 
+from ClipAI.core.commands import SpeakAcceptedResult
+from ClipAI.core.models import ImageContent, ResultRoute
 from ClipAI.core.models import SelectionCaptureOutcome, ActionFeedbackContract, ActionInvocation, ActionVariant, FeedbackReason, InputDocument, InputTarget, LLMCompleted, LLMRequest, LLMResult, OutputProfile, PersonalStyleProfile, ReadinessIssue, ResolvedAction, UserPreferences, WorkflowStep
 from ClipAI.core.errors import ProviderResponseError, ProviderUnavailableError
 from ClipAI.core.state import CancellationToken, SessionSnapshot, SessionStatus
@@ -88,7 +90,7 @@ def action() -> ResolvedAction:
     )
 
 
-def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, operation_tracker=None, readiness_issues=(), guidance_preferences=None) -> ActionExecutor:
+def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, operation_tracker=None, readiness_issues=(), guidance_preferences=None, result_speech_sink=None) -> ActionExecutor:
     return ActionExecutor(
         input_resolver=InputResolver(clipboard, selection),
         prompt_builder=PromptBuilder(),
@@ -96,6 +98,7 @@ def workflow(clipboard: FakeClipboard, selection: FakeSelection, provider=None, 
         default_temperature=0.2,
         operation_tracker=operation_tracker,
         guidance_preferences=guidance_preferences,
+        result_speech_sink=result_speech_sink,
     )
 
 
@@ -132,6 +135,7 @@ def run_invocation(
     provider_id="fake",
     readiness_issues=(),
     resolved_action: ResolvedAction | None = None,
+    result_route: ResultRoute = "popup",
 ) -> WorkflowController:
     presenter = RecordingPresenter()
     controller = WorkflowController(
@@ -139,7 +143,7 @@ def run_invocation(
         presenter,
     )
     resolved = resolved_action or action()
-    invocation = ActionInvocation(invocation_id, "english", resolved.press_type, InputTarget("external_text"), workflow_id="w1")
+    invocation = ActionInvocation(invocation_id, "english", resolved.press_type, InputTarget("external_text"), result_route=result_route, workflow_id="w1")
     controller.begin_invocation(invocation, resolved)
     asyncio.run(use_case.execute_invocation(
         resolved,
@@ -194,11 +198,18 @@ def test_execute_action_uses_selection_before_clipboard() -> None:
     assert session.snapshot.content == "result"
 
 
-@pytest.mark.parametrize("reason", ["unsupported", "uia_timeout", "source_changed", "uia_worker_failed"])
-def test_direct_action_shares_panel_evidence_and_requires_explicit_frozen_clipboard_choice(reason) -> None:
+@pytest.mark.parametrize("reason, status, route", [
+    ("unsupported", "unknown", "popup"),
+    ("uia_timeout", "unknown", "popup"),
+    ("source_changed", "unknown", "popup"),
+    ("uia_worker_failed", "unknown", "popup"),
+    ("uia_unsupported", "unknown", "popup_and_speech"),
+    ("selection_unavailable", "unavailable", "popup_and_speech"),
+])
+def test_direct_action_shares_panel_evidence_and_requires_explicit_frozen_clipboard_choice(reason, status, route) -> None:
     class UnknownSelection:
         def capture(self, cancellation=None, **kwargs):
-            return SelectionCaptureOutcome(reason=reason)
+            return SelectionCaptureOutcome(reason=reason, status=status)
 
     class NeverProvider:
         async def execute(self, *args, **kwargs):
@@ -209,7 +220,7 @@ def test_direct_action_shares_panel_evidence_and_requires_explicit_frozen_clipbo
     selection = UnknownSelection()
     executor = workflow(clipboard, selection)
     panel_input = InputResolver(clipboard, selection).prepare_input()
-    controller = run_invocation(executor, provider=NeverProvider())
+    controller = run_invocation(executor, provider=NeverProvider(), result_route=route)
     recovery = controller.snapshot.input_recovery
     assert recovery is not None
     assert recovery.prepared == panel_input
@@ -221,6 +232,7 @@ def test_direct_action_shares_panel_evidence_and_requires_explicit_frozen_clipbo
     assert choice is not None
     assert controller.consume_clipboard_choice(recovery.recovery_id) is None
     invocation, resolved = choice
+    assert invocation.result_route == route
     controller.begin_invocation(invocation, resolved)
     asyncio.run(executor.execute_invocation(resolved, invocation, controller, binding=binding()))
     assert controller.snapshot.status is SessionStatus.COMPLETED
@@ -286,6 +298,37 @@ def test_execute_invocation_appends_successful_workflow_step() -> None:
     assert controller.snapshot.content == "result"
     assert controller.snapshot.steps[0].input_text == "selected"
     assert controller.snapshot.steps[0].step_id == "i1"
+
+
+@pytest.mark.parametrize("route", ["popup", "popup_and_speech"])
+def test_only_explicit_audio_route_requests_speech_for_an_accepted_popup(route):
+    controller = WorkflowController(
+        SessionSnapshot("w1", 0, SessionStatus.CREATED, "english", "English", "model"),
+        RecordingPresenter(),
+    )
+    resolved = replace(action(), output_mode="popup_and_speech")
+    image = ImageContent(b"dog photo", "image/png")
+    invocation = ActionInvocation(
+        "i1", "english", "short", InputTarget("external_text", InputDocument("", "clipboard", image=image)),
+        result_route=route, workflow_id="w1",
+    )
+    controller.begin_invocation(invocation, resolved)
+    ready = []
+
+    def request_speech(command):
+        assert controller.snapshot.steps[-1].result_text == "A dog jumps."
+        ready.append(command)
+
+    class ImageProvider:
+        async def execute(self, request, cancellation, *, stream):
+            assert image in request.messages[-1].content
+            yield LLMCompleted(LLMResult("A dog jumps.", "fake", request.model))
+
+    asyncio.run(workflow(FakeClipboard(""), FakeSelection(""), result_speech_sink=request_speech).execute_invocation(
+        resolved, invocation, controller, binding=binding(ImageProvider()),
+    ))
+    assert controller.snapshot.status is SessionStatus.COMPLETED
+    assert ready == ([SpeakAcceptedResult("w1", "i1")] if route == "popup_and_speech" else [])
 
 
 def test_refine_voice_draft_replaces_only_the_frozen_range_and_returns_to_review() -> None:

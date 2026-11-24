@@ -48,6 +48,10 @@ candidates:
     press_type: short
     label: 語音成稿編輯
     description: 保留說話意圖並整理成可用文字。
+  - action_id: describe_in_english
+    press_type: short
+    label: 用英文說出來
+    description: 把文字或圖片的重點化成一句英文並朗讀。
   - action_id: expression_retrieval
     press_type: short
     label: Capture an Expression

@@ -57,9 +57,9 @@ def test_japanese_candidate_compiles_as_one_complete_pack() -> None:
     assert pack.descriptor.identity.pack_id == "ja-JP"
     assert pack.descriptor.identity.locale == "ja-JP"
     assert pack.descriptor.display_name == "日本語"
-    assert len(pack.action_definitions) == 36
+    assert len(pack.action_definitions) == 37
     assert len(pack.output_profiles) == 11
-    assert len(pack.entry_panel_candidates) == 36
+    assert len(pack.entry_panel_candidates) == 37
     assert pack.entry_panel_candidates[0].label == "繁体字中国語に翻訳"
 
 

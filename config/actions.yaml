@@ -83,6 +83,19 @@ actions:
       - terms_names_or_numbers_wrong
       - unnatural_or_wrong_audience
       - other
+- id: describe_in_english
+  input_mode: selection_or_clipboard
+  external_fallback: selection_or_clipboard
+  output_mode: popup_and_speech
+  output_profile: plain_text
+  prompt_variables:
+  - input
+  temperature: 0.1
+  feedback_reason_ids:
+  - meaning_inaccurate
+  - unnatural_or_wrong_audience
+  - useful_detail_missing
+  - other
 - id: name_idea
   input_mode: selection_or_clipboard
   external_fallback: selection_or_clipboard

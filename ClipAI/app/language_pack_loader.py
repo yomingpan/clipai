@@ -530,7 +530,7 @@ def _parse_action_skeleton(path: Path) -> tuple[ActionSkeleton, ...]:
             {"clipboard", "clipboard_image", "selection_or_clipboard"},
             f"{item_path}.input_mode",
         )
-        output_mode = _choice(data.get("output_mode", "popup"), {"popup"}, f"{item_path}.output_mode")
+        output_mode = _choice(data.get("output_mode", "popup"), {"popup", "popup_and_speech"}, f"{item_path}.output_mode")
         fallback = _choice(
             data.get("external_fallback", "selection_or_clipboard"),
             {"selection_or_clipboard", "clipboard"},

@@ -33,7 +33,7 @@ from ClipAI.core.ports import EntryPanelPresenter, ExternalWindowActivator
 from ClipAI.core.state import CancellationToken
 from ClipAI.services.action_catalog import ActionCatalog
 from ClipAI.services.entry_panel import EntryPanelCoordinator
-from ClipAI.services.entry_input_preview import build_entry_input_preview, allows_entry_panel_clipboard_fallback
+from ClipAI.services.entry_input_preview import build_entry_input_preview, allows_entry_panel_clipboard_fallback, resolve_entry_action_input
 from ClipAI.services.input_resolver import InputResolver
 from ClipAI.services.input_target_resolver import InputTargetResolver
 from ClipAI.services.recent_actions import RecentActionHistory
@@ -51,7 +51,7 @@ class WorkflowActionAdmitter(Protocol):
         action_id: str,
         press_type: PressType,
         *,
-        result_route: ResultRoute = "popup",
+        result_route: ResultRoute | None = None,
         input_target: InputTarget | None = None,
         admission_origin: ActionAdmissionOrigin = "shortcut",
         before_first_projection: Callable[[str], None] | None = None,
@@ -335,10 +335,7 @@ class EntryPanelRuntimeModule:
                 self._coordinator.show_error(str(error))
             )
             return
-        prepared = self._prepared_input
-        if allows_entry_panel_clipboard_fallback(prepared):
-            prepared = prepared.use_clipboard()
-        resolution = prepared.resolve(resolved.input_mode)
+        resolution = resolve_entry_action_input(self._prepared_input, resolved)
         if resolution.document is None:
             self._presenter.present_entry_panel(
                 self._coordinator.show_error(
@@ -413,7 +410,7 @@ class EntryPanelRuntimeModule:
             preview = replace(preview, clipboard_override_available=True)
         self._coordinator.complete_input_preparation(preview)
         snapshot = self._coordinator.set_disabled(
-            self._disabled_actions(prepared=prepared)
+            self._disabled_actions(prepared=command.prepared_input)
         )
         assert snapshot is not None
         self._refresh_question_availability()
@@ -697,8 +694,6 @@ class EntryPanelRuntimeModule:
         failure: str = "",
     ) -> dict[EntryActionRef, str]:
         disabled: dict[EntryActionRef, str] = {}
-        if prepared is not None and allows_entry_panel_clipboard_fallback(prepared):
-            prepared = prepared.use_clipboard()
         actions = list(self._coordinator.actions)
         if self._recent_actions is not None:
             actions.extend(
@@ -718,7 +713,7 @@ class EntryPanelRuntimeModule:
                         action.action_id,
                         action.press_type,
                     )
-                    resolution = prepared.resolve(resolved.input_mode)
+                    resolution = resolve_entry_action_input(prepared, resolved)
                     if resolution.document is None:
                         reason = self._input_unavailable_message(
                             resolution.unavailable_reason

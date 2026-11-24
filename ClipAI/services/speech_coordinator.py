@@ -83,6 +83,12 @@ class SpeechCoordinator:
     def create_text_job(self, *, operation_id: str, workflow_id: str, text: str) -> SpeechJob:
         return self._create_job(operation_id=operation_id, workflow_id=workflow_id, text=text, track=False)
 
+    def try_create_text_job(self, *, operation_id: str, workflow_id: str, text: str) -> SpeechJob | None:
+        with self._lock:
+            if self._current is not None:
+                return None
+            return self.create_text_job(operation_id=operation_id, workflow_id=workflow_id, text=text)
+
     def create_result_job(
         self,
         *,
@@ -109,10 +115,10 @@ class SpeechCoordinator:
         token: CancellationToken | None = None,
         resolve_text: Callable[[CancellationToken], str] | None = None,
     ) -> SpeechJob:
-        self.cancel_current()
         token = token or CancellationToken()
-        operation = self._operation_tracker.start(operation_id, "tts") if track and self._operation_tracker else None
         with self._lock:
+            self.cancel_current()
+            operation = self._operation_tracker.start(operation_id, "tts") if track and self._operation_tracker else None
             self._current = (operation_id, workflow_id, token, operation)
 
         def run() -> None:
@@ -163,7 +169,7 @@ class SpeechCoordinator:
                 return False
             current = self._current
             self._current = None
-        self._cancel_owned(current)
+            self._cancel_owned(current)
         return True
 
     def cancel_workflow(self, workflow_id: str) -> bool:
@@ -172,15 +178,15 @@ class SpeechCoordinator:
                 return False
             current = self._current
             self._current = None
-        self._cancel_owned(current)
+            self._cancel_owned(current)
         return True
 
     def cancel_current(self) -> None:
         with self._lock:
             current = self._current
             self._current = None
-        if current is not None:
-            self._cancel_owned(current)
+            if current is not None:
+                self._cancel_owned(current)
 
     def _cancel_owned(self, current: tuple[str, str, CancellationToken, OperationHandle | None]) -> None:
         _operation_id, _workflow_id, token, operation = current

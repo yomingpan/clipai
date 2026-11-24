@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "inventory": {
-    "actions": 36,
+    "actions": 37,
     "explicit_variants": [
       "translate_to_english:long",
       "english_companion:long",
@@ -11,9 +11,9 @@
       "extract_screenshot_text:long"
     ],
     "output_profiles": 11,
-    "shortcuts": 35,
-    "start_action_shortcuts": 31,
-    "entry_panel_candidates": 36
+    "shortcuts": 36,
+    "start_action_shortcuts": 32,
+    "entry_panel_candidates": 37
   },
   "default_system_prompt": "sha256:cc82d8e411e8fdbea01e7b3e367d4632ce6ed712a05b0dc3b292e8be953e0394",
   "resolved_actions": {
@@ -27,6 +27,8 @@
     "translate_to_traditional_chinese:long": "sha256:ba640309b9361a2acec87a4bb903a2d53311f6c780bb09868bb00366e89b957c",
     "translate_to_english:short": "sha256:0e05ddf38edd76f2f44a3b30259a5de8f61a0a6fa3be2c55471f2fc1d471941a",
     "translate_to_english:long": "sha256:a7bac1c1201950115e6f0a3ec88be1ab00d3fe3f18a56f4eb1dfdc43eb2c3951",
+    "describe_in_english:short": "sha256:f2ea2291858eefb2ea3fe209238bdc1beff3693d854a33d40b6dd4ac13300476",
+    "describe_in_english:long": "sha256:0365a848ceabbe6b357e3d7ddc1fe8c1a7526be5ff95c54a82aa06d857489735",
     "name_idea:short": "sha256:abce80e16acefc4b745e3684a1b6502d803810552f31f24445a8635e8f5a7bf6",
     "name_idea:long": "sha256:5befd07f860a9b7dc922d887be192fb58b69cbc014cd3334c6c4ecc3508effc0",
     "name_concept_carefully:short": "sha256:7cec6220d017be32b7b2fd284bcd3780957c16c7ffdfb924348ff920c36ed96d",
@@ -103,7 +105,7 @@
     "session_handoff": "sha256:bd008a8518ed9802b1b0f183cfa8637efffdbce2b1e141d3645f45b8dc4cdd4e",
     "score_compact": "sha256:15018c5ad770219dd48501bb9c49cbaed347956e9dd94859cf5c0f9eed248cf1"
   },
-  "shortcut_matrix": "sha256:641ee77679384678e07e371673ff54ef05a311d46f7c0b72ae94c398d48c37dc",
+  "shortcut_matrix": "sha256:8c5e4472c83b71ddc03e1fa7b9814ee16290e33179cf933ab7e1586430956dcf",
   "entry_panel_candidates": {
     "translate_to_traditional_chinese:short": "sha256:3f2b79ca74b9bf97fd16d0e8d27f58bb00654fb39fdffcf07d3794ce3ec2672a",
     "english_companion:short": "sha256:2a6f804cbd2cf280ba5a47c4d690caf8faea6c1819910f5ee72de2ccab875410",
@@ -117,6 +119,7 @@
     "shorten_content:short": "sha256:0272148c70e09ebb4053c58b0ebca5bac801204ae1624caa02e89ddb7274a2e7",
     "personal_style_informal:short": "sha256:77706afb79150dd210f46f353649c3b4dcedf9ad476942dfde9673ca302eb8a7",
     "intent_preserving_dictation_editor:short": "sha256:703c29eb7a4482ab6affad8e61611363b544e2aaa61d8776e7407bd2df52acdf",
+    "describe_in_english:short": "sha256:05c7c3feaf8aca954520aff8fdb8a374a741e59727d3d456e00e8fa5f89187eb",
     "expression_retrieval:short": "sha256:799248074ce78c3e6e4f106683697a1f1a3ac838ad5eadd9d7cd30a67a36b834",
     "personal_style_oral:short": "sha256:0cdb797ac49b45204c0e12c998d1314e8e3488d7e4d14f5f56f25b65f4900847",
     "personal_style_presentation:short": "sha256:507d3b6777ed17f47296ec19a3cc96675d0979a7009a42c9de5fa602a2c21714",

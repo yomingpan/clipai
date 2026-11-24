@@ -244,7 +244,7 @@ def test_product_entry_panel_catalog_matches_prd_order() -> None:
         5: (
             "write",
             ("translate_to_english", "shorten_content", "personal_style_informal", "intent_preserving_dictation_editor"),
-            ("expression_retrieval", "personal_style_oral", "personal_style_presentation"),
+            ("describe_in_english", "expression_retrieval", "personal_style_oral", "personal_style_presentation"),
         ),
         6: (
             "think",

@@ -1185,4 +1185,6 @@ def _source_preview_text(preview: EntryInputSourcePreview | None) -> str:
         "failed": "讀取失敗",
     }
     label = labels[preview.kind]
+    if preview.clipboard_override_available and preview.kind in {"clipboard_image", "clipboard_text"}:
+        label = f"反白未確認 · {label}"
     return f"{label}：{preview.summary}" if preview.summary else label

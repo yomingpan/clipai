@@ -7,15 +7,16 @@ import logging
 import uuid
 
 from ClipAI.app.task_supervisor import TaskSupervisor
-from ClipAI.core.commands import ArchiveResult, CopyResult, ExportDiagnostics, InlineDictationCopyCompleted, PasteOperationCompleted, PasteResult, SpeakSelectionOrClipboard, ToggleSpeech
+from ClipAI.core.commands import ArchiveResult, CopyResult, ExportDiagnostics, InlineDictationCopyCompleted, PasteOperationCompleted, PasteResult, SpeakAcceptedResult, SpeakSelectionOrClipboard, ToggleSpeech
 from ClipAI.core.errors import CancelledError, InputError, PASTE_FAILURE_MESSAGES, PasteFailure
 from ClipAI.core.models import InlineOrigin, OutputOperationIntent, OutputOperationResult, PasteOutcome, PasteRequest, PasteTarget
 from ClipAI.core.ports import DiagnosticsExporter, OperationTracker, OutputOperationPresenter, UserNotifier
+from ClipAI.core.state import SessionStatus
 from ClipAI.services.output_actions import OutputActions
 from ClipAI.services.output_operation import OutputOperationCoordinator, paste_outcome_result
 from ClipAI.services.paste_target import PasteTargetCoordinator
 from ClipAI.services.paste_operation import PasteOperationCoordinator
-from ClipAI.services.speech_coordinator import SpeechCoordinator
+from ClipAI.services.speech_coordinator import SpeechCoordinator, SpeechJob
 from ClipAI.services.selection_feedback import selection_failure_guidance
 from ClipAI.services.workflow_controller import WorkflowController
 from ClipAI.services.user_control import UserControlCoordinator
@@ -23,7 +24,7 @@ from ClipAI.support.diagnostics import IncidentReporter
 
 logger = logging.getLogger("clipai.runtime.outputs")
 
-ResultOutputRuntimeCommand: TypeAlias = CopyResult | PasteResult | PasteOperationCompleted | InlineDictationCopyCompleted | ArchiveResult | ToggleSpeech | SpeakSelectionOrClipboard | ExportDiagnostics
+ResultOutputRuntimeCommand: TypeAlias = CopyResult | PasteResult | PasteOperationCompleted | InlineDictationCopyCompleted | ArchiveResult | ToggleSpeech | SpeakAcceptedResult | SpeakSelectionOrClipboard | ExportDiagnostics
 
 
 class ResultOutputRuntimeModule:
@@ -87,6 +88,8 @@ class ResultOutputRuntimeModule:
             self._archive(command)
         elif isinstance(command, ToggleSpeech):
             self._toggle_speech(command.session_id, command.text, command.operation_id)
+        elif isinstance(command, SpeakAcceptedResult):
+            self._speak_accepted_result(command)
         elif isinstance(command, SpeakSelectionOrClipboard):
             self._speak_selection_or_clipboard()
         elif isinstance(command, ExportDiagnostics):
@@ -423,17 +426,48 @@ class ResultOutputRuntimeModule:
             controller.set_speaking(False)
             return
         self._cancel_current_speech_projection()
-        controller.set_speaking(True)
         text = selected_text if selected_text and selected_text.strip() else controller.snapshot.content
         operation_id = requested_operation_id or uuid.uuid4().hex
-        intent = OutputOperationIntent(operation_id, session_id, "speech", text)
         job = self._speech_coordinator.create_text_job(operation_id=operation_id, workflow_id=session_id, text=text)
+        self._submit_popup_speech(job, controller)
+
+    def _speak_accepted_result(self, command: SpeakAcceptedResult) -> None:
+        controller = self._workflow_controller(command.workflow_id)
+        if controller is None or self._speech_coordinator is None:
+            return
+        snapshot = controller.snapshot
+        index = snapshot.displayed_step_index
+        if (
+            index < 0
+            or snapshot.status is not SessionStatus.COMPLETED
+            or snapshot.steps[index].step_id != command.step_id
+            or not snapshot.content.strip()
+        ):
+            return
+        job = self._speech_coordinator.try_create_text_job(
+            operation_id=uuid.uuid4().hex,
+            workflow_id=command.workflow_id,
+            text=snapshot.steps[index].result_text,
+        )
+        if job is not None:
+            self._submit_popup_speech(job, controller)
+
+    def _submit_popup_speech(self, job: SpeechJob, controller: WorkflowController) -> None:
+        coordinator = self._speech_coordinator
+        assert coordinator is not None
+        controller.set_speaking(True)
+        intent = OutputOperationIntent(job.operation_id, job.workflow_id, "speech", job.text)
+
+        def cancel() -> None:
+            if coordinator.cancel_operation(job.operation_id):
+                controller.set_speaking(False)
+
         self._begin_and_submit(
             intent,
             lambda: self._run_speech_job(job, intent, controller),
             task_class="media",
-            on_error=lambda error: self._handle_speech_error(session_id, error),
-            cancellation_hook=lambda: self._speech_coordinator.cancel_operation(operation_id),
+            on_error=lambda error: self._incident_reporter.report(error, context=f"speech:{job.workflow_id}"),
+            cancellation_hook=cancel,
             settles_itself=True,
         )
 

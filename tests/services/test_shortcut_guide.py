@@ -78,7 +78,7 @@ def test_real_config_projects_every_shortcut_and_declared_long_variant() -> None
         modifier_mode=bundle.app.modifier_mode,
     ).items()
 
-    assert len(items) == 35
+    assert len(items) == 36
     assert [item.shortcut_id for item in items] == [definition.id for definition in bundle.shortcuts.definitions()]
     assert {item.shortcut_id for item in items if item.long_title} == {
         "translate_to_english",
@@ -95,6 +95,9 @@ def test_real_config_projects_every_shortcut_and_declared_long_variant() -> None
     chart = next(item for item in items if item.shortcut_id == "explain_chart")
     assert chart.title == "讀懂圖表"
     assert chart.display_hotkey == "Ctrl + Alt + H"
+    describe = next(item for item in items if item.shortcut_id == "describe_in_english")
+    assert describe.title == "用英文說出來"
+    assert describe.display_hotkey == "Ctrl + Alt + Z"
 
 
 def test_guide_tracks_progress_and_verifies_short_press_for_this_open_only() -> None:

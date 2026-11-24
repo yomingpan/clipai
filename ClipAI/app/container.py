@@ -271,6 +271,7 @@ def build_runtime(
             else None
         ),
         guidance_preferences=user_preferences,
+        result_speech_sink=enqueue,
         blocking_runner=lambda task_id, work: supervisor.run(
             task_id,
             work,

@@ -279,6 +279,8 @@ class WorkflowRuntimeModule:
         return self._entry_panel_block_reason(resolved)
 
     def _entry_panel_block_reason(self, action) -> str:
+        if action.output_mode == "popup_and_speech" and self._speech_coordinator is None:
+            return "目前無法朗讀。"
         provider_active = any(
             record.controller.snapshot.active_invocation_id is not None
             and record.controller.snapshot.status in {
@@ -456,7 +458,7 @@ class WorkflowRuntimeModule:
         action_id: str,
         press_type: PressType,
         *,
-        result_route: ResultRoute = "popup",
+        result_route: ResultRoute | None = None,
         input_target: InputTarget | None = None,
         admission_origin: ActionAdmissionOrigin = "shortcut",
         before_first_projection: Callable[[str], None] | None = None,
@@ -470,6 +472,11 @@ class WorkflowRuntimeModule:
             reason = self._entry_panel_block_reason(action)
             if reason:
                 return ActionStartAdmission("blocked", "entry_panel_unavailable", reason)
+        result_route = result_route or action.output_mode
+        if result_route == "popup_and_speech" and self._speech_coordinator is None:
+            message = "目前無法朗讀。"
+            self._sequence_error(message, "請在啟用朗讀後再試一次。")
+            return ActionStartAdmission("blocked", "speech_unavailable", message)
         if self._personal_styles is not None:
             try:
                 action = self._personal_styles.bind(action)
@@ -588,6 +595,7 @@ class WorkflowRuntimeModule:
             action.id,
             command.press_type,
             target,
+            result_route=result_route,
             workflow_id=workflow_id,
             parent_step_id=parent_step_id,
         )
@@ -751,6 +759,7 @@ class WorkflowRuntimeModule:
             )
             return
         source_invocation_id, invocation, action = prepared
+        invocation = replace(invocation, result_route="popup")
         continuation = record.replay_by_invocation.get(source_invocation_id)
         if source_invocation_id == record.controller.snapshot.active_invocation_id:
             self._provider_execution.cancel(source_invocation_id)

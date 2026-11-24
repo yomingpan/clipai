@@ -50,6 +50,8 @@ categories:
       - action_id: intent_preserving_dictation_editor
         press_type: short
     advanced:
+      - action_id: describe_in_english
+        press_type: short
       - action_id: expression_retrieval
         press_type: short
         long:

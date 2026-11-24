@@ -141,6 +141,10 @@ presentation actuation only and does not merge Panel navigation with
 
 ## Recent success
 
+「用英文說出來」從「寫得出」的更多功能、搜尋與成功後的最近使用進入。
+這類顯示並朗讀的 Action 在反白來源無法確認時，需要使用者明確選擇凍結的剪貼簿，
+操作由面板來源準備和同一套 Workflow admission 處理。
+
 Root digit 0 never admits an Action and visibly reports 最近使用改為 1–3.
 The first five Panel lifetimes show 數字已改:1–3 最近、4–7 分類 in a
 reserved header strip; the shared user-preference gate persists the bounded

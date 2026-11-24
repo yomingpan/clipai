@@ -48,6 +48,10 @@ candidates:
     press_type: short
     label: 音声入力を意図どおりの文章に整える
     description: 話し手の意図を保ちながら、音声入力を使える文章に整えます。
+  - action_id: describe_in_english
+    press_type: short
+    label: 英語で言ってみる
+    description: 文章や画像の要点を英語の一文にして読み上げます。
   - action_id: expression_retrieval
     press_type: short
     label: 表現を一つ定着させる

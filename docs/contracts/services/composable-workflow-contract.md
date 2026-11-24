@@ -60,6 +60,12 @@ chosen by runtime policy; toolkit focus only reports activation candidates.
 
 Action execution 產生 `ProcessedResult`，再由 typed `ResultRoute` 決定 visible Workflow 或 speech destination。Visible route 投影到既有 Workflow surface；speech route 使用 headless Workflow 執行，完成後立即釋放 membership。Provider 不呼叫 UI/TTS；UI 不呼叫 provider。
 
+Entry Panel 明確選取 `popup_and_speech` Action，或直接按下該 Action 的快捷鍵時，
+同一 invocation 授權顯示與朗讀。「用英文說出來」預設使用 `Ctrl+Alt+Z`。
+Workflow 接受結果後，`SpeakAcceptedResult` 以 Workflow ID 與 accepted step ID 交給
+output runtime。只有該 step 仍是目前顯示的完成結果，且朗讀資源可用時，才能建立獨立的
+speech operation，沿用 Popup 的停止及 media lane。畫面投影、追問和重新產生不授權朗讀。
+
 ## Shortcut Sequence Seam
 
 Platform 輸出 ordered `ShortcutInputEvent` lifecycle。Runtime 原樣 enqueue，
