@@ -469,7 +469,7 @@ Recipe 回饋與使用引導應測：
   多於四個 flagship 與未知欄位都必須 fail closed。
 - Language Pack tests 必須驗證每個 canonical `action_id + press_type` 都有 exact、
   非空 candidate `label/description`；`zh-TW` 保持 baseline，`ja-JP` 的 Recent、
-  scene、More/search 使用日文 projection。selected pack 的 candidate resource
+  分類清單使用日文 projection。selected pack 的 candidate resource
   無效時必須整包 fallback default，不得混用兩包。
 - Coordinator tests 只經 public transition interface 驗證 root、scene、More、
   search、density、Back、root no-op、disabled/pending precedence 與 numeric

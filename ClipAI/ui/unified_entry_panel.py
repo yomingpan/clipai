@@ -10,8 +10,6 @@ from ClipAI.core.commands import (
     CloseEntryPanel,
     EntryPanelActionSelected,
     EntryPanelBack,
-    EntryPanelOpenMore,
-    EntryPanelSearchChanged,
     EntryPanelSlotSelected,
     EntryPanelToggleDensity,
     RetryEntryPanelInput,
@@ -19,7 +17,6 @@ from ClipAI.core.commands import (
 )
 from ClipAI.core.models import CLIPBOARD_IMAGE_LABEL, EntryInputSourcePreview, EntryPanelOption, EntryPanelSnapshot, PopupBounds, PressType
 from ClipAI.core.ports import DisplayMetricsReader, NativeWindowSurface
-from ClipAI.ui.ime_composition import install_ime_composition_font
 from ClipAI.ui.base_dialog import (
     ACTION_COLOR,
     ACTION_HOVER_COLOR,
@@ -30,7 +27,6 @@ from ClipAI.ui.base_dialog import (
     SURFACE_BG,
     TC_FONT_FAMILY,
     _Tooltip,
-    install_ime_halfwidth_punctuation_fix,
 )
 from ClipAI.ui.dialog_lifecycle import DialogLifecycle
 from ClipAI.ui.popup_layout import PopupLayoutPolicy
@@ -96,16 +92,6 @@ class EntryPanelIntentAdapter:
         if snapshot is not None:
             self._command_sink(EntryPanelSlotSelected(snapshot.panel_id, slot))
 
-    def open_more(self) -> None:
-        snapshot = self._snapshot
-        if snapshot is not None:
-            self._command_sink(EntryPanelOpenMore(snapshot.panel_id))
-
-    def search(self, text: str) -> None:
-        snapshot = self._snapshot
-        if snapshot is not None:
-            self._command_sink(EntryPanelSearchChanged(snapshot.panel_id, text))
-
     def toggle_density(self) -> None:
         snapshot = self._snapshot
         if snapshot is not None:
@@ -146,11 +132,9 @@ class UnifiedEntryPanelDialog:
         primary_surface_host: PrimarySurfaceHost | None = None,
         primary_surface_lease: PrimarySurfaceLease | None = None,
     ) -> None:
-        del display_metrics, layout_policy
-        self._native_window_surface = native_window_surface
+        del native_window_surface, display_metrics, layout_policy
         self._intent = EntryPanelIntentAdapter(command_sink)
         self._snapshot: EntryPanelSnapshot | None = None
-        self._search_guard = False
         self._option_buttons: list[tk.Misc] = []
         self._option_updaters: list[Callable[[EntryPanelOption], None]] = []
         self._keyboard_navigation_active = False
@@ -303,6 +287,7 @@ class UnifiedEntryPanelDialog:
 
     def apply(self, snapshot: EntryPanelSnapshot) -> None:
         clipboard_had_focus = self._clipboard_has_focus()
+        previous = getattr(self, "_snapshot", None)
         self._snapshot = snapshot
         self._intent.apply(snapshot)
         hint = getattr(self, "_numeric_hint_label", None)
@@ -328,6 +313,10 @@ class UnifiedEntryPanelDialog:
         if body_render_key != getattr(self, "_body_render_key", None):
             self._rebuild_body(snapshot)
             self._body_render_key = body_render_key
+            if previous is not None and (previous.page, previous.category_id) != (snapshot.page, snapshot.category_id):
+                canvas = getattr(self._body, "master", None)
+                if isinstance(canvas, tk.Canvas):
+                    canvas.yview_moveto(0)
         else:
             self._update_option_cards(snapshot.options)
             self._render_message(snapshot)
@@ -446,24 +435,6 @@ class UnifiedEntryPanelDialog:
         self._option_buttons.clear()
         self._option_updaters.clear()
         row = 0
-        if snapshot.page == "more":
-            self._search_guard = True
-            search = ctk.CTkEntry(
-                self._body,
-                placeholder_text="搜尋更多功能",
-                font=ctk.CTkFont(
-                    family=TC_FONT_FAMILY,
-                    size=POPUP_FONT_SIZES["interface"],
-                ),
-            )
-            search.insert(0, snapshot.search_text)
-            search.grid(row=row, column=0, pady=(0, 8), sticky="ew")
-            search.bind("<KeyRelease>", lambda _event: self._intent.search(search.get()))
-            install_ime_halfwidth_punctuation_fix(search)
-            install_ime_composition_font(search, self._native_window_surface)
-            self._search_guard = False
-            row += 1
-
         options = snapshot.options
         if snapshot.page == "root":
             recent, options = self._split_root_options(options)
@@ -509,18 +480,6 @@ class UnifiedEntryPanelDialog:
                 pady=3,
                 sticky="ew",
             )
-            row += 1
-
-        if snapshot.page == "scene":
-            ctk.CTkButton(
-                self._body,
-                text="＋ 更多功能",
-                height=34,
-                fg_color="transparent",
-                hover_color="#3A3A3A",
-                text_color=CONTENT_COLOR,
-                command=self._intent.open_more,
-            ).grid(row=row, column=0, pady=(8, 0), sticky="ew")
             row += 1
 
         self._message_row = row
@@ -977,6 +936,8 @@ class UnifiedEntryPanelDialog:
                 widget.bind("<Button-1>", activate, add="+")
         card.bind("<Return>", activate, add="+")
         card.bind("<space>", activate, add="+")
+        tk.Misc.bind(card, "<Return>", activate, add="+")
+        tk.Misc.bind(card, "<space>", activate, add="+")
         card.bind("<FocusIn>", show_focus, add="+")
         card.bind("<FocusOut>", clear_focus, add="+")
         if recent:
@@ -1118,10 +1079,39 @@ class UnifiedEntryPanelDialog:
         if not self.is_primary_content_mounted():
             return "break"
         self._keyboard_navigation_active = True
-        target = event.widget.tk_focusNext() if forward else event.widget.tk_focusPrev()
-        if target is not None:
-            target.focus_set()
+        current_card = self._option_card_for(event.widget)
+        traverse = "tk_focusNext" if forward else "tk_focusPrev"
+        target = getattr(event.widget, traverse)()
+        first_target = target
+        while target is not None and target is not event.widget:
+            card = self._option_card_for(target)
+            if current_card is None or card is not current_card:
+                (card or target).focus_set()
+                if card is not None:
+                    self._reveal_option(card)
+                break
+            target = getattr(target, traverse)()
+            if target is first_target:
+                break
         return "break"
+
+    def _option_card_for(self, widget):
+        while widget is not None:
+            if widget in self._option_buttons:
+                return widget
+            widget = widget.master
+        return None
+
+    def _reveal_option(self, card: ctk.CTkFrame) -> None:
+        canvas = self._body.master
+        first, last = canvas.yview()
+        if (first, last) == (0, 1):
+            return
+        top = card.winfo_rooty() - canvas.winfo_rooty()
+        bottom = top + card.winfo_height()
+        offset = top if top < 0 else max(0, bottom - canvas.winfo_height())
+        if offset:
+            canvas.yview_moveto(first + offset / self._body.winfo_height())
 
     def _on_focus_out(self, _event=None) -> None:
         if not self.is_primary_content_mounted():
@@ -1168,7 +1158,6 @@ def _body_render_key(snapshot: EntryPanelSnapshot) -> tuple[object, ...]:
             )
             for option in snapshot.options
         ),
-        snapshot.search_text,
     )
 
 

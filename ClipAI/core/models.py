@@ -65,7 +65,7 @@ ExternalWindowActivationState = Literal[
 ResultCompleteness = Literal["none", "partial", "complete"]
 ActionStartAdmissionState = Literal["accepted", "rejected", "blocked"]
 ActionAdmissionOrigin = Literal["shortcut", "entry_panel"]
-EntryPanelPage = Literal["root", "scene", "more"]
+EntryPanelPage = Literal["root", "scene"]
 EntryPanelDensity = Literal["detailed", "compact"]
 EntryInputPreviewKind = Literal[
     "preparing",
@@ -153,7 +153,6 @@ class EntryPanelSnapshot:
     category_id: str = ""
     density: EntryPanelDensity = "detailed"
     options: tuple[EntryPanelOption, ...] = ()
-    search_text: str = ""
     status: Literal["idle", "preparing", "error"] = "idle"
     message: str = ""
     source_preview: EntryInputSourcePreview | None = None

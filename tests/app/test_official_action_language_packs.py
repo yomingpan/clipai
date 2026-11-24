@@ -146,7 +146,7 @@ def test_language_pack_content_changes_action_version_identity() -> None:
     assert traditional_chinese.version_context != japanese.version_context
 
 
-def test_japanese_pack_projects_entry_panel_recents_scenes_and_search() -> None:
+def test_japanese_pack_projects_entry_panel_recents_and_full_category_lists() -> None:
     bundle = load_config_bundle(action_language_pack=_load("ja-JP"))
     panel = EntryPanelCoordinator(bundle.entry_panel)
 
@@ -159,8 +159,6 @@ def test_japanese_pack_projects_entry_panel_recents_scenes_and_search() -> None:
     scene = panel.select_digit("6").snapshot
     assert scene.options[0].label == "ピラミッドで立場を整理"
 
-    panel.open_more()
-    search = panel.set_search("概念")
-    assert tuple(option.action.action_id for option in search.options) == (
-        "name_concept_carefully",
-    )
+    concept = next(option for option in scene.options if option.action == EntryActionRef("name_concept_carefully", "short"))
+    assert concept.label == "概念を探す・用語を解説する"
+    assert concept.slot is None

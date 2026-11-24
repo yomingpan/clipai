@@ -275,6 +275,27 @@ def test_panel_dialog_builds_and_closes_cleanly() -> None:
         dialog.apply(root_snapshot)
         master.update_idletasks()
         assert dialog._message_label is None
+
+        coordinator.open("panel-1")
+        scene = coordinator.select_digit("6").snapshot
+        dialog.show(scene)
+        master.update()
+        canvas = dialog._body.master
+        cards = dialog._option_buttons
+        assert len(cards) == 16
+        assert not any(isinstance(child, (ctk.CTkButton, ctk.CTkEntry)) for child in dialog._body.winfo_children())
+        assert canvas.yview()[0] == 0
+        for following_card in cards[1:]:
+            dialog._window.focus_get().event_generate("<Down>")
+            master.update()
+            focused = dialog._window.focus_get()
+            while focused is not None and focused is not following_card:
+                focused = focused.master
+            assert focused is following_card
+        assert canvas.yview()[0] > 0
+        assert cards[-1].winfo_rooty() + cards[-1].winfo_height() <= canvas.winfo_rooty() + canvas.winfo_height() + 1
+        dialog._window.focus_get().event_generate("<Return>")
+        assert commands[-1] == EntryPanelActionSelected("panel-1", EntryActionRef("insight_engine", "short"))
     finally:
         if host is not None:
             host.close()
@@ -517,6 +538,7 @@ def test_option_card_callback_reads_latest_option_after_in_place_update(monkeypa
             callback()
 
     selected = []
+    monkeypatch.setattr(tk.Misc, "bind", Widget.bind)
     monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkFrame", Widget)
     monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkLabel", Widget)
     monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkFont", lambda **_kwargs: object())
@@ -566,6 +588,7 @@ def test_option_card_release_selects_short_or_long_and_ignores_orphan_release(mo
                 self.jobs.remove(callback)
 
     selected = []
+    monkeypatch.setattr(tk.Misc, "bind", Widget.bind)
     monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkFrame", Widget)
     monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkLabel", Widget)
     monkeypatch.setattr("ClipAI.ui.unified_entry_panel.ctk.CTkFont", lambda **_kwargs: object())

@@ -38,10 +38,8 @@ def test_explicit_command_task_builds_distinct_requests_from_the_same_input(
     selected = [
         option.action for option in tools.options
         if option.action is not None
-        and option.action.action_id in ("command_copilot", "command_generate")
+        and option.action.action_id in ("command_copilot", "command_generate", "command_coach")
     ]
-    more = panel.open_more()
-    selected.extend(option.action for option in more.options if option.action is not None)
     assert set(selected) == {
         EntryActionRef("command_copilot", "short"),
         EntryActionRef("command_generate", "short"),

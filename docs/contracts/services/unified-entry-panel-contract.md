@@ -10,7 +10,7 @@ then requests admission through the existing Workflow runtime.
 ## State ownership
 
 - `EntryPanelCoordinator` owns the immutable projection: page stack, detailed
-  versus compact density, search text, focused candidate, disabled candidates,
+  versus compact density, focused candidate, disabled candidates,
   per-option pending projection and transient message. It receives the
   saved density from `UserPreferencesCoordinator` at composition time; the
   existing user-preferences lifecycle persists later density changes.
@@ -34,7 +34,7 @@ then requests admission through the existing Workflow runtime.
 ## Legal lifecycle
 
 ```text
-closed → open(root) → navigating/searching/density toggle
+closed → open(root) → browsing a category/density toggle
        → preparing(preparation_id) → ready(frozen input)
                     → failed → explicit retry(same source, new preparation_id)
                     → rejected/blocked → ready(previous page)
@@ -124,7 +124,10 @@ presentation actuation only and does not merge Panel navigation with
   `config/entry_panel.yaml`。Candidate Action `label/description` 來自 process
   啟動時選定且完整驗證的 Action Language Pack。
 - Recent slots are `1`–`3`, root category slots are `4`–`7`, and scene flagship
-  slots are `1`–`4`. More/search has no digit mapping.
+  slots are `1`–`4`.
+- Each category appends its other candidates to the same scrollable scene without
+  digit slots. Back returns directly to the root. The view scrolls to off-screen
+  cards reached by Up/Down and starts a different page or category at the top.
 - Each candidate explicitly names Action ID and press type. The catalog rejects
   unknown Actions/variants, duplicates, invalid slots and more than four
   flagships.
@@ -141,7 +144,7 @@ presentation actuation only and does not merge Panel navigation with
 
 ## Recent success
 
-「用英文說出來」從「寫得出」的更多功能、搜尋與成功後的最近使用進入。
+「用英文說出來」從「寫得出」清單與成功後的最近使用進入。
 這類顯示並朗讀的 Action 在反白來源無法確認時，需要使用者明確選擇凍結的剪貼簿，
 操作由面板來源準備和同一套 Workflow admission 處理。
 

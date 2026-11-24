@@ -64,21 +64,29 @@ def test_catalog_rejects_duplicate_long_candidate_reference() -> None:
         )
 
 
-def test_root_digit_opens_configured_scene_with_flagship_slots() -> None:
+@pytest.mark.parametrize(("slot", "category", "first", "fifth", "count"), [
+    ("4", "understand", "translate_to_traditional_chinese", "explain_chart", 8),
+    ("5", "write", "translate_to_english", "describe_in_english", 8),
+    ("6", "think", "pyramid_position", "mece_decomposition", 16),
+    ("7", "tools", "extract_screenshot_text", "command_coach", 5),
+])
+def test_categories_show_every_action_with_stable_flagship_slots(slot, category, first, fifth, count) -> None:
     panel = coordinator()
     root = panel.open("panel-1")
 
-    scene_decision = panel.select_digit("4")
+    scene_decision = panel.select_digit(slot)
     action_decision = panel.select_digit("1")
     scene = scene_decision.snapshot
 
     assert root.page == "root"
     assert scene.page == "scene"
-    assert scene.category_id == "understand"
-    assert tuple(option.slot for option in scene.options) == (1, 2, 3, 4)
-    assert scene.options[0].action.action_id == "translate_to_traditional_chinese"
-    assert action_decision.action == EntryActionRef("translate_to_traditional_chinese", "short")
+    assert scene.category_id == category
+    assert tuple(option.slot for option in scene.options) == (1, 2, 3, 4) + (None,) * (count - 4)
+    assert scene.options[0].action.action_id == first
+    assert scene.options[4].action.action_id == fifth
+    assert action_decision.action == EntryActionRef(first, "short")
     assert action_decision.snapshot == scene
+    assert panel.back().page == "root"
 
 
 def test_root_projects_only_available_recent_actions_into_one_based_slots() -> None:
@@ -126,21 +134,15 @@ def test_root_ignores_a_stale_recent_reference_instead_of_crashing() -> None:
     assert all(option.action is None for option in root.options)
 
 
-def test_more_and_back_follow_the_progressive_navigation_stack_without_closing_root() -> None:
+def test_back_returns_directly_to_root_without_closing_it() -> None:
     panel = coordinator()
     panel.open("panel-1")
     scene = panel.select_digit("6").snapshot
 
-    more = panel.open_more()
-    returned_scene = panel.back()
     returned_root = panel.back()
     unchanged_root = panel.back()
 
     assert scene.page == "scene"
-    assert more.page == "more"
-    assert more.category_id == "think"
-    assert all(option.slot is None for option in more.options)
-    assert returned_scene.page == "scene"
     assert returned_root.page == "root"
     assert unchanged_root == returned_root
     assert panel.snapshot == returned_root
@@ -167,34 +169,16 @@ def test_preparing_actions_remain_capable_but_are_pending_and_unselectable() -> 
     assert panel.select_digit(str(available.slot)).action is None
 
 
-def test_search_filters_only_the_current_more_page() -> None:
+def test_density_toggle_preserves_category_and_action_order() -> None:
     panel = coordinator()
     panel.open("panel-1")
-    panel.select_digit("6")
-    panel.open_more()
-
-    filtered = panel.set_search("MECE")
-
-    assert filtered.page == "more"
-    assert filtered.search_text == "MECE"
-    assert tuple(option.action.action_id for option in filtered.options) == (
-        "mece_decomposition",
-    )
-
-
-def test_density_toggle_preserves_page_search_and_action_order() -> None:
-    panel = coordinator()
-    panel.open("panel-1")
-    panel.select_digit("6")
-    panel.open_more()
-    detailed = panel.set_search("name")
+    detailed = panel.select_digit("6").snapshot
 
     compact = panel.toggle_density()
 
     assert compact.density == "compact"
     assert compact.page == detailed.page
     assert compact.category_id == detailed.category_id
-    assert compact.search_text == detailed.search_text
     assert compact.options == detailed.options
     assert panel.toggle_density().density == "detailed"
 
@@ -238,10 +222,9 @@ def test_input_lifecycle_projection_survives_navigation_and_density_changes() ->
         source_preview=preview,
     )
     scene = panel.select_digit("6").snapshot
-    more = panel.open_more()
     compact = panel.toggle_density()
 
-    assert root.status == scene.status == more.status == compact.status == "preparing"
+    assert root.status == scene.status == compact.status == "preparing"
     assert compact.source_preview == preview
 
 

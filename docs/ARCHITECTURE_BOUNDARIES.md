@@ -58,7 +58,7 @@ tests/              # Unit sims 與 integration tests
 - 所有 provider configuration mutation 共用一個 operation gate。設定儲存或 catalog refresh 進行中，不得由 tray 或其他入口同時寫入 provider 設定。
 - Provider environment mapping、credential resolution、concrete provider 建構與 `.env` persistence 屬於 app composition adapter；services 只依賴 typed backend contract。
 - Unified Entry Panel 的 ownership 依 ADR-0012 分離：`EntryPanelCoordinator`
-  擁有純導覽、搜尋與資訊密度 projection，`EntryPanelRuntimeModule` 擁有唯一
+  擁有純導覽與資訊密度 projection，`EntryPanelRuntimeModule` 擁有唯一
   Panel lifetime、launch source、open-time input-preparation identity 與 frozen
   `PreparedInput`。Panel 顯示後由 interactive worker 準備 external input；
   Workflow selection／canonical content 則在 Panel 取得焦點前凍結。Action 選取

@@ -9,7 +9,7 @@ from typing import Protocol, TypeAlias
 
 from ClipAI.app.task_supervisor import TaskSupervisor
 from ClipAI.core.commands import UseEntryPanelClipboard, EntryPanelInputPreparationProgress
-from ClipAI.core.commands import CloseEntryPanel, EntryPanelActionSelected, EntryPanelBack, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelOpenMore, EntryPanelSearchChanged, EntryPanelSlotSelected, EntryPanelToggleDensity, OpenUnifiedEntryPanel, RetryEntryPanelInput, SetEntryPanelDensity
+from ClipAI.core.commands import CloseEntryPanel, EntryPanelActionSelected, EntryPanelBack, EntryPanelDigitPressed, EntryPanelInputPreparationCompleted, EntryPanelInputPreparationFailed, EntryPanelSlotSelected, EntryPanelToggleDensity, OpenUnifiedEntryPanel, RetryEntryPanelInput, SetEntryPanelDensity
 from ClipAI.core.errors import CancelledError, InputError
 from ClipAI.core.models import (
     ActionAdmissionOrigin,
@@ -78,8 +78,6 @@ EntryPanelRuntimeCommand: TypeAlias = (
     | CloseEntryPanel
     | EntryPanelActionSelected
     | EntryPanelSlotSelected
-    | EntryPanelOpenMore
-    | EntryPanelSearchChanged
     | EntryPanelToggleDensity
     | EntryPanelBack
 )
@@ -230,12 +228,6 @@ class EntryPanelRuntimeModule:
                     self.select_action(decision.action)
                 elif decision.command == "open_contextual_question":
                     self.select_question()
-            elif isinstance(command, EntryPanelOpenMore):
-                self._presenter.present_entry_panel(self._coordinator.open_more())
-            elif isinstance(command, EntryPanelSearchChanged):
-                self._presenter.present_entry_panel(
-                    self._coordinator.set_search(command.text)
-                )
             elif isinstance(command, EntryPanelToggleDensity):
                 snapshot = self._coordinator.toggle_density()
                 self._presenter.present_entry_panel(snapshot)

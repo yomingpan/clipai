@@ -16,10 +16,9 @@ router or UI branch.
 | `command_coach` | Learn how to construct and recognize commands | Requirement decomposition, command construction, recall/verification tips, optional one-condition practice |
 
 `command_copilot` retains its identity and `Ctrl+Alt+C` binding for compatibility.
-Generation is the fourth Tools flagship; coaching is in Tools More/search, keeping
-the existing four-flagship limit. Both new Actions have their own Human Space and
-feedback reasons. `command_generate` uses `Ctrl+Alt+B` (Build), while coaching
-remains available through Tools More/search without a global hotkey.
+Generation is the fourth numbered Action in Tools and uses `Ctrl+Alt+B` (Build).
+Coaching appears directly below the numbered Actions. Both Actions have their own
+Human Space and feedback reasons.
 
 ## Short commands that teach
 

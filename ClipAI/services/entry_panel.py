@@ -215,47 +215,6 @@ class EntryPanelCoordinator:
         )
         return self._snapshot
 
-    def open_more(self) -> EntryPanelSnapshot:
-        if self._snapshot is None or self._snapshot.page != "scene":
-            raise RuntimeError("entry panel scene is not open")
-        category = self._catalog.category(self._snapshot.category_id)
-        self._snapshot = replace(
-            self._snapshot,
-            page="more",
-            category_id=category.category_id,
-            options=tuple(
-                self._action_option(None, item)
-                for item in category.advanced
-            ),
-            search_text="",
-        )
-        return self._snapshot
-
-    def set_search(self, text: str) -> EntryPanelSnapshot:
-        if self._snapshot is None or self._snapshot.page != "more":
-            raise RuntimeError("entry panel more page is not open")
-        category = self._catalog.category(self._snapshot.category_id)
-        query = text.strip().casefold()
-        candidates = tuple(
-            item
-            for item in category.advanced
-            if not query
-            or query in item.label.casefold()
-            or query in item.description.casefold()
-            or query in item.action.action_id.casefold()
-        )
-        self._snapshot = replace(
-            self._snapshot,
-            page="more",
-            category_id=category.category_id,
-            options=tuple(
-                self._action_option(None, item)
-                for item in candidates
-            ),
-            search_text=text,
-        )
-        return self._snapshot
-
     def toggle_density(self) -> EntryPanelSnapshot:
         if self._snapshot is None:
             raise RuntimeError("entry panel is not open")
@@ -349,19 +308,6 @@ class EntryPanelCoordinator:
     def back(self) -> EntryPanelSnapshot | None:
         if self._snapshot is None:
             return None
-        if self._snapshot.page == "more":
-            category = self._catalog.category(self._snapshot.category_id)
-            self._snapshot = replace(
-                self._snapshot,
-                page="scene",
-                category_id=category.category_id,
-                options=tuple(
-                    self._action_option(index, item)
-                    for index, item in enumerate(category.flagship, start=1)
-                ),
-                search_text="",
-            )
-            return self._snapshot
         if self._snapshot.page == "scene":
             previous = self._snapshot
             root = self.open(
@@ -407,11 +353,10 @@ class EntryPanelCoordinator:
                 self._snapshot,
                 page="scene",
                 category_id=category.category_id,
-                options=tuple(
-                    self._action_option(index, item)
-                    for index, item in enumerate(category.flagship, start=1)
+                options=(
+                    *(self._action_option(index, item) for index, item in enumerate(category.flagship, start=1)),
+                    *(self._action_option(None, item) for item in category.advanced),
                 ),
-                search_text="",
             )
         return EntryPanelDecision(self._snapshot)
 

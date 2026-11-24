@@ -8,7 +8,6 @@ from ClipAI.app.runtime_entry_panel import EntryPanelRuntimeModule
 from ClipAI.core.commands import (
     EntryPanelActionSelected,
     EntryPanelBack,
-    EntryPanelOpenMore,
     EntryPanelSlotSelected,
     EntryPanelToggleDensity,
     RetryEntryPanelInput,
@@ -746,7 +745,7 @@ def test_mode_compatibility_disables_only_incompatible_actions() -> None:
 
 
 @pytest.mark.parametrize("image", [None, ImageContent(b"chart", "image/png")])
-def test_chart_action_from_understand_more_uses_frozen_screenshot(image) -> None:
+def test_chart_action_from_understand_list_uses_frozen_screenshot(image) -> None:
     inputs = Inputs(
         PreparedInput(
             selection_document=InputDocument("selected text", "selection"),
@@ -759,9 +758,7 @@ def test_chart_action_from_understand_more_uses_frozen_screenshot(image) -> None
     root = module.open()
     complete_external_preparation(module, supervisor, commands)
     module.handle(EntryPanelSlotSelected(root.panel_id, 4))
-    module.handle(EntryPanelOpenMore(root.panel_id))
-
-    option = next(option for option in coordinator.snapshot.options if option.action is not None)
+    option = coordinator.snapshot.options[4]
     assert option.action == EntryActionRef("explain_chart", "short")
     assert option.enabled is (image is not None)
 
